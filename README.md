@@ -1,16 +1,18 @@
-# prysm
+# Prysm
 
-A new Flutter project.
+Prysm is a privacy‑first, cross‑platform P2P messenger prototype built with Flutter, designed to operate over Tor for metadata‑resistant communication and onion‑routed transport.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- End‑to‑end encrypted chat with Tor-based transport to minimize metadata exposure and avoid centralized relays.
+- P2P identity model using deterministic keys/IDs compatible with .onion addressing and contact exchange.
+- Cross‑platform UI with Flutter, structured for scalability and testability.
 
-A few resources to get you started if this is your first Flutter project:
+## Project status
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+This is an early‑stage prototype. APIs, storage, and networking layers are evolving. Expect breaking changes while core transport and identity layers stabilize.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Tech stack
+
+- Flutter (Dart) for cross‑platform UI.
+- Tor embedding via process on desktop (TODO: add mobile)

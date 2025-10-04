@@ -2,6 +2,7 @@ class Contact {
   final String id;
   final String name;
   final String avatarUrl;
+  final String publicKeyPem;
 
-  Contact({required this.id, required this.name, required this.avatarUrl});
+  Contact({required this.id, required this.name, required this.avatarUrl, required this.publicKeyPem});
 }

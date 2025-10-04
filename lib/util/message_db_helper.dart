@@ -20,6 +20,9 @@ class MessageDbHelper {
             senderId TEXT, 
             receiverId TEXT, 
             message TEXT, 
+            type TEXT,
+            fileName TEXT,
+            fileSize INTEGER,
             timestamp INTEGER, 
             status TEXT
           )
@@ -47,6 +50,15 @@ class MessageDbHelper {
           '(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)',
       whereArgs: [userId, peerId, peerId, userId],
       orderBy: 'timestamp DESC',
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getMessageById(String messageId) async {
+    final db = await database;
+    return await db.query(
+      "messages",
+      where: "id = ?",
+      whereArgs: [messageId]
     );
   }
 }

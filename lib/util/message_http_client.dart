@@ -31,6 +31,14 @@ class TorHttpClient {
     return request.close();
   }
 
+  Future<HttpClientResponse> get(Uri uri, Map<String, String> headers) async {
+    final request = await _httpClient.getUrl(uri);
+    headers.forEach((key, value) {
+      request.headers.set(key, value);
+    });
+    return request.close();
+  }
+
   void close() {
     _httpClient.close(force: true);
   }

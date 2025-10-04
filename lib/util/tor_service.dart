@@ -19,10 +19,10 @@ class TorManager {
     required this.torPath,
     required this.dataDir,
     this.controlPort = 9051,
-    this.controlPassword = 'my_password', // Or generate securely and configure in torrc
+    this.controlPassword = 'my_password',
   });
 
-  /// Launch Tor process with control port enabled and set up control connection
+  /// Launch Tor process with control port enabled
   Future<void> startTor() async {
     final torrcPath = await _writeTorrc();
 
@@ -42,18 +42,18 @@ class TorManager {
       print('[Tor] stderr: $data');
     });
 
-    // Connect to control port (wait for readiness and authenticate)
     await _connectControlPort();
 
     print('Tor process started and authenticated.');
   }
 
-  /// Write torrc config file with ControlPort, DataDirectory, and HashedControlPassword
+  /// Write torrc config file for persistent hidden service
   Future<String> _writeTorrc() async {
     final dir = Directory(dataDir);
     if (!dir.existsSync()) {
       dir.createSync(recursive: true);
     }
+
     final torrcFile = File('$dataDir/torrc');
 
     final hashedPassword = await _hashControlPassword();
@@ -71,7 +71,7 @@ HiddenServicePort 12345 127.0.0.1:12345
     return torrcFile.path;
   }
 
-  /// Spawn subprocess to hash the control password securely
+  /// Hash control password using Tor binary
   Future<String> _hashControlPassword() async {
     final result = await Process.run(torPath, ['--hash-password', controlPassword]);
     if (result.exitCode != 0) {
@@ -92,23 +92,18 @@ HiddenServicePort 12345 127.0.0.1:12345
         _controlSocket = await Socket.connect('127.0.0.1', controlPort);
         print('Connected to Tor ControlPort on $controlPort');
 
-        // Setup broadcast stream for multiple listeners
         _controlStream = _controlSocket!
             .cast<List<int>>()
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .asBroadcastStream();
 
-        // Listen for socket closure
         _controlSocket!.done.then((_) {
           print('Tor ControlPort socket closed');
           _controlSocket = null;
         });
 
-        // Authenticate immediately after connection
         await _authenticate();
-
-        // Success, exit loop
         return;
       } catch (e) {
         retries++;
@@ -120,7 +115,7 @@ HiddenServicePort 12345 127.0.0.1:12345
     throw Exception('Unable to connect to Tor ControlPort after $maxRetries attempts');
   }
 
-  /// Authenticate to Tor control port using password
+  /// Authenticate to Tor control port
   Future<void> _authenticate() async {
     if (_controlSocket == null) throw Exception('Control socket is not connected');
 
@@ -133,55 +128,37 @@ HiddenServicePort 12345 127.0.0.1:12345
         completer.complete();
         sub.cancel();
       } else if (line.startsWith('515') || line.startsWith('5')) {
-        completer.completeError('Authentication failed with response: $line');
+        completer.completeError('Authentication failed: $line');
         sub.cancel();
       }
     });
 
     _sendControlCommand('AUTHENTICATE "${controlPassword}"');
-
     return completer.future;
   }
 
-  /// Send raw command to control socket
+  /// Send command to Tor control socket
   void _sendControlCommand(String command) {
     if (_controlSocket == null) throw Exception('Control socket is not connected');
     print('[Tor Control] SEND: $command');
     _controlSocket!.write('$command\r\n');
   }
 
-  /// Create a new hidden service and return onion address
-  Future<String> createHiddenService(int virtualPort, int targetPort) async {
-    if (_controlSocket == null) throw Exception('Control socket is not connected');
-
-    final completer = Completer<String>();
-    late StreamSubscription<String> sub;
-
-    sub = _controlStream.listen((line) {
-      print('[Tor Control] $line');
-      if (line.startsWith('250-ServiceID=')) {
-        final onion = line.split('=')[1].trim();
-        completer.complete('$onion.onion');
-        sub.cancel();
-      } else if (line.startsWith('550')) {
-        completer.completeError('Failed to create hidden service: $line');
-        sub.cancel();
-      }
-    });
-
-    _sendControlCommand('ADD_ONION NEW:ED25519-V3 Port=$virtualPort,127.0.0.1:$targetPort');
-
-    return completer.future;
+  /// Read onion address from Tor hidden service folder
+  Future<String> getOnionAddress() async {
+    final hostnameFile = File('$dataDir/hidden_service/hostname');
+    if (!hostnameFile.existsSync()) {
+      throw Exception('Hidden service not started or hostname file missing.');
+    }
+    return hostnameFile.readAsStringSync().trim();
   }
 
-  /// Properly stop Tor process
+  /// Stop Tor process
   Future<void> stopTor() async {
     try {
       _sendControlCommand('SIGNAL SHUTDOWN');
       await _controlSocket?.close();
-    } catch (_) {
-      // ignore errors
-    }
+    } catch (_) {}
     _torProcess?.kill();
   }
 }

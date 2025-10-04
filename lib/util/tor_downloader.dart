@@ -68,13 +68,13 @@ class TorDownloader {
     // Below are example placeholder URLs, replace with actual current URLs.
     if (Platform.isWindows) {
       return Uri.parse(
-          'https://archive.torproject.org/tor-package-archive/torbrowser/14.5.7/tor-expert-bundle-windows-x86_64-14.5.7.tar.gz');
+          'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/windows/tor.exe');
     } else if (Platform.isMacOS) {
       return Uri.parse(
-          'https://www.torproject.org/dist/torbrowser/12.0.3/TorBrowser-12.0.3-osx64_en-US.dmg');
+          'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/macos/tor');
     } else if (Platform.isLinux) {
       return Uri.parse(
-          'https://www.torproject.org/dist/torbrowser/12.0.3/tor-linux-x86_64-0.4.8.11.tar.gz');
+          'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/linux/tor');
     } else {
       throw UnsupportedError('Unsupported platform');
     }

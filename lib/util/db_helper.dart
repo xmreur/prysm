@@ -29,7 +29,8 @@ class DBHelper {
       CREATE TABLE users (
         id TEXT PRIMARY KEY,
         name TEXT,
-        avatarUrl TEXT
+        avatarUrl TEXT,
+        publicKeyPem TEXT
       )
     ''');
   }

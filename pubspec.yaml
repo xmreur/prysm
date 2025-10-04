@@ -44,6 +44,20 @@ dependencies:
   hex: ^0.2.0
   shelf: ^1.4.2
   socks5_proxy: ^2.1.1
+  flutter_launcher_icons: ^0.14.3
+  encrypt: ^5.0.3
+  pointycastle: ^3.6.2
+  basic_utils: ^5.7.0
+  flutter_secure_storage: ^9.2.4
+  image_picker: ^1.2.0
+  file_picker: ^10.3.3
+  mime: ^1.0.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo.png"
+  
 
 dev_dependencies:
   flutter_test:

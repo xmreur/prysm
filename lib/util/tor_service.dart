@@ -29,7 +29,7 @@ class TorManager {
     _torProcess = await Process.start(
       torPath,
       ['-f', torrcPath],
-      mode: ProcessStartMode.detachedWithStdio,
+      mode: ProcessStartMode.normal,
     );
 
     _torProcess!.stdout.transform(utf8.decoder).listen((data) {

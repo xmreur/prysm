@@ -7,6 +7,7 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 // import 'package:http/http.dart' as http;
 import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/message_db_helper.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -16,6 +17,7 @@ import 'package:prysm/util/message_http_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
+import 'package:prysm/models/contact.dart';
 import 'dart:typed_data';
 
 
@@ -27,6 +29,7 @@ class ChatScreen extends StatefulWidget {
   final TorManager torManager;
   final KeyManager keyManager;
   final String? peerPublicKeyPem;
+  final int currentTheme;
 
   const ChatScreen({
     required this.userId,
@@ -36,6 +39,7 @@ class ChatScreen extends StatefulWidget {
     required this.torManager,
     required this.keyManager,
     this.peerPublicKeyPem,
+    this.currentTheme = 0,
     Key? key,
   }) : super(key: key);
 
@@ -55,34 +59,42 @@ class _ChatScreenState extends State<ChatScreen> {
 
   RSAPublicKey? _peerPublicKey;
 
+  String _peerName = '';
+  int _currentTheme = 0;
+  int _lastMessageCount = 0;
+
   final AutoScrollController _scrollController = AutoScrollController();
   Timer? _debounceTimer;
   Timer? _retryTimer;
 
+  void _scrollListener() {
+    if (_scrollController.position.pixels >= (_scrollController.position.maxScrollExtent - 50) && !_loading && _hasMore) {
+      if (_debounceTimer?.isActive ?? false) return;
+      _debounceTimer = Timer(const Duration(milliseconds: 600), () async {
+        await _loadMoreMessages();
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _currentTheme = widget.currentTheme;
+    _peerName = widget.peerName;
     _user = types.User(id: widget.userId);
     _fetchPeerPublicKey().then((_) {
       _loadInitialMessages();
       _startPolling();
     });
-    _scrollController.addListener(() {
-      //print("${_scrollController.position.pixels}");
-      if (_scrollController.position.pixels >= (_scrollController.position.maxScrollExtent - 50) && !_loading && _hasMore) {
-        if (_debounceTimer?.isActive ?? false) return;
-        _debounceTimer = Timer(const Duration(milliseconds: 600), () async {
-          await _loadMoreMessages();
-        });
-      }
-    });
+    _scrollController.addListener(_scrollListener);
     startOutgoingSender();
   }
 
   @override
   void dispose() {
     _retryTimer?.cancel();
-    _scrollController.dispose();
+    _debounceTimer?.cancel();
+    _scrollController.removeListener(_scrollListener);
     super.dispose();
   }
 
@@ -104,6 +116,16 @@ class _ChatScreenState extends State<ChatScreen> {
       _resetChatState();
       _fetchPeerPublicKey().then((_) {
         _loadInitialMessages();
+      });
+    }
+    if (oldWidget.currentTheme != widget.currentTheme) {
+      setState(() {
+        _currentTheme = widget.currentTheme;
+      });
+    }
+    if (oldWidget.peerName != widget.peerName) {
+      setState(() {
+        _peerName = widget.peerName;
       });
     }
   }
@@ -527,37 +549,174 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _openChatProfile() async {
+    final peerContact = Contact(
+      id: widget.peerId,
+      name: _peerName, // Use local copy
+      avatarUrl: '',
+      publicKeyPem: widget.peerPublicKeyPem ?? '',
+    );
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatProfileScreen(
+          peer: peerContact,
+          currentUserName: widget.userName,
+          onClose: () => Navigator.of(context).pop(),
+          onUpdateName: (Contact updatedContact) async {
+            // Update in database
+            await DBHelper.insertOrUpdateUser({
+              'id': updatedContact.id,
+              'name': updatedContact.name,
+              'avatarUrl': updatedContact.avatarUrl,
+              'publicKeyPem': updatedContact.publicKeyPem,
+            });
+          },
+          onDeleteChat: () async {
+            // Delete all messages between these users
+            await MessageDbHelper.deleteMessagesBetween(
+              widget.userId,
+              widget.peerId,
+            );
+            // Refresh the message list
+            _messages.clear();
+            _loadInitialMessages();
+          },
+        ),
+      ),
+    );
+
+    // If a contact was updated, refresh the UI
+    if (result != null && result is Contact) {
+      setState(() {
+        _peerName = result.name; // Update local copy
+      });
+    }
+  }
+
 
   @override
-Widget build(BuildContext context) {
-  return Scaffold(
-    appBar: AppBar(
-      title: Text(widget.peerName),
-      /*
-      actions: [
-        IconButton(
-          icon: Icon(Icons.image),
-          onPressed: _handleSendImage,
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 70,
+        title: GestureDetector(
+          onTap: () {
+            showModalBottomSheet(
+              context: context,
+              builder: (BuildContext context) {
+                return Container(
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.all(16),
+                        height: 4,
+                        width: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      ListTile(
+                        leading: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                          child: Text(
+                            _peerName.isNotEmpty ? _peerName[0].toUpperCase() : 'U',
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          _peerName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: const Text('View profile'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openChatProfile();
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                child: Text(
+                  _peerName.isNotEmpty ? _peerName[0].toUpperCase() : 'U',
+                  style: TextStyle(
+                    color: Theme.of(context).primaryColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _peerName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'GHOST',
+                    style: TextStyle(
+                      color: Theme.of(context).primaryColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        IconButton(
-          icon: Icon(Icons.attach_file),
-          onPressed: _handleSendFile,
-        ),
-      ],*/
-    ),
-    body: Chat(
-      theme: const DefaultChatTheme(
-        backgroundColor: Colors.white,
-        primaryColor: Colors.teal,
-        inputBackgroundColor: Colors.grey,
-        sentMessageBodyTextStyle: TextStyle(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: _openChatProfile,
+          ),
+        ],
+        elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
-      messages: _messages,
-      user: _user,
-      onSendPressed: _handleSend,
-      scrollController: _scrollController,
-    ),
-  );
-}
+      body: Chat(
+        theme: const DefaultChatTheme(
+          backgroundColor: Colors.white,
+          primaryColor: Colors.teal,
+          inputBackgroundColor: Colors.grey,
+          sentMessageBodyTextStyle: TextStyle(color: Colors.white),
+        ),
+        messages: _messages,
+        user: _user,
+        onSendPressed: _handleSend,
+        scrollController: _scrollController,
+      ),
+    );
+  }
+
 
 }

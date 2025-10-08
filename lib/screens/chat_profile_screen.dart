@@ -1,55 +1,44 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:io';
-
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
-import '../models/contact.dart'; // adjust the relative path
-import 'privacy_settings_screen.dart';
-import 'package:prysm/screens/abpout_screen.dart';
+import '../models/contact.dart';
+import '../util/message_db_helper.dart';
+import '../util/db_helper.dart';
 
-typedef ValueChanged<T> = void Function(T value);
-
-class ProfileScreen extends StatefulWidget {
-  final Contact user;
+class ChatProfileScreen extends StatefulWidget {
+  final Contact peer;
+  final String currentUserName;
   final VoidCallback onClose;
-  final ValueChanged<Contact> onUpdate;
+  final Function(Contact) onUpdateName;
+  final Function() onDeleteChat;
 
-  const ProfileScreen({
-    required this.user,
+  const ChatProfileScreen({
+    required this.peer,
+    required this.currentUserName,
     required this.onClose,
-    required this.onUpdate,
+    required this.onUpdateName,
+    required this.onDeleteChat,
     Key? key,
   }) : super(key: key);
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<ChatProfileScreen> createState() => _ChatProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ChatProfileScreenState extends State<ChatProfileScreen> {
   late TextEditingController _nameController;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.user.name);
+    _nameController = TextEditingController(text: widget.peer.name);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     super.dispose();
-  }
-
-  void _saveProfile() {
-    final updatedUser = Contact(
-      id: widget.user.id,
-      name: _nameController.text,
-      avatarUrl: widget.user.avatarUrl,
-      publicKeyPem: widget.user.publicKeyPem,
-    );
-    widget.onUpdate(updatedUser);
-    widget.onClose();
   }
 
   String encodeOnionToBase58(String onion) {
@@ -65,13 +54,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return base58.encode(Uint8List.fromList(bytes));
   }
 
+  void _saveName() async {
+    if (!mounted) return;
+    final updatedPeer = Contact(
+      id: widget.peer.id,
+      name: _nameController.text,
+      avatarUrl: widget.peer.avatarUrl,
+      publicKeyPem: widget.peer.publicKeyPem,
+    );
+
+    // Update in database
+    await DBHelper.insertOrUpdateUser({
+      'id': updatedPeer.id,
+      'name': updatedPeer.name,
+      'avatarUrl': updatedPeer.avatarUrl,
+      'publicKeyPem': updatedPeer.publicKeyPem,
+    });
+
+    widget.onUpdateName(updatedPeer);
+    Navigator.of(context).pop(updatedPeer);
+  }
+
+  void _confirmDeleteChat() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Chat'),
+          content: const Text(
+            'Are you sure you want to delete all messages in this chat? This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onDeleteChat();
+                widget.onClose();
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 70,
         title: const Text(
-          'Profile',
+          'Contact Info',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         leading: IconButton(
@@ -81,7 +119,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.save_outlined),
-            onPressed: _saveProfile,
+            onPressed: _saveName,
             tooltip: 'Save',
           ),
         ],
@@ -115,9 +153,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           radius: 50,
                           backgroundColor: Theme.of(context).primaryColor,
                           child: Text(
-                            widget.user.name.isNotEmpty
-                                ? widget.user.name[0].toUpperCase()
-                                : 'P',
+                            widget.peer.name.isNotEmpty
+                                ? widget.peer.name[0].toUpperCase()
+                                : 'U',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 40,
@@ -125,33 +163,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).scaffoldBackgroundColor,
-                                width: 3,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.edit,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 20),
-                    Text(
-                      widget.user.name,
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Display Name',
+                        border: OutlineInputBorder(),
+                      ),
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -159,7 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Online',
+                      'GHOST',
                       style: TextStyle(
                         color: Colors.teal,
                         fontSize: 16,
@@ -186,21 +207,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   children: [
                     ListTile(
-                      leading: const Icon(Icons.person_outline),
-                      title: const Text('Display Name'),
-                      subtitle: Text(widget.user.name),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        // Show dialog to edit name
-                        _showEditNameDialog();
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
                       leading: const Icon(Icons.key_outlined),
-                      title: const Text('Your ID'),
+                      title: const Text('User ID'),
                       subtitle: SelectableText(
-                        encodeOnionToBase58(widget.user.id),
+                        encodeOnionToBase58(widget.peer.id),
                         style: const TextStyle(
                           fontSize: 12,
                           fontFamily: 'monospace',
@@ -236,42 +246,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   children: [
                     ListTile(
-                      leading: const Icon(Icons.lock_outline),
-                      title: const Text('Privacy Settings'),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => PrivacySettingsScreen(
-                              onClose: () => Navigator.of(context).pop(),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.help_outline),
-                      title: const Text('Help & Support'),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {},
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.info_outline),
-                      title: const Text('About'),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AboutScreen(
-                              onClose: () => Navigator.of(context).pop(),
-                            ),
-                          ),
-                        );
-                      },
+                      leading: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                      title: const Text(
+                        'Delete Chat',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                      subtitle: const Text('Delete all messages in this chat'),
+                      onTap: _confirmDeleteChat,
                     ),
                   ],
                 ),
@@ -279,36 +263,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  void _showEditNameDialog() {
-    final nameController = TextEditingController(text: widget.user.name);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Name'),
-        content: TextField(
-          controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Display Name',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _nameController.text = nameController.text;
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }

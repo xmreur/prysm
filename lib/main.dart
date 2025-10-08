@@ -7,6 +7,7 @@ import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/util/base58_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'screens/chat_screen.dart';
@@ -18,9 +19,14 @@ import 'util/tor_service.dart'; // Updated Tor service
 import 'util/tor_downloader.dart';
 import 'screens/profile_screen.dart';
 import 'models/contact.dart';
+import 'util/theme_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'util/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await NotificationService().init();
 
   // Download or get local Tor executable path
   final torDownloader = TorDownloader();
@@ -62,7 +68,7 @@ void main() async {
   runApp(MyApp(torManager: torManager, onionAddress: onionAddress, keyManager: keyManager));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final TorManager torManager;
   final String onionAddress;
   final KeyManager keyManager;
@@ -71,15 +77,43 @@ class MyApp extends StatelessWidget {
     required this.torManager,
     required this.onionAddress,
     required this.keyManager,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+
+  int _currentTheme = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedTheme();
+  }
+
+  Future<void> _loadSavedTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeIndex = prefs.getInt("custom_theme") ?? 0;
+    setState(() {
+      _currentTheme = themeIndex;
+    });
+  }
+
+  void updateTheme(int themeIndex) {
+    setState(() {
+      _currentTheme = themeIndex;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Prysm Chat App',
-      home: HomeScreen(torManager: torManager, onionAddress: onionAddress, keyManager: keyManager),
+      theme: ThemeManager.getTheme(_currentTheme),
+      home: HomeScreen(torManager: widget.torManager, onionAddress: widget.onionAddress, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
     );
   }
 }
@@ -88,8 +122,17 @@ class HomeScreen extends StatefulWidget {
   final TorManager torManager;
   final String onionAddress;
   final KeyManager keyManager;
+  final Function(int)? onThemeChanged;
+  final int currentTheme;
 
-  const HomeScreen({required this.torManager, required this.onionAddress, required this.keyManager, super.key});
+  const HomeScreen({
+    required this.torManager, 
+    required this.onionAddress, 
+    required this.keyManager, 
+    this.onThemeChanged,
+    this.currentTheme = 0,
+    super.key
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -100,7 +143,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late Contact appUser;
   Contact? selectedContact;
   bool showProfile = false;
+  bool showSettings = false;
   bool isLoading = true;
+  int currentTheme = 0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   
 
   Timer? _refreshTimer;
@@ -108,9 +153,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    currentTheme = widget.currentTheme;
     appUser = Contact(id: widget.onionAddress, name: 'My Profile', avatarUrl: '', publicKeyPem: 'NONE');
     loadUsers();
     _startAutoRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentTheme != widget.currentTheme) {
+      setState(() {
+        currentTheme = widget.currentTheme;
+      });
+    }
   }
 
 
@@ -209,8 +265,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void onShowProfile() {
     setState(() {
+      showSettings = false;
       showProfile = true;
     });
+  }
+
+  void onShowSettings() {
+    setState(() {
+      showSettings = true;
+      showProfile = false;
+    });
+  }
+
+  void onThemeChanged(int themeIndex) {
+    setState(() {
+      currentTheme = themeIndex;
+    });
+    widget.onThemeChanged?.call(themeIndex);
   }
 
   Future<void> _showAddUserDialog() async {
@@ -292,36 +363,174 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget buildSidebar() {
     return Container(
-      width: 300,
-      color: Colors.grey[200],
+      width: 280,
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.grey[100],
+        border: Border(
+          right: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+            width: 1
+          )
+        )
+      ),
       child: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                  width: 1
+                )
+              )
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
+                  child: Text(
+                    appUser.name.isNotEmpty ? appUser.name[0].toLowerCase() : 'P',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        appUser.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        )
+                      ),
+                      const SizedBox(height: 2,),
+                      Text(
+                        'GHOST',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      )
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+          const SizedBox(height: 8,),
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2D2D) : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4
+                  )
+                ]
+              ),
+              child: const TextField(
+                decoration: InputDecoration(
+                  hintText: 'Search chats...',
+                  hintStyle: TextStyle(fontSize: 14),
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8,),
+          // Contact Lsit
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: contacts.length,
               itemBuilder: (_, index) {
                 final contact = contacts[index];
                 if (contact.id == appUser.id) return const SizedBox.shrink();
-                return ListTile(
-                  leading: CircleAvatar(
-                      child:
-                          Text(contact.name.isNotEmpty ? contact.name[0] : '?')),
-                  title: Text(contact.name),
-                  selected: selectedContact?.id == contact.id,
-                  onTap: () => onSelectContact(contact),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2
+                  ),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      radius: 22,
+                      backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
+                      child: Text(
+                        contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      contact.name,
+                      style: TextStyle(
+                        fontWeight: selectedContact?.id == contact.id ? FontWeight.bold : FontWeight.normal,
+                      )
+                    ),
+                    subtitle: const Text(
+                      "Last message...",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    selected: selectedContact?.id == contact.id,
+                    selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    onTap: () => onSelectContact(contact)
+                  )  
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('Add User'),
-              onPressed: _showAddUserDialog,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(40),
-              ),
+          // Bottom buttons
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                  width: 1
+                ),
+              )
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: onShowSettings,
+                  tooltip: "Settings",
+                ),
+                IconButton(
+                  icon: const Icon(Icons.person_outline),
+                  onPressed: onShowProfile,
+                  tooltip: "Profile",
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline),
+                  onPressed: _showAddUserDialog,
+                  tooltip: "Add Contact",
+                )
+              ],
             ),
           ),
         ],
@@ -371,27 +580,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return '$onion.onion';
   }
 
-  @override
+    @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Material(
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const Material(child: Center(child: CircularProgressIndicator()));
     }
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 70,
         title: Row(
           children: [
-            Image.file(File('assets/logo.png'), height: 48.0, width: 48.0,),
-            const Text('Chats'),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Image.asset(
+                'assets/logo.png',
+                height: 40.0,
+                width: 40.0,
+                fit: BoxFit.contain,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Prysm Chat',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: onShowProfile,
+            icon: const Icon(Icons.notifications_outlined),
+            onPressed: () {},
           ),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.1),
       ),
       body: Row(
         children: [
@@ -403,22 +630,70 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     onClose: () => setState(() => showProfile = false),
                     onUpdate: onUpdateProfile,
                   )
+                : showSettings
+                ? SettingsScreen(
+                    onClose: () => setState(() => showSettings = false),
+                    onThemeChanged: onThemeChanged,
+                  )
                 : selectedContact != null
-                    ? ChatScreen(
-                        userId: appUser.id,
-                        userName: appUser.name,
-                        peerId: selectedContact!.id,
-                        peerName: selectedContact!.name,
-                        torManager: widget.torManager,
-                        keyManager: widget.keyManager,
-                      )
-                    : Center(
-                        child: SelectableText(
-                          'Welcome, your Tor ID is:\n${encodeOnionToBase58(appUser.id)}',
-                          textAlign: TextAlign.center,
+                ? ChatScreen(
+                    userId: appUser.id,
+                    userName: appUser.name,
+                    peerId: selectedContact!.id,
+                    peerName: selectedContact!.name,
+                    torManager: widget.torManager,
+                    keyManager: widget.keyManager,
+                    currentTheme: currentTheme,
+                  )
+                : Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Icon(
+                            Icons.chat_bubble_outline,
+                            size: 60,
+                          ),
                         ),
-                      ),
-          )
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Select a chat to start messaging',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Your Prysm ID: ${encodeOnionToBase58(appUser.id)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).hintColor,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: _showAddUserDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add User'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
         ],
       ),
     );

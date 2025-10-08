@@ -120,4 +120,17 @@ class MessageDbHelper {
     );
   }
 
+
+  static Future<void> deleteMessagesBetween(String userId, String peerId) async {
+    final db = await database;
+
+    await db.delete(
+      "messages",
+      where: "(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)",
+      whereArgs: [userId, peerId, peerId, userId]
+    );
+    
+  }
+  
+
 }

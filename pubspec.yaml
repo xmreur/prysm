@@ -52,6 +52,8 @@ dependencies:
   image_picker: ^1.2.0
   file_picker: ^10.3.3
   mime: ^1.0.1
+  shared_preferences: ^2.5.3
+  flutter_local_notifications: ^19.4.2
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -111,3 +113,5 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+  assets:
+    - assets/logo.png

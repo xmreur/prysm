@@ -45,4 +45,28 @@ class DBHelper {
     final db = await database;
     return db.query('users');
   }
+
+  static Future<void> ensureUserExist(String userId) async {
+    final db = await database;
+    final users = await db.query(
+      'users',
+      where: 'id = ?',
+      whereArgs: [userId],
+      limit: 1
+    );
+
+    if (users.isEmpty) {
+      final unknownName = 'Unknown - ${userId.substring(0, 6)}';
+      await db.insert(
+        'users',
+        {
+          'id': userId,
+          'name': unknownName,
+          'avatarUrl': null,
+          'publicKeyPem': null,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace
+      );
+    }
+  }
 }

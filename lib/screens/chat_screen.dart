@@ -1,17 +1,21 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
-import 'package:http/http.dart' as http;
+// import 'package:http/http.dart' as http;
 import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/message_db_helper.dart';
+import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_http_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:scroll_to_index/scroll_to_index.dart';
 import 'dart:typed_data';
 
 
@@ -41,17 +45,107 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final List<types.Message> _messages = [];
+  final Map<String, types.Message> _messageCache = {};
   late final types.User _user;
+  bool _loading = false;
+  bool _hasMore = true;
+  int? _oldestTimestamp;
+  String? _oldestMessageId;
+  int? _newestTimestamp;
+
   RSAPublicKey? _peerPublicKey;
+
+  final AutoScrollController _scrollController = AutoScrollController();
+  Timer? _debounceTimer;
+  Timer? _retryTimer;
 
   @override
   void initState() {
     super.initState();
     _user = types.User(id: widget.userId);
     _fetchPeerPublicKey().then((_) {
-      _loadMessages();
+      _loadInitialMessages();
       _startPolling();
     });
+    _scrollController.addListener(() {
+      //print("${_scrollController.position.pixels}");
+      if (_scrollController.position.pixels >= (_scrollController.position.maxScrollExtent - 50) && !_loading && _hasMore) {
+        if (_debounceTimer?.isActive ?? false) return;
+        _debounceTimer = Timer(const Duration(milliseconds: 600), () async {
+          await _loadMoreMessages();
+        });
+      }
+    });
+    startOutgoingSender();
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void startOutgoingSender() async {
+      _retryTimer = Timer.periodic(Duration(seconds: 15), (_) async {
+        final messages = await PendingMessageDbHelper.getPendingMessages();
+        for (var msg in messages) {
+          bool res = await _sendOverTor(msg['id'], msg['message'], msg['type']);
+          if (res) {
+            await PendingMessageDbHelper.removeMessage(msg['id']);
+          } else {
+            // Skip
+            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+          }
+        }
+      });
+  }
+
+  Future<List<types.Message>> decryptMessagesBackground(
+    List<Map<String, dynamic>> rawMessages,
+    KeyManager keyManager,
+  ) async {
+    // `KeyManager` Cannot be passed directly to compute as it's not serializable
+    // So decrypt inside main insolate but outside SetState or split decryption per message.
+    // Alternatively, decrypt texts asynchronously one by one here or avoid compute.
+
+    // For now, decrypt outside setState before calling setState.
+    List<types.Message> messages = [];
+    for (final msg in rawMessages) {
+      if (_messageCache.containsKey(msg['id'])) {
+        messages.add(_messageCache[msg['id']]!);
+        continue;
+      }
+      try {
+        if (msg['type'] == 'text') {
+          messages.add(types.TextMessage(
+            author: types.User(id: msg['senderId']),
+            createdAt: msg['timestamp'],
+            id: msg['id'],
+            text: keyManager.decryptMessage(msg['message']),
+          ));
+        } else if (msg['type'] == 'file') {
+          final decryptedBytes = keyManager.decryptMyMessageBytes(msg['message']);
+          final base64Data = base64Encode(decryptedBytes);
+          messages.add(types.FileMessage(
+            author: types.User(id: msg['senderId']),
+            createdAt: msg['timestamp'],
+            id: msg['id'],
+            name: msg['fileName'] ?? "unknown",
+            size: msg['fileSize'] ?? decryptedBytes.length,
+            uri: "data:;base64,$base64Data",
+          ));
+        }
+      } catch (e) {
+        messages.add(types.TextMessage(
+          author: types.User(id: msg['senderId']),
+          createdAt: msg['timestamp'],
+          id: msg['id'],
+          text: '🔒 Unable to decrypt message',
+        ));
+      }
+    }
+    return messages.reversed.toList();
   }
 
   String decodeBase58ToOnion(String base58String) {
@@ -60,10 +154,26 @@ class _ChatScreenState extends State<ChatScreen> {
     return '$onion.onion';
   }
 
+  Future<String?> _getPeerPublicKeyPemFromDb(String peerId) async {
+    final users = await DBHelper.getUsers(); // Or a specialized query for one user
+    try {
+      final user = users.firstWhere((u) => u['id'] == peerId);
+      return user['publicKeyPem'] as String?;
+    } catch (e) {
+      return null; // Not found
+    }
+  }
+
   Future<void> _fetchPeerPublicKey() async {
     if (widget.peerPublicKeyPem != null) {
       _peerPublicKey =
           widget.keyManager.importPeerPublicKey(widget.peerPublicKeyPem!);
+      return;
+    }
+
+    final cachedPem = await _getPeerPublicKeyPemFromDb(widget.peerId);
+    if (cachedPem != null && cachedPem.isNotEmpty) {
+      _peerPublicKey = widget.keyManager.importPeerPublicKey(cachedPem);
       return;
     }
 
@@ -86,7 +196,48 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _loadMessages() async {
+  Future<void> _loadInitialMessages() async {
+    await _loadMoreMessages();
+  }
+
+  Future<void> _loadMoreMessages() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+
+    final batch = await MessageDbHelper.getMessagesBetweenBatchWithId(
+      widget.userId,
+      widget.peerId,
+      limit: 20,
+      beforeTimestamp: _oldestTimestamp,
+      beforeId: _oldestMessageId,
+    );
+
+    /* print("old_TIME $_oldestTimestamp");
+    print("new_TIME $_newestTimestamp");
+    print("loading: $_loading");
+    print("hasmore: $_hasMore");
+    print("${batch.length}"); */
+    //print("$batch"); 
+    if (!mounted) return;
+
+    if (batch.length < 20) {
+      print("hasMore = false");
+      _hasMore = false;
+      _loading = false;
+      return;
+    }
+
+    final newMessages = await decryptMessagesBackground(batch, widget.keyManager);
+
+    setState(() {
+      _messages.addAll(newMessages);
+      _oldestTimestamp = batch.last['timestamp'];
+      _oldestMessageId = batch.last['id']; // track last loaded message id
+      _loading = false;
+    });
+  }
+
+  /*void _loadMessages() async {
   final loadedMessages =
     await MessageDbHelper.getMessagesBetween(widget.userId, widget.peerId);
 
@@ -135,16 +286,69 @@ class _ChatScreenState extends State<ChatScreen> {
         }),
       );
     });
-  }
+  }*/
 
 
   void _startPolling() {
     Future.doWhile(() async {
       await Future.delayed(const Duration(seconds: 2));
-      _loadMessages();
+
+      _loadNewMessages();
       return true;
     });
   }
+
+  Future<void> _loadNewMessages() async {
+    final batch = await MessageDbHelper.getMessagesBetweenBatch(
+      widget.userId, widget.peerId,
+      limit: 20,
+      beforeTimestamp: null,
+    );
+    final newMessagesRaw = batch.where((msg) => _newestTimestamp == null || msg['timestamp'] > _newestTimestamp).toList();
+    
+    if (newMessagesRaw.isEmpty) return;
+
+    final existingId = _messages.map((m) => m.id).toSet();
+
+    for (final rawMsg in newMessagesRaw) {
+      if (existingId.contains(rawMsg['id'])) continue;
+
+      try {
+        final decryptedMsg = await Future(() {
+          if (rawMsg['type'] == 'text') {
+            return types.TextMessage(
+              author: types.User(id: rawMsg['senderId']),
+              createdAt: rawMsg['timestamp'],
+              id: rawMsg['id'],
+              text: widget.keyManager.decryptMessage(rawMsg['message']),
+            );
+          } else {
+            final decryptedBytes = widget.keyManager.decryptMyMessageBytes(rawMsg['message']);
+            final base64Data = base64Encode(decryptedBytes);
+            return types.FileMessage(
+              author: types.User(id: rawMsg['senderId']),
+              createdAt: rawMsg['timestamp'],
+              id: rawMsg['id'],
+              name: rawMsg['fileName'] ?? "unknown",
+              size: rawMsg['fileSize'] ?? decryptedBytes.length,
+              uri: "data:;base64,$base64Data",
+            );
+          }
+        });
+
+        setState(() {
+          _messages.add(decryptedMsg);
+        });
+      } catch (_) {
+        // Handle decrypt error if needed
+      }
+    }
+
+    if (newMessagesRaw.isNotEmpty) {
+      _newestTimestamp = newMessagesRaw.first['timestamp'];
+    }
+  }
+
 
   void _handleSendText(String text) async {
     if (_peerPublicKey == null) {
@@ -172,8 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Show decrypted instantly
     setState(() {
-      _messages.insert(
-        0,
+      _messages.add(
         types.TextMessage(
           author: _user,
           createdAt: timestamp,
@@ -184,7 +387,17 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     // Send encrypted to peer
-    await _sendOverTor(messageId, encryptedForPeer, "text");
+    bool res = await _sendOverTor(messageId, encryptedForPeer, "text");
+    if (res == false) {
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': messageId,
+        'senderId': widget.userId,
+        'receiverId': widget.peerId,
+        'message': encryptedForSelf,
+        'type': 'text',
+        'timestamp': timestamp,
+      });
+    }
   }
 
   Future<void> _handleSendImage() async {
@@ -244,7 +457,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await _sendOverTor(messageId, encryptedForPeer, type);
   }
 
-  Future<void> _sendOverTor(
+  Future<bool> _sendOverTor(
     String id,
     String encrypted,
     String type, {
@@ -270,9 +483,14 @@ class _ChatScreenState extends State<ChatScreen> {
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
       print("Message sent: $responseText");
-    } catch (e) {
+
+      return true;
+    } 
+    catch (e) {
       print("Failed to send message: $e");
-    } finally {
+      return false;
+    } 
+    finally {
       torClient.close();
     }
   }
@@ -313,6 +531,7 @@ Widget build(BuildContext context) {
       messages: _messages,
       user: _user,
       onSendPressed: _handleSend,
+      scrollController: _scrollController,
     ),
   );
 }

@@ -61,4 +61,63 @@ class MessageDbHelper {
       whereArgs: [messageId]
     );
   }
+
+  static Future<List<Map<String, dynamic>>> getMessagesBetweenBatch(
+    String userId, String peerId, { int limit = 20, int? beforeTimestamp}
+  ) async {
+    final db = await database;
+    String where = '(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)';
+    List<dynamic> whereArgs = [userId, peerId, peerId, userId];
+
+    if (beforeTimestamp != null) {
+      where += ' AND timestamp < ?';
+      whereArgs.add(beforeTimestamp);
+    }
+
+    return await db.query(
+      'messages',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+  }
+  
+  static Future<List<Map<String, dynamic>>> getMessagesBetweenBatchWithId(
+    String userId,
+    String peerId, {
+    int limit = 20,
+    int? beforeTimestamp,
+    String? beforeId,
+  }) async {
+    final db = await database;
+
+    String where =
+        '((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))';
+    List<dynamic> whereArgs = [userId, peerId, peerId, userId];
+
+    if (beforeTimestamp != null && beforeId != null) {
+      // Add pagination conditions
+      where +=
+          ' AND (timestamp < ? OR (timestamp = ? AND id < ?))'; // strictly before timestamp, or if same timestamp before id
+      whereArgs.addAll([beforeTimestamp, beforeTimestamp, beforeId]);
+    } else if (beforeTimestamp != null) {
+      // If only timestamp provided
+      where += ' AND timestamp < ?';
+      whereArgs.add(beforeTimestamp);
+    } else if (beforeId != null) {
+      // If only beforeId provided (less common)
+      where += ' AND id < ?';
+      whereArgs.add(beforeId);
+    }
+
+    return await db.query(
+      'messages',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC, id DESC',
+      limit: limit,
+    );
+  }
+
 }

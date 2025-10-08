@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
@@ -38,6 +39,10 @@ class MessageHttpServer {
           }
         }
 
+        final int timeReceived = DateTime.now().millisecondsSinceEpoch;
+
+        await DBHelper.ensureUserExist(data['senderId']);
+        
         // Store message
         await MessageDbHelper.insertMessage({
           'id': data['id'],
@@ -47,7 +52,7 @@ class MessageHttpServer {
           'type': data['type'],
           'fileName': data['fileName'], // may be null for text
           'fileSize': data['fileSize'], // may be null for text
-          'timestamp': data['timestamp'],
+          'timestamp': timeReceived, // Use server time, fixes message order bugging on device
           'status': data['status'] ?? 'received',
         });
 

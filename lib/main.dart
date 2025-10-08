@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -73,6 +74,7 @@ class MyApp extends StatelessWidget {
     Key? key,
   }) : super(key: key);
 
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -101,34 +103,86 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool isLoading = true;
   
 
+  Timer? _refreshTimer;
+
   @override
   void initState() {
     super.initState();
     appUser = Contact(id: widget.onionAddress, name: 'My Profile', avatarUrl: '', publicKeyPem: 'NONE');
     loadUsers();
+    _startAutoRefresh();
+  }
+
+
+  void _startAutoRefresh() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      await loadUsers();
+    });
   }
 
   Future<void> loadUsers() async {
     final userMaps = await DBHelper.getUsers();
+    List<Contact> newContacts = [];
 
-    setState(() {
-      contacts = userMaps
-          .map((map) =>
-              Contact(id: map['id'], name: map['name'], avatarUrl: map['avatarUrl'], publicKeyPem: map['publicKeyPem']))
-          .toList();
+    for (var map in userMaps) {
+      String id = map['id'];
+      String name = map['name'];
+      String avatarUrl = '';
+      String? publicKeyPem = map['publicKeyPem'];
 
-      // Replace the user with current Tor onion address if it exists
-      try {
-        final me = contacts.firstWhere((c) => c.id == widget.onionAddress);
-        appUser = me;
-      } catch (_) {
-        // Save appUser if not in DB yet
-        saveAppUser(appUser);
+      // If publicKeyPem is null or empty, try to fetch it using TorHttpClient
+      if (publicKeyPem == null || publicKeyPem.isEmpty) {
+        try {
+          final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+          final uri = Uri.parse("http://$id:12345/public");
+          final response = await torClient.get(uri, {});
+          publicKeyPem = await response.transform(utf8.decoder).join();
+          torClient.close();
+
+          // Update DB with fetched publicKeyPem
+          await DBHelper.insertOrUpdateUser({
+            'id': id,
+            'name': name,
+            'avatarUrl': avatarUrl,
+            'publicKeyPem': publicKeyPem,
+          });
+        } catch (e) {
+          print("Failed to fetch public key for $id: $e");
+          publicKeyPem = ""; // fallback empty string to avoid null
+        }
       }
 
-      isLoading = false;
-    });
+      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem ?? ""));
+    }
+
+    // Replace the user with current Tor onion address if it exists
+    Contact? newAppUser;
+    try {
+      newAppUser = newContacts.firstWhere((c) => c.id == widget.onionAddress);
+    } catch (_) {
+      // Save appUser if not in DB yet
+      saveAppUser(appUser);
+    }
+
+    // Check if contacts have changed (simple length or content check)
+    bool contactsChanged = newContacts.length != contacts.length ||
+        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name));
+
+    if (contactsChanged) {
+      setState(() {
+        contacts = newContacts;
+        if (newAppUser != null) {
+          appUser = newAppUser;
+        }
+        isLoading = false;
+      });
+    } else if (isLoading) {
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
+
 
   void saveAppUser(Contact user) async {
     await DBHelper.insertOrUpdateUser({
@@ -277,6 +331,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _shutdownTor();
     super.dispose();

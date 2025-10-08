@@ -86,6 +86,28 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  
+  void _resetChatState() {
+    _messages.clear();
+    _messageCache.clear();
+    _oldestTimestamp = null;
+    _oldestMessageId = null;
+    _newestTimestamp = null;
+    _hasMore = true;
+    _loading = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peerId != widget.peerId) {
+      _resetChatState();
+      _fetchPeerPublicKey().then((_) {
+        _loadInitialMessages();
+      });
+    }
+  }
+
   void startOutgoingSender() async {
       _retryTimer = Timer.periodic(Duration(seconds: 15), (_) async {
         final messages = await PendingMessageDbHelper.getPendingMessages();
@@ -95,7 +117,7 @@ class _ChatScreenState extends State<ChatScreen> {
             await PendingMessageDbHelper.removeMessage(msg['id']);
           } else {
             // Skip
-            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            // print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -190,7 +212,7 @@ class _ChatScreenState extends State<ChatScreen> {
             widget.keyManager.importPeerPublicKey(publicKeyPem);
       });
     } catch (e) {
-      print("Failed to fetch peer public key: $e");
+      // print("Failed to fetch peer public key: $e");
     } finally {
       torClient.close();
     }
@@ -215,16 +237,18 @@ class _ChatScreenState extends State<ChatScreen> {
     /* print("old_TIME $_oldestTimestamp");
     print("new_TIME $_newestTimestamp");
     print("loading: $_loading");
-    print("hasmore: $_hasMore");
-    print("${batch.length}"); */
+    print("hasmore: $_hasMore");*/
+    //print("${batch.length}"); 
     //print("$batch"); 
     if (!mounted) return;
 
     if (batch.length < 20) {
-      print("hasMore = false");
+      //print("hasMore = false");
       _hasMore = false;
       _loading = false;
-      return;
+      if (batch.isEmpty) {
+        return;
+      }
     }
 
     final newMessages = await decryptMessagesBackground(batch, widget.keyManager);
@@ -352,7 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSendText(String text) async {
     if (_peerPublicKey == null) {
-      print("Peer public key not ready yet.");
+      // print("Peer public key not ready yet.");
       return;
     }
 
@@ -482,12 +506,12 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      print("Message sent: $responseText");
+      // print("Message sent: $responseText");
 
       return true;
     } 
     catch (e) {
-      print("Failed to send message: $e");
+      // print("Failed to send message: $e");
       return false;
     } 
     finally {

@@ -55,7 +55,7 @@ void main() async {
   try {
     onionAddress = await torManager.getOnionAddress();
   } catch (e) {
-    print('Failed to create hidden service: $e');
+    //print('Failed to create hidden service: $e');
     onionAddress = 'me'; // fallback user id
   }
 
@@ -147,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             'publicKeyPem': publicKeyPem,
           });
         } catch (e) {
-          print("Failed to fetch public key for $id: $e");
+          // print("Failed to fetch public key for $id: $e");
           publicKeyPem = ""; // fallback empty string to avoid null
         }
       }
@@ -272,9 +272,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final response = await torClient.get(uri, {});
       publicKeyPem = await response.transform(utf8.decoder).join();
 
-      print("Fetched public key from $peerOnion");
+      //print("Fetched public key from $peerOnion");
     } catch (e) {
-      print("Failed to fetch public key from $id: $e");
+      //print("Failed to fetch public key from $id: $e");
       publicKeyPem = ""; // fallback empty, so we can retry later
     } finally {
       torClient.close();
@@ -350,7 +350,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_torStopped) {
       _torStopped = true;
       await widget.torManager.stopTor();
-      print('Tor process stopped gracefully.');
+      // print('Tor process stopped gracefully.');
     }
   }
 

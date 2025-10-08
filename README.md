@@ -16,3 +16,14 @@ This is an early‑stage prototype. APIs, storage, and networking layers are evo
 
 - Flutter (Dart) for cross‑platform UI.
 - Tor embedding via process on desktop (TODO: add mobile)
+
+## How to support?
+
+### You can donate crypto to any of those blockchains:
+- BTC: bc1qev0zu7rnske4ee7as0t4tyh56uv6v0ga62wx8r
+- SOL: 2S6tZNNUH5sPp9PqszQ4XK4MN44SvLCkTwNuCVvRvtEP
+- ETH: 0x2934955fe95059ea470E0B81519BA59432eFe77a
+- XRP: rHfoRsLjXrbAqxa7nJcXz6XdxDZm8M3sJT
+- XMR: 47ndq7fCdW9jTGKtXafwMgDJjxAw3cnWwjR6eq31pfXXKfqNHXq5w4B2D49oTKnTHGCRCgcU6D24oiyUD8Ha7iEJLCPGJsC
+- TON: UQDEeapruNlAmSt9j4J9CNiuasJbF3OlCxzTZPJiq6hzKOFu
+- LTC: ltc1qnsp6alkn2gzd4vpekya05l2caa3aqfmk9m7882

@@ -660,11 +660,11 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.8),
                 child: Text(
                   _peerName.isNotEmpty ? _peerName[0].toUpperCase() : 'U',
                   style: TextStyle(
-                    color: Theme.of(context).primaryColor,
+                    color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).hintColor : Colors.white,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -684,7 +684,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Text(
                     'GHOST',
                     style: TextStyle(
-                      color: Theme.of(context).primaryColor,
+                      color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).hintColor : Theme.of(context).primaryColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -704,9 +704,9 @@ class _ChatScreenState extends State<ChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: Chat(
-        theme: const DefaultChatTheme(
-          backgroundColor: Colors.white,
-          primaryColor: Colors.teal,
+        theme: DefaultChatTheme(
+          backgroundColor: Colors.transparent,
+          primaryColor: Theme.of(context).colorScheme.primary.withValues(alpha: 1.0).withAlpha(170),
           inputBackgroundColor: Colors.grey,
           sentMessageBodyTextStyle: TextStyle(color: Colors.white),
         ),

@@ -474,7 +474,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Text(
                         contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
                         style: TextStyle(
-                          color: Theme.of(context).primaryColor,
+                          color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).hintColor : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

@@ -139,7 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
             await PendingMessageDbHelper.removeMessage(msg['id']);
           } else {
             // Skip
-            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            //print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -234,7 +234,7 @@ class _ChatScreenState extends State<ChatScreen> {
             widget.keyManager.importPeerPublicKey(publicKeyPem);
       });
     } catch (e) {
-      print("Failed to fetch peer public key: $e");
+      //print("Failed to fetch peer public key: $e");
     } finally {
       torClient.close();
     }
@@ -256,16 +256,16 @@ class _ChatScreenState extends State<ChatScreen> {
       beforeId: _oldestMessageId,
     );
 
-    /* print("old_TIME $_oldestTimestamp");
-    print("new_TIME $_newestTimestamp");
-    print("loading: $_loading");
-    print("hasmore: $_hasMore");*/
-    print("${batch.length}"); 
-    //print("$batch"); 
+    /* //print("old_TIME $_oldestTimestamp");
+    //print("new_TIME $_newestTimestamp");
+    //print("loading: $_loading");
+    //print("hasmore: $_hasMore");*/
+    //print("${batch.length}"); 
+    ////print("$batch"); 
     if (!mounted) return;
 
     if (batch.length < 20) {
-      print("hasMore = false");
+      //print("hasMore = false");
       _hasMore = false;
       _loading = false;
       if (batch.isEmpty) {
@@ -305,7 +305,7 @@ class _ChatScreenState extends State<ChatScreen> {
               final decryptedBytes = widget.keyManager.decryptMyMessageBytes(msg['message']);
               final base64Data = base64Encode(decryptedBytes);
 
-              print(msg);
+              //print(msg);
               return types.FileMessage(
                 author: types.User(id: msg['senderId']),
                 createdAt: msg['timestamp'],
@@ -398,7 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSendText(String text) async {
     if (_peerPublicKey == null) {
-      print("Peer public key not ready yet.");
+      //print("Peer public key not ready yet.");
       return;
     }
 
@@ -528,12 +528,12 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      print("Message sent: $responseText");
+      //print("Message sent: $responseText");
 
       return true;
     } 
     catch (e) {
-      print("Failed to send message: $e");
+      //print("Failed to send message: $e");
       return false;
     } 
     finally {
@@ -593,6 +593,15 @@ class _ChatScreenState extends State<ChatScreen> {
         _peerName = result.name; // Update local copy
       });
     }
+  }
+
+  Color invertColor(Color color) {
+    return Color.fromARGB(
+      (color.a *255.0).round(),
+      255 - (color.r *255.0).round(),
+      255 - (color.g *255.0).round(),
+      255 - (color.b *255.0).round(),
+    );
   }
 
 
@@ -709,6 +718,7 @@ class _ChatScreenState extends State<ChatScreen> {
           primaryColor: Theme.of(context).colorScheme.primary.withValues(alpha: 1.0).withAlpha(170),
           inputBackgroundColor: Colors.grey,
           sentMessageBodyTextStyle: TextStyle(color: Colors.white),
+          secondaryColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300]! : Colors.grey[400]!
         ),
         messages: _messages.reversed.toList(),
         user: _user,

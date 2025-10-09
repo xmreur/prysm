@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import '../models/contact.dart';
-import '../util/message_db_helper.dart';
 import '../util/db_helper.dart';
 
 class ChatProfileScreen extends StatefulWidget {

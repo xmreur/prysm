@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:io';
 
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';

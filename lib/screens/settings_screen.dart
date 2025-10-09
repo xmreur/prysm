@@ -10,8 +10,8 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     required this.onClose,
     required this.onThemeChanged,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -339,7 +339,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Switch(
                 value: true,
                 onChanged: (value) {},
-                activeColor: Colors.white,
+                activeThumbColor: Colors.white,
                 activeTrackColor: Theme.of(context).primaryColor,
                 inactiveThumbColor: Colors.white,
                 inactiveTrackColor:
@@ -393,7 +393,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: Colors.white,
+          activeThumbColor: Colors.white,
           activeTrackColor: Theme.of(context).primaryColor,
           inactiveThumbColor: Colors.white,
           inactiveTrackColor: Theme.of(context).brightness == Brightness.dark
@@ -428,7 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: Colors.white,
+          activeThumbColor: Colors.white,
           activeTrackColor: Theme.of(context).primaryColor,
           inactiveThumbColor: Colors.white,
           inactiveTrackColor: Theme.of(context).brightness == Brightness.dark

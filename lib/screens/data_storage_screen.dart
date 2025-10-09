@@ -15,7 +15,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
   bool _keepMedia = true;
   bool _autoDeleteMessages = false;
   final int _storageUsage = 128; // in MB
-  int _cacheSize = 45; // in MB
+  //int _cacheSize = 45; // in MB
 
   @override
   void initState() {

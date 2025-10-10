@@ -155,10 +155,53 @@ HiddenServicePort 12345 127.0.0.1:12345
 
   /// Stop Tor process
   Future<void> stopTor() async {
+    
+    if (_controlSocket == null || _torProcess == null) return;
+
+    final completer = Completer<void>();
+    late StreamSubscription<String> sub;
+
+    sub = _controlStream.listen((line) {
+      if (line.startsWith("250")) {
+        completer.complete();
+        sub.cancel();
+      } else if (line.startsWith("5") || line.startsWith("515")) {
+        completer.completeError("Failed to shutdown Tor: $line");
+        sub.cancel();
+      }
+    });
+
     try {
-      _sendControlCommand('SIGNAL SHUTDOWN');
+      _sendControlCommand("SIGNAL SHUTDOWN");
+      await completer.future.timeout(const Duration(seconds: 10));
+    } catch (e) {
+      // timeout or error, continue to kill forcibly
+    } finally {
+      // avoid closing socket too early, add small delay to read responses
+      await Future.delayed(const Duration(seconds: 1));
       await _controlSocket?.close();
-    } catch (_) {}
-    _torProcess?.kill();
+      _controlSocket = null;
+    }
+
+    // Wait longer for graceful shutdown
+    await Future.delayed(const Duration(seconds: 5));
+
+    if (_torProcess != null) {
+      try {
+        // Try polite terminate first
+        _torProcess!.kill(ProcessSignal.sigterm);
+        await _torProcess!.exitCode.timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // On timeout or error, try force kill
+        try {
+          _torProcess!.kill(ProcessSignal.sigkill);
+          await _torProcess!.exitCode.timeout(const Duration(seconds: 5));
+        } catch (_) {
+          // ignore further errors
+        }
+      }
+      _torProcess = null;
+    }
   }
+
 }

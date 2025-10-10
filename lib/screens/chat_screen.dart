@@ -139,7 +139,8 @@ class _ChatScreenState extends State<ChatScreen> {
             await PendingMessageDbHelper.removeMessage(msg['id']);
           } else {
             // Skip
-            //print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            //
+            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -189,7 +190,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ));
       }
     }
-    return messages.reversed.toList();
+    return messages;
   }
 
   String decodeBase58ToOnion(String base58String) {
@@ -383,7 +384,7 @@ class _ChatScreenState extends State<ChatScreen> {
         });
 
         setState(() {
-          _messages.add(decryptedMsg);
+          _messages.insert(0, decryptedMsg);
         });
       } catch (_) {
         // Handle decrypt error if needed
@@ -397,6 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
   void _handleSendText(String text) async {
+
     if (_peerPublicKey == null) {
       //print("Peer public key not ready yet.");
       return;
@@ -422,7 +424,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Show decrypted instantly
     setState(() {
-      _messages.add(
+      _messages.insert(0, 
         types.TextMessage(
           author: _user,
           createdAt: timestamp,
@@ -439,7 +441,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'id': messageId,
         'senderId': widget.userId,
         'receiverId': widget.peerId,
-        'message': encryptedForSelf,
+        'message': encryptedForPeer,
         'type': 'text',
         'timestamp': timestamp,
       });
@@ -487,8 +489,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Show immediately in chat
     setState(() {
-      _messages.insert(
-        0,
+      _messages.add(
         types.FileMessage(
           author: _user,
           createdAt: timestamp,
@@ -720,7 +721,7 @@ class _ChatScreenState extends State<ChatScreen> {
           sentMessageBodyTextStyle: TextStyle(color: Colors.white),
           secondaryColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300]! : Colors.grey[400]!
         ),
-        messages: _messages.reversed.toList(),
+        messages: _messages,
         user: _user,
         onSendPressed: _handleSend,
         scrollController: _scrollController,

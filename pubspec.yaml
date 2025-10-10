@@ -54,6 +54,7 @@ dependencies:
   mime: ^1.0.1
   shared_preferences: ^2.5.3
   flutter_local_notifications: ^19.4.2
+  window_manager: ^0.5.1
 
 flutter_launcher_icons:
   android: "launcher_icon"

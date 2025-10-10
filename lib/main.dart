@@ -22,6 +22,7 @@ import 'models/contact.dart';
 import 'util/theme_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'util/notification_service.dart';
+import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +49,7 @@ void main() async {
 
   await torManager.startTor();
 
+
   // Start the HTTP server for incoming message listener on hidden service port
   
   final keyManager = KeyManager();
@@ -65,8 +67,23 @@ void main() async {
     onionAddress = 'me'; // fallback user id
   }
 
+  windowManager.addListener(MyWindowListener(torManager));
+
   runApp(MyApp(torManager: torManager, onionAddress: onionAddress, keyManager: keyManager));
+
 }
+class MyWindowListener extends WindowListener {
+  final TorManager torManager;
+  MyWindowListener(this.torManager);
+
+  @override
+  void onWindowClose() async {
+    // Your cleanup code here — will be called on window close
+    await torManager.stopTor();
+    windowManager.destroy();
+  }
+}
+
 
 class MyApp extends StatefulWidget {
   final TorManager torManager;
@@ -321,7 +338,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onPressed: () {
               final newId = decodeBase58ToOnion(idController.text.trim());
               final newName = nameController.text.trim();
-              if (newId.isEmpty || newName.isEmpty) {
+              
+              if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
                 return;
               }
               _addNewUser(newId, newName);
@@ -552,6 +570,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _shutdownTor();
     }
   }
+
 
   bool _torStopped = false;
 

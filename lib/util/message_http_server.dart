@@ -4,7 +4,6 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'message_db_helper.dart';
-import 'package:prysm/util/notification_service.dart';
 
 class MessageHttpServer {
   final int port;
@@ -96,7 +95,8 @@ class MessageHttpServer {
     
 
 
-    final server = await io.serve(handler, '0.0.0.0', port);
+    // final server = 
+    await io.serve(handler, '0.0.0.0', port);
     //print('Message HTTP server running on port ${server.port}');
   }
 }

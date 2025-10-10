@@ -8,11 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/screens/settings_screen.dart';
-import 'package:prysm/util/base58_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'screens/chat_screen.dart';
 import 'util/db_helper.dart';
-import 'util/message_db_helper.dart';
 import 'util/message_http_server.dart';
 import 'util/message_http_client.dart';
 import 'util/tor_service.dart'; // Updated Tor service
@@ -225,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
 
-      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem ?? ""));
+      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem));
     }
 
     // Replace the user with current Tor onion address if it exists

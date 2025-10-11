@@ -5,7 +5,7 @@ import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import '../models/contact.dart'; // adjust the relative path
 import 'privacy_settings_screen.dart';
-import 'package:prysm/screens/abpout_screen.dart';
+import 'package:prysm/screens/about_screen.dart';
 
 typedef ValueChanged<T> = void Function(T value);
 

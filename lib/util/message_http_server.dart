@@ -13,7 +13,7 @@ class MessageHttpServer {
 
   Future<void> start() async {
     Future<Response> handler(Request request) async {
-      print("${request.url.path}");
+      //print("${request.url.path}");
 
       if (request.method == 'POST' && request.url.path == 'message') {
         final payload = await request.readAsString();
@@ -99,6 +99,6 @@ class MessageHttpServer {
 
     // final server = 
     await io.serve(handler, '0.0.0.0', port);
-    print('Message HTTP server running on port ${port}');
+    //print('Message HTTP server running on port ${port}');
   }
 }

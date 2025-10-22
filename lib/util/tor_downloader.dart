@@ -31,7 +31,7 @@ class TorDownloader {
 
     final Uri downloadUri = await _getDownloadUri();
 
-    print("Downloading Tor from $downloadUri ...");
+    //print("Downloading Tor from $downloadUri ...");
 
     final http.Response response = await http.get(downloadUri);
 
@@ -51,7 +51,7 @@ class TorDownloader {
       await Process.run('chmod', ['+x', torExecutablePath]);
     }
 
-    print("Tor executable downloaded to $torExecutablePath");
+    //print("Tor executable downloaded to $torExecutablePath");
     return torExecutablePath;
   }
 

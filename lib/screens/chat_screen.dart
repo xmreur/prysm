@@ -122,7 +122,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.peerId != widget.peerId) {
-      print("CHANGED");
+      //print("CHANGED");
       setState(() {
         _resetChatState();
       });
@@ -153,7 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
           } else {
             // Skip
             //
-            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            //print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -208,7 +208,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ));
       }
     }
-    print("$messages");
+    //print("$messages");
     return messages;
   }
 
@@ -254,7 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
             widget.keyManager.importPeerPublicKey(publicKeyPem);
       });
     } catch (e) {
-      print("Failed to fetch peer public key: $e");
+      //print("Failed to fetch peer public key: $e");
     } finally {
       torClient.close();
     }
@@ -281,16 +281,16 @@ class _ChatScreenState extends State<ChatScreen> {
       beforeId: _oldestMessageId,
     );
 
-    /* print("old_TIME $_oldestTimestamp");
-    print("new_TIME $_newestTimestamp");
-    print("loading: $_loading");
-    print("hasmore: $_hasMore");*/
-    print("${batch.length}"); 
-    //print("$batch"); 
+    /* //print("old_TIME $_oldestTimestamp");
+    //print("new_TIME $_newestTimestamp");
+    //print("loading: $_loading");
+    //print("hasmore: $_hasMore");*/
+    //print("${batch.length}"); 
+    ////print("$batch"); 
     if (!mounted) return;
 
     if (batch.length < 20) {
-      print("hasMore = false");
+      //print("hasMore = false");
       _hasMore = false;
       _loading = false;
       if (batch.isEmpty) {
@@ -303,7 +303,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final newMessages = await decryptMessagesBackground(modifiableList, widget.keyManager);
     
-    print("Loaded ${newMessages.length} more messages.");
+    //print("Loaded ${newMessages.length} more messages.");
     setState(() {
       _messages.insertAllMessages(newMessages, index: 0);
       _oldestTimestamp = batch.last['timestamp'];
@@ -434,7 +434,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _loadInitialMessages();
         _startPolling();
       });
-      print("Peer public key not ready yet.");
+      //print("Peer public key not ready yet.");
       
       return;
     }
@@ -451,7 +451,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final messageId = Uuid().v4();
 
-    print("Sending message ID: $messageId, replyTo: {$replyToId}");
+    //print("Sending message ID: $messageId, replyTo: {$replyToId}");
     // Store in DB
     await MessageDbHelper.insertMessage({
       'id': messageId,
@@ -578,12 +578,12 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      print("Message sent: $responseText");
+      //print("Message sent: $responseText");
 
       return true;
     } 
     catch (e) {
-      print("Failed to send message: $e");
+      //print("Failed to send message: $e");
       return false;
     } 
     finally {

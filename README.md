@@ -17,10 +17,6 @@ This is an early‑stage prototype. APIs, storage, and networking layers are evo
 - Flutter (Dart) for cross‑platform UI.
 - Tor embedding via process on desktop (TODO: add mobile)
 
-## Current version
-
-Latest stable version is: 0.0.3
-
 ## How to support?
 
 ### You can donate crypto to any of those blockchains:

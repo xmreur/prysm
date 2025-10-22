@@ -4,6 +4,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'message_db_helper.dart';
+import 'package:uuid/uuid.dart';
 
 class MessageHttpServer {
   final int port;
@@ -12,7 +13,7 @@ class MessageHttpServer {
 
   Future<void> start() async {
     Future<Response> handler(Request request) async {
-      //print("${request.url.path}");
+      print("${request.url.path}");
 
       if (request.method == 'POST' && request.url.path == 'message') {
         final payload = await request.readAsString();
@@ -54,6 +55,7 @@ class MessageHttpServer {
           'fileSize': data['fileSize'], // may be null for text
           'timestamp': timeReceived, // Use server time, fixes message order bugging on device
           'status': data['status'] ?? 'received',
+          'replyTo': data['replyTo']
         });
 
         return Response.ok(
@@ -97,6 +99,6 @@ class MessageHttpServer {
 
     // final server = 
     await io.serve(handler, '0.0.0.0', port);
-    //print('Message HTTP server running on port ${server.port}');
+    print('Message HTTP server running on port ${port}');
   }
 }

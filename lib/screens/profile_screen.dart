@@ -306,7 +306,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () {
               _nameController.text = nameController.text;
               DBHelper.insertOrUpdateUser({ 'name': nameController.text, 'id': widget.user.id });
-              setState(() {});
               Navigator.pop(context);
             },
             child: const Text('Save'),

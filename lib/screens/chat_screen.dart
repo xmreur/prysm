@@ -20,6 +20,8 @@ import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:prysm/models/contact.dart';
 import 'dart:typed_data';
 
+import 'package:uuid/uuid.dart';
+
 
 class ChatScreen extends StatefulWidget {
   final String userId;
@@ -48,7 +50,7 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _messages = InMemoryChatController();
+  var _messages = InMemoryChatController();
   final Map<String, TextMessage> _messageCache = {};
   late final User _user;
   bool _loading = false;
@@ -105,7 +107,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   
   void _resetChatState() {
-    _messages.messages.clear();
+    _messages = InMemoryChatController();
+    _replyToMessage = null;
     _messageCache.clear();
     _oldestTimestamp = null;
     _oldestMessageId = null;
@@ -118,7 +121,10 @@ class _ChatScreenState extends State<ChatScreen> {
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.peerId != widget.peerId) {
-      _resetChatState();
+      print("CHANGED");
+      setState(() {
+        _resetChatState();
+      });
       _fetchPeerPublicKey().then((_) {
         _loadInitialMessages();
       });
@@ -135,17 +141,18 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
   void startOutgoingSender() async {
       _retryTimer = Timer.periodic(Duration(seconds: 15), (_) async {
         final messages = await PendingMessageDbHelper.getPendingMessages();
         for (var msg in messages) {
-          bool res = await _sendOverTor(msg['id'], msg['message'], msg['type']);
+          bool res = await _sendOverTor(msg['id'], msg['message'], msg['type'], replyToId: msg['replyTo']);
           if (res) {
             await PendingMessageDbHelper.removeMessage(msg['id']);
           } else {
             // Skip
             //
-            //print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -200,7 +207,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ));
       }
     }
-    //print("$messages");
+    print("$messages");
     return messages;
   }
 
@@ -246,13 +253,18 @@ class _ChatScreenState extends State<ChatScreen> {
             widget.keyManager.importPeerPublicKey(publicKeyPem);
       });
     } catch (e) {
-      //print("Failed to fetch peer public key: $e");
+      print("Failed to fetch peer public key: $e");
     } finally {
       torClient.close();
     }
   }
 
   Future<void> _loadInitialMessages() async {
+    () async {
+      setState(() {
+        _messages = InMemoryChatController();  
+      });
+    };
     await _loadMoreMessages();
   }
 
@@ -268,16 +280,16 @@ class _ChatScreenState extends State<ChatScreen> {
       beforeId: _oldestMessageId,
     );
 
-    /* //print("old_TIME $_oldestTimestamp");
-    //print("new_TIME $_newestTimestamp");
-    //print("loading: $_loading");
-    //print("hasmore: $_hasMore");*/
-    //print("${batch.length}"); 
-    ////print("$batch"); 
+    /* print("old_TIME $_oldestTimestamp");
+    print("new_TIME $_newestTimestamp");
+    print("loading: $_loading");
+    print("hasmore: $_hasMore");*/
+    print("${batch.length}"); 
+    //print("$batch"); 
     if (!mounted) return;
 
     if (batch.length < 20) {
-      //print("hasMore = false");
+      print("hasMore = false");
       _hasMore = false;
       _loading = false;
       if (batch.isEmpty) {
@@ -289,8 +301,8 @@ class _ChatScreenState extends State<ChatScreen> {
     modifiableList.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
 
     final newMessages = await decryptMessagesBackground(modifiableList, widget.keyManager);
-
-    //print("Loaded ${newMessages.length} more messages.");
+    
+    print("Loaded ${newMessages.length} more messages.");
     setState(() {
       _messages.insertAllMessages(newMessages, index: 0);
       _oldestTimestamp = batch.last['timestamp'];
@@ -321,7 +333,7 @@ class _ChatScreenState extends State<ChatScreen> {
               final decryptedBytes = widget.keyManager.decryptMyMessageBytes(msg['message']);
               final base64Data = base64Encode(decryptedBytes);
 
-              //print(msg);
+              print(msg);
               return FileMessage(
                 author: User(id: msg['senderId']),
                 createdAt: msg['timestamp'],
@@ -383,6 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
               createdAt: DateTime.fromMillisecondsSinceEpoch(rawMsg['timestamp']),
               id: rawMsg['id'],
               text: widget.keyManager.decryptMessage(rawMsg['message']),
+              replyToMessageId: rawMsg['replyTo']
             );
           } else {
             final decryptedBytes = widget.keyManager.decryptMyMessageBytes(rawMsg['message']);
@@ -394,6 +407,7 @@ class _ChatScreenState extends State<ChatScreen> {
               name: rawMsg['fileName'] ?? "unknown",
               size: rawMsg['fileSize'] ?? decryptedBytes.length,
               source: "data:;base64,$base64Data",
+              replyToMessageId: rawMsg['replyTo']
             );
           }
         });
@@ -415,7 +429,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleSendText(String text) async {
 
     if (_peerPublicKey == null) {
-      //print("Peer public key not ready yet.");
+      _fetchPeerPublicKey().then((_) {
+        _loadInitialMessages();
+        _startPolling();
+      });
+      print("Peer public key not ready yet.");
       
       return;
     }
@@ -430,9 +448,9 @@ class _ChatScreenState extends State<ChatScreen> {
         widget.keyManager.encryptForSelf(text);
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final messageId = timestamp.toString();
+    final messageId = Uuid().v4();
 
-    //print("Sending message ID: $messageId, replyTo: {$replyToId}");
+    print("Sending message ID: $messageId, replyTo: {$replyToId}");
     // Store in DB
     await MessageDbHelper.insertMessage({
       'id': messageId,
@@ -460,7 +478,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     // Send encrypted to peer
-    bool res = await _sendOverTor(messageId, encryptedForPeer, "text");
+    bool res = await _sendOverTor(messageId, encryptedForPeer, "text", replyToId: replyToId);
     if (res == false) {
       await PendingMessageDbHelper.insertPendingMessage({
         'id': messageId,
@@ -536,6 +554,7 @@ class _ChatScreenState extends State<ChatScreen> {
     String id,
     String encrypted,
     String type, {
+    String? replyToId,
     String? fileName,
     int? fileSize,
   }) async {
@@ -553,16 +572,17 @@ class _ChatScreenState extends State<ChatScreen> {
         "type": type,
         "fileName": fileName,
         "fileSize": fileSize,
+        "replyTo": replyToId,
         "timestamp": DateTime.now().millisecondsSinceEpoch,
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      //print("Message sent: $responseText");
+      print("Message sent: $responseText");
 
       return true;
     } 
     catch (e) {
-      //print("Failed to send message: $e");
+      print("Failed to send message: $e");
       return false;
     } 
     finally {
@@ -777,8 +797,10 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           if (_replyToMessage != null)
             _buildReplyPreview(),  // Your reply preview widget here
+          
           Expanded(
             child: Chat(
+              key: ValueKey(widget.peerId),
               chatController: _messages,
               currentUserId: widget.userId,
               theme: ChatTheme.fromThemeData(Theme.of(context)),
@@ -816,7 +838,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   Widget replyPreviewWidget = SizedBox.shrink();
 
                   if (replyId != null) {
-                    final repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
+                    Message? repliedMessage;
+                    try {
+                      repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
+                    } catch (e) {
+                      print("$e");
+                      repliedMessage = null;
+                    }
 
                     if (repliedMessage is TextMessage) {
                       replyPreviewWidget = Container(

@@ -63,6 +63,9 @@ class _ChatScreenState extends State<ChatScreen> {
   int _currentTheme = 0;
   int _lastMessageCount = 0;
 
+  Message? _replyToMessage;
+
+
   final AutoScrollController _scrollController = AutoScrollController();
   Timer? _debounceTimer;
   Timer? _retryTimer;
@@ -170,6 +173,7 @@ class _ChatScreenState extends State<ChatScreen> {
             authorId: User(id: msg['senderId']).id,
             createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
             id: msg['id'],
+            replyToMessageId: msg['replyTo'],
             text: keyManager.decryptMessage(msg['message']),
           ));
         } else if (msg['type'] == 'file') {
@@ -179,6 +183,7 @@ class _ChatScreenState extends State<ChatScreen> {
             authorId: User(id: msg['senderId']).id,
             createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
             id: msg['id'],
+            replyToMessageId: msg['replyTo'],
             name: msg['fileName'] ?? "uaddnknown",
             size: msg['fileSize'] ?? decryptedBytes.length,
             source: "data:;base64,$base64Data",
@@ -190,10 +195,12 @@ class _ChatScreenState extends State<ChatScreen> {
           authorId: User(id: msg['senderId']).id,
           createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
           id: msg['id'],
+          replyToMessageId: msg['replyTo'],
           text: '🔒 Unable to decrypt message',
         ));
       }
     }
+    print("$messages");
     return messages;
   }
 
@@ -413,6 +420,10 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    var replyToId = _replyToMessage?.id;
+
+
+
     final encryptedForPeer =
         widget.keyManager.encryptForPeer(text, _peerPublicKey!);
     final encryptedForSelf =
@@ -421,6 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final messageId = timestamp.toString();
 
+    print("Sending message ID: $messageId, replyTo: {$replyToId}");
     // Store in DB
     await MessageDbHelper.insertMessage({
       'id': messageId,
@@ -429,6 +441,7 @@ class _ChatScreenState extends State<ChatScreen> {
       'message': encryptedForSelf,
       'type': 'text',
       'timestamp': timestamp,
+      'replyTo': replyToId,
     });
 
     // Show decrypted instantly
@@ -439,9 +452,11 @@ class _ChatScreenState extends State<ChatScreen> {
           createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
           id: messageId,
           text: text,
+          replyToMessageId: replyToId,
         ),
         index: _messages.messages.length,
       );
+      _replyToMessage = null;
     });
 
     // Send encrypted to peer
@@ -454,8 +469,10 @@ class _ChatScreenState extends State<ChatScreen> {
         'message': encryptedForPeer,
         'type': 'text',
         'timestamp': timestamp,
+        'replyTo': replyToId,
       });
     }
+
   }
 
   Future<void> _handleSendImage() async {
@@ -618,6 +635,36 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildReplyPreview() {
+    if (_replyToMessage == null) return SizedBox.shrink();
+
+    return Container(
+      color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.primary,
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Replying to: ${(_replyToMessage as TextMessage).text}',
+              style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? Colors.black : Colors.white, fontStyle: FontStyle.italic),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close),
+            color: Theme.of(context).brightness == Brightness.dark ? Colors.black : Colors.white,
+            onPressed: () {
+              setState(() {
+                _replyToMessage = null;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -726,28 +773,110 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
-      body: Chat(
-        chatController: _messages,
-        currentUserId: widget.userId,
-        theme: ChatTheme.fromThemeData(Theme.of(context)),
-        resolveUser: (_) async => _user,
-        onMessageSend: (message) {
-          _handleSend(message);
-        },
-        builders: Builders(
-          chatAnimatedListBuilder: ( context, itemBuilder) {
-            return ChatAnimatedList(
-              itemBuilder: itemBuilder,
-              onEndReached: () async {
-                await _loadMoreMessages();
+      body: Column(
+        children: [
+          if (_replyToMessage != null)
+            _buildReplyPreview(),  // Your reply preview widget here
+          Expanded(
+            child: Chat(
+              chatController: _messages,
+              currentUserId: widget.userId,
+              theme: ChatTheme.fromThemeData(Theme.of(context)),
+              resolveUser: (_) async => _user,
+              onMessageSend: (message) {
+                _handleSend(message);
               },
-              //shouldScrollToEndWhenAtBottom: false,
-              //scrollController: _scrollController,
-            );
-          }
-        ),
-      )
+              onMessageLongPress: (context, message, {LongPressStartDetails? details, int? index}) {
+                setState(() {
+                  _replyToMessage = message;
+                });
+              },
+              builders: Builders(
+                chatAnimatedListBuilder: ( context, itemBuilder) {
+                  return ChatAnimatedList(
+                    itemBuilder: itemBuilder,
+                    onEndReached: () async {
+                      await _loadMoreMessages();
+                    },
+                    //shouldScrollToEndWhenAtBottom: false,
+                    //scrollController: _scrollController,
+                  );
+                },
+                chatMessageBuilder: (
+                  BuildContext context,
+                  Message message,
+                  int index,
+                  Animation<double> animation,
+                  Widget child, {
+                  bool? isRemoved,
+                  required bool isSentByMe,
+                  MessageGroupStatus? groupStatus,
+                }) {
+                  final replyId = message.replyToMessageId;
+                  Widget replyPreviewWidget = SizedBox.shrink();
 
+                  if (replyId != null) {
+                    final repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
+
+                    if (repliedMessage is TextMessage) {
+                      replyPreviewWidget = Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+                        child: Text(
+                          repliedMessage.text,
+                          style: TextStyle(
+                            fontStyle: FontStyle.italic,
+                            color: Colors.black54,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: isSentByMe ? TextAlign.right : TextAlign.left,
+                        ),
+                      );
+                    }
+                  }
+
+                  return GestureDetector(
+                    onLongPress: () {
+                      setState(() {
+                        _replyToMessage = message;
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: SizeTransition(
+                        sizeFactor: animation,
+                        child: Row(
+                          mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                children: [
+                                  replyPreviewWidget,
+                                  child,
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+
+                }
+
+
+              ),
+            )
+          )
+        ],
+      )
     );
   }
 

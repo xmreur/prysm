@@ -25,7 +25,8 @@ class PendingMessageDbHelper {
             fileName TEXT,
             fileSize INTEGER,
             timestamp INTEGER,
-            status TEXT
+            status TEXT,
+            replyTo TEXT
           )
         ''');
       },

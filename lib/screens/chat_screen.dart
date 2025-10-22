@@ -66,7 +66,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _lastMessageCount = 0;
 
   Message? _replyToMessage;
-
+  
+  Map<String, double> _dragOffsets = {}; // messageId -> offset
 
   final AutoScrollController _scrollController = AutoScrollController();
   Timer? _debounceTimer;
@@ -880,6 +881,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                   }
 
+
                   return Column(
                     children: [
                       if (showDateHeader)
@@ -892,32 +894,56 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         ),
                       GestureDetector(
+                        behavior: HitTestBehavior.translucent,
                         onLongPress: () {
+                          // Add to selection, if only one show reactions
+                        },
+                        onHorizontalDragUpdate: (details) {
                           setState(() {
-                            _replyToMessage = message;
+                            double delta = details.delta.dx;
+                            if (isSentByMe) {
+                              delta = -delta;
+                            }
+                            _dragOffsets[message.id] = (_dragOffsets[message.id] ?? 0) + delta;
+                            // Clamp offset if needed, e.g. max 100 px right, min 0 (no left drag)
+                            if (_dragOffsets[message.id]! < 0) _dragOffsets[message.id] = 0;
+                            if (_dragOffsets[message.id]! > 100) _dragOffsets[message.id] = 100;
                           });
                         },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          child: SizeTransition(
-                            sizeFactor: animation,
-                            child: Row(
-                              mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Flexible(
-                                  child: Column(
-                                    crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                    children: [
-                                      replyPreviewWidget,
-                                      child,
-                                    ],
+                        onHorizontalDragEnd: (details) {
+                          setState(() {
+                            // Trigger reply on sufficient drag distance
+                            if ((_dragOffsets[message.id] ?? 0) > 50) {
+                              _replyToMessage = message;
+                            }
+                            // Reset drag offset after gesture ends
+                            _dragOffsets[message.id] = 0;
+                          });
+                        },
+                        child: Transform.translate(
+                          offset: Offset(isSentByMe ? -(_dragOffsets[message.id] ?? 0) : (_dragOffsets[message.id] ?? 0), 0),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            child: SizeTransition(
+                              sizeFactor: animation,
+                              child: Row(
+                                mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                      children: [
+                                        replyPreviewWidget,
+                                        child,
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
+                        )
                       ),
                     ],
                   );

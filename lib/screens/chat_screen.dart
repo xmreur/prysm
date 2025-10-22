@@ -145,7 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
           } else {
             // Skip
             //
-            print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
+            //print("DEBUG: Send retry failed for message ID: ${msg['id']}.");
           }
         }
       });
@@ -200,7 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ));
       }
     }
-    print("$messages");
+    //print("$messages");
     return messages;
   }
 
@@ -290,7 +290,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final newMessages = await decryptMessagesBackground(modifiableList, widget.keyManager);
 
-    print("Loaded ${newMessages.length} more messages.");
+    //print("Loaded ${newMessages.length} more messages.");
     setState(() {
       _messages.insertAllMessages(newMessages, index: 0);
       _oldestTimestamp = batch.last['timestamp'];
@@ -415,7 +415,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleSendText(String text) async {
 
     if (_peerPublicKey == null) {
-      print("Peer public key not ready yet.");
+      //print("Peer public key not ready yet.");
       
       return;
     }
@@ -432,7 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final messageId = timestamp.toString();
 
-    print("Sending message ID: $messageId, replyTo: {$replyToId}");
+    //print("Sending message ID: $messageId, replyTo: {$replyToId}");
     // Store in DB
     await MessageDbHelper.insertMessage({
       'id': messageId,

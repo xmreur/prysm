@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
-
+import 'package:flutter/scheduler.dart';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:prysm/util/db_helper.dart';
 import '../models/contact.dart'; // adjust the relative path
 import 'privacy_settings_screen.dart';
 import 'package:prysm/screens/about_screen.dart';
@@ -198,7 +200,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ListTile(
                       leading: const Icon(Icons.key_outlined),
                       title: const Text('Your ID'),
-                      subtitle: SelectableText(
+                      subtitle: Text(
                         encodeOnionToBase58(widget.user.id),
                         style: const TextStyle(
                           fontSize: 12,
@@ -206,7 +208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       onTap: () {
-                        // Copy to clipboard
+                        Clipboard.setData(ClipboardData(text: encodeOnionToBase58(widget.user.id)));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('ID copied to clipboard'),
@@ -303,6 +305,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ElevatedButton(
             onPressed: () {
               _nameController.text = nameController.text;
+              DBHelper.insertOrUpdateUser({ 'name': nameController.text, 'id': widget.user.id });
+              setState(() {});
               Navigator.pop(context);
             },
             child: const Text('Save'),

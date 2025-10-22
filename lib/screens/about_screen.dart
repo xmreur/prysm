@@ -73,7 +73,7 @@ class AboutScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Version 0.0.2',
+                        'Version 0.0.3',
                         style: TextStyle(fontSize: 14, color: Colors.grey),
                       ),
                     ],
@@ -100,7 +100,7 @@ class AboutScreen extends StatelessWidget {
                     const Padding(
                       padding: EdgeInsets.all(16),
                       child: Text(
-                        'Developers',
+                        'Developers & Team',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -151,6 +151,23 @@ class AboutScreen extends StatelessWidget {
                       ),
                       title: const Text('UI/UX Team'),
                       subtitle: const Text('User Interface Design'),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.troubleshoot_rounded,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      title: const Text('Testers Team'),
+                      subtitle: const Text('Bug finding & Feature suggestions'),
                     ),
                   ],
                 ),

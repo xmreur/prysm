@@ -32,7 +32,7 @@ dependencies:
   bs58: ^1.0.2
   path_provider: ^2.1.5
   path: ^1.9.1
-  flutter_chat_ui: ^1.6.4
+  flutter_chat_ui: ^2.9.1
   flutter:
     sdk: flutter
 
@@ -49,12 +49,14 @@ dependencies:
   pointycastle: ^3.6.2
   basic_utils: ^5.7.0
   flutter_secure_storage: ^9.2.4
+  scroll_to_index: ^3.0.1
   image_picker: ^1.2.0
   file_picker: ^10.3.3
-  mime: ^1.0.1
+  mime: ^2.0.0
   shared_preferences: ^2.5.3
   flutter_local_notifications: ^19.4.2
   window_manager: ^0.5.1
+  flutter_chat_core: ^2.8.0
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -71,7 +73,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

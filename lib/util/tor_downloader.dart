@@ -3,6 +3,13 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+
+enum LinuxDistroType {
+  debianBased,
+  archBased,
+  unknown,
+}
+
 class TorDownloader {
   /// Downloads the tor executable for the current platform if not already present
   /// returns the path to the tor executable
@@ -22,7 +29,7 @@ class TorDownloader {
       return torExecutablePath;
     }
 
-    final Uri downloadUri = _getDownloadUri();
+    final Uri downloadUri = await _getDownloadUri();
 
     //print("Downloading Tor from $downloadUri ...");
 
@@ -59,9 +66,21 @@ class TorDownloader {
     else {
       throw UnsupportedError("Unsupported platform");
     }
+
+  }
+  Future<LinuxDistroType> detectLinuxDistroType() async {
+    try {
+      final content = await File('/etc/os-release').readAsString();
+      final lc = content.toLowerCase();
+      if (lc.contains('arch')) return LinuxDistroType.archBased;
+      if (lc.contains('debian') || lc.contains('ubuntu') || lc.contains('mint')) {
+        return LinuxDistroType.debianBased;
+      }
+    } catch (_) {}
+    return LinuxDistroType.unknown;
   }
 
-  Uri _getDownloadUri() {
+  Future<Uri> _getDownloadUri() async {
     // You can use official Tor project URLs or trusted mirrors.
     // These URLs must be valid direct download links for the platform Tor binaries.
     // Below are example placeholder URLs, replace with actual current URLs.
@@ -72,10 +91,17 @@ class TorDownloader {
       return Uri.parse(
           'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/macos/tor');
     } else if (Platform.isLinux) {
-      return Uri.parse(
-          'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/linux/tor');
-    } else {
-      throw UnsupportedError('Unsupported platform');
+      final linuxDistro = await detectLinuxDistroType();
+
+      if (linuxDistro == LinuxDistroType.debianBased) {
+        return Uri.parse(
+            'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/linux/deb/tor');
+      }
+      else if (linuxDistro == LinuxDistroType.archBased) {
+        return Uri.parse(
+            'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/linux/arch/tor');
+      }
     }
+    throw UnsupportedError('Unsupported platform');
   }
 }

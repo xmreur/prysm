@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
-import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
+import 'package:flutter_chat_core/flutter_chat_core.dart';
 // import 'package:http/http.dart' as http;
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
@@ -48,9 +48,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final List<types.Message> _messages = [];
-  final Map<String, types.Message> _messageCache = {};
-  late final types.User _user;
+  final _messages = InMemoryChatController();
+  final Map<String, TextMessage> _messageCache = {};
+  late final User _user;
   bool _loading = false;
   bool _hasMore = true;
   int? _oldestTimestamp;
@@ -68,7 +68,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _retryTimer;
 
   void _scrollListener() {
-    if (_scrollController.position.pixels >= (_scrollController.position.maxScrollExtent - 50) && !_loading && _hasMore) {
+    // LOAD WHEN NEAR TOP (not bottom)
+    if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
       if (_debounceTimer?.isActive ?? false) return;
       _debounceTimer = Timer(const Duration(milliseconds: 600), () async {
         await _loadMoreMessages();
@@ -76,12 +77,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
   @override
   void initState() {
     super.initState();
     _currentTheme = widget.currentTheme;
     _peerName = widget.peerName;
-    _user = types.User(id: widget.userId);
+    _user = User(id: widget.userId);
     _fetchPeerPublicKey().then((_) {
       _loadInitialMessages();
       _startPolling();
@@ -100,7 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   
   void _resetChatState() {
-    _messages.clear();
+    _messages.messages.clear();
     _messageCache.clear();
     _oldestTimestamp = null;
     _oldestMessageId = null;
@@ -146,7 +148,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
   }
 
-  Future<List<types.Message>> decryptMessagesBackground(
+  Future<List<Message>> decryptMessagesBackground(
     List<Map<String, dynamic>> rawMessages,
     KeyManager keyManager,
   ) async {
@@ -155,36 +157,38 @@ class _ChatScreenState extends State<ChatScreen> {
     // Alternatively, decrypt texts asynchronously one by one here or avoid compute.
 
     // For now, decrypt outside setState before calling setState.
-    List<types.Message> messages = [];
+    List<Message> messages = [];
     for (final msg in rawMessages) {
       if (_messageCache.containsKey(msg['id'])) {
         messages.add(_messageCache[msg['id']]!);
         continue;
       }
       try {
+        
         if (msg['type'] == 'text') {
-          messages.add(types.TextMessage(
-            author: types.User(id: msg['senderId']),
-            createdAt: msg['timestamp'],
+          messages.add(TextMessage(
+            authorId: User(id: msg['senderId']).id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
             id: msg['id'],
             text: keyManager.decryptMessage(msg['message']),
           ));
         } else if (msg['type'] == 'file') {
           final decryptedBytes = keyManager.decryptMyMessageBytes(msg['message']);
           final base64Data = base64Encode(decryptedBytes);
-          messages.add(types.FileMessage(
-            author: types.User(id: msg['senderId']),
-            createdAt: msg['timestamp'],
+          messages.add(FileMessage(
+            authorId: User(id: msg['senderId']).id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
             id: msg['id'],
-            name: msg['fileName'] ?? "unknown",
+            name: msg['fileName'] ?? "uaddnknown",
             size: msg['fileSize'] ?? decryptedBytes.length,
-            uri: "data:;base64,$base64Data",
+            source: "data:;base64,$base64Data",
           ));
         }
       } catch (e) {
-        messages.add(types.TextMessage(
-          author: types.User(id: msg['senderId']),
-          createdAt: msg['timestamp'],
+        print(e);
+        messages.add(TextMessage(
+          authorId: User(id: msg['senderId']).id,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
           id: msg['id'],
           text: '🔒 Unable to decrypt message',
         ));
@@ -274,10 +278,14 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    final newMessages = await decryptMessagesBackground(batch, widget.keyManager);
+    final modifiableList = List.of(batch);
+    modifiableList.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
 
+    final newMessages = await decryptMessagesBackground(modifiableList, widget.keyManager);
+
+    print("Loaded ${newMessages.length} more messages.");
     setState(() {
-      _messages.addAll(newMessages);
+      _messages.insertAllMessages(newMessages, index: 0);
       _oldestTimestamp = batch.last['timestamp'];
       _oldestMessageId = batch.last['id']; // track last loaded message id
       _loading = false;
@@ -296,8 +304,8 @@ class _ChatScreenState extends State<ChatScreen> {
         loadedMessages.map((msg) {
           try {
             if (msg['type'] == "text") {
-              return types.TextMessage(
-                author: types.User(id: msg['senderId']),
+              return TextMessage(
+                author: User(id: msg['senderId']),
                 createdAt: msg['timestamp'],
                 id: msg['id'],
                 text: widget.keyManager.decryptMyMessage(msg['message']),
@@ -307,8 +315,8 @@ class _ChatScreenState extends State<ChatScreen> {
               final base64Data = base64Encode(decryptedBytes);
 
               //print(msg);
-              return types.FileMessage(
-                author: types.User(id: msg['senderId']),
+              return FileMessage(
+                author: User(id: msg['senderId']),
                 createdAt: msg['timestamp'],
                 id: msg['id'],
                 name: msg['fileName'] ?? "unknown",
@@ -317,15 +325,15 @@ class _ChatScreenState extends State<ChatScreen> {
               );
             }
           } catch (e) {
-            return types.TextMessage(
-              author: types.User(id: msg['senderId']),
+            return TextMessage(
+              author: User(id: msg['senderId']),
               createdAt: msg['timestamp'],
               id: msg['id'],
               text: "🔒 Unable to decrypt message",
             );
           }
-          return types.TextMessage(
-            author: types.User(id: msg['senderId']),
+          return TextMessage(
+            author: User(id: msg['senderId']),
             createdAt: msg['timestamp'],
             id: msg['id'],
             text: "Unsupported message type",
@@ -355,7 +363,7 @@ class _ChatScreenState extends State<ChatScreen> {
     
     if (newMessagesRaw.isEmpty) return;
 
-    final existingId = _messages.map((m) => m.id).toSet();
+    final existingId = _messages.messages.map((m) => m.id).toSet();
 
     for (final rawMsg in newMessagesRaw) {
       if (existingId.contains(rawMsg['id'])) continue;
@@ -363,28 +371,28 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         final decryptedMsg = await Future(() {
           if (rawMsg['type'] == 'text') {
-            return types.TextMessage(
-              author: types.User(id: rawMsg['senderId']),
-              createdAt: rawMsg['timestamp'],
+            return TextMessage(
+              authorId: User(id: rawMsg['senderId']).id,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(rawMsg['timestamp']),
               id: rawMsg['id'],
               text: widget.keyManager.decryptMessage(rawMsg['message']),
             );
           } else {
             final decryptedBytes = widget.keyManager.decryptMyMessageBytes(rawMsg['message']);
             final base64Data = base64Encode(decryptedBytes);
-            return types.FileMessage(
-              author: types.User(id: rawMsg['senderId']),
-              createdAt: rawMsg['timestamp'],
+            return FileMessage(
+              authorId: User(id: rawMsg['senderId']).id,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(rawMsg['timestamp']),
               id: rawMsg['id'],
               name: rawMsg['fileName'] ?? "unknown",
               size: rawMsg['fileSize'] ?? decryptedBytes.length,
-              uri: "data:;base64,$base64Data",
+              source: "data:;base64,$base64Data",
             );
           }
         });
 
         setState(() {
-          _messages.insert(0, decryptedMsg);
+          _messages.insertMessage(decryptedMsg, index: _messages.messages.length);
         });
       } catch (_) {
         // Handle decrypt error if needed
@@ -400,7 +408,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleSendText(String text) async {
 
     if (_peerPublicKey == null) {
-      //print("Peer public key not ready yet.");
+      print("Peer public key not ready yet.");
+      
       return;
     }
 
@@ -424,13 +433,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Show decrypted instantly
     setState(() {
-      _messages.insert(0, 
-        types.TextMessage(
-          author: _user,
-          createdAt: timestamp,
+      _messages.insertMessage( 
+        TextMessage(
+          authorId: _user.id,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
           id: messageId,
           text: text,
         ),
+        index: _messages.messages.length,
       );
     });
 
@@ -489,15 +499,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Show immediately in chat
     setState(() {
-      _messages.add(
-        types.FileMessage(
-          author: _user,
-          createdAt: timestamp,
+      _messages.insertMessage(
+        FileMessage(
+          authorId: _user.id,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
           id: messageId,
           name: fileName,
           size: bytes.length,
-          uri: "data:;base64,$encryptedForSelf",
+          source: "data:;base64,$encryptedForSelf",
         ),
+        index: _messages.messages.length,
       );
     });
 
@@ -544,9 +555,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
 
-  void _handleSend(types.PartialText message) {
-    if (message.text.isNotEmpty) {
+  void _handleSend(dynamic message) {
+    if (message is TextMessage && message.text.isNotEmpty) {
       _handleSendText(message.text);
+    } else if (message is String && message.isNotEmpty) {
+      _handleSendText(message);
     }
   }
 
@@ -581,7 +594,7 @@ class _ChatScreenState extends State<ChatScreen> {
               widget.peerId,
             );
             // Refresh the message list
-            _messages.clear();
+            _messages.messages.clear();
             _loadInitialMessages();
           },
         ),
@@ -714,18 +727,27 @@ class _ChatScreenState extends State<ChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: Chat(
-        theme: DefaultChatTheme(
-          backgroundColor: Colors.transparent,
-          primaryColor: Theme.of(context).colorScheme.primary.withValues(alpha: 1.0).withAlpha(170),
-          inputBackgroundColor: Colors.grey,
-          sentMessageBodyTextStyle: TextStyle(color: Colors.white),
-          secondaryColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300]! : Colors.grey[400]!
+        chatController: _messages,
+        currentUserId: widget.userId,
+        theme: ChatTheme.fromThemeData(Theme.of(context)),
+        resolveUser: (_) async => _user,
+        onMessageSend: (message) {
+          _handleSend(message);
+        },
+        builders: Builders(
+          chatAnimatedListBuilder: ( context, itemBuilder) {
+            return ChatAnimatedList(
+              itemBuilder: itemBuilder,
+              onEndReached: () async {
+                await _loadMoreMessages();
+              },
+              //shouldScrollToEndWhenAtBottom: false,
+              //scrollController: _scrollController,
+            );
+          }
         ),
-        messages: _messages,
-        user: _user,
-        onSendPressed: _handleSend,
-        scrollController: _scrollController,
-      ),
+      )
+
     );
   }
 

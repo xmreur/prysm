@@ -834,15 +834,27 @@ class _ChatScreenState extends State<ChatScreen> {
                   required bool isSentByMe,
                   MessageGroupStatus? groupStatus,
                 }) {
-                  final replyId = message.replyToMessageId;
-                  Widget replyPreviewWidget = SizedBox.shrink();
+                  // Current message date
+                  final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
+                  final currentDay = DateTime(msgDate.year, msgDate.month, msgDate.day);
 
+                  DateTime? prevDay;
+                  if (index > 0) {
+                    final prevMsg = _messages.messages[index - 1];
+                    final prevDate = DateTime.fromMillisecondsSinceEpoch(prevMsg.createdAt!.millisecondsSinceEpoch);
+                    prevDay = DateTime(prevDate.year, prevDate.month, prevDate.day);
+                  }
+
+                  bool showDateHeader = index == 0 || prevDay == null || !currentDay.isAtSameMomentAs(prevDay);
+
+                  // Build reply preview widget if replyToMessage exists
+                  Widget replyPreviewWidget = SizedBox.shrink();
+                  final replyId = message.replyToMessageId;
                   if (replyId != null) {
                     Message? repliedMessage;
                     try {
                       repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
                     } catch (e) {
-                      print("$e");
                       repliedMessage = null;
                     }
 
@@ -868,38 +880,48 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                   }
 
-                  return GestureDetector(
-                    onLongPress: () {
-                      setState(() {
-                        _replyToMessage = message;
-                      });
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      child: SizeTransition(
-                        sizeFactor: animation,
-                        child: Row(
-                          mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                children: [
-                                  replyPreviewWidget,
-                                  child,
-                                ],
-                              ),
+                  return Column(
+                    children: [
+                      if (showDateHeader)
+                        Container(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "${msgDate.day}/${msgDate.month}/${msgDate.year}",
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                      GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            _replyToMessage = message;
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: SizeTransition(
+                            sizeFactor: animation,
+                            child: Row(
+                              mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Flexible(
+                                  child: Column(
+                                    crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                    children: [
+                                      replyPreviewWidget,
+                                      child,
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   );
-
                 }
-
-
               ),
             )
           )

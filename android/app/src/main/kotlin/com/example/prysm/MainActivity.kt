@@ -1,4 +1,4 @@
-package com.example.prysm
+package github.xrmeur.prism
 
 import io.flutter.embedding.android.FlutterActivity
 

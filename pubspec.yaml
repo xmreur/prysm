@@ -1,5 +1,5 @@
 name: prysm
-description: "A new Flutter project."
+description: "Decentralized, onion-routed communication without surveillance or centralized servers. Prysm uses Tor for secure, metadata-resistant P2P messaging."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.3
 
 environment:
   sdk: ^3.9.2
@@ -60,6 +60,10 @@ dependencies:
   flutter_chat_core: ^2.8.0
 
 flutter_launcher_icons:
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 48
   android: "launcher_icon"
   ios: true
   image_path: "assets/logo.png"

@@ -69,4 +69,13 @@ class DBHelper {
       );
     }
   }
+
+  static Future<void> deleteUser(String userId) async {
+    final db = await database;
+    await db.delete(
+      'users',
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
+  }
 }

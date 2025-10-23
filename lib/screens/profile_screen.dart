@@ -15,11 +15,12 @@ class ProfileScreen extends StatefulWidget {
   final Contact user;
   final VoidCallback onClose;
   final ValueChanged<Contact> onUpdate;
-
+  final Function() reloadUsers;
   const ProfileScreen({
     required this.user,
     required this.onClose,
     required this.onUpdate,
+    required this.reloadUsers,
     Key? key,
   }) : super(key: key);
 
@@ -29,11 +30,13 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nameController;
+  late String name = widget.user.name;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.user.name);
+  
+    _nameController = TextEditingController(text: name);
   }
 
   @override
@@ -45,12 +48,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _saveProfile() {
     final updatedUser = Contact(
       id: widget.user.id,
-      name: _nameController.text,
+      name: name,
       avatarUrl: widget.user.avatarUrl,
       publicKeyPem: widget.user.publicKeyPem,
     );
     widget.onUpdate(updatedUser);
     widget.onClose();
+    widget.reloadUsers();
   }
 
   String encodeOnionToBase58(String onion) {
@@ -116,8 +120,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           radius: 50,
                           backgroundColor: Theme.of(context).primaryColor,
                           child: Text(
-                            widget.user.name.isNotEmpty
-                                ? widget.user.name[0].toUpperCase()
+                            name.isNotEmpty
+                                ? name[0].toUpperCase()
                                 : 'P',
                             style: const TextStyle(
                               color: Colors.white,
@@ -152,7 +156,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      widget.user.name,
+                      name,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -189,7 +193,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ListTile(
                       leading: const Icon(Icons.person_outline),
                       title: const Text('Display Name'),
-                      subtitle: Text(widget.user.name),
+                      subtitle: Text(name),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () {
                         // Show dialog to edit name
@@ -285,7 +289,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showEditNameDialog() {
-    final nameController = TextEditingController(text: widget.user.name);
+    final nameController = TextEditingController(text: name);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -304,7 +308,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              _nameController.text = nameController.text;
+              setState(() {
+                name = nameController.text;
+              });
               DBHelper.insertOrUpdateUser({ 'name': nameController.text, 'id': widget.user.id });
               Navigator.pop(context);
             },

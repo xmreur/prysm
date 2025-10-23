@@ -11,6 +11,7 @@ class ChatProfileScreen extends StatefulWidget {
   final VoidCallback onClose;
   final Function(Contact) onUpdateName;
   final Function() onDeleteChat;
+  final Function() onDeleteContact;
 
   const ChatProfileScreen({
     required this.peer,
@@ -18,6 +19,7 @@ class ChatProfileScreen extends StatefulWidget {
     required this.onClose,
     required this.onUpdateName,
     required this.onDeleteChat,
+    required this.onDeleteContact,
     Key? key,
   }) : super(key: key);
 
@@ -92,6 +94,34 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               onPressed: () {
                 Navigator.of(context).pop();
                 widget.onDeleteChat();
+                widget.onClose();
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteContact() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Contact'),
+          content: const Text(
+            'Are you sure you want to delete this contact? This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onDeleteContact();
                 widget.onClose();
               },
               child: const Text('Delete', style: TextStyle(color: Colors.red)),
@@ -259,6 +289,38 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 40),
+              // Action buttons
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                      title: const Text(
+                        'Delete Contact',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                      subtitle: const Text('Delete this contact from your list. Cannot be undone.'),
+                      onTap: _confirmDeleteContact,
+                    ),
+                  ],
+                ),
+              ),
+            
             ],
           ),
         ),

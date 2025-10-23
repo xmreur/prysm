@@ -269,6 +269,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appUser = updatedUser;
     });
     saveAppUser(updatedUser);
+    loadUsers();
   }
 
   void onSelectContact(Contact contact) {
@@ -334,13 +335,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ElevatedButton(
             child: const Text('Add'),
             onPressed: () {
-              final newId = decodeBase58ToOnion(idController.text.trim());
+              String newId;
+              try {
+                newId = decodeBase58ToOnion(idController.text.trim());
+              } catch (e) {
+                return;
+              }
               final newName = nameController.text.trim();
               
               if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
                 return;
               }
               _addNewUser(newId, newName);
+              loadUsers();
               Navigator.of(context).pop();
             },
           ),
@@ -597,7 +604,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return '$onion.onion';
   }
 
-    @override
+  void clearChat() {
+    setState(() {
+      loadUsers();
+      selectedContact = null;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (isLoading) {
       return const Material(child: Center(child: CircularProgressIndicator()));
@@ -632,7 +646,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () {},
           ),
-          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: () => setState(() => showSettings = true)),
         ],
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
@@ -646,6 +660,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     user: appUser,
                     onClose: () => setState(() => showProfile = false),
                     onUpdate: onUpdateProfile,
+                    reloadUsers: () => loadUsers(),
                   )
                 : showSettings
                 ? SettingsScreen(
@@ -661,6 +676,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     torManager: widget.torManager,
                     keyManager: widget.keyManager,
                     currentTheme: currentTheme,
+                    clearChat: () => clearChat(),
+                    reloadUsers: () => loadUsers(),
                   )
                 : Center(
                     child: Column(

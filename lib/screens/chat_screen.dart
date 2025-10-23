@@ -32,7 +32,9 @@ class ChatScreen extends StatefulWidget {
   final KeyManager keyManager;
   final String? peerPublicKeyPem;
   final int currentTheme;
-
+  final Function() clearChat;
+  final Function() reloadUsers;
+  
   const ChatScreen({
     required this.userId,
     required this.userName,
@@ -42,6 +44,8 @@ class ChatScreen extends StatefulWidget {
     required this.keyManager,
     this.peerPublicKeyPem,
     this.currentTheme = 0,
+    required this.clearChat,
+    required this.reloadUsers,
     Key? key,
   }) : super(key: key);
 
@@ -69,6 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
   
   Map<String, double> _dragOffsets = {}; // messageId -> offset
 
+  Key _chatKey = UniqueKey();
   final AutoScrollController _scrollController = AutoScrollController();
   Timer? _debounceTimer;
   Timer? _retryTimer;
@@ -228,17 +233,17 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _fetchPeerPublicKey() async {
+  Future<bool> _fetchPeerPublicKey() async {
     if (widget.peerPublicKeyPem != null) {
       _peerPublicKey =
           widget.keyManager.importPeerPublicKey(widget.peerPublicKeyPem!);
-      return;
+      return true;
     }
 
     final cachedPem = await _getPeerPublicKeyPemFromDb(widget.peerId);
     if (cachedPem != null && cachedPem.isNotEmpty) {
       _peerPublicKey = widget.keyManager.importPeerPublicKey(cachedPem);
-      return;
+      return true;
     }
 
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
@@ -254,10 +259,12 @@ class _ChatScreenState extends State<ChatScreen> {
             widget.keyManager.importPeerPublicKey(publicKeyPem);
       });
     } catch (e) {
+      return false;
       //print("Failed to fetch peer public key: $e");
     } finally {
       torClient.close();
     }
+    return true;
   }
 
   Future<void> _loadInitialMessages() async {
@@ -429,14 +436,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSendText(String text) async {
 
+    if (!mounted) return;
+
     if (_peerPublicKey == null) {
-      _fetchPeerPublicKey().then((_) {
+    
+      bool k = await _fetchPeerPublicKey();
+      
+      if (!mounted) return;
+
+      if (k) {
         _loadInitialMessages();
         _startPolling();
-      });
-      //print("Peer public key not ready yet.");
-      
-      return;
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Couldn\'t send message: Peer public key not available.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+    
     }
 
     var replyToId = _replyToMessage?.id;
@@ -624,6 +644,7 @@ class _ChatScreenState extends State<ChatScreen> {
               'avatarUrl': updatedContact.avatarUrl,
               'publicKeyPem': updatedContact.publicKeyPem,
             });
+            widget.reloadUsers();
           },
           onDeleteChat: () async {
             // Delete all messages between these users
@@ -632,8 +653,28 @@ class _ChatScreenState extends State<ChatScreen> {
               widget.peerId,
             );
             // Refresh the message list
-            _messages.messages.clear();
+            _resetChatState();
+            setState(() {
+              _messages = InMemoryChatController();
+              _chatKey = UniqueKey();
+            });
             _loadInitialMessages();
+          },
+          onDeleteContact: () async {
+            // Delete contact from database
+            await DBHelper.deleteUser(widget.peerId);
+            // Close chat screen
+            _resetChatState();
+
+            setState(() {
+              _messages = InMemoryChatController();
+              _chatKey = UniqueKey();
+              _replyToMessage = null;
+
+              // Instead of Navigator.pop(), just clear selectedContact to unmount ChatScreen 
+            });
+            
+            widget.clearChat();
           },
         ),
       ),
@@ -801,7 +842,7 @@ class _ChatScreenState extends State<ChatScreen> {
           
           Expanded(
             child: Chat(
-              key: ValueKey(widget.peerId),
+              key: _chatKey,
               chatController: _messages,
               currentUserId: widget.userId,
               theme: ChatTheme.fromThemeData(Theme.of(context)),

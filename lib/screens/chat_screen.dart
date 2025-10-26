@@ -118,8 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  
-  void _resetChatState() {
+  void resetChatState() {
     _messages = InMemoryChatController();
     _replyToMessage = null;
     _messageCache.clear();
@@ -128,20 +127,22 @@ class _ChatScreenState extends State<ChatScreen> {
     _newestTimestamp = null;
     _hasMore = true;
     _loading = false;
+    // (Reset any other relevant per-chat state here!)
   }
 
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.peerId != widget.peerId) {
-      //print("CHANGED");
+      // Chat peer changed!
+      // print("CHANGED CHAT: ${oldWidget.peerId} -> ${widget.peerId}");
       setState(() {
-        _resetChatState();
+        resetChatState();
+        _chatKey = UniqueKey();
       });
-      _fetchPeerPublicKey().then((_) {
-        _loadInitialMessages();
-      });
+      _fetchPeerPublicKey().then((_) => _loadInitialMessages());
     }
+    // For theme/name change, update without full reset
     if (oldWidget.currentTheme != widget.currentTheme) {
       setState(() {
         _currentTheme = widget.currentTheme;
@@ -613,7 +614,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      print("Message sent: $responseText");
+      // print("Message sent: $responseText");
 
       return true;
     } 
@@ -668,7 +669,7 @@ class _ChatScreenState extends State<ChatScreen> {
               widget.peerId,
             );
             // Refresh the message list
-            _resetChatState();
+            resetChatState();
             setState(() {
               _messages = InMemoryChatController();
               _chatKey = UniqueKey();
@@ -679,7 +680,7 @@ class _ChatScreenState extends State<ChatScreen> {
             // Delete contact from database
             await DBHelper.deleteUser(widget.peerId);
             // Close chat screen
-            _resetChatState();
+            resetChatState();
 
             setState(() {
               _messages = InMemoryChatController();

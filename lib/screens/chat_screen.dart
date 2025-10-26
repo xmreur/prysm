@@ -1,16 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:bs58/bs58.dart';
+import 'package:encrypt/encrypt.dart' as e;
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:path_provider/path_provider.dart' show getDownloadsDirectory, getTemporaryDirectory;
 // import 'package:http/http.dart' as http;
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/message_db_helper.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/rsa_helper.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_http_client.dart';
@@ -189,21 +196,39 @@ class _ChatScreenState extends State<ChatScreen> {
             replyToMessageId: msg['replyTo'],
             text: keyManager.decryptMessage(msg['message']),
           ));
-        } else if (msg['type'] == 'file') {
-          final decryptedBytes = keyManager.decryptMyMessageBytes(msg['message']);
+        } else if (msg['type'] == 'file' || msg['type'] == "image") {
+          final hybrid = jsonDecode(msg['message']);
+          final rsaEncryptedAesKey = hybrid["aes_key"];
+          final iv = e.IV.fromBase64(hybrid["iv"]);
+          final encryptedData = base64Decode(hybrid["data"]);
+
+          final aesKeyBytes = keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
+          final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
+
+          final decryptedBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
           final base64Data = base64Encode(decryptedBytes);
-          messages.add(FileMessage(
-            authorId: User(id: msg['senderId']).id,
-            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-            id: msg['id'],
-            replyToMessageId: msg['replyTo'],
-            name: msg['fileName'] ?? "uaddnknown",
-            size: msg['fileSize'] ?? decryptedBytes.length,
-            source: "data:;base64,$base64Data",
-          ));
+          if (msg['type'] == "file") {
+            messages.add(FileMessage(
+              id: msg['id'],
+              authorId: User(id: msg['senderId']).id,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+              replyToMessageId: msg['replyTo'],
+              name: msg['fileName'] ?? "Unknown",
+              size: msg['fileSize'] ?? decryptedBytes.length,
+              source: "data:;base64,$base64Data",
+            ));
+          } else if (msg['type'] == "image") {
+            messages.add(ImageMessage(
+              id: msg['id'],
+              authorId: User(id: msg['senderId']).id,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+              replyToMessageId: msg['replyTo'],
+              size: msg['fileSize'] ?? decryptedBytes.length,
+              source: "data:;base64,$base64Data",
+            ));
+          }
         }
       } catch (e) {
-        print(e);
         messages.add(TextMessage(
           authorId: User(id: msg['senderId']).id,
           createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
@@ -319,58 +344,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /*void _loadMessages() async {
-  final loadedMessages =
-    await MessageDbHelper.getMessagesBetween(widget.userId, widget.peerId);
-
-    if (!mounted) return;
-
-    setState(() {
-      _messages.clear();
-      _messages.addAll(
-        loadedMessages.map((msg) {
-          try {
-            if (msg['type'] == "text") {
-              return TextMessage(
-                author: User(id: msg['senderId']),
-                createdAt: msg['timestamp'],
-                id: msg['id'],
-                text: widget.keyManager.decryptMyMessage(msg['message']),
-              );
-            } else if (msg['type'] == "image" || msg['type'] == "file") {
-              final decryptedBytes = widget.keyManager.decryptMyMessageBytes(msg['message']);
-              final base64Data = base64Encode(decryptedBytes);
-
-              print(msg);
-              return FileMessage(
-                author: User(id: msg['senderId']),
-                createdAt: msg['timestamp'],
-                id: msg['id'],
-                name: msg['fileName'] ?? "unknown",
-                size: msg['fileSize'] ?? decryptedBytes.length,
-                uri: "data:;base64,$base64Data",
-              );
-            }
-          } catch (e) {
-            return TextMessage(
-              author: User(id: msg['senderId']),
-              createdAt: msg['timestamp'],
-              id: msg['id'],
-              text: "🔒 Unable to decrypt message",
-            );
-          }
-          return TextMessage(
-            author: User(id: msg['senderId']),
-            createdAt: msg['timestamp'],
-            id: msg['id'],
-            text: "Unsupported message type",
-          );
-        }),
-      );
-    });
-  }*/
-
-
   void _startPolling() {
     Future.doWhile(() async {
       await Future.delayed(const Duration(seconds: 2));
@@ -456,12 +429,9 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         return;
       }
-    
     }
 
     var replyToId = _replyToMessage?.id;
-
-
 
     final encryptedForPeer =
         widget.keyManager.encryptForPeer(text, _peerPublicKey!);
@@ -528,47 +498,116 @@ class _ChatScreenState extends State<ChatScreen> {
     if (result == null || result.files.isEmpty) return;
 
     final file = result.files.first;
+
     _sendFile(file.bytes!, file.name, "file");
   }
 
   Future<void> _sendFile(Uint8List bytes, String fileName, String type) async {
-    if (_peerPublicKey == null) return;
 
-    // Encrypt file for peer & self
-    final encryptedForPeer = widget.keyManager.encryptBytesForPeer(bytes, _peerPublicKey!);
-    final encryptedForSelf = widget.keyManager.encryptBytesForSelf(bytes);
+    if (_peerPublicKey == null) {
+    
+      bool k = await _fetchPeerPublicKey();
+
+      if (k) {
+        _loadInitialMessages();
+        _startPolling();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Couldn\'t send message: Peer public key not available.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+    }
+
+
+    var replyToId = _replyToMessage?.id;
+    // Generate AES key + iv
+    final aesKey = AESHelper.generateAESKey();
+    final iv = AESHelper.generateIV();
+
+    // Encrypt file with AES
+    final aesEncryptedBytes = AESHelper.encryptBytes(bytes, aesKey, iv);
+
+    // Encrypt AES key with peer's RSA key
+    final rsaEncryptedAesKey = RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, _peerPublicKey!);
+    
+    final payload = jsonEncode({
+      "aes_key": rsaEncryptedAesKey,
+      "iv": iv.base64,
+      "data": base64Encode(aesEncryptedBytes)
+    });
+
+    final selfEncryptedKey = RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, widget.keyManager.publicKey);
+    final selfPayload = jsonEncode({
+      "aes_key": selfEncryptedKey,
+      "iv": iv.base64,
+      "data": base64Encode(aesEncryptedBytes),
+    });
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final messageId = timestamp.toString();
+    final messageId = Uuid().v4();
 
     // Store locally
     await MessageDbHelper.insertMessage({
       'id': messageId,
       'senderId': widget.userId,
       'receiverId': widget.peerId,
-      'message': encryptedForSelf,
+      'message': selfPayload,
       'type': type,
       'fileName': fileName,
       'fileSize': bytes.length,
       'timestamp': timestamp,
+      'replyTo': replyToId,
     });
 
     // Show immediately in chat
     setState(() {
-      _messages.insertMessage(
-        FileMessage(
-          authorId: _user.id,
-          createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
-          id: messageId,
-          name: fileName,
-          size: bytes.length,
-          source: "data:;base64,$encryptedForSelf",
-        ),
-        index: _messages.messages.length,
-      );
+      if (type == "file") {
+        _messages.insertMessage(
+          FileMessage(
+            authorId: _user.id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
+            id: messageId,
+            name: fileName,
+            size: bytes.length,
+            replyToMessageId: replyToId,
+            source: "data:;base64,${base64Encode(bytes)}",
+          ),
+          index: _messages.messages.length,
+        );
+      } else if (type == "image") {
+        _messages.insertMessage(
+          ImageMessage(
+            authorId: _user.id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
+            id: messageId,
+            size: bytes.length,
+            replyToMessageId: replyToId,
+            source: "data:;base64,${base64Encode(bytes)}",
+          ),
+          index: _messages.messages.length,
+        );
+      }
     });
 
-    await _sendOverTor(messageId, encryptedForPeer, type);
+    final success = await _sendOverTor(messageId, payload, type);
+    
+    if (!success) {
+      await PendingMessageDbHelper.insertPendingMessage({
+        "id": messageId,
+        "senderId": widget.userId,
+        "receiverId": widget.peerId,
+        "message": payload,
+        "type": type,
+        "fileName": fileName,
+        "fileSize": bytes.length,
+        "timestamp": timestamp,
+        'replyTo': replyToId,
+      });
+    }
   }
 
   Future<bool> _sendOverTor(
@@ -699,7 +738,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildReplyPreview() {
     if (_replyToMessage == null) return SizedBox.shrink();
-
+    String previewText;
+    if (_replyToMessage is TextMessage) {
+      previewText = (_replyToMessage as TextMessage).text;
+    } else if (_replyToMessage is ImageMessage) {
+      previewText = '📷 Image';
+    } else if (_replyToMessage is FileMessage) {
+      previewText = '📎 File: ${(_replyToMessage as FileMessage).name}';
+    } else {
+      previewText = 'Unsupported message';
+    }
     return Container(
       color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.primary,
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -707,7 +755,7 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Expanded(
             child: Text(
-              'Replying to: ${(_replyToMessage as TextMessage).text}',
+              previewText,
               style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? Colors.black : Colors.white, fontStyle: FontStyle.italic),
               overflow: TextOverflow.ellipsis,
             ),
@@ -835,167 +883,439 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
-      body: Column(
-        children: [
-          if (_replyToMessage != null)
-            _buildReplyPreview(),  // Your reply preview widget here
-          
-          Expanded(
-            child: Chat(
-              key: _chatKey,
-              chatController: _messages,
-              currentUserId: widget.userId,
-              theme: ChatTheme.fromThemeData(Theme.of(context)),
-              resolveUser: (_) async => _user,
-              onMessageSend: (message) {
-                _handleSend(message);
-              },
-              onMessageLongPress: (context, message, {LongPressStartDetails? details, int? index}) {
-                setState(() {
-                  _replyToMessage = message;
-                });
-              },
-              builders: Builders(
-                chatAnimatedListBuilder: ( context, itemBuilder) {
-                  return ChatAnimatedList(
-                    itemBuilder: itemBuilder,
-                    onEndReached: () async {
-                      await _loadMoreMessages();
-                    },
-                    //shouldScrollToEndWhenAtBottom: false,
-                    //scrollController: _scrollController,
-                  );
+      body: SafeArea(
+        child: Column(
+          children: [
+            // 🟨 Show reply preview (if replying to a message)
+            if (_replyToMessage != null)
+              _buildReplyPreview(),
+
+            // 🟩 Chat messages — takes up remaining space
+            Expanded(
+              child: Chat(
+                key: _chatKey,
+                chatController: _messages,
+                currentUserId: widget.userId,
+                theme: ChatTheme.fromThemeData(Theme.of(context)),
+                resolveUser: (_) async => _user,
+                onMessageSend: (message) {
+                  _handleSend(message);
                 },
-                chatMessageBuilder: (
-                  BuildContext context,
-                  Message message,
-                  int index,
-                  Animation<double> animation,
-                  Widget child, {
-                  bool? isRemoved,
-                  required bool isSentByMe,
-                  MessageGroupStatus? groupStatus,
-                }) {
-                  // Current message date
-                  final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
-                  final currentDay = DateTime(msgDate.year, msgDate.month, msgDate.day);
+                onMessageLongPress: (context, message, {LongPressStartDetails? details, int? index}) {
+                  setState(() {
+                    _replyToMessage = message;
+                  });
+                },
+                builders: Builders(
+                  chatAnimatedListBuilder: (context, itemBuilder) {
+                    return ChatAnimatedList(
+                      itemBuilder: itemBuilder,
+                      onEndReached: () async {
+                        await _loadMoreMessages();
+                      },
+                    );
+                  },
+                  chatMessageBuilder: (
+                    BuildContext context,
+                    Message message,
+                    int index,
+                    Animation<double> animation,
+                    Widget child, {
+                    bool? isRemoved,
+                    required bool isSentByMe,
+                    MessageGroupStatus? groupStatus,
+                  }) {
+                    final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
+                    final currentDay = DateTime(msgDate.year, msgDate.month, msgDate.day);
 
-                  DateTime? prevDay;
-                  if (index > 0) {
-                    final prevMsg = _messages.messages[index - 1];
-                    final prevDate = DateTime.fromMillisecondsSinceEpoch(prevMsg.createdAt!.millisecondsSinceEpoch);
-                    prevDay = DateTime(prevDate.year, prevDate.month, prevDate.day);
-                  }
-
-                  bool showDateHeader = index == 0 || prevDay == null || !currentDay.isAtSameMomentAs(prevDay);
-
-                  // Build reply preview widget if replyToMessage exists
-                  Widget replyPreviewWidget = SizedBox.shrink();
-                  final replyId = message.replyToMessageId;
-                  if (replyId != null) {
-                    Message? repliedMessage;
-                    try {
-                      repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
-                    } catch (e) {
-                      repliedMessage = null;
+                    DateTime? prevDay;
+                    if (index > 0) {
+                      final prevMsg = _messages.messages[index - 1];
+                      final prevDate = DateTime.fromMillisecondsSinceEpoch(prevMsg.createdAt!.millisecondsSinceEpoch);
+                      prevDay = DateTime(prevDate.year, prevDate.month, prevDate.day);
                     }
 
-                    if (repliedMessage is TextMessage) {
-                      replyPreviewWidget = Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
-                        child: Text(
-                          repliedMessage.text,
-                          style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: Colors.black54,
+                    bool showDateHeader = index == 0 || prevDay == null || !currentDay.isAtSameMomentAs(prevDay);
+
+                    Widget replyPreviewWidget = const SizedBox.shrink();
+                    final replyId = message.replyToMessageId;
+                    if (replyId != null) {
+                      Message? repliedMessage;
+                      try {
+                        repliedMessage = _messages.messages.firstWhere((m) => m.id == replyId);
+                      } catch (_) {
+                        repliedMessage = null;
+                      }
+
+                      if (repliedMessage != null) {
+                        String previewText;
+                        if (repliedMessage is TextMessage) {
+                          previewText = repliedMessage.text;
+                        } else if (repliedMessage is ImageMessage) {
+                          previewText = '📷 Image';
+                        } else if (repliedMessage is FileMessage) {
+                          previewText = '📎 File: ${repliedMessage.name}';
+                        } else {
+                          previewText = 'Unsupported message';
+                        }
+
+                        replyPreviewWidget = Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: isSentByMe ? TextAlign.right : TextAlign.left,
-                        ),
-                      );
-                    }
-                  }
-
-
-                  return Column(
-                    children: [
-                      if (showDateHeader)
-                        Container(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          alignment: Alignment.center,
+                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
                           child: Text(
-                            "${msgDate.day}/${msgDate.month}/${msgDate.year}",
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                            previewText,
+                            style: const TextStyle(
+                              fontStyle: FontStyle.italic,
+                              color: Colors.black54,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: isSentByMe ? TextAlign.right : TextAlign.left,
                           ),
-                        ),
-                      GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onLongPress: () {
-                          // Add to selection, if only one show reactions
-                        },
-                        onHorizontalDragUpdate: (details) {
-                          setState(() {
-                            double delta = details.delta.dx;
-                            if (isSentByMe) {
-                              delta = -delta;
-                            }
-                            _dragOffsets[message.id] = (_dragOffsets[message.id] ?? 0) + delta;
-                            // Clamp offset if needed, e.g. max 100 px right, min 0 (no left drag)
-                            if (_dragOffsets[message.id]! < 0) _dragOffsets[message.id] = 0;
-                            if (_dragOffsets[message.id]! > 100) _dragOffsets[message.id] = 100;
-                          });
-                        },
-                        onHorizontalDragEnd: (details) {
-                          setState(() {
-                            // Trigger reply on sufficient drag distance
-                            if ((_dragOffsets[message.id] ?? 0) > 50) {
-                              _replyToMessage = message;
-                            }
-                            // Reset drag offset after gesture ends
-                            _dragOffsets[message.id] = 0;
-                          });
-                        },
-                        child: Transform.translate(
-                          offset: Offset(isSentByMe ? -(_dragOffsets[message.id] ?? 0) : (_dragOffsets[message.id] ?? 0), 0),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            child: SizeTransition(
-                              sizeFactor: animation,
-                              child: Row(
-                                mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Flexible(
-                                    child: Column(
-                                      crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                      children: [
-                                        replyPreviewWidget,
-                                        child,
-                                      ],
+                        );
+                      }
+                    }
+
+                    return Column(
+                      children: [
+                        if (showDateHeader)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            alignment: Alignment.center,
+                            child: Text(
+                              "${msgDate.day}/${msgDate.month}/${msgDate.year}",
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onHorizontalDragUpdate: (details) {
+                            setState(() {
+                              double delta = details.delta.dx;
+                              if (isSentByMe) delta = -delta;
+                              _dragOffsets[message.id] = (_dragOffsets[message.id] ?? 0) + delta;
+                              if (_dragOffsets[message.id]! < 0) _dragOffsets[message.id] = 0;
+                              if (_dragOffsets[message.id]! > 100) _dragOffsets[message.id] = 100;
+                            });
+                          },
+                          onHorizontalDragEnd: (details) {
+                            setState(() {
+                              if ((_dragOffsets[message.id] ?? 0) > 50) {
+                                _replyToMessage = message;
+                              }
+                              _dragOffsets[message.id] = 0;
+                            });
+                          },
+                          child: Transform.translate(
+                            offset: Offset(isSentByMe ? -(_dragOffsets[message.id] ?? 0) : (_dragOffsets[message.id] ?? 0), 0),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              child: SizeTransition(
+                                sizeFactor: animation,
+                                child: Row(
+                                  mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Flexible(
+                                      child: Column(
+                                        crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                        children: [
+                                          replyPreviewWidget,
+                                          child,
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        )
-                      ),
-                    ],
-                  );
-                }
+                        ),
+                      ],
+                    );
+                  },
+                  fileMessageBuilder: fileMessageBuilder,
+                  imageMessageBuilder: myImageMessageBuilder,
+
+                  composerBuilder: (context) {
+                    return (
+                      Padding(padding: EdgeInsetsGeometry.all(0))
+                    );
+                  }
+                ),
               ),
-            )
-          )
-        ],
-      )
+            ),
+
+            // 🟦 Composer is fixed to bottom
+            _buildComposer(context),
+          ],
+        ),
+      ),
     );
   }
 
+  Widget myImageMessageBuilder(
+    BuildContext context,
+    ImageMessage message,
+    int index, {
+    required bool isSentByMe,
+    MessageGroupStatus? groupStatus,
+  }) {
+    final base64Str = message.source.contains('base64,')
+        ? message.source.split('base64,')[1]
+        : message.source;
+    Uint8List bytes = base64Decode(base64Str);
+
+    final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
+    final timeString =
+        "${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}";
+
+    return Column(
+      crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => Scaffold(
+                  backgroundColor: Colors.black,
+                  appBar: AppBar(
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                  ),
+                  body: Center(
+                    child: InteractiveViewer(
+                      child: Image.memory(bytes),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(
+              width: max(200, (message.width?? 20) / 4),
+              height: max(200, (message.height ?? 20 )/ 4),
+              bytes,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          timeString,
+          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+
+
+  Widget fileMessageBuilder(
+    BuildContext context,
+    FileMessage message,
+    int index, {
+    required bool isSentByMe,
+    MessageGroupStatus? groupStatus,
+  }) {
+    final maxWidth = MediaQuery.of(context).size.width * 0.4;
+
+    Future<void> downloadBase64File() async {
+      try {
+        final base64Str = message.source.contains('base64,')
+            ? message.source.split('base64,')[1]
+            : message.source;
+
+        Uint8List bytes = base64Decode(base64Str);
+
+        final dir = await getDownloadsDirectory();
+        File file = File('${dir!.path}/${message.name}');
+        int c = 0;
+        while (await file.exists()) {
+          file = File('${dir.path}/${message.name} - $c');
+          c += 1;
+        }
+        await file.writeAsBytes(bytes);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Successfully downloaded ${file.path.split("/").last}')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error downloading file: $e')),
+        );
+      }
+    }
+
+    final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
+    final timeString = "${msgDate.hour.toString().padLeft(2,'0')}:${msgDate.minute.toString().padLeft(2,'0')}";
+
+    // Calculate file size in KB / MB
+    String fileSizeString = '';
+    if (message.size != null) {
+      final sizeInKB = message.size! / 1024;
+      if (sizeInKB < 1024) {
+        fileSizeString = "${sizeInKB.toStringAsFixed(1)} KB";
+      } else {
+        fileSizeString = "${(sizeInKB / 1024).toStringAsFixed(1)} MB";
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: GestureDetector(
+            onTap: downloadBase64File,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withAlpha(225),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Theme.of(context).primaryColor.withAlpha(120),
+                    child: const Icon(Icons.insert_drive_file, size: 24),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          message.name,
+                          style: const TextStyle(color: Colors.black),
+                          overflow: TextOverflow.visible,
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (fileSizeString.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: Text(
+                                  fileSizeString,
+                                  style: TextStyle(fontSize: 10, color: Colors.grey[900]),
+                                ),
+                              ),
+                            Text(
+                              timeString,
+                              style: TextStyle(fontSize: 10, color: Colors.grey[900]),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildComposer(BuildContext context) {
+    final theme = Theme.of(context);
+    final textController = TextEditingController();
+    String currentText = '';
+
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          color: theme.scaffoldBackgroundColor,
+          child: Row(
+            children: [
+              // + button with popup for file/image
+              PopupMenuButton<String>(
+                icon: Icon(Icons.drive_folder_upload, color: theme.iconTheme.color),
+                onSelected: (value) {
+                  if (value == "image") _handleSendImage();
+                  if (value == "file") _handleSendFile();
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'image',
+                    child: Row(
+                      children: [
+                        Icon(Icons.image),
+                        SizedBox(width: 8),
+                        Text("Upload Image"),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'file',
+                    child: Row(
+                      children: [
+                        Icon(Icons.attach_file),
+                        SizedBox(width: 8),
+                        Text("Upload File"),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 8),
+
+              // Text input field
+              Expanded(
+                child: TextField(
+                  controller: textController,
+                  onChanged: (text) => setState(() => currentText = text),
+                  onSubmitted: (text) {
+                    if (text.trim().isNotEmpty) {
+                      _handleSendText(text.trim());
+                      textController.clear();
+                      setState(() => currentText = '');
+                    }
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Type a message',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  minLines: 1,
+                  maxLines: 5,
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Send button
+              IconButton(
+                icon: Icon(
+                  Icons.send,
+                  color: currentText.trim().isEmpty
+                      ? Colors.grey
+                      : theme.iconTheme.color,
+                ),
+                onPressed: currentText.trim().isEmpty
+                    ? null
+                    : () {
+                        _handleSendText(currentText.trim());
+                        textController.clear();
+                        setState(() => currentText = '');
+                      },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
 }

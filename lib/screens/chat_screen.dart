@@ -360,51 +360,27 @@ class _ChatScreenState extends State<ChatScreen> {
       beforeTimestamp: null,
     );
     final newMessagesRaw = batch.where((msg) => _newestTimestamp == null || msg['timestamp'] > _newestTimestamp).toList();
-    
+
     if (newMessagesRaw.isEmpty) return;
 
-    final existingId = _messages.messages.map((m) => m.id).toSet();
+    final existingIds = _messages.messages.map((m) => m.id).toSet();
+    final filteredRaw = newMessagesRaw.where((msg) => !existingIds.contains(msg['id'])).toList();
 
-    for (final rawMsg in newMessagesRaw) {
-      if (existingId.contains(rawMsg['id'])) continue;
+    if (filteredRaw.isEmpty) return;
 
-      try {
-        final decryptedMsg = await Future(() {
-          if (rawMsg['type'] == 'text') {
-            return TextMessage(
-              authorId: User(id: rawMsg['senderId']).id,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(rawMsg['timestamp']),
-              id: rawMsg['id'],
-              text: widget.keyManager.decryptMessage(rawMsg['message']),
-              replyToMessageId: rawMsg['replyTo']
-            );
-          } else {
-            final decryptedBytes = widget.keyManager.decryptMyMessageBytes(rawMsg['message']);
-            final base64Data = base64Encode(decryptedBytes);
-            return FileMessage(
-              authorId: User(id: rawMsg['senderId']).id,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(rawMsg['timestamp']),
-              id: rawMsg['id'],
-              name: rawMsg['fileName'] ?? "unknown",
-              size: rawMsg['fileSize'] ?? decryptedBytes.length,
-              source: "data:;base64,$base64Data",
-              replyToMessageId: rawMsg['replyTo']
-            );
-          }
-        });
+    // Decrypt the filtered messages outside setState and main UI flow
+    final decryptedMessages = await decryptMessagesBackground(filteredRaw, widget.keyManager);
 
-        setState(() {
-          _messages.insertMessage(decryptedMsg, index: _messages.messages.length);
-        });
-      } catch (_) {
-        // Handle decrypt error if needed
+    setState(() {
+      // Insert all decrypted messages at once at the end of the list
+      for (final msg in decryptedMessages) {
+        _messages.insertMessage(msg, index: _messages.messages.length);
       }
-    }
+    });
 
-    if (newMessagesRaw.isNotEmpty) {
-      _newestTimestamp = newMessagesRaw.first['timestamp'];
-    }
+    _newestTimestamp = newMessagesRaw.first['timestamp'];
   }
+
 
 
   void _handleSendText(String text) async {
@@ -593,7 +569,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
 
-    final success = await _sendOverTor(messageId, payload, type);
+    final success = await _sendOverTor(messageId, payload, type, fileName: fileName, fileSize: bytes.length);
     
     if (!success) {
       await PendingMessageDbHelper.insertPendingMessage({
@@ -637,7 +613,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final response = await torClient.post(uri, headers, body);
       final responseText = await response.transform(utf8.decoder).join();
-      //print("Message sent: $responseText");
+      print("Message sent: $responseText");
 
       return true;
     } 

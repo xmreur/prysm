@@ -7,6 +7,7 @@ import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'screens/chat_screen.dart';
@@ -51,7 +52,7 @@ void main() async {
   // Start the HTTP server for incoming message listener on hidden service port
   
   final keyManager = KeyManager();
-  await keyManager.initKeys();
+
 
   final messageServer = MessageHttpServer(port: 12345, keyManager: keyManager);
   messageServer.start();
@@ -82,8 +83,8 @@ class MyWindowListener extends WindowListener {
   }
 }
 
-
 class MyApp extends StatefulWidget {
+
   final TorManager torManager;
   final String onionAddress;
   final KeyManager keyManager;
@@ -101,11 +102,24 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
 
+  bool unlocked = false;
   int _currentTheme = 0;
+
+  Future<bool> onVerifyPin(String pin) async {
+    // 1. Unlock and decrypt private key with pin
+    KeyManager keyManager = widget.keyManager;
+    bool ok = await keyManager.unlockWithPin(pin);
+    if (!ok) return false;
+
+    setState(() => unlocked = true);
+
+    return true;
+  }
 
   @override
   void initState() {
     super.initState();
+
     _loadSavedTheme();
   }
 
@@ -125,6 +139,12 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (!unlocked) {
+      return MaterialApp(
+        title: "Unlock Prysm Chat App",
+        home: PinScreen(onVerifyPin: onVerifyPin)
+      );
+    }
     return MaterialApp(
       title: 'Prysm Chat App',
       theme: ThemeManager.getTheme(_currentTheme),

@@ -1060,7 +1060,7 @@ class _ChatScreenState extends State<ChatScreen> {
               context,
               MaterialPageRoute(
                 builder: (_) => Scaffold(
-                  backgroundColor: Colors.black,
+                  backgroundColor: Theme.of(context).brightness == Brightness.dark ? Colors.black : Colors.white,
                   appBar: AppBar(
                     backgroundColor: Colors.transparent,
                     elevation: 0,
@@ -1161,7 +1161,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   CircleAvatar(
                     backgroundColor: Theme.of(context).primaryColor.withAlpha(120),
-                    child: const Icon(Icons.insert_drive_file, size: 24),
+                    child: Icon(Icons.insert_drive_file, size: 24, color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.white),
                   ),
                   const SizedBox(width: 8),
                   Flexible(
@@ -1170,7 +1170,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       children: [
                         Text(
                           message.name,
-                          style: const TextStyle(color: Colors.black),
+                          style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? Colors.black : Colors.white),
                           overflow: TextOverflow.visible,
                         ),
                         Row(
@@ -1181,12 +1181,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                 padding: const EdgeInsets.only(right: 4),
                                 child: Text(
                                   fileSizeString,
-                                  style: TextStyle(fontSize: 10, color: Colors.grey[900]),
+                                  style: TextStyle(fontSize: 10, color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[900] : Colors.white),
                                 ),
                               ),
                             Text(
                               timeString,
-                              style: TextStyle(fontSize: 10, color: Colors.grey[900]),
+                              style: TextStyle(fontSize: 10, color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[900] : Colors.white),
                             ),
                           ],
                         )

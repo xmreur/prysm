@@ -647,7 +647,7 @@ class _ChatScreenState extends State<ChatScreen> {
             id: messageId,
             size: bytes.length,
             replyToMessageId: replyToId,
-            source: selfPayload,
+            source: "data:image/png;base64,${base64Encode(bytes.toList())}",
           ),
           index: _messages.messages.length,
         );
@@ -1125,10 +1125,15 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isSentByMe,
     MessageGroupStatus? groupStatus,
   }) {
+
+    
+
     final base64Str = message.source.contains('base64,')
-        ? message.source.split('base64,')[1]
-        : message.source;
+      ? message.source.split('base64,')[1]
+      : message.source;
+
     Uint8List bytes = base64Decode(base64Str);
+
 
     final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!.millisecondsSinceEpoch);
     final timeString =

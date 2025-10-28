@@ -14,6 +14,7 @@ class PendingMessageDbHelper {
     _database = await openDatabase(
       path,
       version: 1,
+      singleInstance: false,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_messages(

@@ -19,6 +19,7 @@ class MessageDbHelper {
       _database = await openDatabase(
         path,
         version: 1,
+        singleInstance: false,
         onConfigure: (db) async {
           // Enable foreign keys if needed, set busy timeout (5 seconds)
           await db.execute('PRAGMA foreign_keys = ON');

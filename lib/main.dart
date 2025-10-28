@@ -6,12 +6,14 @@ import 'dart:typed_data';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_db_helper.dart';
+import 'package:prysm/util/updater_downloader.dart';
 import 'screens/chat_screen.dart';
 import 'util/db_helper.dart';
 import 'util/message_http_server.dart';
@@ -27,6 +29,8 @@ import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final updater = await UpdaterDownloader().getOrDownloadUpdater();
+  checkForUpdatesAndLaunchUpdater();
 
   await NotificationService().init();
 
@@ -74,6 +78,60 @@ void main() async {
   runApp(MyApp(torManager: torManager, onionAddress: onionAddress, keyManager: keyManager));
 
 }
+
+Future<bool> isNewerVersion(String current, String latest) async {
+  // Simple version comparison (assumes vX.Y.Z format)
+  List<int> toNums(String v) =>
+      v.replaceFirst('v', '').split('.').map(int.parse).toList();
+
+  final currNums = toNums(current);
+  final latestNums = toNums(latest);
+  for (int i = 0; i < currNums.length && i < latestNums.length; i++) {
+    if (latestNums[i] > currNums[i]) return true;
+    if (latestNums[i] < currNums[i]) return false;
+  }
+  return latestNums.length > currNums.length;
+}
+
+
+const String currentVersion = "v0.0.6";
+
+Future<void> checkForUpdatesAndLaunchUpdater() async {
+  final url = Uri.parse('https://api.github.com/repos/xmreur/prysm/releases/latest');
+
+  try {
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      final jsonData = jsonDecode(response.body);
+
+      final latestVersion = jsonData['tag_name'] as String;
+
+      if (await isNewerVersion(currentVersion, latestVersion)) {
+
+        
+        final updaterPath = await UpdaterDownloader().getOrDownloadUpdater();
+
+
+        print('Launching updater process...');
+        await Process.start(
+          updaterPath,
+          [],
+          mode: ProcessStartMode.detached,
+        );
+
+        // Exit app to allow updater to proceed
+        exit(0);
+      } else {
+        print('Already at latest version $currentVersion');
+      }
+    } else {
+      print('Failed to fetch latest release info. Status: ${response.statusCode}');
+    }
+  } catch (e) {
+    print('Error checking updates: $e');
+  }
+}
+
 class MyWindowListener extends WindowListener {
   final TorManager torManager;
   MyWindowListener(this.torManager);

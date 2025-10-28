@@ -19,7 +19,7 @@ This is an early‑stage prototype. APIs, storage, and networking layers are evo
 
 ## Current version
 
-Latest stable version is: 0.0.4
+Latest stable version is: 0.0.6
 
 ## How to support?
 

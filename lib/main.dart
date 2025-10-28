@@ -5,11 +5,13 @@ import 'dart:typed_data';
 
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/message_db_helper.dart';
 import 'screens/chat_screen.dart';
 import 'util/db_helper.dart';
 import 'util/message_http_server.dart';
@@ -32,6 +34,7 @@ void main() async {
   final torDownloader = TorDownloader();
   final torPath = await torDownloader.getOrDownloadTor();
 
+  final messageDb = MessageDbHelper();
   final documentsDir = await getApplicationDocumentsDirectory();
   final dataDirPath = p.join(documentsDir.path, 'prysm', 'tor_executable', 'tor_data');
 
@@ -211,16 +214,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+
   Future<void> loadUsers() async {
     final userMaps = await DBHelper.getUsers();
     List<Contact> newContacts = [];
-
+    
     for (var map in userMaps) {
       String id = map['id'];
       String name = map['name'];
       String avatarUrl = '';
       String? publicKeyPem = map['publicKeyPem'];
-
+      int? lastMessageTimestamp = await MessageDbHelper.getLastMessageTimestampForUser(id);
+      
       // If publicKeyPem is null or empty, try to fetch it using TorHttpClient
       if (publicKeyPem == null || publicKeyPem.isEmpty) {
         try {
@@ -243,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
 
-      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem));
+      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem, lastMessageTimestamp: lastMessageTimestamp));
     }
 
     // Replace the user with current Tor onion address if it exists
@@ -257,10 +262,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Check if contacts have changed (simple length or content check)
     bool contactsChanged = newContacts.length != contacts.length ||
-        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name));
+        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name && formatLastMessageTime(old.lastMessageTimestamp) == formatLastMessageTime(c.lastMessageTimestamp)));
 
     if (contactsChanged) {
       setState(() {
+
+        newContacts.sort((a, b) {
+          final aTs = a.lastMessageTimestamp ?? 0;
+          final bTs = b.lastMessageTimestamp ?? 0;
+          return bTs.compareTo(aTs);
+        });
         contacts = newContacts;
         if (newAppUser != null) {
           appUser = newAppUser;
@@ -404,6 +415,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await loadUsers();
   }
 
+  String formatLastMessageTime(int? timestamp) {
+    if (timestamp == null) return "No message";
+    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toLocal();
+    final now = DateTime.now().toUtc();
+
+    bool isSameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+
+    if (isSameDay) {
+      // Format as "HH:mm"
+      return DateFormat('HH:mm').format(dt);
+    } else {
+      // Format as "dd/MM/yy - HH:mm"
+      return DateFormat('dd/MM/yy - HH:mm').format(dt);
+    }
+  }
+
+
   Widget buildSidebar() {
     return Container(
       width: 280,
@@ -506,11 +534,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 final contact = contacts[index];
                 if (contact.id == appUser.id) return const SizedBox.shrink();
                 return Padding(
+                  key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 2
                   ),
                   child: ListTile(
+                    key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
                     leading: CircleAvatar(
                       radius: 22,
                       backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
@@ -528,8 +558,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         fontWeight: selectedContact?.id == contact.id ? FontWeight.bold : FontWeight.normal,
                       )
                     ),
-                    subtitle: const Text(
-                      "Last message...",
+                    subtitle: Text(
+                      formatLastMessageTime(contact.lastMessageTimestamp),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

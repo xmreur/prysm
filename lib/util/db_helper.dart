@@ -1,6 +1,9 @@
+import 'package:prysm/util/message_db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+
+import '../models/contact.dart';
 
 class DBHelper {
   static Database? _db;
@@ -70,6 +73,7 @@ class DBHelper {
     }
   }
 
+  
   static Future<void> deleteUser(String userId) async {
     final db = await database;
     await db.delete(

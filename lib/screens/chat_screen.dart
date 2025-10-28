@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart' show getDownloadsDirectory, ge
 // import 'package:http/http.dart' as http;
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
+import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/message_db_helper.dart';
@@ -172,7 +173,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
   }
 
-  Future<List<Message>> decryptMessagesBackground(
+  /* Future<List<Message>> decryptMessagesBackground(
     List<Map<String, dynamic>> rawMessages,
     KeyManager keyManager,
   ) async {
@@ -241,6 +242,89 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     //print("$messages");
     return messages;
+  } */
+
+  Future<List<Message>> decryptMessagesDeferred(List<Map<String, dynamic>> rawMessages, KeyManager keyManager) async {
+    List<Message> messages = [];
+
+    for (var msg in rawMessages) {
+      if (_messageCache.containsKey(msg['id'])) {
+        messages.add(_messageCache[msg['id']]!);
+        continue;
+      }
+      try {
+        
+        if (msg['type'] == 'text') {
+          messages.add(TextMessage(
+            authorId: User(id: msg['senderId']).id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+            id: msg['id'],
+            replyToMessageId: msg['replyTo'],
+            text: keyManager.decryptMessage(msg['message']),
+          ));
+        } else if (msg['type'] == 'file') {
+          messages.add(FileMessage(
+            id: msg['id'],
+            authorId: User(id: msg['senderId']).id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+            replyToMessageId: msg['replyTo'],
+            name: msg['fileName'] ?? "Unknown",
+            size: msg['fileSize'] ?? 0,
+            source: msg['message'], // Not ready yet
+          ));
+
+        } else if (msg['type'] == "image") {
+          messages.add(ImageMessage(
+            id: msg['id'],
+            authorId: User(id: msg['senderId']).id,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+            replyToMessageId: msg['replyTo'],
+            size: msg['fileSize'] ?? 0,
+            source: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAIAAABEtEjdAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAEtWlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSfvu78nIGlkPSdXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQnPz4KPHg6eG1wbWV0YSB4bWxuczp4PSdhZG9iZTpuczptZXRhLyc+CjxyZGY6UkRGIHhtbG5zOnJkZj0naHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyc+CgogPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9JycKICB4bWxuczpBdHRyaWI9J2h0dHA6Ly9ucy5hdHRyaWJ1dGlvbi5jb20vYWRzLzEuMC8nPgogIDxBdHRyaWI6QWRzPgogICA8cmRmOlNlcT4KICAgIDxyZGY6bGkgcmRmOnBhcnNlVHlwZT0nUmVzb3VyY2UnPgogICAgIDxBdHRyaWI6Q3JlYXRlZD4yMDI1LTEwLTI3PC9BdHRyaWI6Q3JlYXRlZD4KICAgICA8QXR0cmliOkV4dElkPjc1OWE3MjEyLWEwNGYtNDM3OC1iZTUwLTc1MjNmMGM1MzAwNDwvQXR0cmliOkV4dElkPgogICAgIDxBdHRyaWI6RmJJZD41MjUyNjU5MTQxNzk1ODA8L0F0dHJpYjpGYklkPgogICAgIDxBdHRyaWI6VG91Y2hUeXBlPjI8L0F0dHJpYjpUb3VjaFR5cGU+CiAgICA8L3JkZjpsaT4KICAgPC9yZGY6U2VxPgogIDwvQXR0cmliOkFkcz4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6ZGM9J2h0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvJz4KICA8ZGM6dGl0bGU+CiAgIDxyZGY6QWx0PgogICAgPHJkZjpsaSB4bWw6bGFuZz0neC1kZWZhdWx0Jz5VbnRpdGxlZCBkZXNpZ24gLSAxPC9yZGY6bGk+CiAgIDwvcmRmOkFsdD4KICA8L2RjOnRpdGxlPgogPC9yZGY6RGVzY3JpcHRpb24+CgogPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9JycKICB4bWxuczpwZGY9J2h0dHA6Ly9ucy5hZG9iZS5jb20vcGRmLzEuMy8nPgogIDxwZGY6QXV0aG9yPnhtcmV1cjwvcGRmOkF1dGhvcj4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6eG1wPSdodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvJz4KICA8eG1wOkNyZWF0b3JUb29sPkNhbnZhIChSZW5kZXJlcikgZG9jPURBRzItQ0M3QmowIHVzZXI9VUFHMi1QM1g2Z0kgYnJhbmQ9QkFHMi1EUGF2ancgdGVtcGxhdGU9PC94bXA6Q3JlYXRvclRvb2w+CiA8L3JkZjpEZXNjcmlwdGlvbj4KPC9yZGY6UkRGPgo8L3g6eG1wbWV0YT4KPD94cGFja2V0IGVuZD0ncic/Pu7JWa4AABtuSURBVHic7N3tT9XlH8Bx4KDcmFqCWqYrNK3UZE3LnNWcy62Wuu5cLtfWg3xgd1vrX+ivaD3pScullqapK6dNwVJDRWeSBmrRWSogeMPtgd8DNsbOORAqyc8Pr9czru/Fl4vDfPPlOt9zzK2pqckBIJa8kV4AAMNP3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdICBxBwhI3AECEneAgMQdIKD8kV4ADLPm5ubLly+nDRYWFj744IMDfUpTU9Px48ebmpoKCwtnzpw5Z86c3Nzc/3iZ8N/KrampGek1wHCqrKzcsWNH2uD06dM3bNiQdX5VVdXWrVu7urr6RsrKyt5+++2CgoL/cJXwH7MtM/Jas+nfGv47Fy9e/Oabb9Ie7bq6uu+++26klgTDwrbMCGtvb//0008zx1esWLFs2bI7vpxRp6qqqru7O3O8urp61apVLt65e7lyZ1S7cuVK1vFUKtXS0nKHFwPDSNwZ1YqLiwc6NG7cuDu5Ehhe4s6oNm/evKzjM2fOHKT78P9P3BnVZs2atWTJkrTBCRMmvPLKKyOyHhgunlBltFu5cmVZWVlVVVXvfe5lZWVLly69Gy/bd+7cefXq1bKyspkzZ5aUlIz0chhh4g458+bNG2h/5i5y7Nixa9euHT9+PCcnZ8KECXPmzHn11VdHelGMGNsyEEFDQ8O1a9f6PmxpaWloaBjB9TDiXLmPUqlUqrGxsbW1tbOzc+zYscXFxffdd19e3rD9su/o6Ghqampra0ulUgUFBYWFhffee28ikbj9M6dSqYaGhhs3buTm5o4fP378+PFjxoy5/dMOu46OjsuXL7e1tY0ZM6a4uHjixIn5+bf7z+3GjRtNTU3t7e25ubkFBQWTJk0qLCzsPXT06NG0ybNnz77NL8ddTdxHl/r6+hMnTvz++++XLl1Ke/FOfn7+1KlT58yZU15ePnny5Fs4eXd39+nTp3/77be6urorV6709PT0P5pIJKZMmTJr1qynn376FnaE29vbf/311xMnTtTX16dSqb7xvLy8hx9+eP78+QsXLry1em7atOnq1atpg88999wjjzySOfns2bP79+9PG5w7d+7ixYv71nno0KHq6upkMtn/EcjPz58xY8aCBQsWLVp0U79Ee3p6ampqjh07Vltbe/369bSjkyZNeuyxx8rLy3/++ef+40VFRc8888zQvwrxiPto8ddff+3atauurm6gCV1dXfX19fX19fv27Xv00Udfeuml0tLSIZ68s7Pz4MGDFRUV/XcG0qRSqWQymUwmKyoqFi5cuHLlyqFfcR85cmT37t03btzIPNTd3V1bW1tbW3vgwIG1a9cO8u5gAzl//nxjY2PaYHl5edbJLS0tZ8+eTRvse6DOnDmzZcuWrK9+6urqqqurq6urO3DgwLp166ZOnTqUtZ07d27btm3//PPPQBMaGxsrKysrKyv7DyYSiddff93La0c5cY+vp6fnhx9+2L9/f9bX2Wedf/r06bNnz7744ouZtwlmOnPmzNatW5uamoa+niNHjiSTyfXr1/9r33t6erZs2VJVVfWvp21sbPz888/feeedIS5j2FVXV3/99df/+iA3NDR89tln69evv//++wefWVlZuXPnziH+1PqMGzduzZo19mTwhGpwPT09X3311U8//XSzjejq6tq+ffvOnTsHn7Z3794vvvhi6GXvU19f/+233/7rtK1btw6l7L06Ojq+/PLL06dP3+xibt/ff/+9efPmIT7IbW1tmzZtGnxyVVXVjh07bvanNmnSpI8//ljZyRH38Hbs2HHy5Mlb/vQDBw6k/cnf3+7du3/88ce0vfWhO378eDKZHGRCdXX14cOHb+qc165d++OPP25tPbcsmUxu3rz5pt7IM5lMnjhxYqCjV69eHehtKROJRElJSUlJSdaN++bm5gsXLgx9GQRmWyaympqagwcPDjKhsLCwqKiotbW1ra1toDm7du2aNWtW1j3iQTZVSktLH3jggXvuuScnJ6elpeXcuXOZTwb2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", // Not ready yet
+          ));
+          
+          decryptFileInBackground(msg, keyManager).then((decryptedBytes) {
+            final index = messages.indexWhere((m) => m.id == msg['id']);
+            var oldMessage;
+
+            if (index != -1) {
+              if (msg['type'] == "file") {
+                oldMessage = messages[index] as FileMessage;
+              } else {
+                oldMessage = messages[index] as ImageMessage;
+              }
+              final newMessage = oldMessage.copyWith(
+                source: base64Encode(decryptedBytes),
+                size: decryptedBytes.length,
+              );
+              setState(() {
+                messages[index] = newMessage;
+              });
+            }
+          });
+        }
+      } catch (e) {
+        messages.add(TextMessage(
+          authorId: User(id: msg['senderId']).id,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+          id: msg['id'],
+          replyToMessageId: msg['replyTo'],
+          text: '🔒 Unable to decrypt message',
+        ));
+      }
+    }
+    return messages;
+  }
+
+  Future<Uint8List> decryptFileInBackground(Map<String, dynamic> msg, KeyManager keyManager) async {
+    final hybrid = jsonDecode(msg['message']);
+    final rsaEncryptedAesKey = hybrid['aes_key'];
+    final iv = e.IV.fromBase64(hybrid['iv']);
+    final encryptedData = base64Decode(hybrid['data']);
+    final aesKeyBytes = keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
+    final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
+    final decryptedBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
+    return decryptedBytes;
   }
 
   String decodeBase58ToOnion(String base58String) {
@@ -334,7 +418,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final modifiableList = List.of(batch);
     modifiableList.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
 
-    final newMessages = await decryptMessagesBackground(modifiableList, widget.keyManager);
+    final newMessages = await decryptMessagesDeferred(modifiableList, widget.keyManager);
     
     //print("Loaded ${newMessages.length} more messages.");
     setState(() {
@@ -370,7 +454,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (filteredRaw.isEmpty) return;
 
     // Decrypt the filtered messages outside setState and main UI flow
-    final decryptedMessages = await decryptMessagesBackground(filteredRaw, widget.keyManager);
+    final decryptedMessages = await decryptMessagesDeferred(filteredRaw, widget.keyManager);
 
     setState(() {
       // Insert all decrypted messages at once at the end of the list
@@ -551,7 +635,7 @@ class _ChatScreenState extends State<ChatScreen> {
             name: fileName,
             size: bytes.length,
             replyToMessageId: replyToId,
-            source: "data:;base64,${base64Encode(bytes)}",
+            source: selfPayload,
           ),
           index: _messages.messages.length,
         );
@@ -563,7 +647,7 @@ class _ChatScreenState extends State<ChatScreen> {
             id: messageId,
             size: bytes.length,
             replyToMessageId: replyToId,
-            source: "data:;base64,${base64Encode(bytes)}",
+            source: selfPayload,
           ),
           index: _messages.messages.length,
         );
@@ -658,7 +742,6 @@ class _ChatScreenState extends State<ChatScreen> {
               'id': updatedContact.id,
               'name': updatedContact.name,
               'avatarUrl': updatedContact.avatarUrl,
-              'publicKeyPem': updatedContact.publicKeyPem,
             });
             widget.reloadUsers();
           },
@@ -1028,7 +1111,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
 
             // 🟦 Composer is fixed to bottom
-            _buildComposer(context),
+            MessageComposer(onSendText: _handleSend, onSendImage: _handleSendImage, onSendFile: _handleSendFile),
           ],
         ),
       ),
@@ -1103,20 +1186,39 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final maxWidth = MediaQuery.of(context).size.width * 0.4;
 
-    Future<void> downloadBase64File() async {
-      try {
-        final base64Str = message.source.contains('base64,')
-            ? message.source.split('base64,')[1]
-            : message.source;
+    final ValueNotifier<bool> isDownloading = ValueNotifier(false);
 
-        Uint8List bytes = base64Decode(base64Str);
+    Future<void> downloadBase64File() async {
+      if (isDownloading.value == true) return;
+
+      isDownloading.value = true;
+
+      await Future.delayed(Duration(milliseconds: 50));
+      try {
+        if (message.source == null || message.source!.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No encrypted data available for this file')),
+          );
+          return;
+        }
+
+        // decryptFileInBackground expects a Map with a 'message' field containing JSON string
+        final Map<String, dynamic> decryptInput = {'message': message.source};
+
+        Uint8List bytes = await decryptFileInBackground(decryptInput, widget.keyManager);
 
         final dir = await getDownloadsDirectory();
         File file = File('${dir!.path}/${message.name}');
         int c = 0;
         while (await file.exists()) {
           file = File('${dir.path}/${message.name} - $c');
-          c += 1;
+          c++;
+        }
+        if (bytes.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${file.path.split("/").last} is still decrypting, please wait.')),
+          );
+          return;
         }
         await file.writeAsBytes(bytes);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1126,6 +1228,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error downloading file: $e')),
         );
+      } finally {
+        isDownloading.value = false;
       }
     }
 
@@ -1159,9 +1263,31 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: Theme.of(context).primaryColor.withAlpha(120),
-                    child: Icon(Icons.insert_drive_file, size: 24, color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.white),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: isDownloading,
+                    builder: (context, downloading, _) {
+                      if (downloading) {
+                        return SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black,
+                            ),
+                            strokeWidth: 2.5,
+                          ),
+                        );
+                      } else {
+                        return CircleAvatar(
+                          backgroundColor: Theme.of(context).primaryColor.withAlpha(120),
+                          child: Icon(
+                            Icons.insert_drive_file,
+                            size: 24,
+                            color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.white,
+                          ),
+                        );
+                      }
+                    },
                   ),
                   const SizedBox(width: 8),
                   Flexible(
@@ -1201,98 +1327,4 @@ class _ChatScreenState extends State<ChatScreen> {
       ],
     );
   }
-
-  Widget _buildComposer(BuildContext context) {
-    final theme = Theme.of(context);
-    final textController = TextEditingController();
-    String currentText = '';
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          color: theme.scaffoldBackgroundColor,
-          child: Row(
-            children: [
-              // + button with popup for file/image
-              PopupMenuButton<String>(
-                icon: Icon(Icons.drive_folder_upload, color: theme.iconTheme.color),
-                onSelected: (value) {
-                  if (value == "image") _handleSendImage();
-                  if (value == "file") _handleSendFile();
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'image',
-                    child: Row(
-                      children: [
-                        Icon(Icons.image),
-                        SizedBox(width: 8),
-                        Text("Upload Image"),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'file',
-                    child: Row(
-                      children: [
-                        Icon(Icons.attach_file),
-                        SizedBox(width: 8),
-                        Text("Upload File"),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 8),
-
-              // Text input field
-              Expanded(
-                child: TextField(
-                  controller: textController,
-                  onChanged: (text) => setState(() => currentText = text),
-                  onSubmitted: (text) {
-                    if (text.trim().isNotEmpty) {
-                      _handleSendText(text.trim());
-                      textController.clear();
-                      setState(() => currentText = '');
-                    }
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Type a message',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
-                  minLines: 1,
-                  maxLines: 5,
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // Send button
-              IconButton(
-                icon: Icon(
-                  Icons.send,
-                  color: currentText.trim().isEmpty
-                      ? Colors.grey
-                      : theme.iconTheme.color,
-                ),
-                onPressed: currentText.trim().isEmpty
-                    ? null
-                    : () {
-                        _handleSendText(currentText.trim());
-                        textController.clear();
-                        setState(() => currentText = '');
-                      },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
 }

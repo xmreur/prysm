@@ -69,7 +69,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
       'id': updatedPeer.id,
       'name': updatedPeer.name,
       'avatarUrl': updatedPeer.avatarUrl,
-      'publicKeyPem': updatedPeer.publicKeyPem,
+      'publicKeyPem': widget.peer.publicKeyPem,
     });
 
     widget.onUpdateName(updatedPeer);

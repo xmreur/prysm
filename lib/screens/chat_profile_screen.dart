@@ -20,8 +20,8 @@ class ChatProfileScreen extends StatefulWidget {
     required this.onUpdateName,
     required this.onDeleteChat,
     required this.onDeleteContact,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<ChatProfileScreen> createState() => _ChatProfileScreenState();

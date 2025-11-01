@@ -6,7 +6,6 @@ import 'package:prysm/util/notification_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'message_db_helper.dart';
-import 'package:uuid/uuid.dart';
 
 class MessageHttpServer {
   final int port;

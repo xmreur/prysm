@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class DataStorageScreen extends StatefulWidget {
   final VoidCallback onClose;
 
-  const DataStorageScreen({required this.onClose, Key? key}) : super(key: key);
+  const DataStorageScreen({required this.onClose, super.key});
 
   @override
   State<DataStorageScreen> createState() => _DataStorageScreenState();

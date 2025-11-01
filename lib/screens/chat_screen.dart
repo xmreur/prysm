@@ -54,8 +54,8 @@ class ChatScreen extends StatefulWidget {
     this.currentTheme = 0,
     required this.clearChat,
     required this.reloadUsers,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();

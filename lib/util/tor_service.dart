@@ -133,7 +133,7 @@ HiddenServicePort 12345 127.0.0.1:12345
       }
     });
 
-    _sendControlCommand('AUTHENTICATE "${controlPassword}"');
+    _sendControlCommand('AUTHENTICATE "$controlPassword"');
     return completer.future;
   }
 

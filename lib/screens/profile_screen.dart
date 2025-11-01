@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/scheduler.dart';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,8 +19,8 @@ class ProfileScreen extends StatefulWidget {
     required this.onClose,
     required this.onUpdate,
     required this.reloadUsers,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();

@@ -813,14 +813,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Your Prysm ID: ${encodeOnionToBase58(appUser.id)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).hintColor,
-                          ),
-                        ),
                         const SizedBox(height: 20),
                         ElevatedButton.icon(
                           onPressed: _showAddUserDialog,

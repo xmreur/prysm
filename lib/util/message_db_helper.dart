@@ -171,6 +171,26 @@ class MessageDbHelper {
     });
   }
 
+  static Future<void> deleteMessageById(String id) async {
+    await _dbMutex.protect(() async {
+      final db = await database;
+      await db.update(
+        "messages",
+        {
+          "replyTo": null
+        },
+        where: "id = ?",
+        whereArgs: [id]
+      );
+      await db.delete(
+        "messages",
+        
+        where: "id = ?",
+        whereArgs: [id]
+      );
+    });
+  }
+
   /// Close the database (optional)
   static Future<void> close() async {
     if (_database != null) {

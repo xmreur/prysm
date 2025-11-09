@@ -73,6 +73,18 @@ class DBHelper {
     }
   }
 
+  static Future<Map<String, dynamic>?> getUserById(String id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      "users",
+      where: "id = ?",
+      whereArgs: [id],
+    );
+    if (results.isNotEmpty) {
+      return results.first;
+    }
+    return null; // or throw, or return an empty map {}
+  }
   
   static Future<void> deleteUser(String userId) async {
     final db = await database;

@@ -29,14 +29,19 @@ import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final updater = await UpdaterDownloader().getOrDownloadUpdater();
-  checkForUpdatesAndLaunchUpdater();
+  // await NotificationService().init();
+  
+  var torPath = ""; 
+  if (!Platform.isAndroid) {
+    final updater = await UpdaterDownloader().getOrDownloadUpdater();
+    checkForUpdatesAndLaunchUpdater();
 
-  await NotificationService().init();
-
-  // Download or get local Tor executable path
-  final torDownloader = TorDownloader();
-  final torPath = await torDownloader.getOrDownloadTor();
+    // Download or get local Tor executable path
+    final torDownloader = TorDownloader();
+    torPath = await torDownloader.getOrDownloadTor();
+  } else {
+    torPath = "";
+  }
 
   final messageDb = MessageDbHelper();
   final documentsDir = await getApplicationDocumentsDirectory();
@@ -67,7 +72,7 @@ void main() async {
   // Try to create/get hidden service onion address as user ID
   late String onionAddress;
   try {
-    onionAddress = await torManager.getOnionAddress();
+    onionAddress = (await torManager.getOnionAddress())!;
   } catch (e) {
     //print('Failed to create hidden service: $e');
     onionAddress = 'me'; // fallback user id
@@ -490,8 +495,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
 
-  Widget buildSidebar() {
+  Widget buildSidebar() { 
+    
+    final isMobile = MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
+
     return Container(
+      margin: EdgeInsetsGeometry.only(top: isMobile ? 50 : 0, bottom: isMobile ? 20 : 0),
       width: 280,
       decoration: BoxDecoration(
         color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.grey[100],
@@ -721,8 +730,130 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
+
     if (isLoading) {
       return const Material(child: Center(child: CircularProgressIndicator()));
+    }
+
+    
+    if (isMobile) {
+       return Scaffold(
+        appBar: AppBar(
+          toolbarHeight: 70,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Image.asset(
+                  'assets/logo.png',
+                  height: 40.0,
+                  width: 40.0,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Prysm Chat',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            )
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined),
+              onPressed: () {},
+            ),
+            IconButton(icon: const Icon(Icons.more_vert), onPressed: () => setState(() => showSettings = true)),
+          ],
+          elevation: 2,
+          shadowColor: Colors.black.withValues(alpha: 0.1),
+        ),
+        drawer: Drawer(
+          child: buildSidebar(),
+        ),
+        body: Row(
+          children: [
+            Expanded(
+              child: showProfile
+                  ? ProfileScreen(
+                      user: appUser,
+                      onClose: () => setState(() => showProfile = false),
+                      onUpdate: onUpdateProfile,
+                      reloadUsers: () => loadUsers(),
+                    )
+                  : showSettings
+                  ? SettingsScreen(
+                      onClose: () => setState(() => showSettings = false),
+                      onThemeChanged: onThemeChanged,
+                    )
+                  : selectedContact != null
+                  ? ChatScreen(
+                      userId: appUser.id,
+                      userName: appUser.name,
+                      peerId: selectedContact!.id,
+                      peerName: selectedContact!.name,
+                      torManager: widget.torManager,
+                      keyManager: widget.keyManager,
+                      currentTheme: currentTheme,
+                      clearChat: () => clearChat(),
+                      reloadUsers: () => loadUsers(),
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Icon(
+                              Icons.chat_bubble_outline,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Select a chat to start messaging',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: _showAddUserDialog,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add User'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      );
     }
     return Scaffold(
       appBar: AppBar(

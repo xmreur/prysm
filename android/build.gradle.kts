@@ -2,6 +2,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+
+        maven("https://raw.githubusercontent.com/guardianproject/gpmaven/master" )
     }
 }
 

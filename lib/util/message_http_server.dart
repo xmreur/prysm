@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/notification_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'message_db_helper.dart';
@@ -57,6 +59,9 @@ class MessageHttpServer {
           'status': data['status'] ?? 'received',
           'replyTo': data['replyTo']
         });
+
+        final contact = await DBHelper.getUserById(data['senderId']);
+        NotificationService().showNewMessageNotification(senderName: contact!['name'], message: 'Open to view the message', notificationId: Random().nextInt(99999999));
 
         return Response.ok(
             jsonEncode({'status': 'received', 'id': data['id']}),

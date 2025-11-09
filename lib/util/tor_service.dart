@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
+
 
 class TorManager {
   Process? _torProcess;
   Socket? _controlSocket;
   late Stream<String> _controlStream;
+  static const MethodChannel _channel = MethodChannel("prysm_tor");
 
   final String torPath;
   final String dataDir;
@@ -24,25 +27,31 @@ class TorManager {
 
   /// Launch Tor process with control port enabled
   Future<void> startTor() async {
-    final torrcPath = await _writeTorrc();
+    if (Platform.isAndroid) {
+      await _channel.invokeMethod("startTor");
+    }
+    else {
 
-    _torProcess = await Process.start(
-      torPath,
-      ['-f', torrcPath],
-      mode: ProcessStartMode.normal,
-    );
+      final torrcPath = await _writeTorrc();
 
-    _torProcess!.stdout.transform(utf8.decoder).listen((data) {
-      stdoutController.add(data);
-      //print('[Tor] stdout: $data');
-    });
+      _torProcess = await Process.start(
+        torPath,
+        ['-f', torrcPath],
+        mode: ProcessStartMode.normal,
+      );
 
-    _torProcess!.stderr.transform(utf8.decoder).listen((data) {
-      stderrController.add(data);
-      //print('[Tor] stderr: $data');
-    });
+      _torProcess!.stdout.transform(utf8.decoder).listen((data) {
+        stdoutController.add(data);
+        //print('[Tor] stdout: $data');
+      });
 
-    await _connectControlPort();
+      _torProcess!.stderr.transform(utf8.decoder).listen((data) {
+        stderrController.add(data);
+        //print('[Tor] stderr: $data');
+      });
+
+      await _connectControlPort();
+    }
 
     //print('Tor process started and authenticated.');
   }
@@ -145,7 +154,17 @@ HiddenServicePort 12345 127.0.0.1:12345
   }
 
   /// Read onion address from Tor hidden service folder
-  Future<String> getOnionAddress() async {
+  Future<String?> getOnionAddress() async {
+    if (Platform.isAndroid) {
+      try {
+        final address = _channel.invokeMethod<String>("getOnionAddress");
+        print(await address);
+        return address;
+      } catch (e) {
+        print(e);
+        return null;
+      }
+    }
     final hostnameFile = File('$dataDir/hidden_service/hostname');
     if (!hostnameFile.existsSync()) {
       throw Exception('Hidden service not started or hostname file missing.');
@@ -155,7 +174,11 @@ HiddenServicePort 12345 127.0.0.1:12345
 
   /// Stop Tor process
   Future<void> stopTor() async {
-    
+    if (Platform.isAndroid) {
+      await _channel.invokeMethod("stopTor");
+      return;
+    }
+
     if (_controlSocket == null || _torProcess == null) return;
 
     final completer = Completer<void>();
@@ -205,3 +228,4 @@ HiddenServicePort 12345 127.0.0.1:12345
   }
 
 }
+

@@ -108,10 +108,10 @@ class _PinScreenState extends State<PinScreen> {
                 return GestureDetector(
                   onTap: () => _onKeyPress("back"),
                   behavior: HitTestBehavior.opaque,
-                  child: const SizedBox(
+                  child: SizedBox(
                     width: 80,
                     height: 80,
-                    child: Icon(Icons.backspace_outlined, size: 28),
+                    child: Icon(Icons.backspace_outlined, size: 28, color: Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black,),
                   ),
                 );
               }

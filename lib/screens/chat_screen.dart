@@ -77,6 +77,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _currentTheme = 0;
   int _lastMessageCount = 0;
 
+  Set<String> selectedMessageIds = {};
+
   Message? _replyToMessage;
   
   Map<String, double> _dragOffsets = {}; // messageId -> offset
@@ -456,6 +458,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // Decrypt the filtered messages outside setState and main UI flow
     final decryptedMessages = await decryptMessagesDeferred(filteredRaw, widget.keyManager);
 
+    if (!mounted) return; 
     setState(() {
       // Insert all decrypted messages at once at the end of the list
       for (final msg in decryptedMessages) {
@@ -834,6 +837,22 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> deleteSelectedMessages() async {
+   
+    for (var id in selectedMessageIds) {
+      await MessageDbHelper.deleteMessageById(id);
+    }
+
+    setState(() {
+      for (var id in selectedMessageIds) {
+        _messages.removeMessage(
+          _messages.messages.firstWhere((msg) => msg.id == id)
+        );
+      }
+      selectedMessageIds.clear(); // Clear selection after deletion
+    });
+
+  }
 
 
   @override
@@ -934,12 +953,26 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: _openChatProfile,
-          ),
-        ],
+        actions: 
+          selectedMessageIds.isNotEmpty ?
+            [
+              IconButton(
+                icon: Icon(Icons.delete),
+                onPressed: deleteSelectedMessages,
+              ),
+              IconButton(
+                icon: const Icon(Icons.more_vert),
+                onPressed: _openChatProfile,
+              ),
+            ]
+          : 
+          [
+            IconButton(
+              icon: const Icon(Icons.more_vert),
+              onPressed: _openChatProfile,
+            ),
+          ]
+        ,
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
@@ -963,7 +996,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
                 onMessageLongPress: (context, message, {LongPressStartDetails? details, int? index}) {
                   setState(() {
-                    _replyToMessage = message;
+                    if (selectedMessageIds.contains(message.id)) {
+                      selectedMessageIds.remove(message.id);
+                    } else {
+                      selectedMessageIds.add(message.id);
+                    }
                   });
                 },
                 builders: Builders(
@@ -989,7 +1026,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final currentDay = DateTime(msgDate.year, msgDate.month, msgDate.day);
 
                     DateTime? prevDay;
-                    if (index > 0) {
+                    if (index > 0 && index - 1 < _messages.messages.length) {
                       final prevMsg = _messages.messages[index - 1];
                       final prevDate = DateTime.fromMillisecondsSinceEpoch(prevMsg.createdAt!.millisecondsSinceEpoch);
                       prevDay = DateTime(prevDate.year, prevDate.month, prevDate.day);
@@ -1040,6 +1077,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
                     }
 
+
+                    bool isSelected = selectedMessageIds.contains(message.id);
+
                     return Column(
                       children: [
                         if (showDateHeader)
@@ -1070,27 +1110,43 @@ class _ChatScreenState extends State<ChatScreen> {
                               _dragOffsets[message.id] = 0;
                             });
                           },
+                          onLongPress: () {
+                            setState(() {
+                              if (isSelected) {
+                                selectedMessageIds.remove(message.id);
+                              } else {
+                                selectedMessageIds.add(message.id);
+                              }
+                            });
+                          },
                           child: Transform.translate(
                             offset: Offset(isSentByMe ? -(_dragOffsets[message.id] ?? 0) : (_dragOffsets[message.id] ?? 0), 0),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              child: SizeTransition(
-                                sizeFactor: animation,
-                                child: Row(
-                                  mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Flexible(
-                                      child: Column(
-                                        crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                        children: [
-                                          replyPreviewWidget,
-                                          child,
-                                        ],
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: selectedMessageIds.contains(message.id)
+                                  ? Colors.blue.withAlpha(60)
+                                  : Colors.transparent  
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                child: SizeTransition(
+                                  sizeFactor: animation,
+                                  child: Row(
+                                    mainAxisAlignment: isSentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                          children: [
+                                            replyPreviewWidget,
+                                            child,
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
                                 ),
+                              ),
                               ),
                             ),
                           ),

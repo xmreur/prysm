@@ -23,7 +23,7 @@ Questa è una versione prototipo in fase iniziale. API, archiviazione e livelli 
 
 ## Versione attuale
 
-L'ultima versione stabile è: 0.0.6
+L'ultima versione stabile è: 0.0.7
 
 ## Download ufficiali
 

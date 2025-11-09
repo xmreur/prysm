@@ -25,12 +25,25 @@ import 'models/contact.dart';
 import 'util/theme_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'util/notification_service.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // await NotificationService().init();
+  await NotificationService().init();
   
+  if (Platform.isAndroid) {
+    final androidConfig = FlutterBackgroundAndroidConfig(
+      notificationTitle: "Prysm Chat is running",
+      notificationText: "Prysm chat is actively waiting for new messages",
+      notificationImportance: AndroidNotificationImportance.normal,
+      notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
+    );
+    bool success = await FlutterBackground.initialize(androidConfig: androidConfig);
+
+    bool bg_success = await FlutterBackground.enableBackgroundExecution();
+  }
+
   var torPath = ""; 
   if (!Platform.isAndroid) {
     final updater = await UpdaterDownloader().getOrDownloadUpdater();
@@ -99,7 +112,7 @@ Future<bool> isNewerVersion(String current, String latest) async {
 }
 
 
-const String currentVersion = "v0.0.6";
+const String currentVersion = "v0.0.7";
 
 Future<void> checkForUpdatesAndLaunchUpdater() async {
   final url = Uri.parse('https://api.github.com/repos/xmreur/prysm/releases/latest');

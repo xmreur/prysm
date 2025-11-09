@@ -14,7 +14,7 @@ class NotificationService {
     if (_initialized) return;
     _initialized = true;
 
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('icon');
+    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('icon_white');
 
     const DarwinInitializationSettings initializationSettingsDarwin = DarwinInitializationSettings();
     

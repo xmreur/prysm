@@ -43,7 +43,7 @@ class UpdaterDownloader {
       await Process.run('chmod', ['+x', updaterExecutablePath]);
     }
 
-    //print("Updater executable downloaded to $updaterExecutablePath");
+    print("Updater executable downloaded to $updaterExecutablePath");
     return updaterExecutablePath;
   }
 

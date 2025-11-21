@@ -174,7 +174,7 @@ class MessageDbHelper {
   static Future<void> deleteMessageById(String id) async {
     await _dbMutex.protect(() async {
       final db = await database;
-      await db.update(
+      await db.update( 
         "messages",
         {
           "replyTo": null

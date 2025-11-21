@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+
 class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
-  const PinScreen({required this.onVerifyPin, super.key});
+  final Future<bool> isSetupMode;
+  const PinScreen({required this.onVerifyPin, required this.isSetupMode, super.key});
 
   @override
   State<PinScreen> createState() => _PinScreenState();
@@ -32,6 +34,7 @@ class _PinScreenState extends State<PinScreen> {
       });
 
       final success = await widget.onVerifyPin(_pin);
+      if (!mounted) return;
       if (!success) {
         setState(() {
           error = "Incorrect PIN";
@@ -137,13 +140,19 @@ class _PinScreenState extends State<PinScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                "Enter Passcode",
-                style: TextStyle(
-                  color: Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 30,
-                ),
+              FutureBuilder<bool>(
+                future: widget.isSetupMode,
+                builder: (context, snapshot) {
+                  final isSetupMode = snapshot.data ?? false;
+                  return Text(
+                    isSetupMode ? "Enter Passcode" : "Setup Passcode",
+                    style: TextStyle(
+                      color: Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 30,
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 30),
               isLoading

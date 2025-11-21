@@ -15,12 +15,12 @@ class MessageHttpServer {
 
   Future<void> start() async {
     Future<Response> handler(Request request) async {
-      //print("${request.url.path}");
+      print("${request.method}|${request.url.path}");
 
       if (request.method == 'POST' && request.url.path == 'message') {
         final payload = await request.readAsString();
         final data = jsonDecode(payload);
-
+        print(data.toString());
         // Basic validation
         if (data['id'] == null ||
             data['senderId'] == null ||
@@ -28,6 +28,7 @@ class MessageHttpServer {
             data['message'] == null ||
             data['type'] == null ||
             data['timestamp'] == null) {
+              print('invalid, message');
           return Response(400,
               body: jsonEncode({'error': 'Invalid message data'}),
               headers: {'Content-Type': 'application/json'});
@@ -36,6 +37,7 @@ class MessageHttpServer {
         // Additional validation for files/images
         if (data['type'] == "file" || data['type'] == "image") {
           if (data['fileName'] == null || data['fileSize'] == null) {
+            print('Missing file');
             return Response(400,
                 body: jsonEncode({'error': 'Missing file metadata'}),
                 headers: {'Content-Type': 'application/json'});
@@ -45,7 +47,7 @@ class MessageHttpServer {
         final int timeReceived = DateTime.now().millisecondsSinceEpoch;
 
         await DBHelper.ensureUserExist(data['senderId']);
-        
+        print("${data['type']}");
         // Store message
         await MessageDbHelper.insertMessage({
           'id': data['id'],
@@ -62,7 +64,7 @@ class MessageHttpServer {
 
         final contact = await DBHelper.getUserById(data['senderId']);
         NotificationService().showNewMessageNotification(senderName: contact!['name'], message: 'Open to view the message', notificationId: Random().nextInt(99999999));
-
+        print('ok');
         return Response.ok(
             jsonEncode({'status': 'received', 'id': data['id']}),
             headers: {'Content-Type': 'application/json'});
@@ -104,6 +106,6 @@ class MessageHttpServer {
 
     // final server = 
     await io.serve(handler, '0.0.0.0', port);
-    //print('Message HTTP server running on port ${port}');
+    print('Message HTTP server running on port ${port}');
   }
 }

@@ -42,18 +42,18 @@ class TorManager {
 
       _torProcess!.stdout.transform(utf8.decoder).listen((data) {
         stdoutController.add(data);
-        //print('[Tor] stdout: $data');
+        print('[Tor] stdout: $data');
       });
 
       _torProcess!.stderr.transform(utf8.decoder).listen((data) {
         stderrController.add(data);
-        //print('[Tor] stderr: $data');
+        print('[Tor] stderr: $data');
       });
 
       await _connectControlPort();
     }
 
-    //print('Tor process started and authenticated.');
+    print('Tor process started and authenticated.');
   }
 
   /// Write torrc config file for persistent hidden service
@@ -99,7 +99,7 @@ HiddenServicePort 12345 127.0.0.1:12345
     while (retries < maxRetries) {
       try {
         _controlSocket = await Socket.connect('127.0.0.1', controlPort);
-        //print('Connected to Tor ControlPort on $controlPort');
+        print('Connected to Tor ControlPort on $controlPort');
 
         _controlStream = _controlSocket!
             .cast<List<int>>()
@@ -108,7 +108,7 @@ HiddenServicePort 12345 127.0.0.1:12345
             .asBroadcastStream();
 
         _controlSocket!.done.then((_) {
-          //print('Tor ControlPort socket closed');
+          print('Tor ControlPort socket closed');
           _controlSocket = null;
         });
 
@@ -116,7 +116,7 @@ HiddenServicePort 12345 127.0.0.1:12345
         return;
       } catch (e) {
         retries++;
-        //print('Failed to connect/authenticate Tor ControlPort. Retry $retries/$maxRetries Exception: $e');
+        print('Failed to connect/authenticate Tor ControlPort. Retry $retries/$maxRetries Exception: $e');
         await Future.delayed(const Duration(seconds: 3));
       }
     }
@@ -132,7 +132,7 @@ HiddenServicePort 12345 127.0.0.1:12345
     late StreamSubscription<String> sub;
 
     sub = _controlStream.listen((line) {
-      //print('[Tor Control] $line');
+      print('[Tor Control] $line');
       if (line.startsWith('250')) {
         completer.complete();
         sub.cancel();
@@ -149,7 +149,7 @@ HiddenServicePort 12345 127.0.0.1:12345
   /// Send command to Tor control socket
   void _sendControlCommand(String command) {
     if (_controlSocket == null) throw Exception('Control socket is not connected');
-    //print('[Tor Control] SEND: $command');
+    print('[Tor Control] SEND: $command');
     _controlSocket!.write('$command\r\n');
   }
 

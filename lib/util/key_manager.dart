@@ -117,6 +117,13 @@ class KeyManager {
     }
   }
 
+  Future<bool> isPinSet() async {
+    final encPrivate = await _secureStorage.read(key: _encryptedPrivateKeyStorageKey);
+    final salt = await _secureStorage.read(key: _pinSaltStorageKey);
+    return encPrivate != null && salt != null;
+  }
+
+
   RSAPublicKey get publicKey {
     if (_publicKey == null) throw Exception("Keys not initialized. Call initKeys() first.");
     return _publicKey!;

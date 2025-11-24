@@ -38,10 +38,11 @@ class TorController(private val context: Context) {
             DataDirectory ${dataDir.absolutePath}
             CookieAuthentication 1
             HiddenServiceDir ${hiddenServiceDir.absolutePath}
-            HiddenServicePort 12345 127.0.0.1:12345
+            HiddenServicePort 80 127.0.0.1:12345
             # Enable verbose logs to stdout to debug startup issues
             Log notice stdout
             Log debug stdout
+            Log info stdout
         """.trimIndent()
 
         torrcFile.writeText(torrcContent)

@@ -39,14 +39,14 @@ void main() async {
       notificationImportance: AndroidNotificationImportance.normal,
       notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
     );
-    bool success = await FlutterBackground.initialize(androidConfig: androidConfig);
+    await FlutterBackground.initialize(androidConfig: androidConfig);
 
-    bool bg_success = await FlutterBackground.enableBackgroundExecution();
+    await FlutterBackground.enableBackgroundExecution();
   }
 
   var torPath = ""; 
   if (!Platform.isAndroid) {
-    final updater = await UpdaterDownloader().getOrDownloadUpdater();
+    await UpdaterDownloader().getOrDownloadUpdater();
     checkForUpdatesAndLaunchUpdater();
 
     // Download or get local Tor executable path
@@ -56,7 +56,6 @@ void main() async {
     torPath = "";
   }
 
-  final messageDb = MessageDbHelper();
   final documentsDir = await getApplicationDocumentsDirectory();
   final dataDirPath = p.join(documentsDir.path, 'prysm', 'tor_executable', 'tor_data');
 
@@ -306,7 +305,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (publicKeyPem == null || publicKeyPem.isEmpty) {
         try {
           final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-          final uri = Uri.parse("http://$id:12345/public");
+          final uri = Uri.parse("http://$id:80/public");
           final response = await torClient.get(uri, {});
           publicKeyPem = await response.transform(utf8.decoder).join();
           torClient.close();
@@ -468,7 +467,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
       final peerOnion = id; // full onion address
-      final uri = Uri.parse("http://$peerOnion:12345/public");
+      final uri = Uri.parse("http://$peerOnion:80/public");
 
       final response = await torClient.get(uri, {});
       publicKeyPem = await response.transform(utf8.decoder).join();

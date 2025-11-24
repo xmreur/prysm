@@ -54,8 +54,8 @@ class ChatScreen extends StatefulWidget {
     this.currentTheme = 0,
     required this.clearChat,
     required this.reloadUsers,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -362,7 +362,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final peerOnion = widget.peerId;
-      final uri = Uri.parse("http://$peerOnion:12345/public");
+      final uri = Uri.parse("http://$peerOnion:80/public");
       final response = await torClient.get(uri, {});
       final publicKeyPem = await response.transform(utf8.decoder).join();
 
@@ -534,6 +534,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Send encrypted to peer
     bool res = await _sendOverTor(messageId, encryptedForPeer, "text", replyToId: replyToId);
+    if (res) {
+      print('Sent: $text');
+    }
     if (res == false) {
       await PendingMessageDbHelper.insertPendingMessage({
         'id': messageId,
@@ -591,19 +594,20 @@ class _ChatScreenState extends State<ChatScreen> {
     // Generate AES key + iv
     final aesKey = AESHelper.generateAESKey();
     final iv = AESHelper.generateIV();
-
+    print('Generated key and iv');
     // Encrypt file with AES
     final aesEncryptedBytes = AESHelper.encryptBytes(bytes, aesKey, iv);
-
+    print('Encrypted file with AES');
     // Encrypt AES key with peer's RSA key
     final rsaEncryptedAesKey = RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, _peerPublicKey!);
-    
+    print('Encrypted AES with RSA ');
     final payload = jsonEncode({
       "aes_key": rsaEncryptedAesKey,
       "iv": iv.base64,
       "data": base64Encode(aesEncryptedBytes)
     });
 
+    print('made payload');
     final selfEncryptedKey = RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, widget.keyManager.publicKey);
     final selfPayload = jsonEncode({
       "aes_key": selfEncryptedKey,
@@ -656,9 +660,9 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
-
+    print('~$payload~');
     final success = await _sendOverTor(messageId, payload, type, fileName: fileName, fileSize: bytes.length);
-    
+    print('Failed to send message: $success');
     if (!success) {
       await PendingMessageDbHelper.insertPendingMessage({
         "id": messageId,
@@ -686,7 +690,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final peerOnion = widget.peerId;
-      final uri = Uri.parse("http://$peerOnion:12345/message");
+      final uri = Uri.parse("http://$peerOnion:80/message");
       final headers = {'Content-Type': 'application/json'};
       final body = jsonEncode({
         "id": id,
@@ -1246,7 +1250,7 @@ class _ChatScreenState extends State<ChatScreen> {
     MessageGroupStatus? groupStatus,
   }) {
     final maxWidth = MediaQuery.of(context).size.width * 0.4;
-
+    print('displaying message file');
     final ValueNotifier<bool> isDownloading = ValueNotifier(false);
 
     Future<void> downloadBase64File() async {
@@ -1256,7 +1260,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       await Future.delayed(Duration(milliseconds: 50));
       try {
-        if (message.source == null || message.source!.isEmpty) {
+        if (message.source.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('No encrypted data available for this file')),
           );

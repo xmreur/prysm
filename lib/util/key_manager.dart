@@ -26,7 +26,7 @@ class KeyManager {
   static Uint8List _deriveKey(String pin, Uint8List salt, {int iterations = 100_000, int keyLen = 32}) {
     final pbkdf2 = PBKDF2KeyDerivator(HMac(SHA256Digest(), 64));
     pbkdf2.init(Pbkdf2Parameters(salt, iterations, keyLen));
-    return pbkdf2.process(utf8.encode(pin) as Uint8List);
+    return pbkdf2.process(utf8.encode(pin));
   }
 
   static Map<String, String> _aesGcmEncrypt(Uint8List key, Uint8List plain) {
@@ -78,7 +78,7 @@ class KeyManager {
       final salt = _randomBytes(16);
       final key = _deriveKey(pin, salt);
 
-      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem) as Uint8List);
+      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
 
       // Store encrypted private key and salt; remove plaintext key
       await _secureStorage.write(
@@ -102,7 +102,7 @@ class KeyManager {
       final privatePemNew = RSAHelper.privateKeyToPem(privateKey);
       final publicPemNew = RSAHelper.publicKeyToPem(publicKey);
 
-      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePemNew) as Uint8List);
+      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePemNew));
 
       await _secureStorage.write(
         key: _encryptedPrivateKeyStorageKey, value: jsonEncode(encMap));

@@ -7,11 +7,11 @@ class MessageComposer extends StatefulWidget {
   final VoidCallback onSendFile;
 
   const MessageComposer({
-    Key? key,
+    super.key,
     required this.onSendText,
     required this.onSendImage,
     required this.onSendFile,
-  }) : super(key: key);
+  });
 
   @override
   _MessageComposerState createState() => _MessageComposerState();

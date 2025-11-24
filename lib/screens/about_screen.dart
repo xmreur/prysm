@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AboutScreen extends StatelessWidget {
   final VoidCallback onClose;
 
-  const AboutScreen({required this.onClose, Key? key}) : super(key: key);
+  const AboutScreen({required this.onClose, super.key});
 
   @override
   Widget build(BuildContext context) {

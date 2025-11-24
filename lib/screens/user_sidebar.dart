@@ -14,8 +14,8 @@ class UserSidebar extends StatelessWidget {
     required this.selectedContact,
     required this.onContactSelected,
     required this.onAddUser,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {

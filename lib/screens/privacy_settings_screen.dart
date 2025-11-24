@@ -4,8 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class PrivacySettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
 
-  const PrivacySettingsScreen({required this.onClose, Key? key})
-    : super(key: key);
+  const PrivacySettingsScreen({required this.onClose, super.key});
 
   @override
   State<PrivacySettingsScreen> createState() => _PrivacySettingsScreenState();

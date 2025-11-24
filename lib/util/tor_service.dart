@@ -28,7 +28,10 @@ class TorManager {
   /// Launch Tor process with control port enabled
   Future<void> startTor() async {
     if (Platform.isAndroid) {
+      print("Invoked method");
       await _channel.invokeMethod("startTor");
+      await _connectControlPort();
+      await _startBootstrapListener();
     }
     else {
 
@@ -73,7 +76,7 @@ DataDirectory $dataDir
 HashedControlPassword $hashedPassword
 CookieAuthentication 0
 HiddenServiceDir $dataDir/hidden_service/
-HiddenServicePort 12345 127.0.0.1:12345
+HiddenServicePort 80 127.0.0.1:12345
 ''';
 
     await torrcFile.writeAsString(torrcContent);
@@ -142,9 +145,20 @@ HiddenServicePort 12345 127.0.0.1:12345
       }
     });
 
-    _sendControlCommand('AUTHENTICATE "${controlPassword}"');
+    _sendControlCommand('AUTHENTICATE "$controlPassword"');
     return completer.future;
   }
+
+  Future<void> _startBootstrapListener() async {
+    _sendControlCommand('GETINFO net/listeners/control');
+
+    _controlStream.listen((line) {
+     
+      print('[Tor Control] $line');
+      
+    });
+  }
+
 
   /// Send command to Tor control socket
   void _sendControlCommand(String command) {

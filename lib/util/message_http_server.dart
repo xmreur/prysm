@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -6,106 +7,143 @@ import 'package:prysm/util/notification_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'message_db_helper.dart';
-import 'package:uuid/uuid.dart';
 
 class MessageHttpServer {
   final int port;
   final KeyManager keyManager;
+
   MessageHttpServer({this.port = 8080, required this.keyManager});
 
   Future<void> start() async {
     Future<Response> handler(Request request) async {
-      print("${request.method}|${request.url.path}");
+      try {
+        print("${request.method}|${request.url.path}");
 
-      if (request.method == 'POST' && request.url.path == 'message') {
-        final payload = await request.readAsString();
-        final data = jsonDecode(payload);
-        print(data.toString());
-        // Basic validation
-        if (data['id'] == null ||
-            data['senderId'] == null ||
-            data['receiverId'] == null ||
-            data['message'] == null ||
-            data['type'] == null ||
-            data['timestamp'] == null) {
-              print('invalid, message');
-          return Response(400,
-              body: jsonEncode({'error': 'Invalid message data'}),
-              headers: {'Content-Type': 'application/json'});
+        if (request.method == 'POST' && request.url.path == 'message') {
+          return await _handlePostMessage(request);
         }
 
-        // Additional validation for files/images
-        if (data['type'] == "file" || data['type'] == "image") {
-          if (data['fileName'] == null || data['fileSize'] == null) {
-            print('Missing file');
-            return Response(400,
-                body: jsonEncode({'error': 'Missing file metadata'}),
-                headers: {'Content-Type': 'application/json'});
-          }
+        if (request.method == 'GET' && request.url.path == 'public') {
+          return _handleGetPublicKey();
         }
 
-        final int timeReceived = DateTime.now().millisecondsSinceEpoch;
+        if (request.method == 'GET' &&
+            request.url.pathSegments.length == 2 &&
+            request.url.pathSegments[0] == 'file') {
+          return await _handleGetFile(request.url.pathSegments[1]);
+        }
 
-        await DBHelper.ensureUserExist(data['senderId']);
-        print("${data['type']}");
-        // Store message
-        await MessageDbHelper.insertMessage({
-          'id': data['id'],
-          'senderId': data['senderId'],
-          'receiverId': data['receiverId'],
-          'message': data['message'],
-          'type': data['type'],
-          'fileName': data['fileName'], // may be null for text
-          'fileSize': data['fileSize'], // may be null for text
-          'timestamp': timeReceived, // Use server time, fixes message order bugging on device
-          'status': data['status'] ?? 'received',
-          'replyTo': data['replyTo']
-        });
-
-        final contact = await DBHelper.getUserById(data['senderId']);
-        NotificationService().showNewMessageNotification(senderName: contact!['name'], message: 'Open to view the message', notificationId: Random().nextInt(99999999));
-        print('ok');
-        return Response.ok(
-            jsonEncode({'status': 'received', 'id': data['id']}),
+        return Response.notFound('Not found');
+      } catch (e, stacktrace) {
+        print('Error handling request: $e\n$stacktrace');
+        return Response.internalServerError(
+            body: jsonEncode({'error': 'Internal Server Error'}),
             headers: {'Content-Type': 'application/json'});
       }
-
-      // Public key endpoint
-      if (request.method == "GET" && request.url.path == "public") {
-        final publicPem = keyManager.publicKeyPem;
-        return Response.ok(publicPem, headers: {'Content-Type': 'text/plain'});
-      }
-
-      if (request.method == "GET" && request.url.pathSegments.length == 2 && request.url.pathSegments[0] == "file") {
-        final fileId = request.url.pathSegments[1];
-        final messages = await MessageDbHelper.getMessageById(fileId);
-
-        if (messages.isEmpty) {
-          return Response.notFound("File not found");
-        }
-
-        final msg = messages.first;
-        final fileName = msg['fileName'] ?? "unknown";
-        final fileBytes = msg['message']; // base64 encrypted
-
-        return Response.ok(
-          base64Decode(fileBytes),
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Disposition': 'attachment; filename="$fileName"',
-          },
-        );
-      }
-
-
-      return Response.notFound('Not found');
     }
 
-    
+    await io.serve(handler, '0.0.0.0', port, shared: true);
+    print('Message HTTP server running on port $port');
+  }
 
+  Future<Response> _handlePostMessage(Request request) async {
+    try {
+      final payload = await request.readAsString();
+      final data = jsonDecode(payload);
 
-    // final server = 
-    await io.serve(handler, '0.0.0.0', port);
-    print('Message HTTP server running on port ${port}');
+      print('Received message ${data['type']}');
+
+      if (!_isValidMessageData(data)) {
+        return _badRequest('Invalid message data');
+      }
+
+      if (['file', 'image'].contains(data['type']) &&
+          !_hasValidFileMetadata(data)) {
+        return _badRequest('Missing or invalid file metadata');
+      }
+
+      final int timeReceived = DateTime.now().millisecondsSinceEpoch;
+
+      await DBHelper.ensureUserExist(data['senderId']);
+
+      await MessageDbHelper.insertMessage({
+        'id': data['id'],
+        'senderId': data['senderId'],
+        'receiverId': data['receiverId'],
+        'message': data['message'],
+        'type': data['type'],
+        'fileName': data['fileName'],
+        'fileSize': data['fileSize'],
+        'timestamp': timeReceived,
+        'status': data['status'] ?? 'received',
+        'replyTo': data['replyTo'],
+      });
+
+      final contact = await DBHelper.getUserById(data['senderId']);
+      NotificationService().showNewMessageNotification(
+          senderName: contact?['name'] ?? 'Unknown',
+          message: 'Open to view the message',
+          notificationId: Random().nextInt(99999999));
+
+      return Response.ok(
+          jsonEncode({'status': 'received', 'id': data['id']}),
+          headers: {'Content-Type': 'application/json'});
+    } catch (e) {
+      print('Error processing POST /message: $e');
+      return Response.internalServerError(
+          body: jsonEncode({'error': 'Server error'}),
+          headers: {'Content-Type': 'application/json'});
+    }
+  }
+
+  Response _handleGetPublicKey() {
+    final publicPem = keyManager.publicKeyPem;
+    return Response.ok(publicPem, headers: {'Content-Type': 'text/plain'});
+  }
+
+  Future<Response> _handleGetFile(String fileId) async {
+    final messages = await MessageDbHelper.getMessageById(fileId);
+
+    if (messages.isEmpty) {
+      return Response.notFound("File not found");
+    }
+
+    final msg = messages.first;
+    final fileName = msg['fileName'] ?? "unknown";
+    final fileBytesBase64 = msg['message']; // base64 encrypted content
+
+    try {
+      final fileBytes = base64Decode(fileBytesBase64);
+      return Response.ok(
+        fileBytes,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': 'attachment; filename="$fileName"',
+        },
+      );
+    } catch (e) {
+      return Response.internalServerError(
+          body: 'Failed to decode file data');
+    }
+  }
+
+  bool _isValidMessageData(dynamic data) {
+    return data is Map &&
+        data['id'] is String &&
+        data['senderId'] is String &&
+        data['receiverId'] is String &&
+        data['message'] is String &&
+        data['type'] is String &&
+        data['timestamp'] is int;
+  }
+
+  bool _hasValidFileMetadata(dynamic data) {
+    return data['fileName'] is String && data['fileSize'] is int;
+  }
+
+  Response _badRequest(String message) {
+    return Response(400,
+        body: jsonEncode({'error': message}),
+        headers: {'Content-Type': 'application/json'});
   }
 }

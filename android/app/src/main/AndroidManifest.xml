@@ -20,6 +20,7 @@
             android:name="de.julianassmann.flutter_background.IsolateHolderService"
             android:exported="false"
             android:foregroundServiceType="dataSync|specialUse" />
+        <service android:name="org.torproject.jni.TorService" android:exported="false" />
         <activity
             android:name="com.xmreur.prysm.MainActivity"
             android:exported="true"

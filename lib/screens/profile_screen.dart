@@ -21,8 +21,8 @@ class ProfileScreen extends StatefulWidget {
     required this.onClose,
     required this.onUpdate,
     required this.reloadUsers,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();

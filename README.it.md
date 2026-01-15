@@ -8,7 +8,7 @@ Prysm è un prototipo di messenger P2P privacy-first e multipiattaforma, svilupp
 
 ## Caratteristiche
 
-- Chat crittografata end-to-end con trasporto Tor per minimizzare l'esposizione dei metadati ed evitare relay centralizzati.  
+- Chat crittografata end-to-end a 4096 bit con trasporto Tor per minimizzare l'esposizione dei metadati ed evitare relay centralizzati.  
 - Modello d'identità P2P che usa chiavi/ID deterministici compatibili con indirizzi .onion e lo scambio di contatti.  
 - Interfaccia utente multipiattaforma con Flutter, progettata per scalabilità e testabilità.
 

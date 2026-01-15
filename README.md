@@ -20,7 +20,7 @@ This is an early-stage prototype. APIs, storage, and networking layers are evolv
 ## Tech stack
 
 - Flutter (Dart) for cross-platform UI.  
-- Tor embedding via process on desktop (mobile support coming).
+- Tor embedding via process on desktop (mobile support available but slow on startup).
 
 ## Current version
 

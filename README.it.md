@@ -19,7 +19,7 @@ Questa è una versione prototipo in fase iniziale. API, archiviazione e livelli 
 ## Tecnologia
 
 - Flutter (Dart) per UI multipiattaforma.  
-- Integrazione di Tor tramite processo su desktop (supporto mobile in arrivo).
+- Integrazione di Tor tramite processo su desktop (supporto mobile disponibile ma lento all'avvio).
 
 ## Versione attuale
 

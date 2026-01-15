@@ -29,7 +29,7 @@ L'ultima versione stabile è: 0.0.7
 
 [Scarica l'ultima release](https://github.com/xmreur/prysm/releases)
 
-## Come supportare?
+## Come supportare il progetto?
 
 ### Puoi donare criptovalute a uno di questi indirizzi:
 - BTC: bc1qev0zu7rnske4ee7as0t4tyh56uv6v0ga62wx8r  

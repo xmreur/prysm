@@ -109,25 +109,32 @@ class TorManager {
   Future<void> _authenticateWithCookieFile() async {
     final proto = await _sendAndCollect('PROTOCOLINFO 1', untilOk: true);
 
-    // Example auth line includes COOKIEFILE=".../control_auth_cookie". [web:49]
     final authLine = proto.firstWhere(
       (l) => l.startsWith('250-AUTH'),
       orElse: () => throw Exception('PROTOCOLINFO missing 250-AUTH: $proto'),
     );
 
+    print('TorService PROTOCOLINFO auth: $authLine'); // debug
+
+    if (authLine.contains('METHODS=NULL')) {
+      // Even with METHODS=NULL, send AUTHENTICATE "" before GETINFO. [web:83][web:84]
+      final authResp = await _sendAndCollect('AUTHENTICATE ""', untilOk: true);
+      print('TorService AUTHENTICATE "" response: $authResp');
+      return;
+    }
+
+    // Fallback cookie auth if COOKIEFILE present (future-proof).
     final cookiePath = _parseCookieFileFromProtocolInfo(authLine);
-    if (cookiePath == null) {
-      throw Exception('No COOKIEFILE found in: $authLine');
+    if (cookiePath != null) {
+      final cookie = await File(cookiePath).readAsBytes();
+      final cookieHex = cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final authResp = await _sendAndCollect('AUTHENTICATE $cookieHex', untilOk: true);
+      return;
     }
 
-    final cookie = await File(cookiePath).readAsBytes();
-    final cookieHex = cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
-    final authResp = await _sendAndCollect('AUTHENTICATE $cookieHex', untilOk: true);
-    if (authResp.every((l) => !l.startsWith('250'))) {
-      throw Exception('AUTHENTICATE failed: $authResp');
-    }
+    throw Exception('Unsupported auth: $authLine');
   }
+
 
   String? _parseCookieFileFromProtocolInfo(String authLine) {
     // Tor control-spec: COOKIEFILE="...". [web:49]

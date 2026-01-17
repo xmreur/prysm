@@ -18,6 +18,17 @@ class KeyManager {
   RSAPublicKey? _publicKey;
   RSAPrivateKey? _privateKey;
 
+  bool isCorrupted = false;
+
+  Future<String?> safeRead(String key) async {
+    try {
+      return await _secureStorage.read(key: key);
+    } catch (e) {
+      isCorrupted = true;
+      return null;
+    }
+  }
+
   static Uint8List _randomBytes(int length) {
     final rnd = Random.secure();
     return Uint8List.fromList(List.generate(length, (_) => rnd.nextInt(256)));
@@ -51,10 +62,10 @@ class KeyManager {
   }
   
   Future<bool> unlockWithPin(String pin) async {
-    String? encPrivate = await _secureStorage.read(key: _encryptedPrivateKeyStorageKey);
-    String? privatePem = await _secureStorage.read(key: 'PRIVATE_KEY'); // Legacy plaintext key
-    String? publicPem = await _secureStorage.read(key: _publicKeyStorageKey);
-    String? saltB64 = await _secureStorage.read(key: _pinSaltStorageKey);
+    String? encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
+    String? privatePem = await safeRead('PRIVATE_KEY'); // Legacy plaintext key
+    String? publicPem = await safeRead(_publicKeyStorageKey);
+    String? saltB64 = await safeRead(_pinSaltStorageKey);
 
     if (encPrivate != null && publicPem != null && saltB64 != null) {
       // --- UNLOCK: try decrypt with derived key ---
@@ -118,8 +129,8 @@ class KeyManager {
   }
 
   Future<bool> isPinSet() async {
-    final encPrivate = await _secureStorage.read(key: _encryptedPrivateKeyStorageKey);
-    final salt = await _secureStorage.read(key: _pinSaltStorageKey);
+    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
+    final salt = await safeRead(_pinSaltStorageKey);
     return encPrivate != null && salt != null;
   }
 

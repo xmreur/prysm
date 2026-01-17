@@ -27,19 +27,19 @@ class MessageDbHelper {
         },
         onCreate: (db, version) async {
           await db.execute('''
-            CREATE TABLE messages(
-              id TEXT PRIMARY KEY, 
-              senderId TEXT, 
-              receiverId TEXT, 
-              message TEXT, 
-              type TEXT,
-              fileName TEXT,
-              fileSize INTEGER,
-              timestamp INTEGER, 
-              status TEXT,
-              replyTo TEXT
-            )
-          ''');
+						CREATE TABLE messages(
+							id TEXT PRIMARY KEY, 
+							senderId TEXT, 
+							receiverId TEXT, 
+							message TEXT, 
+							type TEXT,
+							fileName TEXT,
+							fileSize INTEGER,
+							timestamp INTEGER, 
+							status TEXT,
+							replyTo TEXT
+						)
+					''');
         },
       );
 
@@ -64,11 +64,14 @@ class MessageDbHelper {
   static Future<int?> getLastMessageTimestampForUser(String userId) async {
     return await _dbMutex.protect(() async {
       final messagesDb = await database;
-      final result = await messagesDb.rawQuery('''
-        SELECT MAX(timestamp) as lastTimestamp
-        FROM messages
-        WHERE senderId = ? OR receiverId = ?
-      ''', [userId, userId]);
+      final result = await messagesDb.rawQuery(
+        '''
+				SELECT MAX(timestamp) as lastTimestamp
+				FROM messages
+				WHERE senderId = ? OR receiverId = ?
+			''',
+        [userId, userId],
+      );
 
       if (result.isNotEmpty && result.first['lastTimestamp'] != null) {
         final value = result.first['lastTimestamp'];
@@ -80,7 +83,9 @@ class MessageDbHelper {
 
   /// Query messages between two users, newest first
   static Future<List<Map<String, dynamic>>> getMessagesBetween(
-      String userId, String peerId) async {
+    String userId,
+    String peerId,
+  ) async {
     final db = await database;
     return await db.query(
       'messages',
@@ -92,21 +97,23 @@ class MessageDbHelper {
   }
 
   /// Query message by ID
-  static Future<List<Map<String, dynamic>>> getMessageById(String messageId) async {
+  static Future<List<Map<String, dynamic>>> getMessageById(
+    String messageId,
+  ) async {
     final db = await database;
-    return await db.query(
-      "messages",
-      where: "id = ?",
-      whereArgs: [messageId],
-    );
+    return await db.query("messages", where: "id = ?", whereArgs: [messageId]);
   }
 
   /// Get a batch of messages with optional pagination by timestamp
   static Future<List<Map<String, dynamic>>> getMessagesBetweenBatch(
-      String userId, String peerId,
-      {int limit = 20, int? beforeTimestamp}) async {
+    String userId,
+    String peerId, {
+    int limit = 20,
+    int? beforeTimestamp,
+  }) async {
     final db = await database;
-    String where = '(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)';
+    String where =
+        '(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)';
     List<dynamic> whereArgs = [userId, peerId, peerId, userId];
 
     if (beforeTimestamp != null) {
@@ -138,8 +145,7 @@ class MessageDbHelper {
     List<dynamic> whereArgs = [userId, peerId, peerId, userId];
 
     if (beforeTimestamp != null && beforeId != null) {
-      where +=
-          ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
+      where += ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
       whereArgs.addAll([beforeTimestamp, beforeTimestamp, beforeId]);
     } else if (beforeTimestamp != null) {
       where += ' AND timestamp < ?';
@@ -159,7 +165,10 @@ class MessageDbHelper {
   }
 
   /// Delete all messages between two users
-  static Future<void> deleteMessagesBetween(String userId, String peerId) async {
+  static Future<void> deleteMessagesBetween(
+    String userId,
+    String peerId,
+  ) async {
     await _dbMutex.protect(() async {
       final db = await database;
       await db.delete(
@@ -174,20 +183,13 @@ class MessageDbHelper {
   static Future<void> deleteMessageById(String id) async {
     await _dbMutex.protect(() async {
       final db = await database;
-      await db.update( 
+      await db.update(
         "messages",
-        {
-          "replyTo": null
-        },
+        {"replyTo": null},
         where: "id = ?",
-        whereArgs: [id]
+        whereArgs: [id],
       );
-      await db.delete(
-        "messages",
-        
-        where: "id = ?",
-        whereArgs: [id]
-      );
+      await db.delete("messages", where: "id = ?", whereArgs: [id]);
     });
   }
 

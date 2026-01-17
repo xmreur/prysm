@@ -9,15 +9,16 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
+import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_db_helper.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'screens/chat_screen.dart';
 import 'util/db_helper.dart';
-import 'util/message_http_server.dart';
-import 'util/message_http_client.dart';
+import 'package:prysm/client/TorHttpClient.dart';
 import 'util/tor_service.dart'; // Updated Tor service
 import 'util/tor_downloader.dart';
 import 'screens/profile_screen.dart';
@@ -78,7 +79,7 @@ void main() async {
   final keyManager = KeyManager();
 
 
-  final messageServer = MessageHttpServer(port: 12345, keyManager: keyManager);
+  final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
   messageServer.start();
 
   // Try to create/get hidden service onion address as user ID
@@ -299,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       String name = map['name'];
       String avatarUrl = '';
       String? publicKeyPem = map['publicKeyPem'];
-      int? lastMessageTimestamp = await MessageDbHelper.getLastMessageTimestampForUser(id);
+      int? lastMessageTimestamp = await MessagesDb.getLastMessageTimestampForUser(id);
       
       // If publicKeyPem is null or empty, try to fetch it using TorHttpClient
       if (publicKeyPem == null || publicKeyPem.isEmpty) {

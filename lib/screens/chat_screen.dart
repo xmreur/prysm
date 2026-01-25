@@ -189,16 +189,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 continue;
             }
             try {
-                
+
                 if (msg['type'] == 'text') {
-                    print(msg['readAt']);
                     messages.add(TextMessage(
                         authorId: User(id: msg['senderId']).id,
                         createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                         id: msg['id'],
                         replyToMessageId: msg['replyTo'],
                         seenAt: msg['readAt'] != null
-                            ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
+                            ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'])
                             : null,
                         text: keyManager.decryptMessage(msg['message']),
                     ));

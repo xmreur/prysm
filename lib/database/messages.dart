@@ -30,10 +30,10 @@ class MessagesDb {
 					await db.execute('PRAGMA synchronous = NORMAL');
 				},
 				onCreate: (db, version) async {
-					await _createV1(db);
+					await _createV2(db);
 				},
 				onUpgrade: (db, oldVersion, newVersion) async {
-					if (oldVersion < 2) _upgradeToV2(db);
+					if (oldVersion < 2) await _upgradeToV2(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -46,33 +46,51 @@ class MessagesDb {
 		return _openCompleter.future;
 	} 
 
-	static Future<void> _createV1(Database db) async {
-		await db.execute('''
-			CREATE TABLE messages(
-				id TEXT PRIMARY KEY,
-				senderId TEXT NOT NULL,
-				receiverId TEXT NOT NULL,
-				message TEXT,
-				type TEXT,
-				fileName TEXT,
-				fileSize INTEGER,
-				timestamp INTEGER NOT NULL,
-				status TEXT DEFAULT 'sent',
-				replyTo TEXT,
-				INDEX idx_conversation (senderId, receiverId),
-				INDEX idx_timestamp (timestamp),
-				INDEX idx_status (status)
-			)
-		''');
-	}
+	static Future<void> _createV2(Database db) async {
+        await db.execute('''
+            CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                senderId TEXT NOT NULL,
+                receiverId TEXT NOT NULL,
+                message TEXT,
+                type TEXT,
+                fileName TEXT,
+                fileSize INTEGER,
+                timestamp INTEGER NOT NULL,
+                status TEXT DEFAULT 'sent',
+                replyTo TEXT,
+                readAt INTEGER
+            )
+        ''');
+
+        await db.execute(
+            'CREATE INDEX idx_conversation ON messages(senderId, receiverId)'
+        );
+        await db.execute(
+            'CREATE INDEX idx_timestamp ON messages(timestamp)'
+        );
+        await db.execute(
+            'CREATE INDEX idx_status ON messages(status)'
+        );
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)'
+        );
+    }
+
 
 	/// CHANGES: added readAt timestamp
 	static Future<void> _upgradeToV2(Database db) async {
         print("UPGRADING DB TO v2");
-		await db.execute('ALTER TABLE messages ADD COLUMN readAt INTEGER');
+        
+        // But simpler: ignore error if column exists
+        try {
+            await db.execute('ALTER TABLE messages ADD COLUMN readAt INTEGER');
+        } catch (e) {
+            print('readAt column already exists or other error: $e');
+        }
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)');
+    }
 
-		await db.execute('CREATE INDEX IF NOT EXISTS idx_read_status ON MESSAGES(readAt, status)');
-	}
 	
 	/// Insert or replace message, serialized with mutex
 	static Future<void> insertMessage(Map<String, dynamic> message) async {

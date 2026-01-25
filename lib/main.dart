@@ -32,18 +32,6 @@ import 'package:window_manager/window_manager.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService().init();
-  
-  if (Platform.isAndroid) {
-    final androidConfig = FlutterBackgroundAndroidConfig(
-      notificationTitle: "Prysm Chat is running",
-      notificationText: "Prysm chat is actively waiting for new messages",
-      notificationImportance: AndroidNotificationImportance.normal,
-      notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
-    );
-    await FlutterBackground.initialize(androidConfig: androidConfig);
-
-    await FlutterBackground.enableBackgroundExecution();
-  }
 
   var torPath = ""; 
   if (!Platform.isAndroid) {
@@ -112,7 +100,7 @@ Future<bool> isNewerVersion(String current, String latest) async {
 }
 
 
-const String currentVersion = "v0.0.7";
+const String currentVersion = "v0.0.8";
 
 Future<void> checkForUpdatesAndLaunchUpdater() async {
   final url = Uri.parse('https://api.github.com/repos/xmreur/prysm/releases/latest');
@@ -198,6 +186,20 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (Platform.isAndroid) {
+            final androidConfig = FlutterBackgroundAndroidConfig(
+                notificationTitle: "Prysm Chat is running",
+                notificationText: "Prysm chat is actively waiting for new messages",
+                notificationImportance: AndroidNotificationImportance.normal,
+                notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
+            );
+            await FlutterBackground.initialize(androidConfig: androidConfig);
+            await FlutterBackground.enableBackgroundExecution();
+        }
+    });
+
 
     _loadSavedTheme();
   }

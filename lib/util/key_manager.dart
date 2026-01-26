@@ -3,9 +3,7 @@ import 'dart:core';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pointycastle/api.dart';
 import 'rsa_helper.dart';
-import 'package:pointycastle/asymmetric/api.dart';
 import 'package:pointycastle/export.dart';
 
 class KeyManager {
@@ -190,4 +188,18 @@ class KeyManager {
   RSAPublicKey importPeerPublicKey(String pem) {
     return RSAHelper.publicKeyFromPem(pem);
   }
+
+    String get privateKeyPem {
+        if (_privateKey == null) throw Exception("Not unlocked");
+        return RSAHelper.privateKeyToPem(_privateKey!);
+    }
+
+    KeyManager();  // Empty
+
+    factory KeyManager.fromKeys(RSAPrivateKey privateKey, RSAPublicKey publicKey) {
+        final km = KeyManager();
+        km._privateKey = privateKey;
+        km._publicKey = publicKey;
+        return km;
+    }
 }

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui';
+import 'package:flutter/material.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/notification_service.dart';
@@ -95,13 +97,19 @@ class PrysmServer {
 				if (data['replyTo'] != null) 'replyTo': data['replyTo']
 			});
 
-			// Send local notification
-			final contact = await DBHelper.getUserById(data['senderId'] as String);
-			NotificationService().showNewMessageNotification(
-				senderName: contact?['name'] ?? 'Unknown contact',
-				message: 'Open to view the message',
-				notificationId: Random().nextInt(99999999)
-			);
+			// Send local notification only if app is in background
+            final appState = WidgetsBinding.instance.lifecycleState;
+            if (appState == AppLifecycleState.paused || 
+                appState == AppLifecycleState.inactive ||
+                appState == AppLifecycleState.detached) {
+                final contact = await DBHelper.getUserById(data['senderId'] as String);
+                NotificationService().showNewMessageNotification(
+                    senderName: contact?['name'] ?? 'Unknown contact',
+                    message: 'Open to view the message',
+                    notificationId: Random().nextInt(99999999)
+                );
+            }
+
 
 			return Response.ok(jsonEncode({
 				'status': 'received',

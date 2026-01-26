@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';

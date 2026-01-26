@@ -128,6 +128,7 @@ class TorManager {
     if (cookiePath != null) {
       final cookie = await File(cookiePath).readAsBytes();
       final cookieHex = cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      // ignore: unused_local_variable
       final authResp = await _sendAndCollect('AUTHENTICATE $cookieHex', untilOk: true);
       return;
     }

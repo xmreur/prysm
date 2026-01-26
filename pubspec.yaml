@@ -65,6 +65,7 @@ dependencies:
   cryptography: ^2.7.0
   mutex: ^3.1.0
   emoji_picker_flutter: ^4.3.0
+  flutter_image_compress: ^2.4.0
 
 flutter_launcher_icons:
   windows:

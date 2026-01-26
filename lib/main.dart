@@ -14,18 +14,17 @@ import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/message_db_helper.dart';
 import 'package:prysm/util/updater_downloader.dart';
-import 'screens/chat_screen.dart';
-import 'util/db_helper.dart';
+import 'package:prysm/screens/chat.dart';
+import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/client/TorHttpClient.dart';
-import 'util/tor_service.dart'; // Updated Tor service
-import 'util/tor_downloader.dart';
-import 'screens/profile_screen.dart';
-import 'models/contact.dart';
-import 'util/theme_manager.dart';
+import 'package:prysm/util/tor_service.dart'; // Updated Tor service
+import 'package:prysm/util/tor_downloader.dart';
+import 'package:prysm/screens/profile_screen.dart';
+import 'package:prysm/models/contact.dart';
+import 'package:prysm/util/theme_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'util/notification_service.dart';
+import 'package:prysm/util/notification_service.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -197,6 +196,8 @@ class _MyAppState extends State<MyApp> {
             );
             await FlutterBackground.initialize(androidConfig: androidConfig);
             await FlutterBackground.enableBackgroundExecution();
+        
+            await NotificationService().requestPermission();
         }
     });
 

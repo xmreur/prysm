@@ -10,11 +10,13 @@ class NotificationService {
 
   bool _initialized = false;
 
+  FlutterLocalNotificationsPlugin get notificationsPlugin => _notificationsPlugin;
+
   Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
 
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('icon_white');
+    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('icon');
 
     const DarwinInitializationSettings initializationSettingsDarwin = DarwinInitializationSettings();
     
@@ -75,5 +77,11 @@ class NotificationService {
 
   Future<void> cancelAllNotifications() async {
     await _notificationsPlugin.cancelAll();
+  }
+
+  Future<bool?> requestPermission() async {
+    if (!_initialized) await init();
+    final androidImpl = notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    return await androidImpl?.requestNotificationsPermission();
   }
 }

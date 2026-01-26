@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PrivacySettingsScreen extends StatefulWidget {
@@ -11,6 +12,8 @@ class PrivacySettingsScreen extends StatefulWidget {
 }
 
 class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
+  static final settings = SettingsService();
+
   bool _showOnlineStatus = true;
   bool _readReceipts = true;
   bool _lastSeen = true;
@@ -154,10 +157,10 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                     ),
                   ],
                 ),
-                child: const Text(
-                  'These settings help you control your privacy on Prysm. '
+                child: Text(
+                  'These settings help you control your privacy on ${settings.name}. '
                   'Your choices will be applied across all your conversations.',
-                  style: TextStyle(fontSize: 16),
+                  style: const TextStyle(fontSize: 16),
                 ),
               ),
             ],

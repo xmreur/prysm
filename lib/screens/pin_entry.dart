@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
-
 class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
   final Future<bool> isSetupMode;
-  const PinScreen({required this.onVerifyPin, required this.isSetupMode, super.key});
+  const PinScreen({
+    required this.onVerifyPin,
+    required this.isSetupMode,
+    super.key,
+  });
 
   @override
   State<PinScreen> createState() => _PinScreenState();
@@ -42,7 +45,10 @@ class _PinScreenState extends State<PinScreen> {
           isLoading = false;
         });
       } else {
-        setState(() { error = null; isLoading = false; });
+        setState(() {
+          error = null;
+          isLoading = false;
+        });
       }
     }
   }
@@ -58,9 +64,7 @@ class _PinScreenState extends State<PinScreen> {
           height: 20,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: filled
-                ? Colors.grey
-                : Colors.grey.withAlpha(25),
+            color: filled ? Colors.grey : Colors.grey.withAlpha(25),
           ),
         );
       }),
@@ -74,14 +78,14 @@ class _PinScreenState extends State<PinScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white.withAlpha(15),
-          shape: BoxShape.circle
+          shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
         child: Text(
           value,
           style: const TextStyle(
-            color:Colors.white,
-            fontSize: 32, 
+            color: Colors.white,
+            fontSize: 32,
             fontWeight: FontWeight.w400,
           ),
         ),
@@ -94,7 +98,7 @@ class _PinScreenState extends State<PinScreen> {
       ["1", "2", "3"],
       ["4", "5", "6"],
       ["7", "8", "9"],
-      ["", "0", "back"]
+      ["", "0", "back"],
     ];
 
     return Column(
@@ -114,15 +118,17 @@ class _PinScreenState extends State<PinScreen> {
                   child: SizedBox(
                     width: 80,
                     height: 80,
-                    child: Icon(Icons.backspace_outlined, size: 28, color: Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black,),
+                    child: Icon(
+                      Icons.backspace_outlined,
+                      size: 28,
+                      color: Theme.of(context).brightness == Brightness.light
+                          ? Colors.white
+                          : Colors.black,
+                    ),
                   ),
                 );
               }
-              return SizedBox(
-                width: 80,
-                height: 80,
-                child: _buildKey(key),
-              );
+              return SizedBox(width: 80, height: 80, child: _buildKey(key));
             }).toList(),
           ),
         );
@@ -146,7 +152,9 @@ class _PinScreenState extends State<PinScreen> {
                   return Text(
                     isSetupMode ? "Enter Passcode" : "Setup Passcode",
                     style: TextStyle(
-                      color: Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black,
+                      color: Theme.of(context).brightness == Brightness.light
+                          ? Colors.white
+                          : Colors.black,
                       fontWeight: FontWeight.w500,
                       fontSize: 30,
                     ),
@@ -154,15 +162,10 @@ class _PinScreenState extends State<PinScreen> {
                 },
               ),
               const SizedBox(height: 30),
-              isLoading
-                ? const CircularProgressIndicator()
-                : _buildPinDots(),
+              isLoading ? const CircularProgressIndicator() : _buildPinDots(),
               if (error != null) ...[
                 const SizedBox(height: 12),
-                Text(
-                  error!,
-                  style: const TextStyle(color: Colors.red),
-                ),
+                Text(error!, style: const TextStyle(color: Colors.red)),
               ],
               const SizedBox(height: 50),
               _buildKeypad(),

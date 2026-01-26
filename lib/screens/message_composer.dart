@@ -47,7 +47,10 @@ class _MessageComposerState extends State<MessageComposer> {
         : text + emoji.emoji;
 
     _textController.text = newText;
-    _textController.selection = TextSelection.collapsed(offset: (cursorPos >= 0 ? cursorPos : newText.length) + emoji.emoji.length);
+    _textController.selection = TextSelection.collapsed(
+      offset:
+          (cursorPos >= 0 ? cursorPos : newText.length) + emoji.emoji.length,
+    );
     setState(() {
       currentText = newText;
     });
@@ -74,7 +77,10 @@ class _MessageComposerState extends State<MessageComposer> {
           child: Row(
             children: [
               PopupMenuButton<String>(
-                icon: Icon(Icons.drive_folder_upload, color: theme.iconTheme.color),
+                icon: Icon(
+                  Icons.drive_folder_upload,
+                  color: theme.iconTheme.color,
+                ),
                 onSelected: (value) {
                   if (value == "image") widget.onSendImage();
                   if (value == "file") widget.onSendFile();
@@ -113,8 +119,10 @@ class _MessageComposerState extends State<MessageComposer> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                   ),
                   minLines: 1,
                   maxLines: 5,
@@ -122,13 +130,17 @@ class _MessageComposerState extends State<MessageComposer> {
               ),
               const SizedBox(width: 8),
               IconButton(
-                icon: Icon(Icons.emoji_emotions_outlined,
-                color: theme.iconTheme.color),
+                icon: Icon(
+                  Icons.emoji_emotions_outlined,
+                  color: theme.iconTheme.color,
+                ),
                 onPressed: () {
                   setState(() {
                     showEmojiPicker = !showEmojiPicker;
                     if (showEmojiPicker) {
-                      FocusScope.of(context).unfocus(); // Hide keyboard when emoji picker shown
+                      FocusScope.of(
+                        context,
+                      ).unfocus(); // Hide keyboard when emoji picker shown
                     }
                   });
                 },
@@ -136,15 +148,16 @@ class _MessageComposerState extends State<MessageComposer> {
               IconButton(
                 icon: Icon(
                   Icons.send,
-                  color: currentText.trim().isEmpty ? Colors.grey : theme.iconTheme.color,
+                  color: currentText.trim().isEmpty
+                      ? Colors.grey
+                      : theme.iconTheme.color,
                 ),
                 onPressed: currentText.trim().isEmpty ? null : _handleSend,
               ),
             ],
           ),
-        )
+        ),
       ],
     );
-    
   }
 }

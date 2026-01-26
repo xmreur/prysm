@@ -5,5 +5,11 @@ class Contact {
   final String publicKeyPem;
   final int? lastMessageTimestamp;
 
-  Contact({required this.id, required this.name, required this.avatarUrl, required this.publicKeyPem, this.lastMessageTimestamp});
+  Contact({
+    required this.id,
+    required this.name,
+    required this.avatarUrl,
+    required this.publicKeyPem,
+    this.lastMessageTimestamp,
+  });
 }

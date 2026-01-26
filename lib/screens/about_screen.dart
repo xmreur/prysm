@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:prysm/services/settings_service.dart';
 
 class AboutScreen extends StatelessWidget {
   final VoidCallback onClose;
 
   const AboutScreen({required this.onClose, super.key});
 
+  static final settings = SettingsService();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 70,
-        title: const Text(
-          'About Prysm',
+        title: Text(
+          'About ${settings.name}',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         leading: IconButton(
@@ -28,57 +30,59 @@ class AboutScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
-                child: 
-                // App information
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                child:
+                    // App information
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Image.asset(
-                          'assets/logo.png',
-                          height: 80,
-                          width: 80,
-                          fit: BoxFit.contain,
-                        ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).primaryColor.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Image.asset(
+                              'assets/logo.png',
+                              height: 80,
+                              width: 80,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            settings.name,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            settings.description,
+                            style: TextStyle(fontSize: 16, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Version ${settings.version}',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Prysm',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Secure Messaging App',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Version 0.0.8',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
               ),
               const SizedBox(height: 20),
               // Developers section
@@ -187,20 +191,20 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'About This App',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     Text(
-                      'Prysm is a secure messaging application that prioritizes your privacy and security. '
-                      'Built with end-to-end encryption and Tor network integration, Prysm ensures that your '
+                      '${settings.name} is a secure messaging application that prioritizes your privacy and security. '
+                      'Built with end-to-end encryption and Tor network integration, ${settings.name} ensures that your '
                       'conversations remain private and secure.\n\n'
                       'Features:\n'
                       '• End-to-end encryption\n'
@@ -209,8 +213,8 @@ class AboutScreen extends StatelessWidget {
                       '• Cross-platform support\n'
                       '• Dark theme support\n'
                       '• No data collection\n\n'
-                      'Developed with ❤️ by xmreur and the Prysm team.',
-                      style: TextStyle(fontSize: 16, height: 1.5),
+                      'Developed with ❤️ by xmreur and the ${settings.name} team.',
+                      style: const TextStyle(fontSize: 16, height: 1.5),
                     ),
                   ],
                 ),
@@ -230,23 +234,23 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Legal',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     Text(
                       'This application is provided "as is" without any warranties. '
                       'The developers are not responsible for any damages or losses '
                       'arising from the use of this application.\n\n'
-                      '© 2025 Prysm Team. All rights reserved.',
-                      style: TextStyle(
+                      '© 2025 ${settings.name} Team. All rights reserved.',
+                      style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
                         color: Colors.grey,

@@ -314,13 +314,14 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         'Delete Contact',
                         style: TextStyle(color: Colors.red),
                       ),
-                      subtitle: const Text('Delete this contact from your list. Cannot be undone.'),
+                      subtitle: const Text(
+                        'Delete this contact from your list. Cannot be undone.',
+                      ),
                       onTap: _confirmDeleteContact,
                     ),
                   ],
                 ),
               ),
-            
             ],
           ),
         ),

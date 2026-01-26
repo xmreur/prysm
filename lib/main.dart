@@ -13,6 +13,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'package:prysm/screens/chat.dart';
@@ -99,7 +100,7 @@ Future<bool> isNewerVersion(String current, String latest) async {
 }
 
 
-const String currentVersion = "v0.0.8";
+const String currentVersion = SettingsService.appVersion;
 
 Future<void> checkForUpdatesAndLaunchUpdater() async {
   final url = Uri.parse('https://api.github.com/repos/xmreur/prysm/releases/latest');
@@ -168,6 +169,8 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
 
+    static final settings = SettingsService();
+    
   bool unlocked = false;
   int _currentTheme = 0;
 
@@ -189,8 +192,8 @@ class _MyAppState extends State<MyApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (Platform.isAndroid) {
             final androidConfig = FlutterBackgroundAndroidConfig(
-                notificationTitle: "Prysm Chat is running",
-                notificationText: "Prysm chat is actively waiting for new messages",
+                notificationTitle: "${settings.name} Chat is running",
+                notificationText: "${settings.name} chat is actively waiting for new messages",
                 notificationImportance: AndroidNotificationImportance.normal,
                 notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
             );
@@ -223,12 +226,12 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     if (!unlocked) {
       return MaterialApp(
-        title: "Unlock Prysm Chat App",
+        title: "Unlock ${settings.name} Chat",
         home: PinScreen(onVerifyPin: onVerifyPin, isSetupMode: widget.keyManager.isPinSet(),)
       );
     }
     return MaterialApp(
-      title: 'Prysm Chat App',
+      title: '${settings.name} Chat',
       theme: ThemeManager.getTheme(_currentTheme),
       home: HomeScreen(torManager: widget.torManager, onionAddress: widget.onionAddress, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
     );
@@ -256,6 +259,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+
+    static final settings = SettingsService();
+
   List<Contact> contacts = [];
   late Contact appUser;
   Contact? selectedContact;
@@ -773,8 +779,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Prysm Chat',
+              Text(
+                '${settings.name} Chat',
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
             ],
@@ -890,8 +896,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 12),
-            const Text(
-              'Prysm Chat',
+            Text(
+              '${settings.name} Chat',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
           ],
@@ -962,7 +968,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'Your Prysm ID: ${encodeOnionToBase58(appUser.id)}',
+                          'Your ${settings.name} ID: ${encodeOnionToBase58(appUser.id)}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).hintColor,

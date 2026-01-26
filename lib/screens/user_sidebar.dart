@@ -22,11 +22,13 @@ class UserSidebar extends StatelessWidget {
     return Container(
       width: 280,
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.grey[100],
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF1E1E1E)
+            : Colors.grey[100],
         border: Border(
           right: BorderSide(
             color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
-            width: 1
+            width: 1,
           ),
         ),
       ),
@@ -55,7 +57,7 @@ class UserSidebar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Expanded( 
+                const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -63,7 +65,7 @@ class UserSidebar extends StatelessWidget {
                         "My Profile",
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 16
+                          fontSize: 16,
                         ),
                       ),
                       SizedBox(height: 2),
@@ -72,7 +74,7 @@ class UserSidebar extends StatelessWidget {
                         style: TextStyle(
                           color: Colors.teal,
                           fontSize: 12,
-                          fontWeight: FontWeight.w500
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
@@ -128,13 +130,18 @@ class UserSidebar extends StatelessWidget {
                   child: ListTile(
                     leading: CircleAvatar(
                       radius: 22,
-                      backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
+                      backgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                          ? Theme.of(context).primaryColorLight
+                          : Theme.of(context).primaryColor,
                       child: Text(
                         contact.name.isNotEmpty
                             ? contact.name[0].toUpperCase()
                             : '?',
                         style: TextStyle(
-                          color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).hintColor : Colors.white,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Theme.of(context).hintColor
+                              : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

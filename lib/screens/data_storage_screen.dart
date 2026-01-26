@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prysm/services/settings_service.dart';
 
 class DataStorageScreen extends StatefulWidget {
   final VoidCallback onClose;
 
   const DataStorageScreen({required this.onClose, super.key});
-
   @override
   State<DataStorageScreen> createState() => _DataStorageScreenState();
 }
 
 class _DataStorageScreenState extends State<DataStorageScreen> {
+  static final settings = SettingsService();
   bool _autoDownloadMedia = true;
   bool _keepMedia = true;
   bool _autoDeleteMessages = false;
@@ -236,9 +237,9 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                     ),
                   ],
                 ),
-                child: const Text(
+                child: Text(
                   'Manage your data usage and storage preferences. '
-                  'These settings help you control how Prysm uses your device storage.',
+                  'These settings help you control how ${settings.name} uses your device storage.',
                   style: TextStyle(fontSize: 16),
                 ),
               ),

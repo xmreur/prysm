@@ -35,7 +35,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-  
+
     _nameController = TextEditingController(text: name);
   }
 
@@ -120,9 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           radius: 50,
                           backgroundColor: Theme.of(context).primaryColor,
                           child: Text(
-                            name.isNotEmpty
-                                ? name[0].toUpperCase()
-                                : 'P',
+                            name.isNotEmpty ? name[0].toUpperCase() : 'P',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 40,
@@ -212,7 +210,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       onTap: () {
-                        Clipboard.setData(ClipboardData(text: encodeOnionToBase58(widget.user.id)));
+                        Clipboard.setData(
+                          ClipboardData(
+                            text: encodeOnionToBase58(widget.user.id),
+                          ),
+                        );
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('ID copied to clipboard'),
@@ -311,7 +313,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               setState(() {
                 name = nameController.text;
               });
-              DBHelper.insertOrUpdateUser({ 'name': nameController.text, 'id': widget.user.id });
+              DBHelper.insertOrUpdateUser({
+                'name': nameController.text,
+                'id': widget.user.id,
+              });
               Navigator.pop(context);
             },
             child: const Text('Save'),

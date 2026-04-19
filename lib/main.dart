@@ -22,27 +22,98 @@ import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
 import 'package:prysm/screens/profile_screen.dart';
+import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/util/theme_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
 
+bool _isProcessRunning(int pid) {
+  try {
+    if (Platform.isWindows) {
+      final result = Process.runSync('tasklist', ['/FI', 'PID eq $pid']);
+      return (result.stdout as String).contains('$pid');
+    } else {
+      // Linux/macOS: send signal 0 to check if process exists
+      final result = Process.runSync('kill', ['-0', '$pid']);
+      return result.exitCode == 0;
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NotificationService().init();
 
+  // Prevent multiple instances on desktop
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    final docDir = await getApplicationDocumentsDirectory();
+    final lockFile = File(p.join(docDir.path, 'prysm', '.lock'));
+    await Directory(p.join(docDir.path, 'prysm')).create(recursive: true);
+
+    if (await lockFile.exists()) {
+      final pidStr = (await lockFile.readAsString()).trim();
+      final pid = int.tryParse(pidStr);
+      if (pid != null && _isProcessRunning(pid)) {
+        // Another instance is running — activate it and exit
+        print('Another instance of Prysm is already running (PID $pid).');
+        exit(0);
+      }
+    }
+    // Write our PID
+    await lockFile.writeAsString('${pid}');
+
+    // Clean up lock file on exit
+    ProcessSignal.sigterm.watch().listen((_) async {
+      try { await lockFile.delete(); } catch (_) {}
+      exit(0);
+    });
+    ProcessSignal.sigint.watch().listen((_) async {
+      try { await lockFile.delete(); } catch (_) {}
+      exit(0);
+    });
+  }
+
+  await NotificationService().init();
+  await SettingsService().init();
+
+  final keyManager = KeyManager();
+
+  // Start background service on Android BEFORE runApp so the persistent
+  // notification ("Prysm Chat is running") is always present.
+  if (Platform.isAndroid) {
+    final settings = SettingsService();
+    final androidConfig = FlutterBackgroundAndroidConfig(
+      notificationTitle: "${settings.name} Chat is running",
+      notificationText: "${settings.name} chat is actively waiting for new messages",
+      notificationImportance: AndroidNotificationImportance.normal,
+      notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
+    );
+    await FlutterBackground.initialize(androidConfig: androidConfig);
+    await FlutterBackground.enableBackgroundExecution();
+    await NotificationService().requestPermission();
+  }
+
+  // Start the message server early so incoming messages are received
+  // even while Tor is still bootstrapping or the user is on the PIN screen.
+  final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
+  messageServer.start();
+
+  runApp(MyApp(keyManager: keyManager));
+}
+
+/// Initializes Tor and the message server in the background.
+/// Returns the onion address when ready.
+Future<TorInitResult> initializeTor() async {
   var torPath = ""; 
   if (!Platform.isAndroid) {
     await UpdaterDownloader().getOrDownloadUpdater();
     checkForUpdatesAndLaunchUpdater();
 
-    // Download or get local Tor executable path
     final torDownloader = TorDownloader();
     torPath = await torDownloader.getOrDownloadTor();
-  } else {
-    torPath = "";
   }
 
   final documentsDir = await getApplicationDocumentsDirectory();
@@ -52,7 +123,7 @@ void main() async {
   if (!dataDir.existsSync()) {
     dataDir.createSync(recursive: true);
   }
-  // Initialize Tor manager
+
   final torManager = TorManager(
     torPath: torPath,
     dataDir: dataDirPath,
@@ -61,28 +132,21 @@ void main() async {
 
   await torManager.startTor();
 
-
-  // Start the HTTP server for incoming message listener on hidden service port
-  
-  final keyManager = KeyManager();
-
-
-  final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
-  messageServer.start();
-
-  // Try to create/get hidden service onion address as user ID
   late String onionAddress;
   try {
     onionAddress = (await torManager.getOnionAddress())!;
   } catch (e) {
     print('Failed to create hidden service: $e');
-    onionAddress = 'me'; // fallback user id
+    onionAddress = 'me';
   }
 
-  windowManager.addListener(MyWindowListener(torManager));
+  return TorInitResult(torManager: torManager, onionAddress: onionAddress);
+}
 
-  runApp(MyApp(torManager: torManager, onionAddress: onionAddress, keyManager: keyManager));
-
+class TorInitResult {
+  final TorManager torManager;
+  final String onionAddress;
+  const TorInitResult({required this.torManager, required this.onionAddress});
 }
 
 Future<bool> isNewerVersion(String current, String latest) async {
@@ -144,21 +208,22 @@ class MyWindowListener extends WindowListener {
 
   @override
   void onWindowClose() async {
-    // Your cleanup code here — will be called on window close
     await torManager.stopTor();
+    // Clean up lock file
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final lockFile = File(p.join(docDir.path, 'prysm', '.lock'));
+      if (await lockFile.exists()) await lockFile.delete();
+    } catch (_) {}
     windowManager.destroy();
   }
 }
 
 class MyApp extends StatefulWidget {
 
-  final TorManager torManager;
-  final String onionAddress;
   final KeyManager keyManager;
 
   const MyApp({
-    required this.torManager,
-    required this.onionAddress,
     required this.keyManager,
     super.key,
   });
@@ -174,8 +239,13 @@ class _MyAppState extends State<MyApp> {
   bool unlocked = false;
   int _currentTheme = 0;
 
+  // Tor init state
+  TorManager? _torManager;
+  String? _onionAddress;
+  String _torStatus = 'Initializing...';
+  bool _torReady = false;
+
   Future<bool> onVerifyPin(String pin) async {
-    // 1. Unlock and decrypt private key with pin
     KeyManager keyManager = widget.keyManager;
     bool ok = await keyManager.unlockWithPin(pin);
     if (!ok) return false;
@@ -188,38 +258,47 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (Platform.isAndroid) {
-            final androidConfig = FlutterBackgroundAndroidConfig(
-                notificationTitle: "${settings.name} Chat is running",
-                notificationText: "${settings.name} chat is actively waiting for new messages",
-                notificationImportance: AndroidNotificationImportance.normal,
-                notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
-            );
-            await FlutterBackground.initialize(androidConfig: androidConfig);
-            await FlutterBackground.enableBackgroundExecution();
-        
-            await NotificationService().requestPermission();
-        }
-    });
-
-
     _loadSavedTheme();
+    _initTorInBackground();
+  }
+
+  Future<void> _initTorInBackground() async {
+    try {
+      setState(() => _torStatus = 'Starting Tor...');
+      final result = await initializeTor();
+
+      if (!Platform.isAndroid) {
+        windowManager.addListener(MyWindowListener(result.torManager));
+      }
+
+      if (mounted) {
+        setState(() {
+          _torManager = result.torManager;
+          _onionAddress = result.onionAddress;
+          _torReady = true;
+          _torStatus = 'Connected';
+        });
+      }
+    } catch (e) {
+      print('Tor initialization failed: $e');
+      if (mounted) {
+        setState(() => _torStatus = 'Failed to connect: $e');
+      }
+    }
   }
 
   Future<void> _loadSavedTheme() async {
-    final prefs = await SharedPreferences.getInstance();
-    final themeIndex = prefs.getInt("custom_theme") ?? 0;
+    final themeIndex = settings.themeMode;
     setState(() {
       _currentTheme = themeIndex;
     });
   }
 
-  void updateTheme(int themeIndex) {
+  void updateTheme(int themeIndex) async {
     setState(() {
       _currentTheme = themeIndex;
     });
+    await settings.setThemeMode(themeIndex);
   }
 
   @override
@@ -227,13 +306,40 @@ class _MyAppState extends State<MyApp> {
     if (!unlocked) {
       return MaterialApp(
         title: "Unlock ${settings.name} Chat",
+        theme: ThemeManager.getTheme(_currentTheme),
         home: PinScreen(onVerifyPin: onVerifyPin, isSetupMode: widget.keyManager.isPinSet(),)
+      );
+    }
+    if (!_torReady) {
+      return MaterialApp(
+        title: '${settings.name} Chat',
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 24),
+                Text(
+                  _torStatus,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Setting up secure connection...',
+                  style: TextStyle(fontSize: 13, color: Theme.of(context).hintColor),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
     return MaterialApp(
       title: '${settings.name} Chat',
       theme: ThemeManager.getTheme(_currentTheme),
-      home: HomeScreen(torManager: widget.torManager, onionAddress: widget.onionAddress, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
+      home: HomeScreen(torManager: _torManager!, onionAddress: _onionAddress!, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
     );
   }
 }
@@ -269,9 +375,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool showSettings = false;
   bool isLoading = true;
   int currentTheme = 0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
-  
+  String _searchQuery = '';
 
   Timer? _refreshTimer;
+
+  List<Contact> get _filteredContacts {
+    if (_searchQuery.isEmpty) return contacts;
+    return contacts.where((c) => c.displayName.toLowerCase().contains(_searchQuery)).toList();
+  }
 
   @override
   void initState() {
@@ -302,38 +413,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> loadUsers() async {
     final userMaps = await DBHelper.getUsers();
+    final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
     List<Contact> newContacts = [];
     
     for (var map in userMaps) {
       String id = map['id'];
       String name = map['name'];
       String avatarUrl = '';
+      String? avatarBase64 = map['avatarBase64'] as String?;
+      String? customName = map['customName'] as String?;
       String? publicKeyPem = map['publicKeyPem'];
-      int? lastMessageTimestamp = await MessagesDb.getLastMessageTimestampForUser(id);
-      
-      // If publicKeyPem is null or empty, try to fetch it using TorHttpClient
-      if (publicKeyPem == null || publicKeyPem.isEmpty) {
-        try {
-          final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-          final uri = Uri.parse("http://$id:80/public");
-          final response = await torClient.get(uri, {});
-          publicKeyPem = await response.transform(utf8.decoder).join();
-          torClient.close();
+      int? lastMessageTimestamp = timestamps[id];
 
-          // Update DB with fetched publicKeyPem
-          await DBHelper.insertOrUpdateUser({
-            'id': id,
-            'name': name,
-            'avatarUrl': avatarUrl,
-            'publicKeyPem': publicKeyPem,
-          });
-        } catch (e) {
-          print("Failed to fetch public key for $id: $e");
-          publicKeyPem = ""; // fallback empty string to avoid null
-        }
-      }
-
-      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, publicKeyPem: publicKeyPem, lastMessageTimestamp: lastMessageTimestamp));
+      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, avatarBase64: avatarBase64, customName: customName, publicKeyPem: publicKeyPem ?? '', lastMessageTimestamp: lastMessageTimestamp));
     }
 
     // Replace the user with current Tor onion address if it exists
@@ -345,9 +437,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       saveAppUser(appUser);
     }
 
+    // Sync profile to SettingsService if not yet set (migration)
+    if (newAppUser != null) {
+      final s = SettingsService();
+      if (s.username == null && newAppUser.name.isNotEmpty) {
+        s.setUsername(newAppUser.name);
+      }
+      if (s.avatar == null && newAppUser.avatarBase64 != null) {
+        s.setAvatar(newAppUser.avatarBase64);
+      }
+    }
+
     // Check if contacts have changed (simple length or content check)
     bool contactsChanged = newContacts.length != contacts.length ||
-        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name && formatLastMessageTime(old.lastMessageTimestamp) == formatLastMessageTime(c.lastMessageTimestamp)));
+        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name && old.avatarBase64 == c.avatarBase64 && old.customName == c.customName && formatLastMessageTime(old.lastMessageTimestamp) == formatLastMessageTime(c.lastMessageTimestamp)));
 
     if (contactsChanged) {
       setState(() {
@@ -376,6 +479,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'id': user.id,
       'name': user.name,
       'avatarUrl': user.avatarUrl,
+      'avatarBase64': user.avatarBase64,
       'publicKeyPem': user.publicKeyPem
     });
   }
@@ -385,6 +489,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appUser = updatedUser;
     });
     saveAppUser(updatedUser);
+    // Persist avatar and username to SettingsService so /profile serves fresh data
+    final settings = SettingsService();
+    settings.setAvatar(updatedUser.avatarBase64);
+    settings.setUsername(updatedUser.name);
     loadUsers();
   }
 
@@ -474,27 +582,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _addNewUser(String id, String name) async {
     String? publicKeyPem;
+    String? avatarBase64;
+    String fetchedName = name;
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final peerOnion = id; // full onion address
-      final uri = Uri.parse("http://$peerOnion:80/public");
-
-      final response = await torClient.get(uri, {});
-      publicKeyPem = await response.transform(utf8.decoder).join();
-
-      print("Fetched public key from $peerOnion");
+      final peerOnion = id;
+      // Try /profile first for full info
+      try {
+        final profileUri = Uri.parse("http://$peerOnion:80/profile");
+        final profileResponse = await torClient.get(profileUri, {});
+        final profileBody = await profileResponse.transform(utf8.decoder).join();
+        final profileData = jsonDecode(profileBody) as Map<String, dynamic>;
+        publicKeyPem = profileData['publicKeyPem'] as String?;
+        if (profileData['username'] != null && (profileData['username'] as String).isNotEmpty) {
+          fetchedName = profileData['username'] as String;
+        }
+        if (profileData['avatar'] != null && (profileData['avatar'] as String).isNotEmpty) {
+          avatarBase64 = profileData['avatar'] as String;
+        }
+        print("Fetched profile from $peerOnion");
+      } catch (e) {
+        // Fallback to /public
+        print("Profile fetch failed, trying /public: $e");
+        final uri = Uri.parse("http://$peerOnion:80/public");
+        final response = await torClient.get(uri, {});
+        publicKeyPem = await response.transform(utf8.decoder).join();
+        print("Fetched public key from $peerOnion");
+      }
     } catch (e) {
       print("Failed to fetch public key from $id: $e");
-      publicKeyPem = ""; // fallback empty, so we can retry later
+      publicKeyPem = "";
     } finally {
       torClient.close();
     }
 
-    final newUser = Contact(id: id, name: name, avatarUrl: '', publicKeyPem: publicKeyPem);
+    final newUser = Contact(id: id, name: fetchedName, avatarUrl: '', avatarBase64: avatarBase64, publicKeyPem: publicKeyPem ?? '');
     await DBHelper.insertOrUpdateUser({
       'id': newUser.id,
       'name': newUser.name,
       'avatarUrl': newUser.avatarUrl,
+      'avatarBase64': avatarBase64,
       'publicKeyPem': newUser.publicKeyPem
     });
     await loadUsers();
@@ -525,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       margin: EdgeInsetsGeometry.only(top: isMobile ? 50 : 0, bottom: isMobile ? 20 : 0),
       width: 280,
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.grey[100],
+        color: Theme.of(context).cardColor,
         border: Border(
           right: BorderSide(
             color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
@@ -547,17 +674,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
-                  child: Text(
-                    appUser.name.isNotEmpty ? appUser.name[0].toLowerCase() : 'P',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+                ContactAvatar(name: appUser.name, radius: 20, avatarBase64: appUser.avatarBase64),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -570,27 +687,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           fontSize: 16,
                         )
                       ),
-                      const SizedBox(height: 2,),
-                      Text(
-                        'GHOST',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      )
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Online',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 )
               ],
             ),
           ),
-          const SizedBox(height: 8,),
+          const SizedBox(height: 8),
           // Search bar
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Container(
               decoration: BoxDecoration(
-                color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2D2D) : Colors.white,
+                color: Theme.of(context).scaffoldBackgroundColor,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
@@ -599,8 +730,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   )
                 ]
               ),
-              child: const TextField(
-                decoration: InputDecoration(
+              child: TextField(
+                onChanged: (value) {
+                  setState(() => _searchQuery = value.trim().toLowerCase());
+                },
+                decoration: const InputDecoration(
                   hintText: 'Search chats...',
                   hintStyle: TextStyle(fontSize: 14),
                   prefixIcon: Icon(Icons.search, size: 20),
@@ -613,14 +747,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-          const SizedBox(height: 8,),
-          // Contact Lsit
+          const SizedBox(height: 8),
+          // Contact List
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: contacts.length,
+              itemCount: _filteredContacts.length,
               itemBuilder: (_, index) {
-                final contact = contacts[index];
+                final contact = _filteredContacts[index];
                 if (contact.id == appUser.id) return const SizedBox.shrink();
                 return Padding(
                   key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
@@ -630,19 +764,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   child: ListTile(
                     key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
-                    leading: CircleAvatar(
-                      radius: 22,
-                      backgroundColor: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).primaryColorLight : Theme.of(context).primaryColor,
-                      child: Text(
-                        contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).hintColor : Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                    leading: ContactAvatar(name: contact.displayName, avatarBase64: contact.avatarBase64),
                     title: Text(
-                      contact.name,
+                      contact.displayName,
                       style: TextStyle(
                         fontWeight: selectedContact?.id == contact.id ? FontWeight.bold : FontWeight.normal,
                       )
@@ -818,18 +942,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ? SettingsScreen(
                       onClose: () => setState(() => showSettings = false),
                       onThemeChanged: onThemeChanged,
+                      torManager: widget.torManager,
                     )
                   : selectedContact != null
                   ? ChatScreen(
                       userId: appUser.id,
                       userName: appUser.name,
                       peerId: selectedContact!.id,
-                      peerName: selectedContact!.name,
+                      peerName: selectedContact!.displayName,
+                      peerAvatarBase64: selectedContact!.avatarBase64,
                       torManager: widget.torManager,
                       keyManager: widget.keyManager,
                       currentTheme: currentTheme,
                       clearChat: () => clearChat(),
                       reloadUsers: () => loadUsers(),
+                      onCloseChat: () => clearChat(),
                     )
                   : Center(
                       child: Column(
@@ -927,18 +1054,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ? SettingsScreen(
                     onClose: () => setState(() => showSettings = false),
                     onThemeChanged: onThemeChanged,
+                    torManager: widget.torManager,
                   )
                 : selectedContact != null
                 ? ChatScreen(
                     userId: appUser.id,
                     userName: appUser.name,
                     peerId: selectedContact!.id,
-                    peerName: selectedContact!.name,
+                    peerName: selectedContact!.displayName,
+                    peerAvatarBase64: selectedContact!.avatarBase64,
                     torManager: widget.torManager,
                     keyManager: widget.keyManager,
                     currentTheme: currentTheme,
                     clearChat: () => clearChat(),
                     reloadUsers: () => loadUsers(),
+                    onCloseChat: () => clearChat(),
                   )
                 : Center(
                     child: Column(

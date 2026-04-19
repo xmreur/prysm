@@ -1,17 +1,24 @@
 // lib/screens/settings_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'privacy_settings_screen.dart';
 import 'data_storage_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
   final Function(int) onThemeChanged;
+  final dynamic torManager;
 
   const SettingsScreen({
     required this.onClose,
     required this.onThemeChanged,
+    this.torManager,
     super.key,
   });
 
@@ -125,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             Text(
               'Leave empty to disable relay',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
             ),
           ],
         ),
@@ -240,6 +247,204 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showBackupDialog() {
+    final passwordController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create Backup'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose a strong password to encrypt your backup. You will need this password to restore.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Backup Password',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock_outline),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final password = passwordController.text;
+              if (password.length < 4) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password must be at least 4 characters')),
+                );
+                return;
+              }
+              Navigator.pop(context);
+              await _performBackup(password);
+            },
+            child: const Text('Create Backup'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performBackup(String password) async {
+    try {
+      // Save to Documents/prysm_backups/ on all platforms to avoid
+      // freedesktop portal issues on Linux desktop.
+      final dir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory(p.join(dir.path, 'prysm_backups'));
+      if (!await backupDir.exists()) await backupDir.create(recursive: true);
+      final fileName = 'prysm_backup_${DateTime.now().millisecondsSinceEpoch}.prysmbackup';
+      final outputPath = p.join(backupDir.path, fileName);
+      await BackupService.createBackup(outputPath, password);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Backup saved to ${backupDir.path}/$fileName'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Backup failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _showRestoreDialog() {
+    final passwordController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore Backup'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This will replace all current data with the backup. The app will restart after restore.',
+              style: TextStyle(fontSize: 14, color: Colors.red),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Backup Password',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock_outline),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final password = passwordController.text;
+              Navigator.pop(context);
+              await _performRestore(password);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performRestore(String password) async {
+    try {
+      String? filePath;
+
+      if (Platform.isAndroid || Platform.isIOS) {
+        final result = await FilePicker.platform.pickFiles(
+          dialogTitle: 'Select Backup File',
+          type: FileType.any,
+        );
+        if (result == null || result.files.single.path == null) return;
+        filePath = result.files.single.path!;
+      } else {
+        // Desktop: list backups from the known backup directory
+        final dir = await getApplicationDocumentsDirectory();
+        final backupDir = Directory(p.join(dir.path, 'prysm_backups'));
+        if (!await backupDir.exists()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('No backups found in ${backupDir.path}')),
+            );
+          }
+          return;
+        }
+        final files = await backupDir
+            .list()
+            .where((e) => e is File && e.path.endsWith('.prysmbackup'))
+            .cast<File>()
+            .toList();
+        if (files.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('No backup files found in ${backupDir.path}')),
+            );
+          }
+          return;
+        }
+        // Sort newest first
+        files.sort((a, b) => b.path.compareTo(a.path));
+
+        if (!mounted) return;
+        final chosen = await showDialog<File>(
+          context: context,
+          builder: (context) => SimpleDialog(
+            title: const Text('Select Backup'),
+            children: files.map((f) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, f),
+              child: Text(p.basename(f.path), style: const TextStyle(fontSize: 14)),
+            )).toList(),
+          ),
+        );
+        if (chosen == null) return;
+        filePath = chosen.path;
+      }
+
+      final ok = await BackupService.restoreBackup(filePath, password);
+      if (mounted) {
+        if (ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Backup restored! Please restart the app.')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Restore failed — wrong password or corrupt file')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -327,6 +532,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Network'),
               const SizedBox(height: 12),
               _buildCard([
+                _buildNavigationTile(
+                  'Refresh Tor Circuit',
+                  Icons.sync,
+                  () async {
+                    if (widget.torManager == null) return;
+                    final ok = await widget.torManager.refreshCircuit();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(ok
+                              ? 'New Tor circuit requested'
+                              : 'Failed to refresh circuit'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                  subtitle: 'Request a new circuit when connections are stuck',
+                ),
+                const Divider(height: 1),
                 _buildSwitchTile(
                   'Enable Relay Server',
                   'COMING SOON, NOT WORKING', //'Use relay for offline message delivery',
@@ -394,6 +619,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 30),
 
+              // ==================== DATA ====================
+              _buildSectionHeader('Data'),
+              const SizedBox(height: 12),
+              _buildCard([
+                _buildNavigationTile(
+                  'Create Backup',
+                  Icons.backup_outlined,
+                  _showBackupDialog,
+                  subtitle: 'Export encrypted backup file',
+                ),
+                const Divider(height: 1),
+                _buildNavigationTile(
+                  'Restore Backup',
+                  Icons.restore_outlined,
+                  _showRestoreDialog,
+                  subtitle: 'Import from backup file',
+                ),
+              ]),
+
+              const SizedBox(height: 30),
+
               // ==================== ABOUT ====================
               _buildSectionHeader('About'),
               const SizedBox(height: 12),
@@ -402,7 +648,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'About ${settings.name}',
                   Icons.info_outlined,
                   _showAboutDialog,
-                  subtitle: 'Version 8.0.0',
+                  subtitle: 'Version ${settings.version}',
                 ),
                 const Divider(height: 1),
                 _buildNavigationTile(
@@ -544,26 +790,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       title: Text(title),
       subtitle: Text(
         subtitle,
-        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
       ),
-      trailing: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.white.withValues(alpha: 0.1)
-              : Colors.black.withValues(alpha: 0.05),
-        ),
-        child: Switch(
-          value: value,
-          onChanged: onChanged,
-          activeThumbColor: Colors.white,
-          activeTrackColor: Theme.of(context).primaryColor,
-          inactiveThumbColor: Colors.white,
-          inactiveTrackColor: Theme.of(context).brightness == Brightness.dark
-              ? Colors.grey[700]
-              : Colors.grey[400],
-        ),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
       ),
       onTap: () => onChanged(!value),
     );
@@ -582,7 +813,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       subtitle: subtitle != null
           ? Text(
               subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
             )
           : null,
       trailing: Icon(Icons.arrow_forward_ios, size: 16, color: textColor),

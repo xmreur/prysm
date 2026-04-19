@@ -88,6 +88,26 @@ class TorManager {
     }
   }
 
+  /// Request a new Tor circuit via SIGNAL NEWNYM.
+  /// Rate-limited by Tor to once every 10 seconds.
+  Future<bool> refreshCircuit() async {
+    try {
+      if (_controlSocket == null) {
+        await _connectControlPort();
+        if (Platform.isAndroid) {
+          await _authenticateWithCookieFile();
+        } else {
+          await _authenticateDesktopPassword();
+        }
+      }
+      await _sendAndCollect('SIGNAL NEWNYM', untilOk: true, timeout: const Duration(seconds: 5));
+      return true;
+    } catch (e) {
+      print('refreshCircuit error: $e');
+      return false;
+    }
+  }
+
   // =========================
   // Android implementation
   // =========================

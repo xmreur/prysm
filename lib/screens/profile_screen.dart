@@ -4,8 +4,11 @@ import 'package:flutter/scheduler.dart';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:prysm/util/db_helper.dart';
-import '../models/contact.dart'; // adjust the relative path
+import 'package:prysm/screens/widgets/contact_avatar.dart';
+import '../models/contact.dart';
 import 'privacy_settings_screen.dart';
 import 'package:prysm/screens/about_screen.dart';
 
@@ -31,12 +34,13 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nameController;
   late String name = widget.user.name;
+  String? _avatarBase64;
 
   @override
   void initState() {
     super.initState();
-
     _nameController = TextEditingController(text: name);
+    _avatarBase64 = widget.user.avatarBase64;
   }
 
   @override
@@ -50,11 +54,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
       id: widget.user.id,
       name: name,
       avatarUrl: widget.user.avatarUrl,
+      avatarBase64: _avatarBase64,
       publicKeyPem: widget.user.publicKeyPem,
     );
     widget.onUpdate(updatedUser);
     widget.onClose();
     widget.reloadUsers();
+  }
+
+  Future<void> _pickAvatar() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 256, maxHeight: 256);
+    if (picked == null) return;
+
+    Uint8List bytes = await picked.readAsBytes();
+    // Compress to small size for transmission
+    try {
+      bytes = await FlutterImageCompress.compressWithList(
+        bytes,
+        minHeight: 128,
+        minWidth: 128,
+        quality: 60,
+      );
+    } catch (_) {}
+
+    setState(() {
+      _avatarBase64 = base64Encode(bytes);
+    });
   }
 
   String encodeOnionToBase58(String onion) {
@@ -116,37 +142,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     Stack(
                       children: [
-                        CircleAvatar(
-                          radius: 50,
-                          backgroundColor: Theme.of(context).primaryColor,
-                          child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : 'P',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 40,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        GestureDetector(
+                          onTap: _pickAvatar,
+                          child: ContactAvatar(
+                            name: name,
+                            radius: 50,
+                            avatarBase64: _avatarBase64,
                           ),
                         ),
                         Positioned(
                           bottom: 0,
                           right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).scaffoldBackgroundColor,
-                                width: 3,
+                          child: GestureDetector(
+                            onTap: _pickAvatar,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Theme.of(
+                                    context,
+                                  ).scaffoldBackgroundColor,
+                                  width: 3,
+                                ),
                               ),
-                            ),
-                            child: const Icon(
-                              Icons.edit,
-                              color: Colors.white,
-                              size: 16,
+                              child: Icon(
+                                Icons.camera_alt,
+                                color: Theme.of(context).colorScheme.onPrimary,
+                                size: 16,
+                              ),
                             ),
                           ),
                         ),
@@ -161,10 +186,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Online',
                       style: TextStyle(
-                        color: Colors.teal,
+                        color: Theme.of(context).colorScheme.primary,
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),

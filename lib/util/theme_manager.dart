@@ -17,6 +17,12 @@ class ThemeManager {
             elevation: 0,
             centerTitle: false,
           ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          cardTheme: const CardThemeData(color: Colors.white),
         );
       case 1: // Dark Mode
         return ThemeData(
@@ -25,12 +31,18 @@ class ThemeManager {
             seedColor: Colors.teal,
             brightness: Brightness.dark,
           ),
-          scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+          scaffoldBackgroundColor: const Color(0xFF121212),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF2D2D2D),
+            backgroundColor: Color(0xFF1E1E1E),
             foregroundColor: Colors.white,
             elevation: 0,
             centerTitle: false,
+          ),
+          cardColor: const Color(0xFF1E1E1E),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF2A2A2A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       case 2: // Pink Mode
@@ -40,12 +52,18 @@ class ThemeManager {
             seedColor: Colors.pink,
             brightness: Brightness.dark
           ),
-          scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+          scaffoldBackgroundColor: const Color(0xFF1A1218),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF2D2D2D),
+            backgroundColor: Color(0xFF261820),
             foregroundColor: Colors.white,
             elevation: 0,
             centerTitle: false,
+          ),
+          cardColor: const Color(0xFF261820),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF2E1E28),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       case 3: // Cyan Mode
@@ -55,13 +73,19 @@ class ThemeManager {
             seedColor: Colors.cyan,
             brightness: Brightness.dark,
           ),
-          scaffoldBackgroundColor: const Color(0xFF121212),
+          scaffoldBackgroundColor: const Color(0xFF0E1519),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF1E1E1E),
+            backgroundColor: Color(0xFF152025),
             foregroundColor: Colors.white,
             elevation: 0,
             centerTitle: false,
-          )
+          ),
+          cardColor: const Color(0xFF152025),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF1A2830),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         );
       case 4: // Purple Mode
         return ThemeData(
@@ -70,12 +94,18 @@ class ThemeManager {
             seedColor: Colors.purple,
             brightness: Brightness.dark
           ),
-          scaffoldBackgroundColor: const Color(0xFF1A1A2E),
+          scaffoldBackgroundColor: const Color(0xFF14121E),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF16213E),
+            backgroundColor: Color(0xFF1C1830),
             foregroundColor: Colors.white,
             elevation: 0,
             centerTitle: false,
+          ),
+          cardColor: const Color(0xFF1C1830),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF241E38),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       case 5: // Orange Mode
@@ -85,12 +115,18 @@ class ThemeManager {
             seedColor: Colors.orange,
             brightness: Brightness.dark
           ),
-          scaffoldBackgroundColor: const Color(0xFF2D2424),
+          scaffoldBackgroundColor: const Color(0xFF1A1410),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF523A28),
+            backgroundColor: Color(0xFF2A2018),
             foregroundColor: Colors.white,
             elevation: 0,
             centerTitle: false,
+          ),
+          cardColor: const Color(0xFF2A2018),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF342818),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       default:

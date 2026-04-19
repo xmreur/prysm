@@ -23,7 +23,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(path, version: 3, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -32,9 +32,29 @@ class DBHelper {
         id TEXT PRIMARY KEY,
         name TEXT,
         avatarUrl TEXT,
+        avatarBase64 TEXT,
+        customName TEXT,
         publicKeyPem TEXT
       )
     ''');
+    await db.execute('CREATE INDEX idx_users_name ON users(name)');
+  }
+
+  static Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      final cols = await db.rawQuery('PRAGMA table_info(users)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (!colNames.contains('avatarBase64')) {
+        await db.execute('ALTER TABLE users ADD COLUMN avatarBase64 TEXT');
+      }
+    }
+    if (oldVersion < 3) {
+      final cols = await db.rawQuery('PRAGMA table_info(users)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (!colNames.contains('customName')) {
+        await db.execute('ALTER TABLE users ADD COLUMN customName TEXT');
+      }
+    }
   }
 
 
@@ -48,7 +68,7 @@ class DBHelper {
     return db.query('users');
   }
 
-  static Future<void> ensureUserExist(String userId) async {
+  static Future<bool> ensureUserExist(String userId) async {
     final db = await database;
     final users = await db.query(
       'users',
@@ -69,7 +89,9 @@ class DBHelper {
         },
         conflictAlgorithm: ConflictAlgorithm.replace
       );
+      return true;
     }
+    return false;
   }
 
   static Future<Map<String, dynamic>?> getUserById(String id) async {
@@ -83,6 +105,17 @@ class DBHelper {
       return results.first;
     }
     return null; // or throw, or return an empty map {}
+  }
+
+  /// Update specific fields for a user without overwriting other columns.
+  static Future<void> updateUserFields(String userId, Map<String, dynamic> fields) async {
+    final db = await database;
+    await db.update(
+      'users',
+      fields,
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
   }
   
   static Future<void> deleteUser(String userId) async {

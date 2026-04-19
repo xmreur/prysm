@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/notification_service.dart';
@@ -49,9 +51,14 @@ class PrysmServer {
         return await _handlePostMessage(request);
       }
 
-      // GET /public (public key)
+      // GET /public (public key - backwards compat)
       if (request.method == 'GET' && request.url.path == 'public') {
         return _handleGetPublicKey();
+      }
+
+      // GET /profile (public key + username + avatar)
+      if (request.method == 'GET' && request.url.path == 'profile') {
+        return _handleGetProfile();
       }
 
       return Response.notFound(
@@ -80,13 +87,16 @@ class PrysmServer {
       }
 
       // File validation
-      if (['file', 'image'].contains(data['type']) &&
+      if (['file', 'image', 'audio'].contains(data['type']) &&
           !_hasValidFileMetadata(data)) {
         return _badRequest('File metadata required: fileName, fileSize');
       }
 
       // Ensure sender exists
       await DBHelper.ensureUserExist(data['senderId'] as String);
+
+      // Fetch/refresh profile in background (always, to keep data fresh)
+      _fetchSenderProfile(data['senderId'] as String);
 
       final timeReceived = DateTime.now().millisecondsSinceEpoch;
       await MessagesDb.insertMessage({
@@ -101,6 +111,7 @@ class PrysmServer {
         'readAt': timeReceived,
         'status': (data['status'] ?? 'received') as String,
         if (data['replyTo'] != null) 'replyTo': data['replyTo'],
+        'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
       });
 
       // Send local notification only if app is in background
@@ -143,6 +154,17 @@ class PrysmServer {
     );
   }
 
+  Response _handleGetProfile() {
+    return Response.ok(
+      jsonEncode({
+        'publicKeyPem': keyManager.publicKeyPem,
+        'username': settings.username ?? settings.name,
+        'avatar': settings.avatar ?? '',
+      }),
+      headers: {'Content-Type': 'application/json'},
+    );
+  }
+
   bool _isValidMessageData(dynamic data) {
     return data is Map &&
         data['id'] is String &&
@@ -155,6 +177,44 @@ class PrysmServer {
 
   bool _hasValidFileMetadata(dynamic data) {
     return data['fileName'] is String && data['fileSize'] is int;
+  }
+
+  void _fetchSenderProfile(String senderId) {
+    // Wrap in runZonedGuarded to prevent unhandled exceptions from
+    // fire-and-forget async (Tor SOCKS errors like ttlExpired)
+    Zone.current.fork(
+      specification: ZoneSpecification(
+        handleUncaughtError: (self, parent, zone, error, stackTrace) {
+          print('Suppressed error in _fetchSenderProfile: $error');
+        },
+      ),
+    ).run(() async {
+      final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+      try {
+        final uri = Uri.parse('http://$senderId:80/profile');
+        final response = await torClient.get(uri, {}).timeout(const Duration(seconds: 20));
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body) as Map<String, dynamic>;
+
+        final updates = <String, dynamic>{};
+        if (data['publicKeyPem'] != null && (data['publicKeyPem'] as String).isNotEmpty) {
+          updates['publicKeyPem'] = data['publicKeyPem'];
+        }
+        if (data['username'] != null && (data['username'] as String).isNotEmpty) {
+          updates['name'] = data['username'];
+        }
+        if (data['avatar'] != null && (data['avatar'] as String).isNotEmpty) {
+          updates['avatarBase64'] = data['avatar'];
+        }
+        if (updates.isNotEmpty) {
+          await DBHelper.updateUserFields(senderId, updates);
+        }
+      } catch (e) {
+        print('Failed to fetch sender profile: $e');
+      } finally {
+        torClient.close();
+      }
+    });
   }
 
   Response _badRequest(String message) {

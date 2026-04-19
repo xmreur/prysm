@@ -13,8 +13,8 @@ class PendingMessageDbHelper {
 
     _database = await openDatabase(
       path,
-      version: 1,
-      singleInstance: false,
+      version: 3,
+      singleInstance: true,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_messages(
@@ -27,9 +27,24 @@ class PendingMessageDbHelper {
             fileSize INTEGER,
             timestamp INTEGER,
             status TEXT,
-            replyTo TEXT
+            replyTo TEXT,
+            viewOnce INTEGER DEFAULT 0
           )
         ''');
+        await db.execute('CREATE INDEX idx_pending_receiver ON pending_messages(receiverId)');
+        await db.execute('CREATE INDEX idx_pending_timestamp ON pending_messages(timestamp)');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_pending_receiver ON pending_messages(receiverId)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_pending_timestamp ON pending_messages(timestamp)');
+        }
+        if (oldVersion < 3) {
+          final columns = await db.rawQuery('PRAGMA table_info(pending_messages)');
+          if (!columns.any((col) => col['name'] == 'viewOnce')) {
+            await db.execute('ALTER TABLE pending_messages ADD COLUMN viewOnce INTEGER DEFAULT 0');
+          }
+        }
       },
     );
     return _database!;
@@ -56,5 +71,16 @@ class PendingMessageDbHelper {
     final db = await database;
 
     await db.delete('pending_messages', where: "id = ?", whereArgs: [messageId]);
+  }
+
+  static Future<void> removeMessages(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final db = await database;
+    final placeholders = List.filled(messageIds.length, '?').join(',');
+    await db.delete(
+      'pending_messages',
+      where: 'id IN ($placeholders)',
+      whereArgs: messageIds,
+    );
   }
 }

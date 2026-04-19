@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/models/settings.dart';
 
 class SettingsService {
-  static const String appVersion = 'v0.0.9';
+  static const String appVersion = 'v0.1.0';
   static const String appName = 'Prysm';
   static const String appDescription = 'Privacy-focused P2P messaging';
 
@@ -40,6 +40,10 @@ class SettingsService {
 
   // Theme
   int get themeMode => _settings.themeMode;
+
+  // Profile
+  String? get avatar => _settings.avatar;
+  String? get username => _settings.username;
 
   // Initialize (call at app startup)
   Future<void> init() async {
@@ -115,6 +119,17 @@ class SettingsService {
   // Theme Settings
   Future<void> setThemeMode(int value) async {
     _settings = _settings.copyWith(themeMode: value);
+    await save();
+  }
+
+  // Profile Settings
+  Future<void> setAvatar(String? value) async {
+    _settings = _settings.copyWith(avatar: value);
+    await save();
+  }
+
+  Future<void> setUsername(String? value) async {
+    _settings = _settings.copyWith(username: value);
     await save();
   }
 

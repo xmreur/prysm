@@ -4,10 +4,12 @@ import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
+import 'widgets/contact_avatar.dart';
 
 class ChatProfileScreen extends StatefulWidget {
   final Contact peer;
   final String currentUserName;
+  final bool isOnline;
   final VoidCallback onClose;
   final Function(Contact) onUpdateName;
   final Function() onDeleteChat;
@@ -16,6 +18,7 @@ class ChatProfileScreen extends StatefulWidget {
   const ChatProfileScreen({
     required this.peer,
     required this.currentUserName,
+    this.isOnline = false,
     required this.onClose,
     required this.onUpdateName,
     required this.onDeleteChat,
@@ -33,7 +36,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.peer.name);
+    _nameController = TextEditingController(text: widget.peer.displayName);
   }
 
   @override
@@ -57,19 +60,19 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
 
   void _saveName() async {
     if (!mounted) return;
+    final newCustomName = _nameController.text.trim();
     final updatedPeer = Contact(
       id: widget.peer.id,
-      name: _nameController.text,
+      name: widget.peer.name,
       avatarUrl: widget.peer.avatarUrl,
+      avatarBase64: widget.peer.avatarBase64,
+      customName: newCustomName.isNotEmpty ? newCustomName : null,
       publicKeyPem: widget.peer.publicKeyPem,
     );
 
-    // Update in database
-    await DBHelper.insertOrUpdateUser({
-      'id': updatedPeer.id,
-      'name': updatedPeer.name,
-      'avatarUrl': updatedPeer.avatarUrl,
-      'publicKeyPem': widget.peer.publicKeyPem,
+    // Only update customName column — don't overwrite remote name/avatar/key
+    await DBHelper.updateUserFields(updatedPeer.id, {
+      'customName': newCustomName.isNotEmpty ? newCustomName : null,
     });
 
     widget.onUpdateName(updatedPeer);
@@ -178,19 +181,10 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                   children: [
                     Stack(
                       children: [
-                        CircleAvatar(
+                        ContactAvatar(
+                          name: widget.peer.displayName,
                           radius: 50,
-                          backgroundColor: Theme.of(context).primaryColor,
-                          child: Text(
-                            widget.peer.name.isNotEmpty
-                                ? widget.peer.name[0].toUpperCase()
-                                : 'U',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 40,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          avatarBase64: widget.peer.avatarBase64,
                         ),
                       ],
                     ),
@@ -208,13 +202,31 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'GHOST',
-                      style: TextStyle(
-                        color: Colors.teal,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: widget.isOnline
+                                ? Colors.green
+                                : Theme.of(context).colorScheme.onSurface.withAlpha(100),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.isOnline ? 'Online' : 'Offline',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: widget.isOnline
+                                ? Colors.green
+                                : Theme.of(context).hintColor,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

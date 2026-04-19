@@ -58,13 +58,16 @@ class _PinScreenState extends State<PinScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(6, (index) {
         final filled = index < _pin.length;
-        return Container(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           margin: const EdgeInsets.symmetric(horizontal: 10),
-          width: 20,
-          height: 20,
+          width: filled ? 22 : 20,
+          height: filled ? 22 : 20,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: filled ? Colors.grey : Colors.grey.withAlpha(25),
+            color: filled
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.onSurface.withAlpha(40),
           ),
         );
       }),
@@ -77,14 +80,14 @@ class _PinScreenState extends State<PinScreen> {
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(15),
+          color: Theme.of(context).colorScheme.onSurface.withAlpha(15),
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
         child: Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
             fontSize: 32,
             fontWeight: FontWeight.w400,
           ),
@@ -121,9 +124,7 @@ class _PinScreenState extends State<PinScreen> {
                     child: Icon(
                       Icons.backspace_outlined,
                       size: 28,
-                      color: Theme.of(context).brightness == Brightness.light
-                          ? Colors.white
-                          : Colors.black,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 );
@@ -139,7 +140,7 @@ class _PinScreenState extends State<PinScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Center(
           child: Column(
@@ -152,9 +153,7 @@ class _PinScreenState extends State<PinScreen> {
                   return Text(
                     isSetupMode ? "Enter Passcode" : "Setup Passcode",
                     style: TextStyle(
-                      color: Theme.of(context).brightness == Brightness.light
-                          ? Colors.white
-                          : Colors.black,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w500,
                       fontSize: 30,
                     ),
@@ -165,7 +164,7 @@ class _PinScreenState extends State<PinScreen> {
               isLoading ? const CircularProgressIndicator() : _buildPinDots(),
               if (error != null) ...[
                 const SizedBox(height: 12),
-                Text(error!, style: const TextStyle(color: Colors.red)),
+                Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ],
               const SizedBox(height: 50),
               _buildKeypad(),

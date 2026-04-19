@@ -9,7 +9,7 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 2;
+    static const _dbVersion = 3;
 
 	/// Return singleton database instance
 	static Future<Database> get database async {
@@ -34,6 +34,7 @@ class MessagesDb {
 				},
 				onUpgrade: (db, oldVersion, newVersion) async {
 					if (oldVersion < 2) await _upgradeToV2(db);
+					if (oldVersion < 3) await _upgradeToV3(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -59,7 +60,9 @@ class MessagesDb {
                 timestamp INTEGER NOT NULL,
                 status TEXT DEFAULT 'sent',
                 replyTo TEXT,
-                readAt INTEGER
+                readAt INTEGER,
+                viewOnce INTEGER DEFAULT 0,
+                viewed INTEGER DEFAULT 0
             )
         ''');
 
@@ -82,16 +85,39 @@ class MessagesDb {
 	static Future<void> _upgradeToV2(Database db) async {
         print("UPGRADING DB TO v2");
         
-        // But simpler: ignore error if column exists
-        try {
+        final columns = await db.rawQuery('PRAGMA table_info(messages)');
+        final hasReadAt = columns.any((col) => col['name'] == 'readAt');
+        if (!hasReadAt) {
             await db.execute('ALTER TABLE messages ADD COLUMN readAt INTEGER');
-        } catch (e) {
-            print('readAt column already exists or other error: $e');
         }
         await db.execute('CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)');
     }
 
 	
+	static Future<void> _upgradeToV3(Database db) async {
+		print("UPGRADING DB TO v3");
+		final columns = await db.rawQuery('PRAGMA table_info(messages)');
+		if (!columns.any((col) => col['name'] == 'viewOnce')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN viewOnce INTEGER DEFAULT 0');
+		}
+		if (!columns.any((col) => col['name'] == 'viewed')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0');
+		}
+	}
+
+	/// Mark a view-once message as viewed and wipe its content
+	static Future<void> markViewOnceViewed(String id) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			await db.update(
+				'messages',
+				{'viewed': 1, 'message': null},
+				where: 'id = ? AND viewOnce = 1',
+				whereArgs: [id],
+			);
+		});
+	}
+
 	/// Insert or replace message, serialized with mutex
 	static Future<void> insertMessage(Map<String, dynamic> message) async {
 		await _dbMutex.protect(() async {
@@ -122,6 +148,30 @@ class MessagesDb {
 				return value is int ? value : int.tryParse(value.toString());
 			}
 			return null;
+		});
+	}
+
+	/// Get the last message timestamps for all users in a single query
+	static Future<Map<String, int>> getLastMessageTimestampsForAllUsers() async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final result = await db.rawQuery('''
+				SELECT userId, MAX(ts) as lastTimestamp FROM (
+					SELECT senderId AS userId, MAX(timestamp) AS ts FROM messages GROUP BY senderId
+					UNION ALL
+					SELECT receiverId AS userId, MAX(timestamp) AS ts FROM messages GROUP BY receiverId
+				) GROUP BY userId
+			''');
+
+			final Map<String, int> timestamps = {};
+			for (final row in result) {
+				final userId = row['userId'] as String?;
+				final ts = row['lastTimestamp'];
+				if (userId != null && ts != null) {
+					timestamps[userId] = ts is int ? ts : int.tryParse(ts.toString()) ?? 0;
+				}
+			}
+			return timestamps;
 		});
 	}
 
@@ -228,13 +278,15 @@ class MessagesDb {
 	static Future<void> deleteMessageById(String id) async {
 		await _dbMutex.protect(() async {
 			final db = await database;
-			await db.update(
-				'messages',
-				{"replyTo": null},
-				where: 'id = ?',
-				whereArgs: [id],
-			);
-			await db.delete('messages', where: 'id = ?', whereArgs: [id]);
+			await db.transaction((txn) async {
+				await txn.update(
+					'messages',
+					{"replyTo": null},
+					where: 'replyTo = ?',
+					whereArgs: [id],
+				);
+				await txn.delete('messages', where: 'id = ?', whereArgs: [id]);
+			});
 		});
 	}
 

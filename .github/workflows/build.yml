@@ -1,0 +1,90 @@
+name: Build Flutter App
+
+on:
+  push:
+    tags:
+      - 'v*'
+    
+jobs:
+
+  # ----------------------------
+  # Windows build
+  # ----------------------------
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.9.2'
+
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - name: Zip Windows Build
+        run: powershell Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath windows-build.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: windows-build.zip
+
+  # ----------------------
+  # LINUX BUILD
+  # ----------------------
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev
+
+      - run: flutter config --enable-linux-desktop
+      - run: flutter pub get
+      - run: flutter build linux
+
+      - name: Zip Linux build
+        run: zip -r linux-build.zip build/linux/x64/release/bundle/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: linux-build.zip
+
+
+  # ----------------------
+  # ANDROID BUILD
+  # ----------------------
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: stable
+
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses
+
+      - run: flutter pub get
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

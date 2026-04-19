@@ -18,7 +18,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.9.2'
+          channel: stable
 
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
@@ -43,7 +43,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: stable
+          channel: stable
 
       - name: Install Linux dependencies
         run: |
@@ -76,7 +76,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: stable
+          channel: stable
 
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses

@@ -24,7 +24,7 @@ This is an early-stage prototype. APIs, storage, and networking layers are evolv
 
 ## Current version
 
-Latest stable version is: 0.0.8
+Latest stable version is: 0.1.0
 
 ## Official Downloads
 

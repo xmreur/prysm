@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/chat_service.dart';
 import 'package:prysm/services/group_chat_service.dart';
+import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -73,6 +74,16 @@ class SyncCoordinator {
             keyManager: keyManager,
           ) ||
           any;
+      any = await ReactionService.processGlobalPendingGroup(
+            userId: userId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await ReactionService.processGlobalPendingDirect(
+            userId: userId,
+            keyManager: keyManager,
+          ) ||
+          any;
       any = await ChatService.processGlobalPending(
             userId: userId,
             keyManager: keyManager,
@@ -92,6 +103,9 @@ class SyncCoordinator {
       final type = m['type'] as String?;
       if (type == null) return false;
       if (isGroupControlType(type) || type == groupHistoryRelayType) {
+        return m['senderId'] == userId;
+      }
+      if (isReactionType(type)) {
         return m['senderId'] == userId;
       }
       if (m['groupId'] != null) {

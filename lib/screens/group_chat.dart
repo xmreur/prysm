@@ -13,13 +13,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/message_reaction_bar.dart';
+import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
@@ -54,6 +59,7 @@ class GroupChatScreen extends StatefulWidget {
 class _GroupChatScreenState extends State<GroupChatScreen> {
   late GroupService _groupService;
   late GroupChatService _chatService;
+  late ReactionService _reactionService;
   late User _user;
 
   var _messages = InMemoryChatController();
@@ -67,6 +73,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
+  StreamSubscription? _reactionSub;
+  StreamSubscription? _reactionRefreshSub;
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
@@ -91,6 +99,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       keyManager: widget.keyManager,
       groupService: _groupService,
     );
+    _reactionService = ReactionService.group(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      groupId: widget.group.id,
+      groupService: _groupService,
+    );
     _init();
   }
 
@@ -113,7 +127,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void _teardown() {
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
+    _reactionSub?.cancel();
+    _reactionRefreshSub?.cancel();
     _chatService.dispose();
+    _reactionService.dispose();
   }
 
   Future<void> _init() async {
@@ -131,6 +148,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
     _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionRefreshSub =
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
 
     await _loadMoreMessages();
     _chatService.startPolling();
@@ -239,55 +259,94 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _showMessageMenu(Message message) {
-    showModalBottomSheet<void>(
+    showMessageActionsSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _replyToMessage = message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.select_all),
-              title: const Text('Select'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => selectedMessageIds.add(message.id));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final storageId = MessagesDb.scopedId(
-                  wireId: message.id,
-                  groupId: widget.group.id,
-                );
-                await MessagesDb.deleteMessageById(storageId);
-                if (mounted) {
-                  setState(() {
-                    _messages.removeMessage(message);
-                  });
-                }
-              },
-            ),
-          ],
+      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      actionTiles: [
+        ListTile(
+          leading: const Icon(Icons.reply),
+          title: const Text('Reply'),
+          onTap: () {
+            Navigator.pop(context);
+            setState(() => _replyToMessage = message);
+          },
         ),
-      ),
+        ListTile(
+          leading: const Icon(Icons.select_all),
+          title: const Text('Select'),
+          onTap: () {
+            Navigator.pop(context);
+            setState(() => selectedMessageIds.add(message.id));
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.delete_outline),
+          title: const Text('Delete'),
+          onTap: () async {
+            Navigator.pop(context);
+            final storageId = MessagesDb.scopedId(
+              wireId: message.id,
+              groupId: widget.group.id,
+            );
+            await MessagesDb.deleteMessageById(storageId);
+            await MessageReactionsDb.deleteReactionsForMessage(storageId);
+            if (mounted) {
+              setState(() {
+                _messages.removeMessage(message);
+              });
+            }
+          },
+        ),
+      ],
     );
+  }
+
+  Future<void> _onReactionSelected(Message message, String emoji) async {
+    await _reactionService.toggleReaction(
+      targetMessageId: message.id,
+      emoji: emoji,
+    );
+  }
+
+  void _applyReactionUpdate(ReactionUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      final updated = applyReactionsToMessage(msg, update.reactions);
+      setState(() {
+        _messages.updateMessage(msg, updated);
+      });
+    } catch (_) {}
+  }
+
+  Widget _reactionBarFor(Message message, bool isSentByMe) {
+    final reactions = message.reactions;
+    if (reactions == null || reactions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MessageReactionBar(
+      reactions: reactions,
+      currentUserId: widget.userId,
+      isSentByMe: isSentByMe,
+      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+    );
+  }
+
+  Future<List<Message>> _attachReactions(List<Message> messages) async {
+    if (messages.isEmpty) return messages;
+    final ids = messages.map((m) => m.id).toList();
+    final reactions = await _reactionService.loadReactionsForMessages(ids);
+    return messages
+        .map((m) => applyReactionsToMessage(m, reactions[m.id]))
+        .toList();
   }
 
   Future<void> _deleteSelectedMessages() async {
     for (final id in selectedMessageIds) {
       final storageId = MessagesDb.scopedId(wireId: id, groupId: widget.group.id);
       await MessagesDb.deleteMessageById(storageId);
+      await MessageReactionsDb.deleteReactionsForMessage(storageId);
     }
     if (!mounted) return;
     setState(() {
@@ -570,7 +629,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ));
       }
     }
-    return result;
+    return _attachReactions(result);
   }
 
   Future<void> _loadMoreMessages() async {
@@ -1376,7 +1435,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                       : MainAxisAlignment.start,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Flexible(child: child),
+                                    Flexible(
+                                      child: Column(
+                                        crossAxisAlignment: isSentByMe
+                                            ? CrossAxisAlignment.end
+                                            : CrossAxisAlignment.start,
+                                        children: [
+                                          child,
+                                          _reactionBarFor(message, isSentByMe),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),

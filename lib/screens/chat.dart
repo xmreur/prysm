@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:encrypt/encrypt.dart' as e;
@@ -91,7 +90,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Set<String> selectedMessageIds = {};
   Message? _replyToMessage;
-  Map<String, double> _dragOffsets = {};
+  final Map<String, double> _dragOffsets = {};
 
   Key _chatKey = UniqueKey();
   final AutoScrollController _scrollController = AutoScrollController();
@@ -1035,7 +1034,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ],
     ).then((value) {
-      if (value == null) return;
+      if (!context.mounted || value == null) return;
       switch (value) {
         case 'copy':
           Clipboard.setData(ClipboardData(text: text));
@@ -1403,10 +1402,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                   if (isSentByMe) delta = -delta;
                                   _dragOffsets[message.id] =
                                       (_dragOffsets[message.id] ?? 0) + delta;
-                                  if (_dragOffsets[message.id]! < 0)
+                                  if (_dragOffsets[message.id]! < 0) {
                                     _dragOffsets[message.id] = 0;
-                                  if (_dragOffsets[message.id]! > 100)
+                                  }
+                                  if (_dragOffsets[message.id]! > 100) {
                                     _dragOffsets[message.id] = 100;
+                                  }
                                 });
                               },
                               onHorizontalDragEnd: (details) {
@@ -1581,7 +1582,7 @@ class _ChatScreenState extends State<ChatScreen> {
               if (msg.isEmpty || msg.first['message'] == null) return;
               try {
                 final decryptedBytes = await decryptFileInBackground(msg.first, widget.keyManager);
-                if (!mounted) return;
+                if (!context.mounted) return;
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -1738,10 +1739,12 @@ class _ChatScreenState extends State<ChatScreen> {
       isDownloading.value = true;
 
       await Future.delayed(Duration(milliseconds: 50));
+      if (!context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       try {
         if (message.source.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          messenger.showSnackBar(
+            const SnackBar(
               content: Text('No encrypted data available for this file'),
             ),
           );
@@ -1755,8 +1758,9 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.keyManager,
         );
 
+        if (!context.mounted) return;
         if (bytes.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text(
                 '${message.name} is still decrypting, please wait.',
@@ -1766,7 +1770,8 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
         final file = await DownloadLocation.saveBytes(bytes, message.name);
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (!context.mounted) return;
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               'Successfully downloaded ${file.path.split(Platform.pathSeparator).last}',
@@ -1774,9 +1779,8 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error downloading file: $e')));
+        if (!context.mounted) return;
+        messenger.showSnackBar(SnackBar(content: Text('Error downloading file: $e')));
       } finally {
         isDownloading.value = false;
       }
@@ -2063,14 +2067,18 @@ class _VoiceMessageBubbleState extends State<_VoiceMessageBubble> {
         if (mounted) setState(() => _position = pos);
       });
       _player!.onDurationChanged.listen((dur) {
-        if (mounted) setState(() => _duration = dur);
+        if (mounted) {
+          setState(() => _duration = dur);
+        }
       });
       _player!.onPlayerComplete.listen((_) {
-        if (mounted) setState(() {
-          _isPlaying = false;
-          _hasCompleted = true;
-          _position = Duration.zero;
-        });
+        if (mounted) {
+          setState(() {
+            _isPlaying = false;
+            _hasCompleted = true;
+            _position = Duration.zero;
+          });
+        }
       });
     }
   }

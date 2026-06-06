@@ -22,10 +22,10 @@ class MessageComposer extends StatefulWidget {
   });
 
   @override
-  _MessageComposerState createState() => _MessageComposerState();
+  State<MessageComposer> createState() => MessageComposerState();
 }
 
-class _MessageComposerState extends State<MessageComposer> {
+class MessageComposerState extends State<MessageComposer> {
   final TextEditingController _textController = TextEditingController();
   String currentText = '';
   bool showEmojiPicker = false;

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
@@ -71,7 +70,7 @@ void main() async {
       }
     }
     // Write our PID
-    await lockFile.writeAsString('${pid}');
+    await lockFile.writeAsString('$pid');
 
     // Clean up lock file on exit
     ProcessSignal.sigterm.watch().listen((_) async {
@@ -490,8 +489,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     currentTheme = widget.currentTheme;
-    final _s = SettingsService();
-    appUser = Contact(id: widget.onionAddress, name: _s.username ?? '', avatarUrl: '', publicKeyPem: 'NONE');
+    final appSettings = SettingsService();
+    appUser = Contact(id: widget.onionAddress, name: appSettings.username ?? '', avatarUrl: '', publicKeyPem: 'NONE');
     _syncCoordinator = SyncCoordinator(
       userId: widget.onionAddress,
       keyManager: widget.keyManager,

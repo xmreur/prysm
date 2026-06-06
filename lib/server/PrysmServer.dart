@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/db_helper.dart';

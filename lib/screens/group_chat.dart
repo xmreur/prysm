@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
@@ -966,7 +965,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                     if (rows.isEmpty) return;
                     try {
                       final bytes = await _decryptGroupFileBytes(rows.first);
-                      if (!mounted) return;
+                      if (!context.mounted) return;
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -1145,17 +1144,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           bytes = base64Decode(message.source);
         }
         final file = await DownloadLocation.saveBytes(bytes, message.name);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Saved ${file.path.split('/').last}')),
-          );
-        }
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Saved ${file.path.split('/').last}')),
+        );
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Download failed: $e')),
-          );
-        }
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
       }
     }
 

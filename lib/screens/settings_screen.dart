@@ -9,7 +9,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'privacy_settings_screen.dart';
-import 'data_storage_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -33,12 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Local state variables
   int _selectedTheme = 0;
   bool _notificationsEnabled = true;
-  bool _showOnlineStatus = true;
-  bool _readReceipts = true;
   bool _enableRelay = false;
-  String? _relayAddress;
-  bool _aggressiveRetry = true;
-  int _messageRetentionDays = 30;
   String _downloadLocationDisplay = 'Loading...';
 
   @override
@@ -52,12 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _selectedTheme = settings.themeMode;
       _notificationsEnabled = settings.enableNotifications;
-      _showOnlineStatus = settings.showOnlineStatus;
-      _readReceipts = settings.sendReadReceipts;
       _enableRelay = settings.enableRelay;
-      _relayAddress = settings.personalRelayAddress;
-      _aggressiveRetry = settings.aggressiveRetry;
-      _messageRetentionDays = settings.messageRetentionDays;
     });
   }
 
@@ -155,127 +144,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settings.setEnableNotifications(value);
   }
 
-  void _onOnlineStatusToggle(bool value) async {
-    setState(() {
-      _showOnlineStatus = value;
-    });
-    await settings.setShowOnlineStatus(value);
-  }
-
-  void _onReadReceiptsToggle(bool value) async {
-    setState(() {
-      _readReceipts = value;
-    });
-    await settings.setSendReadReceipts(value);
-  }
-
-  void _onEnableRelayToggle(bool value) async {
-    setState(() {
-      _enableRelay = value;
-    });
-    await settings.setEnableRelay(value);
-  }
-
-  void _onAggressiveRetryToggle(bool value) async {
-    setState(() {
-      _aggressiveRetry = value;
-    });
-    await settings.setAggressiveRetry(value);
-  }
-
-  // Dialog methods
-  void _showRelayAddressDialog() {
-    final controller = TextEditingController(text: _relayAddress ?? '');
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Relay Server Address'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your Tor hidden service address for message relay:',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'example1234567890.onion',
-                labelText: 'Relay Address',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.cloud_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Leave empty to disable relay',
-              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final address = controller.text.trim();
-              setState(() {
-                _relayAddress = address.isEmpty ? null : address;
-              });
-              await settings.setPersonalRelayAddress(
-                address.isEmpty ? null : address,
-              );
-              if (mounted) Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRetentionDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Message Retention'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [7, 14, 30, 90, 365]
-              .map(
-                (days) => RadioListTile<int>(
-                  title: Text('$days days'),
-                  subtitle: Text(_getRetentionDescription(days)),
-                  value: days,
-                  groupValue: _messageRetentionDays,
-                  onChanged: (value) async {
-                    setState(() {
-                      _messageRetentionDays = value!;
-                    });
-                    await settings.setMessageRetentionDays(value!);
-                    if (mounted) Navigator.pop(context);
-                  },
-                ),
-              )
-              .toList(),
-        ),
-      ),
-    );
-  }
-
-  String _getRetentionDescription(int days) {
-    if (days == 7) return 'Minimal storage';
-    if (days == 14) return 'Short term';
-    if (days == 30) return 'Default';
-    if (days == 90) return 'Extended';
-    return 'Long term';
-  }
-
   void _showAboutDialog() {
     showAboutDialog(
       context: context,
@@ -312,12 +180,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               await settings.reset();
               _loadSettings();
               widget.onThemeChanged(0); // Reset to light theme
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Settings reset to defaults')),
-                );
-              }
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Settings reset to defaults')),
+              );
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Reset'),
@@ -618,8 +485,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   () async {
                     if (widget.torManager == null) return;
                     final ok = await widget.torManager.refreshCircuit();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(ok
                               ? 'New Tor circuit requested'
@@ -627,7 +494,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           duration: const Duration(seconds: 2),
                         ),
                       );
-                    }
                   },
                   subtitle: 'Request a new circuit when connections are stuck',
                 ),

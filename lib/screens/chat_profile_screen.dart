@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -60,7 +59,8 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   }
 
   void _saveName() async {
-    if (!mounted) return;
+    if (!context.mounted) return;
+    final navigator = Navigator.of(context);
     final newCustomName = _nameController.text.trim();
     final updatedPeer = Contact(
       id: widget.peer.id,
@@ -76,8 +76,9 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
       'customName': newCustomName.isNotEmpty ? newCustomName : null,
     });
 
+    if (!context.mounted) return;
     widget.onUpdateName(updatedPeer);
-    Navigator.of(context).pop(updatedPeer);
+    navigator.pop(updatedPeer);
   }
 
   void _confirmDeleteChat() {

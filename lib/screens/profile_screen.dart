@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/scheduler.dart';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

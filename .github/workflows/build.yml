@@ -84,10 +84,30 @@ jobs:
         with:
           channel: stable
 
+      # ----------------------
+      # Restore debug keystore
+      # ----------------------
+      - name: Restore debug keystore
+        run: |
+          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE }}" | base64 -d > debug.keystore
+
+      # ----------------------
+      # Create key.properties
+      # ----------------------
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=android
+          keyPassword=android
+          keyAlias=androiddebugkey
+          storeFile=../debug.keystore
+          EOF
+
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses
 
       - run: flutter pub get
+
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4

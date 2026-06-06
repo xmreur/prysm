@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +19,8 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -534,6 +535,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             final cacheDir = await getTemporaryDirectory();
             final cachePath = '${cacheDir.path}/group_voice_$id.wav';
             await File(cachePath).writeAsBytes(bytes);
+            final durationMs = WaveformExtractor.estimateDurationMs(bytes);
+            final peaks = WaveformExtractor.extractPeaks(bytes);
             result.add(FileMessage(
               id: id,
               authorId: authorId,
@@ -542,7 +545,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               name: msg['fileName'] as String? ?? 'voice_message.wav',
               size: bytes.length,
               seenAt: seenAt,
-              source: 'audio:0:$cachePath',
+              source: 'audio:$durationMs:$cachePath',
+              metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
             ));
           } else {
             result.add(FileMessage(
@@ -742,6 +746,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final cacheDir = await getTemporaryDirectory();
     final cachePath = '${cacheDir.path}/group_voice_cache_$messageId.wav';
     await File(cachePath).writeAsBytes(bytes);
+    final peaks = WaveformExtractor.extractPeaks(bytes);
 
     if (!mounted) return;
 
@@ -755,6 +760,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           size: bytes.length,
           source: 'audio:$durationMs:$cachePath',
           sentAt: DateTime.now(),
+          metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
         ),
         index: _messages.messages.length,
       );
@@ -1116,7 +1122,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           _senderLabel(message.authorId, isSentByMe),
-          _GroupVoiceMessageBubble(
+          VoiceMessageBubble(
             message: message,
             isSentByMe: isSentByMe,
             timeString: timeString,
@@ -1399,108 +1405,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _GroupVoiceMessageBubble extends StatefulWidget {
-  final FileMessage message;
-  final bool isSentByMe;
-  final String timeString;
-  final Widget tickWidget;
-
-  const _GroupVoiceMessageBubble({
-    required this.message,
-    required this.isSentByMe,
-    required this.timeString,
-    required this.tickWidget,
-  });
-
-  @override
-  State<_GroupVoiceMessageBubble> createState() => _GroupVoiceMessageBubbleState();
-}
-
-class _GroupVoiceMessageBubbleState extends State<_GroupVoiceMessageBubble> {
-  AudioPlayer? _player;
-  bool _isPlaying = false;
-
-  @override
-  void dispose() {
-    _player?.dispose();
-    super.dispose();
-  }
-
-  Future<String?> _audioPath() async {
-    if (!widget.message.source.startsWith('audio:')) return null;
-    final parts = widget.message.source.split(':');
-    if (parts.length < 3) return null;
-    return parts.sublist(2).join(':');
-  }
-
-  Future<void> _togglePlay() async {
-    final path = await _audioPath();
-    if (path == null || !await File(path).exists()) return;
-
-    _player ??= AudioPlayer();
-    if (_isPlaying) {
-      await _player!.stop();
-      if (mounted) setState(() => _isPlaying = false);
-      return;
-    }
-
-    await _player!.play(DeviceFileSource(path));
-    _player!.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _isPlaying = false);
-    });
-    if (mounted) setState(() => _isPlaying = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bubbleColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.primary.withAlpha(225)
-        : Theme.of(context).colorScheme.secondary.withAlpha(225);
-    final iconColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondary;
-
-    return Column(
-      crossAxisAlignment:
-          widget.isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onTap: _togglePlay,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: iconColor,
-                ),
-                const SizedBox(width: 8),
-                Text('Voice message', style: TextStyle(color: iconColor)),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(widget.timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-            if (widget.isSentByMe) ...[
-              const SizedBox(width: 4),
-              widget.tickWidget,
-            ],
-          ],
-        ),
-      ],
     );
   }
 }

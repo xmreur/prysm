@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -17,6 +18,11 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'package:prysm/screens/chat.dart';
+import 'package:prysm/screens/create_group_screen.dart';
+import 'package:prysm/screens/group_chat.dart';
+import 'package:prysm/models/conversation.dart';
+import 'package:prysm/models/group.dart';
+import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
@@ -26,17 +32,19 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/util/theme_manager.dart';
 import 'package:prysm/util/notification_service.dart';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/services/sync_coordinator.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
 
-bool _isProcessRunning(int pid) {
+Future<bool> _isProcessRunning(int pid) async {
   try {
     if (Platform.isWindows) {
-      final result = Process.runSync('tasklist', ['/FI', 'PID eq $pid']);
+      final result = await Process.run('tasklist', ['/FI', 'PID eq $pid']);
       return (result.stdout as String).contains('$pid');
     } else {
-      // Linux/macOS: send signal 0 to check if process exists
-      final result = Process.runSync('kill', ['-0', '$pid']);
+      final result = await Process.run('kill', ['-0', '$pid']);
       return result.exitCode == 0;
     }
   } catch (_) {
@@ -56,7 +64,7 @@ void main() async {
     if (await lockFile.exists()) {
       final pidStr = (await lockFile.readAsString()).trim();
       final pid = int.tryParse(pidStr);
-      if (pid != null && _isProcessRunning(pid)) {
+      if (pid != null && await _isProcessRunning(pid)) {
         // Another instance is running — activate it and exit
         print('Another instance of Prysm is already running (PID $pid).');
         exit(0);
@@ -76,25 +84,9 @@ void main() async {
     });
   }
 
-  await NotificationService().init();
   await SettingsService().init();
 
   final keyManager = KeyManager();
-
-  // Start background service on Android BEFORE runApp so the persistent
-  // notification ("Prysm Chat is running") is always present.
-  if (Platform.isAndroid) {
-    final settings = SettingsService();
-    final androidConfig = FlutterBackgroundAndroidConfig(
-      notificationTitle: "${settings.name} Chat is running",
-      notificationText: "${settings.name} chat is actively waiting for new messages",
-      notificationImportance: AndroidNotificationImportance.normal,
-      notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
-    );
-    await FlutterBackground.initialize(androidConfig: androidConfig);
-    await FlutterBackground.enableBackgroundExecution();
-    await NotificationService().requestPermission();
-  }
 
   // Start the message server early so incoming messages are received
   // even while Tor is still bootstrapping or the user is on the PIN screen.
@@ -102,16 +94,50 @@ void main() async {
   messageServer.start();
 
   runApp(MyApp(keyManager: keyManager));
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(NotificationService().init());
+  });
+
+  // Request Android permissions and start background service AFTER runApp
+  // so the Flutter UI is rendered before any permission dialogs appear.
+  if (Platform.isAndroid) {
+    Future.microtask(() async {
+      await NotificationService().requestPermission();
+      final settings = SettingsService();
+      final androidConfig = FlutterBackgroundAndroidConfig(
+        notificationTitle: "${settings.name} Chat is running",
+        notificationText: "${settings.name} chat is actively waiting for new messages",
+        notificationImportance: AndroidNotificationImportance.normal,
+        notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
+      );
+      try {
+        await FlutterBackground.initialize(androidConfig: androidConfig);
+        await FlutterBackground.enableBackgroundExecution();
+      } catch (_) {
+        // Background execution is best-effort; don't crash if denied
+      }
+    });
+  }
 }
 
 /// Initializes Tor and the message server in the background.
 /// Returns the onion address when ready.
-Future<TorInitResult> initializeTor() async {
-  var torPath = ""; 
-  if (!Platform.isAndroid) {
+/// Desktop updater check — deferred until after HomeScreen is visible.
+Future<void> runDesktopUpdaterCheck() async {
+  if (Platform.isAndroid || Platform.isIOS) return;
+  try {
     await UpdaterDownloader().getOrDownloadUpdater();
     checkForUpdatesAndLaunchUpdater();
+  } catch (e) {
+    print('Error downloading updater: $e');
+  }
+}
 
+Future<TorInitResult> initializeTor() async {
+  TorBootstrapNotifier.instance.reset();
+  var torPath = "";
+  if (!Platform.isAndroid) {
     final torDownloader = TorDownloader();
     torPath = await torDownloader.getOrDownloadTor();
   }
@@ -148,6 +174,8 @@ class TorInitResult {
   final String onionAddress;
   const TorInitResult({required this.torManager, required this.onionAddress});
 }
+
+enum TorConnectionState { connected, connecting, disconnected }
 
 Future<bool> isNewerVersion(String current, String latest) async {
   // Simple version comparison (assumes vX.Y.Z format)
@@ -244,6 +272,15 @@ class _MyAppState extends State<MyApp> {
   String? _onionAddress;
   String _torStatus = 'Initializing...';
   bool _torReady = false;
+  bool _torFailed = false;
+  int _torBootstrapProgress = 0;
+  StreamSubscription<int>? _bootstrapSub;
+
+  @override
+  void dispose() {
+    _bootstrapSub?.cancel();
+    super.dispose();
+  }
 
   Future<bool> onVerifyPin(String pin) async {
     KeyManager keyManager = widget.keyManager;
@@ -259,6 +296,9 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _loadSavedTheme();
+    _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
+      if (mounted) setState(() => _torBootstrapProgress = p);
+    });
     _initTorInBackground();
   }
 
@@ -271,20 +311,38 @@ class _MyAppState extends State<MyApp> {
         windowManager.addListener(MyWindowListener(result.torManager));
       }
 
+      if (result.onionAddress == 'me') {
+        throw Exception('Hidden service could not be created');
+      }
+
       if (mounted) {
+        PrysmServer.instance?.localOnionAddress = result.onionAddress;
         setState(() {
           _torManager = result.torManager;
           _onionAddress = result.onionAddress;
           _torReady = true;
+          _torFailed = false;
           _torStatus = 'Connected';
         });
       }
     } catch (e) {
       print('Tor initialization failed: $e');
       if (mounted) {
-        setState(() => _torStatus = 'Failed to connect: $e');
+        setState(() {
+          _torFailed = true;
+          _torStatus = 'Failed to connect to Tor. Check your network and try again.';
+        });
       }
     }
+  }
+
+  Future<void> _retryTor() async {
+    setState(() {
+      _torFailed = false;
+      _torReady = false;
+      _torStatus = 'Retrying Tor connection...';
+    });
+    await _initTorInBackground();
   }
 
   Future<void> _loadSavedTheme() async {
@@ -307,7 +365,11 @@ class _MyAppState extends State<MyApp> {
       return MaterialApp(
         title: "Unlock ${settings.name} Chat",
         theme: ThemeManager.getTheme(_currentTheme),
-        home: PinScreen(onVerifyPin: onVerifyPin, isSetupMode: widget.keyManager.isPinSet(),)
+        home: PinScreen(
+          onVerifyPin: onVerifyPin,
+          isSetupMode: widget.keyManager.isPinSet(),
+          torBootstrapProgress: _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+        ),
       );
     }
     if (!_torReady) {
@@ -319,17 +381,43 @@ class _MyAppState extends State<MyApp> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const CircularProgressIndicator(),
+                if (_torFailed)
+                  Icon(Icons.wifi_off, size: 48, color: Theme.of(context).colorScheme.error)
+                else
+                  const CircularProgressIndicator(),
                 const SizedBox(height: 24),
-                Text(
-                  _torStatus,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    _torStatus,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Setting up secure connection...',
+                  _torFailed
+                      ? 'Tor is required for Prysm to work'
+                      : _torBootstrapProgress > 0
+                          ? 'Tor bootstrap: $_torBootstrapProgress%'
+                          : 'Setting up secure connection...',
                   style: TextStyle(fontSize: 13, color: Theme.of(context).hintColor),
                 ),
+                if (!_torFailed && _torBootstrapProgress > 0) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(value: _torBootstrapProgress / 100),
+                  ),
+                ],
+                if (_torFailed) ...[
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _retryTor,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -369,28 +457,109 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     static final settings = SettingsService();
 
   List<Contact> contacts = [];
+  List<Group> groups = [];
+  List<Conversation> conversations = [];
   late Contact appUser;
   Contact? selectedContact;
+  Conversation? selectedConversation;
   bool showProfile = false;
   bool showSettings = false;
   bool isLoading = true;
   int currentTheme = 0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   String _searchQuery = '';
+  Map<String, String> _lastMessagePreviews = {};
+  Map<String, int> _unreadCounts = {};
 
   Timer? _refreshTimer;
+  Timer? _loadUsersDebounce;
+  StreamSubscription<void>? _inboundRefreshSub;
+  SyncCoordinator? _syncCoordinator;
+  bool _loadUsersInProgress = false;
+  bool _loadUsersQueued = false;
+  bool _loadUsersQueuedLight = false;
 
-  List<Contact> get _filteredContacts {
-    if (_searchQuery.isEmpty) return contacts;
-    return contacts.where((c) => c.displayName.toLowerCase().contains(_searchQuery)).toList();
+  List<Conversation> get _filteredConversations {
+    if (_searchQuery.isEmpty) return conversations;
+    return conversations
+        .where((c) => c.displayName.toLowerCase().contains(_searchQuery))
+        .toList();
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     currentTheme = widget.currentTheme;
-    appUser = Contact(id: widget.onionAddress, name: 'My Profile', avatarUrl: '', publicKeyPem: 'NONE');
-    loadUsers();
+    final _s = SettingsService();
+    appUser = Contact(id: widget.onionAddress, name: _s.username ?? '', avatarUrl: '', publicKeyPem: 'NONE');
+    _syncCoordinator = SyncCoordinator(
+      userId: widget.onionAddress,
+      keyManager: widget.keyManager,
+      torManager: widget.torManager,
+      isTorStopped: () => _torStopped,
+    );
+    _syncCoordinator!.start();
+
+    loadUsers().then((_) async {
+      if (mounted && !_torStopped) {
+        final flushed = await _syncCoordinator!.flushAllPending();
+        if (flushed && mounted) {
+          scheduleLoadUsers(light: true);
+        }
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(runDesktopUpdaterCheck());
+    });
+
     _startAutoRefresh();
+    _startTorHealthMonitor();
+    _inboundRefreshSub =
+        ConversationRefreshNotifier.instance.onRefresh.listen((_) {
+      scheduleLoadUsers(light: true);
+    });
+    NotificationService.onNotificationTap = _handleNotificationTap;
+  }
+
+  void scheduleLoadUsers({bool light = false}) {
+    _loadUsersQueuedLight = _loadUsersQueuedLight || light;
+    _loadUsersDebounce?.cancel();
+    _loadUsersDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      final lightOnly = _loadUsersQueuedLight;
+      _loadUsersQueuedLight = false;
+      unawaited(loadUsers(light: lightOnly));
+    });
+  }
+
+  void _handleNotificationTap(String? payload) {
+    if (payload == null || !mounted) return;
+    try {
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final groupId = data['groupId'] as String?;
+      if (groupId != null) {
+        final group = groups.cast<Group?>().firstWhere(
+              (g) => g?.id == groupId,
+              orElse: () => null,
+            );
+        if (group != null) {
+          onSelectGroup(group);
+        }
+        return;
+      }
+      final senderId = data['senderId'] as String?;
+      if (senderId == null) return;
+      final contact = contacts.cast<Contact?>().firstWhere(
+            (c) => c?.id == senderId,
+            orElse: () => null,
+          );
+      if (contact != null) {
+        onSelectContact(contact);
+      }
+    } catch (e) {
+      print('Notification tap handler failed: $e');
+    }
   }
 
   @override
@@ -405,42 +574,138 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
 
   void _startAutoRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      if (!mounted || _torStopped) return;
       await loadUsers();
+      if (!mounted || _torStopped) return;
+      await _flushPendingIfReachable();
     });
   }
 
+  Future<void> _flushPendingIfReachable() async {
+    if (!mounted || _torStopped) return;
+    final flushed = await _syncCoordinator?.flushAllPending() ?? false;
+    if (flushed && mounted) {
+      scheduleLoadUsers(light: true);
+    }
+  }
 
-  Future<void> loadUsers() async {
-    final userMaps = await DBHelper.getUsers();
-    final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
-    List<Contact> newContacts = [];
-    
-    for (var map in userMaps) {
-      String id = map['id'];
-      String name = map['name'];
-      String avatarUrl = '';
-      String? avatarBase64 = map['avatarBase64'] as String?;
-      String? customName = map['customName'] as String?;
-      String? publicKeyPem = map['publicKeyPem'];
-      int? lastMessageTimestamp = timestamps[id];
+  Future<void> loadUsers({bool light = false}) async {
+    if (!mounted) return;
+    if (_loadUsersInProgress) {
+      _loadUsersQueued = true;
+      _loadUsersQueuedLight = _loadUsersQueuedLight || light;
+      return;
+    }
+    _loadUsersInProgress = true;
 
-      newContacts.add(Contact(id: id, name: name, avatarUrl: avatarUrl, avatarBase64: avatarBase64, customName: customName, publicKeyPem: publicKeyPem ?? '', lastMessageTimestamp: lastMessageTimestamp));
+    try {
+    final groupService =
+        GroupService(userId: widget.onionAddress, keyManager: widget.keyManager);
+
+    late final List<Map<String, dynamic>> userMaps;
+    late final Map<String, int> timestamps;
+    late final List<Group> newGroups;
+    Map<String, String> previews = _lastMessagePreviews;
+    Map<String, int> unread = _unreadCounts;
+
+    if (light) {
+      final results = await Future.wait([
+        DBHelper.getUsers(),
+        MessagesDb.getLastMessageTimestampsForAllUsers(),
+        groupService.getGroups(),
+        MessagesDb.getLastMessagePreviews(widget.onionAddress),
+        MessagesDb.getUnreadCounts(widget.onionAddress),
+      ]);
+      if (!mounted) return;
+      userMaps = results[0] as List<Map<String, dynamic>>;
+      timestamps = results[1] as Map<String, int>;
+      newGroups = results[2] as List<Group>;
+      previews = results[3] as Map<String, String>;
+      unread = results[4] as Map<String, int>;
+    } else {
+      final fastResults = await Future.wait([
+        DBHelper.getUsers(),
+        MessagesDb.getLastMessageTimestampsForAllUsers(),
+        groupService.getGroups(),
+      ]);
+      if (!mounted) return;
+      userMaps = fastResults[0] as List<Map<String, dynamic>>;
+      timestamps = fastResults[1] as Map<String, int>;
+      newGroups = fastResults[2] as List<Group>;
+
+      if (isLoading) {
+        _applyLoadedUsers(
+          userMaps: userMaps,
+          timestamps: timestamps,
+          newGroups: newGroups,
+          previews: previews,
+          unread: unread,
+        );
+      }
+
+      final deferred = await Future.wait([
+        MessagesDb.getLastMessagePreviews(widget.onionAddress),
+        MessagesDb.getUnreadCounts(widget.onionAddress),
+      ]);
+      if (!mounted) return;
+      previews = deferred[0] as Map<String, String>;
+      unread = deferred[1] as Map<String, int>;
     }
 
-    // Replace the user with current Tor onion address if it exists
+    _applyLoadedUsers(
+      userMaps: userMaps,
+      timestamps: timestamps,
+      newGroups: newGroups,
+      previews: previews,
+      unread: unread,
+    );
+    } finally {
+      _loadUsersInProgress = false;
+      if (_loadUsersQueued && mounted) {
+        _loadUsersQueued = false;
+        final queuedLight = _loadUsersQueuedLight;
+        _loadUsersQueuedLight = false;
+        scheduleLoadUsers(light: queuedLight);
+      }
+    }
+  }
+
+  void _applyLoadedUsers({
+    required List<Map<String, dynamic>> userMaps,
+    required Map<String, int> timestamps,
+    required List<Group> newGroups,
+    required Map<String, String> previews,
+    required Map<String, int> unread,
+  }) {
+    if (!mounted) return;
+
+    final newContacts = <Contact>[];
+    for (var map in userMaps) {
+      final id = map['id'] as String;
+      newContacts.add(Contact(
+        id: id,
+        name: map['name'] as String,
+        avatarUrl: '',
+        avatarBase64: map['avatarBase64'] as String?,
+        customName: map['customName'] as String?,
+        publicKeyPem: (map['publicKeyPem'] as String?) ?? '',
+        lastMessageTimestamp: timestamps[id],
+      ));
+    }
+
     Contact? newAppUser;
     try {
       newAppUser = newContacts.firstWhere((c) => c.id == widget.onionAddress);
     } catch (_) {
-      // Save appUser if not in DB yet
       saveAppUser(appUser);
     }
 
-    // Sync profile to SettingsService if not yet set (migration)
     if (newAppUser != null) {
       final s = SettingsService();
-      if (s.username == null && newAppUser.name.isNotEmpty) {
+      if (s.username == null &&
+          newAppUser.name.isNotEmpty &&
+          newAppUser.name != 'My Profile') {
         s.setUsername(newAppUser.name);
       }
       if (s.avatar == null && newAppUser.avatarBase64 != null) {
@@ -448,29 +713,76 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
 
-    // Check if contacts have changed (simple length or content check)
-    bool contactsChanged = newContacts.length != contacts.length ||
-        !newContacts.every((c) => contacts.any((old) => old.id == c.id && old.name == c.name && old.avatarBase64 == c.avatarBase64 && old.customName == c.customName && formatLastMessageTime(old.lastMessageTimestamp) == formatLastMessageTime(c.lastMessageTimestamp)));
+    final newConversations = <Conversation>[
+      ...newContacts
+          .where((c) => c.id != widget.onionAddress)
+          .map((c) => DirectConversation(c)),
+      ...newGroups.map((g) => GroupConversation(g)),
+    ];
+    newConversations.sort((a, b) {
+      final aTs = a.lastMessageTimestamp ?? 0;
+      final bTs = b.lastMessageTimestamp ?? 0;
+      return bTs.compareTo(aTs);
+    });
 
-    if (contactsChanged) {
-      setState(() {
-
-        newContacts.sort((a, b) {
-          final aTs = a.lastMessageTimestamp ?? 0;
-          final bTs = b.lastMessageTimestamp ?? 0;
-          return bTs.compareTo(aTs);
+    final changed = newContacts.length != contacts.length ||
+        newGroups.length != groups.length ||
+        !_mapsEqual(previews, _lastMessagePreviews) ||
+        !_mapsEqual(unread, _unreadCounts) ||
+        !newConversations.every((c) {
+          final old = conversations.cast<Conversation?>().firstWhere(
+                (o) => o!.id == c.id,
+                orElse: () => null,
+              );
+          return old != null &&
+              old.displayName == c.displayName &&
+              formatLastMessageTime(old.lastMessageTimestamp) ==
+                  formatLastMessageTime(c.lastMessageTimestamp);
         });
+
+    if (changed) {
+      setState(() {
+        _lastMessagePreviews = previews;
+        _unreadCounts = unread;
         contacts = newContacts;
+        groups = newGroups;
+        conversations = newConversations;
         if (newAppUser != null) {
           appUser = newAppUser;
+        }
+        if (selectedConversation != null) {
+          if (selectedConversation is DirectConversation) {
+            final id = (selectedConversation as DirectConversation).contact.id;
+            selectedContact = contacts.cast<Contact?>().firstWhere(
+                  (c) => c?.id == id,
+                  orElse: () => null,
+                );
+          } else if (selectedConversation is GroupConversation) {
+            final id = (selectedConversation as GroupConversation).group.id;
+            final g = groups.cast<Group?>().firstWhere(
+                  (gr) => gr?.id == id,
+                  orElse: () => null,
+                );
+            if (g == null) {
+              selectedConversation = null;
+            } else {
+              selectedConversation = GroupConversation(g);
+            }
+          }
         }
         isLoading = false;
       });
     } else if (isLoading) {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
+  }
+
+  bool _mapsEqual<K, V>(Map<K, V> a, Map<K, V> b) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 
 
@@ -499,8 +811,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void onSelectContact(Contact contact) {
     setState(() {
       selectedContact = contact;
+      selectedConversation = DirectConversation(contact);
       showProfile = false;
+      showSettings = false;
     });
+  }
+
+  void onSelectGroup(Group group) {
+    setState(() {
+      selectedContact = null;
+      selectedConversation = GroupConversation(group);
+      showProfile = false;
+      showSettings = false;
+    });
+  }
+
+  void _showCreateGroup() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CreateGroupScreen(
+          userId: widget.onionAddress,
+          contacts: contacts,
+          keyManager: widget.keyManager,
+          onGroupCreated: (group) {
+            loadUsers();
+            onSelectGroup(group);
+          },
+        ),
+      ),
+    );
   }
 
   void onShowProfile() {
@@ -558,7 +897,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           ElevatedButton(
             child: const Text('Add'),
-            onPressed: () {
+            onPressed: () async {
               String newId;
               try {
                 newId = decodeBase58ToOnion(idController.text.trim());
@@ -566,13 +905,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 return;
               }
               final newName = nameController.text.trim();
-              
+
               if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
                 return;
               }
-              _addNewUser(newId, newName);
-              loadUsers();
-              Navigator.of(context).pop();
+              final added = await _addNewUser(newId, newName);
+              if (!context.mounted) return;
+              if (!added) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Could not reach peer or fetch their public key. '
+                      'Make sure they are online and try again.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              await loadUsers();
+              if (context.mounted) Navigator.of(context).pop();
             },
           ),
         ],
@@ -580,14 +931,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _addNewUser(String id, String name) async {
+  Future<bool> _addNewUser(String id, String name) async {
     String? publicKeyPem;
     String? avatarBase64;
     String fetchedName = name;
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
       final peerOnion = id;
-      // Try /profile first for full info
       try {
         final profileUri = Uri.parse("http://$peerOnion:80/profile");
         final profileResponse = await torClient.get(profileUri, {});
@@ -600,31 +950,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (profileData['avatar'] != null && (profileData['avatar'] as String).isNotEmpty) {
           avatarBase64 = profileData['avatar'] as String;
         }
-        print("Fetched profile from $peerOnion");
       } catch (e) {
-        // Fallback to /public
         print("Profile fetch failed, trying /public: $e");
         final uri = Uri.parse("http://$peerOnion:80/public");
         final response = await torClient.get(uri, {});
         publicKeyPem = await response.transform(utf8.decoder).join();
-        print("Fetched public key from $peerOnion");
       }
     } catch (e) {
       print("Failed to fetch public key from $id: $e");
-      publicKeyPem = "";
+      return false;
     } finally {
       torClient.close();
     }
 
-    final newUser = Contact(id: id, name: fetchedName, avatarUrl: '', avatarBase64: avatarBase64, publicKeyPem: publicKeyPem ?? '');
+    if (publicKeyPem == null || publicKeyPem.isEmpty) {
+      return false;
+    }
+
+    final newUser = Contact(
+      id: id,
+      name: fetchedName,
+      avatarUrl: '',
+      avatarBase64: avatarBase64,
+      publicKeyPem: publicKeyPem,
+    );
     await DBHelper.insertOrUpdateUser({
       'id': newUser.id,
       'name': newUser.name,
       'avatarUrl': newUser.avatarUrl,
       'avatarBase64': avatarBase64,
-      'publicKeyPem': newUser.publicKeyPem
+      'publicKeyPem': newUser.publicKeyPem,
     });
-    await loadUsers();
+    return true;
   }
 
   String formatLastMessageTime(int? timestamp) {
@@ -688,26 +1045,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         )
                       ),
                       const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.green,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Online',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        _onionPreview(widget.onionAddress),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).hintColor,
+                        ),
                       ),
                     ],
                   ),
@@ -748,41 +1091,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(height: 8),
-          // Contact List
+          // Conversation list
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _filteredContacts.length,
+              itemCount: _filteredConversations.length,
               itemBuilder: (_, index) {
-                final contact = _filteredContacts[index];
-                if (contact.id == appUser.id) return const SizedBox.shrink();
+                final conv = _filteredConversations[index];
+                final isSelected = selectedConversation?.id == conv.id;
+                final Widget leading;
+                final String subtitle;
+
+                final unreadCount = _unreadCounts[conv.id] ?? 0;
+                final preview = _lastMessagePreviews[conv.id];
+                final timeLabel = formatLastMessageTime(conv.lastMessageTimestamp);
+
+                if (conv is DirectConversation) {
+                  final contact = conv.contact;
+                  leading = ContactAvatar(name: contact.displayName, avatarBase64: contact.avatarBase64);
+                  subtitle = preview != null ? '$preview · $timeLabel' : timeLabel;
+                } else {
+                  final group = (conv as GroupConversation).group;
+                  leading = ContactAvatar(
+                    name: group.name,
+                    avatarBase64: group.avatarBase64,
+                  );
+                  subtitle = preview != null
+                      ? 'Group · $preview · $timeLabel'
+                      : 'Group · $timeLabel';
+                }
+
                 return Padding(
-                  key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2
-                  ),
+                  key: ValueKey('${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount'),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   child: ListTile(
-                    key: ValueKey('${contact.id}_${contact.lastMessageTimestamp ?? 0}'),
-                    leading: ContactAvatar(name: contact.displayName, avatarBase64: contact.avatarBase64),
+                    leading: leading,
                     title: Text(
-                      contact.displayName,
+                      conv.displayName,
                       style: TextStyle(
-                        fontWeight: selectedContact?.id == contact.id ? FontWeight.bold : FontWeight.normal,
-                      )
+                        fontWeight: unreadCount > 0 || isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
                     ),
                     subtitle: Text(
-                      formatLastMessageTime(contact.lastMessageTimestamp),
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    selected: selectedContact?.id == contact.id,
+                    trailing: unreadCount > 0
+                        ? CircleAvatar(
+                            radius: 11,
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            child: Text(
+                              unreadCount > 9 ? '9+' : '$unreadCount',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Theme.of(context).colorScheme.onPrimary,
+                              ),
+                            ),
+                          )
+                        : null,
+                    selected: isSelected,
                     selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    onTap: () => onSelectContact(contact)
-                  )  
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onTap: () {
+                      if (conv is DirectConversation) {
+                        onSelectContact(conv.contact);
+                      } else if (conv is GroupConversation) {
+                        onSelectGroup(conv.group);
+                      }
+                    },
+                  ),
                 );
               },
             ),
@@ -812,6 +1192,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   tooltip: "Profile",
                 ),
                 IconButton(
+                  icon: const Icon(Icons.group_add_outlined),
+                  onPressed: _showCreateGroup,
+                  tooltip: "Create Group",
+                ),
+                IconButton(
                   icon: const Icon(Icons.add_circle_outline),
                   onPressed: _showAddUserDialog,
                   tooltip: "Add Contact",
@@ -827,6 +1212,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _loadUsersDebounce?.cancel();
+    _inboundRefreshSub?.cancel();
+    _torHealthTimer?.cancel();
+    _syncCoordinator?.dispose();
+    if (NotificationService.onNotificationTap == _handleNotificationTap) {
+      NotificationService.onNotificationTap = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _shutdownTor();
     super.dispose();
@@ -834,17 +1226,471 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached || state == AppLifecycleState.inactive) {
+    // Never stop Tor on `inactive` — that fires on focus loss, dialogs, and
+    // notifications, which was causing random shutdowns during normal use.
+    // Desktop exit is handled by MyWindowListener; mobile uses `detached`.
+    if (state == AppLifecycleState.detached) {
       _shutdownTor();
     }
   }
 
-
   bool _torStopped = false;
+  TorConnectionState _torConnectionState = TorConnectionState.connected;
+  Timer? _torHealthTimer;
+
+  void _startTorHealthMonitor() {
+    _torHealthTimer?.cancel();
+    _torHealthTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _checkTorHealth();
+    });
+    _checkTorHealth();
+  }
+
+  Future<void> _checkTorHealth() async {
+    if (!mounted || _torStopped) {
+      if (mounted && _torConnectionState != TorConnectionState.disconnected) {
+        setState(() => _torConnectionState = TorConnectionState.disconnected);
+      }
+      return;
+    }
+
+    final healthy = await widget.torManager.isHealthy();
+    if (!mounted) return;
+
+    final next = healthy
+        ? TorConnectionState.connected
+        : TorConnectionState.disconnected;
+    if (next != _torConnectionState) {
+      final wasDisconnected =
+          _torConnectionState == TorConnectionState.disconnected;
+      setState(() => _torConnectionState = next);
+      if (wasDisconnected && next == TorConnectionState.connected) {
+        unawaited(_onTorReconnected());
+      }
+    }
+  }
+
+  Future<void> _onTorReconnected() async {
+    final flushed = await _syncCoordinator?.onTorReconnected() ?? false;
+    if (mounted) {
+      scheduleLoadUsers(light: true);
+      if (flushed) {
+        _syncCoordinator?.notifyPendingActivity();
+      }
+    }
+  }
+
+  Future<void> _restartTor() async {
+    if (!mounted) return;
+    setState(() => _torConnectionState = TorConnectionState.connecting);
+
+    try {
+      if (_torStopped) {
+        _torStopped = false;
+      } else {
+        await widget.torManager.stopTor();
+      }
+      await widget.torManager.startTor();
+      final onion = await widget.torManager.getOnionAddress();
+      if (onion != null && onion != 'me') {
+        PrysmServer.instance?.localOnionAddress = onion;
+      }
+      if (!mounted) return;
+      setState(() => _torConnectionState = TorConnectionState.connected);
+      await _onTorReconnected();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tor restarted successfully')),
+      );
+    } catch (e) {
+      _torStopped = true;
+      if (!mounted) return;
+      setState(() => _torConnectionState = TorConnectionState.disconnected);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tor restart failed: $e')),
+      );
+    }
+  }
+
+  void _showTorStatusSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tor connection', style: Theme.of(ctx).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _torStatusDot(_torConnectionState),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_torStatusLabel(_torConnectionState))),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Onion: ${widget.onionAddress}',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _torConnectionState == TorConnectionState.connecting
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _restartTor();
+                        },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Restart Tor'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final ok = await widget.torManager.refreshCircuit();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok ? 'New Tor circuit requested' : 'Circuit refresh failed',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('New circuit'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _onionPreview(String onion) {
+    final short = onion.replaceAll('.onion', '');
+    if (short.length <= 10) return short;
+    return '${short.substring(0, 8)}…';
+  }
+
+  Color _torStatusColor(TorConnectionState state) => switch (state) {
+        TorConnectionState.connected => Colors.green,
+        TorConnectionState.connecting => Colors.orange,
+        TorConnectionState.disconnected => Colors.red,
+      };
+
+  Widget _torStatusDot(TorConnectionState state, {double size = 10}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _torStatusColor(state),
+        boxShadow: [
+          BoxShadow(
+            color: _torStatusColor(state).withValues(alpha: 0.45),
+            blurRadius: 6,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _torStatusLabel(TorConnectionState state) => switch (state) {
+        TorConnectionState.connected => 'Connected',
+        TorConnectionState.connecting => 'Connecting…',
+        TorConnectionState.disconnected => 'Disconnected',
+      };
+
+  Widget _buildTorAppBarAction() {
+    final color = _torStatusColor(_torConnectionState);
+    final shortLabel = switch (_torConnectionState) {
+      TorConnectionState.connected => 'Tor',
+      TorConnectionState.connecting => '…',
+      TorConnectionState.disconnected => 'Off',
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Tooltip(
+        message: 'Tor: ${_torStatusLabel(_torConnectionState)}',
+        child: Material(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            onTap: _showTorStatusSheet,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.shield_outlined, size: 18, color: color),
+                  const SizedBox(width: 6),
+                  _torStatusDot(_torConnectionState, size: 8),
+                  const SizedBox(width: 6),
+                  Text(
+                    shortLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _copyPrysmId() {
+    final id = encodeOnionToBase58(appUser.id);
+    Clipboard.setData(ClipboardData(text: id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Prysm ID copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  String _truncateId(String id, {int head = 12, int tail = 8}) {
+    if (id.length <= head + tail + 3) return id;
+    return '${id.substring(0, head)}…${id.substring(id.length - tail)}';
+  }
+
+  Widget _buildEmptyHomeState() {
+    final theme = Theme.of(context);
+    final prysmId = encodeOnionToBase58(appUser.id);
+    final contactCount =
+        contacts.where((c) => c.id != widget.onionAddress).length;
+    final groupCount = groups.length;
+    final displayName = appUser.name.isNotEmpty ? appUser.name : 'there';
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            theme.colorScheme.surface,
+            theme.colorScheme.primary.withValues(alpha: 0.06),
+            theme.colorScheme.surface,
+          ],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        theme.colorScheme.primary,
+                        theme.colorScheme.primary.withValues(alpha: 0.7),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                        blurRadius: 32,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.chat_bubble_rounded,
+                    size: 56,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'Welcome back, $displayName',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Pick a conversation from the sidebar or start a new one.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.hintColor,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 28),
+                Material(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    onTap: _copyPrysmId,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.fingerprint_outlined,
+                            color: theme.colorScheme.primary,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Your Prysm ID',
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: theme.hintColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _truncateId(prysmId),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.copy_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildHomeActionCard(
+                        icon: Icons.person_add_alt_1_rounded,
+                        title: 'Add contact',
+                        subtitle: 'Connect via their onion ID',
+                        onTap: _showAddUserDialog,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildHomeActionCard(
+                        icon: Icons.groups_rounded,
+                        title: 'Create group',
+                        subtitle: 'Up to 5 members',
+                        onTap: _showCreateGroup,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  '$contactCount ${contactCount == 1 ? 'contact' : 'contacts'} · $groupCount ${groupCount == 1 ? 'group' : 'groups'}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.cardColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.dividerColor.withValues(alpha: 0.15),
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: theme.colorScheme.primary, size: 24),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.hintColor,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _shutdownTor() async {
     if (!_torStopped) {
       _torStopped = true;
+      _torHealthTimer?.cancel();
       await widget.torManager.stopTor();
       print('Tor process stopped gracefully.');
     }
@@ -871,7 +1717,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       loadUsers();
       selectedContact = null;
+      selectedConversation = null;
     });
+  }
+
+  Widget _buildChatBody() {
+    if (showProfile) {
+      return ProfileScreen(
+        user: appUser,
+        onClose: () => setState(() => showProfile = false),
+        onUpdate: onUpdateProfile,
+        reloadUsers: () => loadUsers(),
+      );
+    }
+    if (showSettings) {
+      return SettingsScreen(
+        onClose: () => setState(() => showSettings = false),
+        onThemeChanged: onThemeChanged,
+        torManager: widget.torManager,
+      );
+    }
+    if (selectedConversation is GroupConversation) {
+      final group = (selectedConversation as GroupConversation).group;
+      return GroupChatScreen(
+        key: ValueKey('group_${group.id}'),
+        userId: appUser.id,
+        group: group,
+        contacts: contacts,
+        keyManager: widget.keyManager,
+        reloadConversations: () => loadUsers(),
+        onCloseChat: () => clearChat(),
+      );
+    }
+    if (selectedContact != null) {
+      return ChatScreen(
+        userId: appUser.id,
+        userName: appUser.name,
+        peerId: selectedContact!.id,
+        peerName: selectedContact!.displayName,
+        peerAvatarBase64: selectedContact!.avatarBase64,
+        peerPublicKeyPem: selectedContact!.publicKeyPem,
+        torManager: widget.torManager,
+        keyManager: widget.keyManager,
+        currentTheme: currentTheme,
+        clearChat: () => clearChat(),
+        reloadUsers: () => loadUsers(),
+        onCloseChat: () => clearChat(),
+      );
+    }
+    return _buildEmptyHomeState();
   }
 
   @override
@@ -916,11 +1810,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             )
           ),
           actions: [
+            _buildTorAppBarAction(),
             IconButton(
-              icon: const Icon(Icons.notifications_outlined),
-              onPressed: () {},
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: () => setState(() => showSettings = true),
             ),
-            IconButton(icon: const Icon(Icons.more_vert), onPressed: () => setState(() => showSettings = true)),
           ],
           elevation: 2,
           shadowColor: Colors.black.withValues(alpha: 0.1),
@@ -930,76 +1825,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         body: Row(
           children: [
-            Expanded(
-              child: showProfile
-                  ? ProfileScreen(
-                      user: appUser,
-                      onClose: () => setState(() => showProfile = false),
-                      onUpdate: onUpdateProfile,
-                      reloadUsers: () => loadUsers(),
-                    )
-                  : showSettings
-                  ? SettingsScreen(
-                      onClose: () => setState(() => showSettings = false),
-                      onThemeChanged: onThemeChanged,
-                      torManager: widget.torManager,
-                    )
-                  : selectedContact != null
-                  ? ChatScreen(
-                      userId: appUser.id,
-                      userName: appUser.name,
-                      peerId: selectedContact!.id,
-                      peerName: selectedContact!.displayName,
-                      peerAvatarBase64: selectedContact!.avatarBase64,
-                      torManager: widget.torManager,
-                      keyManager: widget.keyManager,
-                      currentTheme: currentTheme,
-                      clearChat: () => clearChat(),
-                      reloadUsers: () => loadUsers(),
-                      onCloseChat: () => clearChat(),
-                    )
-                  : Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Icon(
-                              Icons.chat_bubble_outline,
-                              size: 60,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Select a chat to start messaging',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          ElevatedButton.icon(
-                            onPressed: _showAddUserDialog,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add User'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
+            Expanded(child: _buildChatBody()),
           ],
         ),
       );
@@ -1030,11 +1856,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
         actions: [
+          _buildTorAppBarAction(),
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => setState(() => showSettings = true),
           ),
-          IconButton(icon: const Icon(Icons.more_vert), onPressed: () => setState(() => showSettings = true)),
         ],
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
@@ -1042,84 +1869,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: Row(
         children: [
           buildSidebar(),
-          Expanded(
-            child: showProfile
-                ? ProfileScreen(
-                    user: appUser,
-                    onClose: () => setState(() => showProfile = false),
-                    onUpdate: onUpdateProfile,
-                    reloadUsers: () => loadUsers(),
-                  )
-                : showSettings
-                ? SettingsScreen(
-                    onClose: () => setState(() => showSettings = false),
-                    onThemeChanged: onThemeChanged,
-                    torManager: widget.torManager,
-                  )
-                : selectedContact != null
-                ? ChatScreen(
-                    userId: appUser.id,
-                    userName: appUser.name,
-                    peerId: selectedContact!.id,
-                    peerName: selectedContact!.displayName,
-                    peerAvatarBase64: selectedContact!.avatarBase64,
-                    torManager: widget.torManager,
-                    keyManager: widget.keyManager,
-                    currentTheme: currentTheme,
-                    clearChat: () => clearChat(),
-                    reloadUsers: () => loadUsers(),
-                    onCloseChat: () => clearChat(),
-                  )
-                : Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.9),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.chat_bubble_outline,
-                            size: 60,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Select a chat to start messaging',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Your ${settings.name} ID: ${encodeOnionToBase58(appUser.id)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).hintColor,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ElevatedButton.icon(
-                          onPressed: _showAddUserDialog,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add User'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
+          Expanded(child: _buildChatBody()),
         ],
       ),
     );

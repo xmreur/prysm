@@ -11,16 +11,27 @@ import 'package:prysm/util/notification_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import '../database/messages.dart';
+import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/peer_profile_cache.dart';
 
 class PrysmServer {
+  static PrysmServer? instance;
+
   final int port;
   final KeyManager keyManager;
   HttpServer? _server;
 
   final settings = SettingsService();
 
-  PrysmServer({this.port = 8080, required this.keyManager});
+  /// Set when Tor is ready so group control messages can be processed.
+  String? localOnionAddress;
+
+  PrysmServer({this.port = 8080, required this.keyManager}) {
+    instance = this;
+  }
 
   Future<void> start() async {
     final handler = Pipeline()
@@ -80,39 +91,106 @@ class PrysmServer {
 
       print('PrysmServer: Received ${data['type']} from ${data['senderId']}');
 
+      final type = data['type'] as String;
+
       if (!_isValidMessageData(data)) {
         return _badRequest(
           'Missing required fields: id, senderId, receiverId, message, type, timestamp',
         );
       }
 
-      // File validation
-      if (['file', 'image', 'audio'].contains(data['type']) &&
+      // Group control messages — decrypt and update local group state
+      if (isGroupControlType(type)) {
+        final receiverId = data['receiverId'] as String;
+        if (localOnionAddress != null && receiverId != localOnionAddress) {
+          return Response.forbidden(
+            jsonEncode({'error': 'Control message not addressed to this node'}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+
+        await DBHelper.ensureUserExist(data['senderId'] as String);
+        _fetchSenderProfile(data['senderId'] as String);
+
+        final localId = localOnionAddress ?? receiverId;
+        final groupService = GroupService(userId: localId, keyManager: keyManager);
+        try {
+          await groupService.handleIncomingControlMessage(
+            type,
+            data['message'] as String,
+          );
+        } catch (e) {
+          print('PrysmServer: group control handling failed: $e');
+          return Response.internalServerError(
+            body: jsonEncode({'error': 'Group control processing failed'}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+
+        return Response.ok(
+          jsonEncode({'status': 'received', 'id': data['id']}),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
+      // File validation (direct + group media)
+      if (['file', 'image', 'audio', groupFileType, groupImageType, groupAudioType]
+              .contains(type) &&
           !_hasValidFileMetadata(data)) {
         return _badRequest('File metadata required: fileName, fileSize');
       }
 
+      if (isGroupMessageType(type) && data['groupId'] == null) {
+        return _badRequest('groupId required for group messages');
+      }
+
+      final receiverId = data['receiverId'] as String;
+      final senderId = data['senderId'] as String;
+
+      if (localOnionAddress != null) {
+        if (senderId == localOnionAddress) {
+          return Response.ok(
+            jsonEncode({'status': 'received', 'id': data['id']}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+        if (receiverId != localOnionAddress) {
+          return Response.forbidden(
+            jsonEncode({'error': 'Message not addressed to this node'}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+      }
+
       // Ensure sender exists
-      await DBHelper.ensureUserExist(data['senderId'] as String);
+      await DBHelper.ensureUserExist(senderId);
 
       // Fetch/refresh profile in background (always, to keep data fresh)
-      _fetchSenderProfile(data['senderId'] as String);
+      _fetchSenderProfile(senderId);
 
       final timeReceived = DateTime.now().millisecondsSinceEpoch;
-      await MessagesDb.insertMessage({
+      final incomingTimestamp = data['timestamp'];
+      final messageTimestamp = incomingTimestamp is int && incomingTimestamp > 0
+          ? incomingTimestamp
+          : timeReceived;
+      final localId = localOnionAddress ?? receiverId;
+      await MessagesDb.insertInboundMessage({
         'id': data['id'] as String,
-        'senderId': data['senderId'] as String,
-        'receiverId': data['receiverId'] as String,
+        'senderId': senderId,
+        'receiverId': receiverId,
         'message': data['message'] as String,
-        'type': data['type'] as String,
+        'type': type,
+        if (data['groupId'] != null) 'groupId': data['groupId'] as String,
         if (data['fileName'] != null) 'fileName': data['fileName'] as String,
         if (data['fileSize'] != null) 'fileSize': data['fileSize'],
-        'timestamp': timeReceived,
+        'timestamp': messageTimestamp,
         'readAt': timeReceived,
         'status': (data['status'] ?? 'received') as String,
         if (data['replyTo'] != null) 'replyTo': data['replyTo'],
         'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
-      });
+      }, localId);
+
+      ConversationRefreshNotifier.instance.notifyInboundMessage();
 
       // Send local notification only if app is in background
       if (settings.enableNotifications) {
@@ -123,10 +201,18 @@ class PrysmServer {
           final contact = await DBHelper.getUserById(
             data['senderId'] as String,
           );
+          final senderName = contact?['name'] ?? 'Unknown contact';
+          final body = isGroupMessageType(type)
+              ? 'New group message from $senderName'
+              : 'Open to view the message';
           NotificationService().showNewMessageNotification(
-            senderName: contact?['name'] ?? 'Unknown contact',
-            message: 'Open to view the message',
+            senderName: isGroupMessageType(type) ? 'Group chat' : senderName,
+            message: body,
             notificationId: Random().nextInt(99999999),
+            payload: jsonEncode({
+              'senderId': senderId,
+              if (data['groupId'] != null) 'groupId': data['groupId'],
+            }),
           );
         }
       }
@@ -155,10 +241,15 @@ class PrysmServer {
   }
 
   Response _handleGetProfile() {
+    final broadcastName = settings.username;
+    // Don't broadcast the default placeholder — only real user-set names
+    final username = (broadcastName != null && broadcastName.isNotEmpty && broadcastName != 'My Profile')
+        ? broadcastName
+        : '';
     return Response.ok(
       jsonEncode({
         'publicKeyPem': keyManager.publicKeyPem,
-        'username': settings.username ?? settings.name,
+        'username': username,
         'avatar': settings.avatar ?? '',
       }),
       headers: {'Content-Type': 'application/json'},
@@ -180,6 +271,8 @@ class PrysmServer {
   }
 
   void _fetchSenderProfile(String senderId) {
+    if (!PeerProfileCache.instance.shouldFetch(senderId)) return;
+
     // Wrap in runZonedGuarded to prevent unhandled exceptions from
     // fire-and-forget async (Tor SOCKS errors like ttlExpired)
     Zone.current.fork(
@@ -209,6 +302,7 @@ class PrysmServer {
         if (updates.isNotEmpty) {
           await DBHelper.updateUserFields(senderId, updates);
         }
+        PeerProfileCache.instance.markFetched(senderId);
       } catch (e) {
         print('Failed to fetch sender profile: $e');
       } finally {

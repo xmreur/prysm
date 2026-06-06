@@ -20,6 +20,9 @@ class Settings {
   final String? avatar; // base64 encoded avatar image
   final String? username; // display name
 
+  // Files
+  final String? customDownloadPath;
+
   Settings({
     this.enableNotifications = true,
     this.showOnlineStatus = true,
@@ -31,6 +34,7 @@ class Settings {
     this.themeMode = 0,
     this.avatar,
     this.username,
+    this.customDownloadPath,
   });
 
   // Serialize to JSON
@@ -45,6 +49,7 @@ class Settings {
     'themeMode': themeMode,
     'avatar': avatar,
     'username': username,
+    'customDownloadPath': customDownloadPath,
   };
 
   // Deserialize from JSON
@@ -59,6 +64,7 @@ class Settings {
     themeMode: json['themeMode'] ?? 0,
     avatar: json['avatar'],
     username: json['username'],
+    customDownloadPath: json['customDownloadPath'],
   );
 
   // Copy with modifications (immutable pattern)
@@ -73,6 +79,8 @@ class Settings {
     int? themeMode,
     String? avatar,
     String? username,
+    String? customDownloadPath,
+    bool clearCustomDownloadPath = false,
   }) => Settings(
     enableNotifications: enableNotifications ?? this.enableNotifications,
     showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
@@ -84,6 +92,9 @@ class Settings {
     themeMode: themeMode ?? this.themeMode,
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
+    customDownloadPath: clearCustomDownloadPath
+        ? null
+        : (customDownloadPath ?? this.customDownloadPath),
   );
 
   @override
@@ -111,7 +122,8 @@ class Settings {
         other.messageRetentionDays == messageRetentionDays &&
         other.themeMode == themeMode &&
         other.avatar == avatar &&
-        other.username == username;
+        other.username == username &&
+        other.customDownloadPath == customDownloadPath;
   }
 
   @override
@@ -125,6 +137,7 @@ class Settings {
         messageRetentionDays.hashCode ^
         themeMode.hashCode ^
         (avatar?.hashCode ?? 0) ^
-        (username?.hashCode ?? 0);
+        (username?.hashCode ?? 0) ^
+        (customDownloadPath?.hashCode ?? 0);
   }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:core';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'rsa_helper.dart';
 import 'package:pointycastle/export.dart';
@@ -66,64 +67,99 @@ class KeyManager {
     String? saltB64 = await safeRead(_pinSaltStorageKey);
 
     if (encPrivate != null && publicPem != null && saltB64 != null) {
-      // --- UNLOCK: try decrypt with derived key ---
+      // --- UNLOCK: derive key + decrypt in isolate ---
+      final result = await compute(_decryptPrivateKeyIsolate, {
+        'pin': pin,
+        'encPrivate': encPrivate,
+        'saltB64': saltB64,
+      });
+      if (result == null) return false;
+      _privateKey = RSAHelper.privateKeyFromPem(result);
+      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
+      return true;
+    } else if (privatePem != null && publicPem != null) {
+      // --- MIGRATION: encrypt legacy plaintext key with PIN (in isolate) ---
+      final encMap = await compute(_encryptPrivateKeyIsolate, {
+        'pin': pin,
+        'privatePem': privatePem,
+      });
+      final salt = base64Decode(encMap['saltB64']!);
+      await _secureStorage.write(
+        key: _encryptedPrivateKeyStorageKey, value: encMap['encrypted']!);
+      await _secureStorage.write(
+        key: _pinSaltStorageKey, value: base64Encode(salt));
+      await _secureStorage.delete(key: 'PRIVATE_KEY');
+      _privateKey = RSAHelper.privateKeyFromPem(privatePem);
+      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
+      return true;
+    } else if (publicPem != null || encPrivate != null || saltB64 != null) {
+      // Partial keystore — never generate new keys over an existing identity.
+      isCorrupted = true;
+      return false;
+    } else {
+      // --- FIRST SETUP: generate + encrypt keys in isolate ---
+      final result = await compute(_generateAndEncryptKeysIsolate, pin);
+      await _secureStorage.write(
+        key: _encryptedPrivateKeyStorageKey, value: result['encrypted']!);
+      await _secureStorage.write(
+        key: _publicKeyStorageKey, value: result['publicPem']!);
+      await _secureStorage.write(
+        key: _pinSaltStorageKey, value: result['saltB64']!);
+      _privateKey = RSAHelper.privateKeyFromPem(result['privatePem']!);
+      _publicKey = RSAHelper.publicKeyFromPem(result['publicPem']!);
+      return true;
+    }
+  }
+
+  // ---- Isolate-safe static workers ----
+
+  /// Derives key + decrypts private key. Returns PEM string or null on failure.
+  static String? _decryptPrivateKeyIsolate(Map<String, String> params) {
+    final pin = params['pin']!;
+    final encPrivate = params['encPrivate']!;
+    final saltB64 = params['saltB64']!;
+    try {
       final salt = base64Decode(saltB64);
       final key = _deriveKey(pin, salt);
       final encMap = jsonDecode(encPrivate) as Map<String, dynamic>;
       final iv = base64Decode(encMap['iv']);
       final ct = base64Decode(encMap['ct']);
-      try {
-        final decrypted = _aesGcmDecrypt(key, iv, ct);
-        final privatePemDecrypted = utf8.decode(decrypted);
-        _privateKey = RSAHelper.privateKeyFromPem(privatePemDecrypted);
-        _publicKey = RSAHelper.publicKeyFromPem(publicPem);
-        return true;
-      } catch (_) {
-        // Incorrect PIN / decryption failure
-        return false;
-      }
-    } else if (privatePem != null && publicPem != null) {
-      // --- MIGRATION: encrypt legacy plaintext key with PIN ---
-      final salt = _randomBytes(16);
-      final key = _deriveKey(pin, salt);
-
-      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
-
-      // Store encrypted private key and salt; remove plaintext key
-      await _secureStorage.write(
-        key: _encryptedPrivateKeyStorageKey, value: jsonEncode(encMap));
-      await _secureStorage.write(
-        key: _pinSaltStorageKey, value: base64Encode(salt));
-      await _secureStorage.delete(key: 'PRIVATE_KEY');
-
-      // Load keys in memory
-      _privateKey = RSAHelper.privateKeyFromPem(privatePem);
-      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
-      return true;
-    } else {
-      // --- FIRST SETUP: generate, encrypt and store keys ---
-      final salt = _randomBytes(16);
-      final key = _deriveKey(pin, salt);
-
-      final pair = RSAHelper.generateKeyPair();
-      final privateKey = pair.privateKey as RSAPrivateKey;
-      final publicKey = pair.publicKey as RSAPublicKey;
-      final privatePemNew = RSAHelper.privateKeyToPem(privateKey);
-      final publicPemNew = RSAHelper.publicKeyToPem(publicKey);
-
-      final encMap = _aesGcmEncrypt(key, utf8.encode(privatePemNew));
-
-      await _secureStorage.write(
-        key: _encryptedPrivateKeyStorageKey, value: jsonEncode(encMap));
-      await _secureStorage.write(
-        key: _publicKeyStorageKey, value: publicPemNew);
-      await _secureStorage.write(
-        key: _pinSaltStorageKey, value: base64Encode(salt));
-
-      _privateKey = privateKey;
-      _publicKey = publicKey;
-      return true;
+      final decrypted = _aesGcmDecrypt(key, iv, ct);
+      return utf8.decode(decrypted);
+    } catch (_) {
+      return null;
     }
+  }
+
+  /// Encrypts existing plaintext PEM with PIN. Returns {encrypted, saltB64}.
+  static Map<String, String> _encryptPrivateKeyIsolate(Map<String, String> params) {
+    final pin = params['pin']!;
+    final privatePem = params['privatePem']!;
+    final salt = _randomBytes(16);
+    final key = _deriveKey(pin, salt);
+    final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
+    return {
+      'encrypted': jsonEncode(encMap),
+      'saltB64': base64Encode(salt),
+    };
+  }
+
+  /// Generates RSA key pair + encrypts with PIN. Returns {encrypted, publicPem, privatePem, saltB64}.
+  static Map<String, String> _generateAndEncryptKeysIsolate(String pin) {
+    final salt = _randomBytes(16);
+    final key = _deriveKey(pin, salt);
+    final pair = RSAHelper.generateKeyPair();
+    final privateKey = pair.privateKey as RSAPrivateKey;
+    final publicKey = pair.publicKey as RSAPublicKey;
+    final privatePem = RSAHelper.privateKeyToPem(privateKey);
+    final publicPem = RSAHelper.publicKeyToPem(publicKey);
+    final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
+    return {
+      'encrypted': jsonEncode(encMap),
+      'publicPem': publicPem,
+      'privatePem': privatePem,
+      'saltB64': base64Encode(salt),
+    };
   }
 
   Future<bool> isPinSet() async {

@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
   final Future<bool> isSetupMode;
+  final int? torBootstrapProgress;
   const PinScreen({
     required this.onVerifyPin,
     required this.isSetupMode,
+    this.torBootstrapProgress,
     super.key,
   });
 
@@ -165,6 +167,16 @@ class _PinScreenState extends State<PinScreen> {
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+              if (widget.torBootstrapProgress != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Tor: ${widget.torBootstrapProgress}%',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
+                  ),
+                ),
               ],
               const SizedBox(height: 50),
               _buildKeypad(),

@@ -13,7 +13,7 @@ class PendingMessageDbHelper {
 
     _database = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       singleInstance: true,
       onCreate: (db, version) async {
         await db.execute('''
@@ -28,7 +28,9 @@ class PendingMessageDbHelper {
             timestamp INTEGER,
             status TEXT,
             replyTo TEXT,
-            viewOnce INTEGER DEFAULT 0
+            viewOnce INTEGER DEFAULT 0,
+            groupId TEXT,
+            targetMemberId TEXT
           )
         ''');
         await db.execute('CREATE INDEX idx_pending_receiver ON pending_messages(receiverId)');
@@ -45,6 +47,15 @@ class PendingMessageDbHelper {
             await db.execute('ALTER TABLE pending_messages ADD COLUMN viewOnce INTEGER DEFAULT 0');
           }
         }
+        if (oldVersion < 4) {
+          final columns = await db.rawQuery('PRAGMA table_info(pending_messages)');
+          if (!columns.any((col) => col['name'] == 'groupId')) {
+            await db.execute('ALTER TABLE pending_messages ADD COLUMN groupId TEXT');
+          }
+          if (!columns.any((col) => col['name'] == 'targetMemberId')) {
+            await db.execute('ALTER TABLE pending_messages ADD COLUMN targetMemberId TEXT');
+          }
+        }
       },
     );
     return _database!;
@@ -59,11 +70,82 @@ class PendingMessageDbHelper {
     );
   }
 
-  static Future<List<Map<String, dynamic>>> getPendingMessages() async {
+  static Future<List<Map<String, dynamic>>> getPendingMessages({
+    String? groupId,
+    String? receiverId,
+  }) async {
     final db = await database;
+    if (groupId != null) {
+      return db.query('pending_messages', where: 'groupId = ?', whereArgs: [groupId]);
+    }
+    if (receiverId != null) {
+      return db.query(
+        'pending_messages',
+        where: 'groupId IS NULL AND receiverId = ?',
+        whereArgs: [receiverId],
+        orderBy: 'timestamp ASC',
+      );
+    }
+    return db.query(
+      'pending_messages',
+      where: 'groupId IS NULL',
+      orderBy: 'timestamp ASC',
+    );
+  }
 
-    return await db.query(
-      'pending_messages'
+  /// Pending 1:1 outbound rows for global retry worker.
+  static Future<List<Map<String, dynamic>>> getPendingDirectMessages({
+    required String senderId,
+    int? limit,
+  }) async {
+    final db = await database;
+    return db.query(
+      'pending_messages',
+      where: 'groupId IS NULL AND senderId = ?',
+      whereArgs: [senderId],
+      orderBy: 'timestamp ASC',
+      limit: limit,
+    );
+  }
+
+  static Future<int> countOutboundPending(String senderId) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM pending_messages WHERE senderId = ?',
+      [senderId],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  static Future<List<Map<String, dynamic>>> getAllPendingMessages() async {
+    final db = await database;
+    return db.query('pending_messages');
+  }
+
+  static Future<List<Map<String, dynamic>>> getPendingGroupChatMessages({
+    required String senderId,
+    int? limit,
+  }) async {
+    final db = await database;
+    return db.query(
+      'pending_messages',
+      where: 'groupId IS NOT NULL AND senderId = ?',
+      whereArgs: [senderId],
+      orderBy: 'timestamp ASC',
+      limit: limit,
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getPendingControlMessages(
+    Set<String> controlTypes,
+  ) async {
+    if (controlTypes.isEmpty) return [];
+    final db = await database;
+    final placeholders = List.filled(controlTypes.length, '?').join(',');
+    return db.query(
+      'pending_messages',
+      where: 'type IN ($placeholders)',
+      whereArgs: controlTypes.toList(),
     );
   }
 

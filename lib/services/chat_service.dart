@@ -90,6 +90,13 @@ class ChatService {
     _processSendQueue();
   }
 
+  /// Avoid re-processing historical messages on the first poll after chat open.
+  void seedNewestTimestamp(int timestamp) {
+    if (_newestTimestamp == null || timestamp > _newestTimestamp!) {
+      _newestTimestamp = timestamp;
+    }
+  }
+
   Future<String?> sendTextMessage(
     String text, {
     String? replyToId,
@@ -277,7 +284,8 @@ class ChatService {
 
     try {
       while (!_disposed) {
-        final pending = await PendingMessageDbHelper.getPendingMessages();
+        final pending =
+            await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
         if (pending.isEmpty) break;
 
         final List<String> sentIds = [];
@@ -332,7 +340,8 @@ class ChatService {
           await PendingMessageDbHelper.removeMessages(sentIds);
         }
 
-        final remaining = await PendingMessageDbHelper.getPendingMessages();
+        final remaining =
+            await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
         if (remaining.isEmpty) break;
 
         // Backoff: 2s, 4s, 8s, 16s, max 30s
@@ -406,12 +415,107 @@ class ChatService {
       final response = await torClient.get(uri, {});
       final publicKeyPem = await response.transform(utf8.decoder).join();
       peerPublicKey = keyManager.importPeerPublicKey(publicKeyPem);
+      await _persistPeerPublicKey(publicKeyPem);
       return true;
     } catch (e) {
       print('Failed to fetch peer public key: $e');
       return false;
     } finally {
       torClient.close();
+    }
+  }
+
+  Future<void> _persistPeerPublicKey(String publicKeyPem) async {
+    try {
+      final existing = await DBHelper.getUserById(peerId);
+      await DBHelper.insertOrUpdateUser({
+        'id': peerId,
+        'name': existing?['name'] ?? peerId,
+        'avatarUrl': existing?['avatarUrl'] ?? '',
+        'avatarBase64': existing?['avatarBase64'],
+        'customName': existing?['customName'],
+        'publicKeyPem': publicKeyPem,
+      });
+    } catch (e) {
+      print('Failed to persist peer public key: $e');
+    }
+  }
+
+  /// Retry pending 1:1 deliveries for all peers (called from global sync timer).
+  static Future<bool> processGlobalPending({
+    required String userId,
+    required KeyManager keyManager,
+    int maxPerCycle = 20,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
+      senderId: userId,
+      limit: maxPerCycle,
+    );
+    if (pending.isEmpty) return false;
+
+    final peerIds = pending
+        .map((m) => m['receiverId'] as String?)
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    var anySuccess = false;
+    for (final peer in peerIds) {
+      final service = ChatService(
+        userId: userId,
+        peerId: peer,
+        keyManager: keyManager,
+      );
+      final cached = await service._getPeerPublicKeyFromDb();
+      if (cached != null) {
+        service.peerPublicKey = keyManager.importPeerPublicKey(cached);
+      } else {
+        final ok = await service._fetchPeerPublicKeyOverTor();
+        if (!ok) {
+          service.dispose();
+          continue;
+        }
+      }
+      await service._processPendingOnce();
+      anySuccess = true;
+      service.dispose();
+    }
+    return anySuccess;
+  }
+
+  Future<void> _processPendingOnce() async {
+    if (_isSending || _disposed) return;
+    _isSending = true;
+    try {
+      final pending =
+          await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
+      if (pending.isEmpty || peerPublicKey == null) return;
+
+      final sentIds = <String>[];
+      for (final msg in pending.take(10)) {
+        if (_disposed) break;
+        final msgId = msg['id'] as String;
+        final success = await _sendOverTor(
+          msgId,
+          msg['message'] as String,
+          msg['type'] as String,
+          replyToId: msg['replyTo'] as String?,
+          fileName: msg['fileName'] as String?,
+          fileSize: msg['fileSize'] as int?,
+          viewOnce: (msg['viewOnce'] ?? 0) == 1,
+        );
+        if (success) {
+          sentIds.add(msgId);
+          await _markAsSent(msgId);
+        } else {
+          break;
+        }
+      }
+      if (sentIds.isNotEmpty) {
+        await PendingMessageDbHelper.removeMessages(sentIds);
+      }
+    } finally {
+      _isSending = false;
     }
   }
 

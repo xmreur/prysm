@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:prysm/util/tor_bootstrap_notifier.dart';
 
 class TorManager {
   // Desktop-only Tor process.
@@ -85,6 +86,44 @@ class TorManager {
         } catch (_) {}
       }
       _torProcess = null;
+    }
+  }
+
+  /// Returns true if the Tor control port responds and the process is alive.
+  Future<bool> isHealthy() async {
+    try {
+      if (!Platform.isAndroid) {
+        final proc = _torProcess;
+        if (proc == null) return false;
+        try {
+          await proc.exitCode.timeout(const Duration(milliseconds: 50));
+          return false;
+        } catch (_) {
+          // Timeout — process still running.
+        }
+      }
+
+      if (_controlSocket == null) {
+        await _connectControlPort();
+        if (Platform.isAndroid) {
+          await _authenticateWithCookieFile();
+        } else {
+          await _authenticateDesktopPassword();
+        }
+      }
+
+      await _sendAndCollect(
+        'GETINFO version',
+        untilOk: true,
+        timeout: const Duration(seconds: 3),
+      );
+      return true;
+    } catch (e) {
+      print('Tor health check failed: $e');
+      _controlSocket?.close();
+      _controlSocket = null;
+      _controlStream = null;
+      return false;
     }
   }
 
@@ -270,8 +309,12 @@ HiddenServicePort 80 127.0.0.1:12345
       final line = resp.firstWhere((l) => l.contains('status/bootstrap-phase='), orElse: () => '');
       final m = RegExp(r'PROGRESS=(\d+)').firstMatch(line);
       final progress = m == null ? 0 : int.parse(m.group(1)!);
+      TorBootstrapNotifier.instance.update(progress);
 
-      if (progress >= 100) return;
+      if (progress >= 100) {
+        TorBootstrapNotifier.instance.update(100);
+        return;
+      }
 
       await Future.delayed(const Duration(milliseconds: 500));
     }

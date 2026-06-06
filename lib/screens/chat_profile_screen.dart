@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
 import 'widgets/contact_avatar.dart';
@@ -258,7 +259,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         ),
                       ),
                       onTap: () {
-                        // Copy to clipboard
+                        Clipboard.setData(ClipboardData(text: widget.peer.id));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('ID copied to clipboard'),

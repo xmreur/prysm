@@ -1,10 +1,14 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 
+typedef NotificationTapHandler = void Function(String? payload);
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
+
+  static NotificationTapHandler? onNotificationTap;
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -36,14 +40,14 @@ class NotificationService {
   }
 
   void onDidReceiveNotificationResponse(NotificationResponse details) {
-    // Handle notifications tap if needed
-    // For now, we're just showing notifications, not handling taps
+    onNotificationTap?.call(details.payload);
   }
 
   Future<void> showNewMessageNotification({
     required String senderName,
     required String message,
     required int notificationId,
+    String? payload,
   }) async {
     if (!_initialized) await init();
 
@@ -67,7 +71,8 @@ class NotificationService {
       notificationId,
       'New message from $senderName',
       message,
-      notificationDetails
+      notificationDetails,
+      payload: payload,
     );
   }
 

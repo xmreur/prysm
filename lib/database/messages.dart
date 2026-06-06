@@ -9,7 +9,15 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 3;
+    static const _dbVersion = 6;
+
+	static const String _directChatTypeFilter =
+		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
+
+	/// Only rows we can decrypt: our outbound copy or peer deliveries to us.
+	static const String _directConversationFilter =
+		"((senderId = ? AND receiverId = ? AND COALESCE(status, '') != 'received') "
+		"OR (senderId = ? AND receiverId = ? AND status = 'received'))";
 
 	/// Return singleton database instance
 	static Future<Database> get database async {
@@ -35,6 +43,9 @@ class MessagesDb {
 				onUpgrade: (db, oldVersion, newVersion) async {
 					if (oldVersion < 2) await _upgradeToV2(db);
 					if (oldVersion < 3) await _upgradeToV3(db);
+					if (oldVersion < 4) await _upgradeToV4(db);
+					if (oldVersion < 5) await _upgradeToV5(db);
+					if (oldVersion < 6) await _upgradeToV6(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -62,12 +73,16 @@ class MessagesDb {
                 replyTo TEXT,
                 readAt INTEGER,
                 viewOnce INTEGER DEFAULT 0,
-                viewed INTEGER DEFAULT 0
+                viewed INTEGER DEFAULT 0,
+                groupId TEXT
             )
         ''');
 
         await db.execute(
             'CREATE INDEX idx_conversation ON messages(senderId, receiverId)'
+        );
+        await db.execute(
+            'CREATE INDEX idx_group_messages ON messages(groupId, timestamp)'
         );
         await db.execute(
             'CREATE INDEX idx_timestamp ON messages(timestamp)'
@@ -105,30 +120,128 @@ class MessagesDb {
 		}
 	}
 
+	static Future<void> _upgradeToV4(Database db) async {
+		print("UPGRADING DB TO v4");
+		final columns = await db.rawQuery('PRAGMA table_info(messages)');
+		if (!columns.any((col) => col['name'] == 'groupId')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN groupId TEXT');
+		}
+		await db.execute(
+			'CREATE INDEX IF NOT EXISTS idx_group_messages ON messages(groupId, timestamp)',
+		);
+	}
+
+	static Future<void> _upgradeToV5(Database db) async {
+		print('UPGRADING DB TO v5');
+		await db.transaction((txn) async {
+			final rows = await txn.query(
+				'messages',
+				where: 'groupId IS NOT NULL',
+			);
+			for (final row in rows) {
+				final wireId = row['id'] as String;
+				final groupId = row['groupId'] as String?;
+				if (groupId == null || wireId.contains('::')) continue;
+				await txn.update(
+					'messages',
+					{'id': scopedId(wireId: wireId, groupId: groupId)},
+					where: 'id = ? AND groupId = ?',
+					whereArgs: [wireId, groupId],
+				);
+			}
+		});
+	}
+
+	static Future<void> _upgradeToV6(Database db) async {
+		print('UPGRADING DB TO v6');
+		await db.execute(
+			'CREATE INDEX IF NOT EXISTS idx_unread_inbound ON messages(senderId, status, readAt)',
+		);
+		await db.execute(
+			'CREATE INDEX IF NOT EXISTS idx_direct_peer_ts ON messages(senderId, receiverId, timestamp DESC)',
+		);
+	}
+
+	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.
+	static String scopedId({required String wireId, String? groupId}) {
+		if (groupId != null && groupId.isNotEmpty) return '$groupId::$wireId';
+		return wireId;
+	}
+
+	static String wireIdFromStorage(String storageId) {
+		final sep = storageId.indexOf('::');
+		if (sep < 0) return storageId;
+		return storageId.substring(sep + 2);
+	}
+
+	static Map<String, dynamic> _withStorageId(Map<String, dynamic> message) {
+		final normalized = Map<String, dynamic>.from(message);
+		final groupId = normalized['groupId'] as String?;
+		normalized['id'] = scopedId(
+			wireId: normalized['id'] as String,
+			groupId: groupId,
+		);
+		return normalized;
+	}
+
 	/// Mark a view-once message as viewed and wipe its content
-	static Future<void> markViewOnceViewed(String id) async {
+	static Future<void> markViewOnceViewed(
+		String messageId, {
+		String? groupId,
+	}) async {
 		await _dbMutex.protect(() async {
 			final db = await database;
+			final storageId = scopedId(wireId: messageId, groupId: groupId);
 			await db.update(
 				'messages',
 				{'viewed': 1, 'message': null},
 				where: 'id = ? AND viewOnce = 1',
-				whereArgs: [id],
+				whereArgs: [storageId],
 			);
 		});
 	}
 
-	/// Insert or replace message, serialized with mutex
+	/// Insert or replace a locally-sent message (encrypted for self).
 	static Future<void> insertMessage(Map<String, dynamic> message) async {
 		await _dbMutex.protect(() async {
 			final db = await database;
 			await db.insert(
 				'messages',
-				message,
+				_withStorageId(message),
 				conflictAlgorithm: ConflictAlgorithm.replace,
 			);
 		});
-	} 
+	}
+
+	/// Insert an inbound delivery without clobbering our outbound encrypted-for-self copy.
+	static Future<void> insertInboundMessage(
+		Map<String, dynamic> message,
+		String localUserId,
+	) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			final normalized = _withStorageId(message);
+			final id = normalized['id'] as String;
+			final existing = await db.query(
+				'messages',
+				where: 'id = ?',
+				whereArgs: [id],
+			);
+			if (existing.isNotEmpty) {
+				final row = existing.first;
+				final wasOutbound = row['senderId'] == localUserId &&
+					row['status'] != 'received';
+				if (wasOutbound) {
+					return;
+				}
+			}
+			await db.insert(
+				'messages',
+				normalized,
+				conflictAlgorithm: ConflictAlgorithm.replace,
+			);
+		});
+	}
 
 	/// Get the last message timestamp for a user
 	static Future<int?> getLastMessageTimestampForUser(String userId) async {
@@ -138,7 +251,8 @@ class MessagesDb {
 				'''
 					SELECT MAX(timestamp) as lastTimestamp
 					FROM messages
-					WHERE senderId = ? OR receiverId = ? 
+					WHERE groupId IS NULL
+					  AND (senderId = ? OR receiverId = ?)
 				''',
 				[userId, userId]
 			);
@@ -157,9 +271,11 @@ class MessagesDb {
 			final db = await database;
 			final result = await db.rawQuery('''
 				SELECT userId, MAX(ts) as lastTimestamp FROM (
-					SELECT senderId AS userId, MAX(timestamp) AS ts FROM messages GROUP BY senderId
+					SELECT senderId AS userId, MAX(timestamp) AS ts
+					FROM messages WHERE groupId IS NULL GROUP BY senderId
 					UNION ALL
-					SELECT receiverId AS userId, MAX(timestamp) AS ts FROM messages GROUP BY receiverId
+					SELECT receiverId AS userId, MAX(timestamp) AS ts
+					FROM messages WHERE groupId IS NULL GROUP BY receiverId
 				) GROUP BY userId
 			''');
 
@@ -180,21 +296,26 @@ class MessagesDb {
 		String userId,
 		String receiverId,
 	) async {
+		return await _dbMutex.protect(() async {
 		final db = await database;
 		return await db.query(
 			'messages',
-			where: '(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)',
+			where:
+				'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter',
 			whereArgs: [userId, receiverId, receiverId, userId],
 			orderBy: 'timestamp DESC',
 		);
+		});
 	}
 
-	/// Query message by ID
+	/// Query message by wire ID (optionally scoped to a group).
 	static Future<List<Map<String, dynamic>>> getMessageById(
-		String messageId,
-	) async {
+		String messageId, {
+		String? groupId,
+	}) async {
 		final db = await database;
-		return await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
+		final storageId = scopedId(wireId: messageId, groupId: groupId);
+		return await db.query('messages', where: 'id = ?', whereArgs: [storageId]);
 	}
 
 	/// Get a batch of messages with optional pagination by timestamp
@@ -205,8 +326,10 @@ class MessagesDb {
 			int? beforeTimestamp,
 		}
 	) async {
+		return await _dbMutex.protect(() async {
 		final db = await database;
-		String where = '(senderId = ? AND receiverId = ?) or (senderId = ? AND receiverId = ?)';
+		String where =
+			'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter';
 		List<dynamic> whereArgs = [userId, receiverId, receiverId, userId];
 
 		if (beforeTimestamp != null) {
@@ -221,6 +344,7 @@ class MessagesDb {
 			orderBy: 'timestamp DESC',
 			limit: limit
 		);
+		});
 	}
 
 	/// Get a batch of messages with pagination by timestamp and message ID for stable ordering
@@ -232,10 +356,11 @@ class MessagesDb {
 			String? beforeId,
 		}
 	) async {
+		return await _dbMutex.protect(() async {
 		final db = await database;
 
 		String where =
-			'((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))';
+			'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter';
 		List<dynamic> whereArgs = [userId, receiverId, receiverId, userId];
 	
 		if (beforeTimestamp != null && beforeId != null) {
@@ -256,6 +381,7 @@ class MessagesDb {
 			orderBy: 'timestamp DESC, id DESC',
 			limit: limit
 		);
+		});
 	}
 
 	/// Delete all messages between two users
@@ -268,7 +394,7 @@ class MessagesDb {
 			await db.delete(
 				'messages',
 				where:
-					"(senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)",
+					"groupId IS NULL AND $_directChatTypeFilter AND ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))",
 				whereArgs: [userId, receiverId, receiverId, userId],
 			);
 		});
@@ -290,29 +416,196 @@ class MessagesDb {
 		});
 	}
 
-    static Future<void> setAsRead(String id) async {
+    static Future<void> setAsRead(String id, {String? groupId}) async {
         await _dbMutex.protect(() async {
             final db = await database;
+            final storageId = scopedId(wireId: id, groupId: groupId);
             await db.update(
                 'messages',
                 {'readAt': DateTime.now().millisecondsSinceEpoch},
                 where: 'id = ?',
-                whereArgs: [id] 
+                whereArgs: [storageId],
             );
         });
     }
 
-    static Future<void> updateMessageStatus(String id, String status) async {
+    static Future<void> updateMessageStatus(
+		String messageId,
+		String status, {
+		String? groupId,
+	}) async {
         await _dbMutex.protect(() async {
             final db = await database;
+			final storageId = scopedId(wireId: messageId, groupId: groupId);
             await db.update(
                 'messages',
                 {'status': status},
                 where: 'id = ?',
-                whereArgs: [id]
+                whereArgs: [storageId],
             );
         });
     }
+
+	/// Get messages for a group, newest first (dedupe by id in caller)
+	static Future<List<Map<String, dynamic>>> getMessagesForGroupBatch(
+		String groupId, {
+		int limit = 20,
+		int? beforeTimestamp,
+		String? beforeId,
+	}) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			String where = 'groupId = ?';
+			final whereArgs = <dynamic>[groupId];
+
+			if (beforeTimestamp != null && beforeId != null) {
+				where += ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
+				whereArgs.addAll([beforeTimestamp, beforeTimestamp, beforeId]);
+			} else if (beforeTimestamp != null) {
+				where += ' AND timestamp < ?';
+				whereArgs.add(beforeTimestamp);
+			} else if (beforeId != null) {
+				where += ' AND id < ?';
+				whereArgs.add(beforeId);
+			}
+
+			return db.query(
+				'messages',
+				where: where,
+				whereArgs: whereArgs,
+				orderBy: 'timestamp DESC, id DESC',
+				limit: limit,
+			);
+		});
+	}
+
+	static String previewLabelForType(String? type) {
+		switch (type) {
+			case 'image':
+			case 'group_image':
+				return '📷 Photo';
+			case 'file':
+			case 'group_file':
+				return '📎 File';
+			case 'audio':
+			case 'group_audio':
+				return '🎤 Voice';
+			default:
+				return 'Message';
+		}
+	}
+
+	/// Latest message preview label per conversation id (peer onion or group id).
+	static Future<Map<String, String>> getLastMessagePreviews(String localUserId) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final previews = <String, String>{};
+
+			final groupRows = await db.rawQuery('''
+				SELECT groupId AS convKey, type
+				FROM messages m
+				WHERE groupId IS NOT NULL
+				  AND timestamp = (
+				    SELECT MAX(m2.timestamp) FROM messages m2
+				    WHERE m2.groupId = m.groupId
+				  )
+				GROUP BY groupId
+			''');
+			for (final row in groupRows) {
+				final key = row['convKey'] as String?;
+				if (key != null && key.isNotEmpty) {
+					previews[key] = previewLabelForType(row['type'] as String?);
+				}
+			}
+
+			final directRows = await db.rawQuery('''
+				WITH latest AS (
+				  SELECT
+				    CASE WHEN senderId = ? THEN receiverId ELSE senderId END AS convKey,
+				    MAX(timestamp) AS max_ts
+				  FROM messages
+				  WHERE groupId IS NULL
+				    AND $_directChatTypeFilter
+				    AND (senderId = ? OR receiverId = ?)
+				  GROUP BY convKey
+				)
+				SELECT l.convKey, m.type
+				FROM latest l
+				JOIN messages m ON m.timestamp = l.max_ts
+				  AND m.groupId IS NULL
+				  AND (CASE WHEN m.senderId = ? THEN m.receiverId ELSE m.senderId END) = l.convKey
+				GROUP BY l.convKey
+			''', [localUserId, localUserId, localUserId, localUserId]);
+
+			for (final row in directRows) {
+				final key = row['convKey'] as String?;
+				if (key != null && key.isNotEmpty) {
+					previews[key] = previewLabelForType(row['type'] as String?);
+				}
+			}
+			return previews;
+		});
+	}
+
+	/// Unread inbound message counts per conversation id.
+	static Future<Map<String, int>> getUnreadCounts(String localUserId) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final rows = await db.rawQuery('''
+				SELECT
+				  CASE
+				    WHEN groupId IS NOT NULL AND groupId != '' THEN groupId
+				    ELSE senderId
+				  END AS convKey,
+				  COUNT(*) AS cnt
+				FROM messages
+				WHERE senderId != ?
+				  AND status = 'received'
+				  AND readAt IS NULL
+				GROUP BY convKey
+			''', [localUserId]);
+
+			final counts = <String, int>{};
+			for (final row in rows) {
+				final key = row['convKey'] as String?;
+				if (key == null || key.isEmpty) continue;
+				counts[key] = row['cnt'] is int
+					? row['cnt'] as int
+					: int.tryParse(row['cnt'].toString()) ?? 0;
+			}
+			return counts;
+		});
+	}
+
+	/// Last message timestamp per group
+	static Future<Map<String, int>> getLastMessageTimestampsForAllGroups() async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final result = await db.rawQuery('''
+				SELECT groupId, MAX(timestamp) as lastTimestamp
+				FROM messages
+				WHERE groupId IS NOT NULL
+				GROUP BY groupId
+			''');
+
+			final Map<String, int> timestamps = {};
+			for (final row in result) {
+				final groupId = row['groupId'] as String?;
+				final ts = row['lastTimestamp'];
+				if (groupId != null && ts != null) {
+					timestamps[groupId] = ts is int ? ts : int.tryParse(ts.toString()) ?? 0;
+				}
+			}
+			return timestamps;
+		});
+	}
+
+	static Future<void> deleteMessagesForGroup(String groupId) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			await db.delete('messages', where: 'groupId = ?', whereArgs: [groupId]);
+		});
+	}
 
 	/// Close the db
 	static Future<void> close() async {

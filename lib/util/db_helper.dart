@@ -23,7 +23,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 3, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 4, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -38,6 +38,37 @@ class DBHelper {
       )
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
+    await _createGroupTables(db);
+  }
+
+  static Future<void> _createGroupTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        avatarBase64 TEXT,
+        createdBy TEXT NOT NULL,
+        createdAt INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE group_members (
+        groupId TEXT NOT NULL,
+        memberId TEXT NOT NULL,
+        role TEXT NOT NULL,
+        joinedAt INTEGER NOT NULL,
+        PRIMARY KEY (groupId, memberId),
+        FOREIGN KEY (groupId) REFERENCES groups(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE group_keys (
+        groupId TEXT PRIMARY KEY,
+        encryptedKey TEXT NOT NULL,
+        keyVersion INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY (groupId) REFERENCES groups(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   static Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -54,6 +85,9 @@ class DBHelper {
       if (!colNames.contains('customName')) {
         await db.execute('ALTER TABLE users ADD COLUMN customName TEXT');
       }
+    }
+    if (oldVersion < 4) {
+      await _createGroupTables(db);
     }
   }
 
@@ -125,5 +159,83 @@ class DBHelper {
       where: 'id = ?',
       whereArgs: [userId],
     );
+  }
+
+  // --- Group helpers ---
+
+  static Future<void> insertGroup(Map<String, dynamic> group) async {
+    final db = await database;
+    await db.insert('groups', group, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<List<Map<String, dynamic>>> getGroups() async {
+    final db = await database;
+    return db.query('groups', orderBy: 'createdAt DESC');
+  }
+
+  static Future<Map<String, dynamic>?> getGroupById(String id) async {
+    final db = await database;
+    final results = await db.query('groups', where: 'id = ?', whereArgs: [id], limit: 1);
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  static Future<void> deleteGroup(String groupId) async {
+    final db = await database;
+    await db.delete('group_keys', where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('group_members', where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('groups', where: 'id = ?', whereArgs: [groupId]);
+  }
+
+  static Future<void> addGroupMember(Map<String, dynamic> member) async {
+    final db = await database;
+    await db.insert('group_members', member, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> removeGroupMember(String groupId, String memberId) async {
+    final db = await database;
+    await db.delete(
+      'group_members',
+      where: 'groupId = ? AND memberId = ?',
+      whereArgs: [groupId, memberId],
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getGroupMembers(String groupId) async {
+    final db = await database;
+    return db.query('group_members', where: 'groupId = ?', whereArgs: [groupId]);
+  }
+
+  static Future<int> getGroupMemberCount(String groupId) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as cnt FROM group_members WHERE groupId = ?',
+      [groupId],
+    );
+    final val = result.first['cnt'];
+    if (val is int) return val;
+    return int.tryParse(val.toString()) ?? 0;
+  }
+
+  static Future<void> upsertGroupKey({
+    required String groupId,
+    required String encryptedKey,
+    required int keyVersion,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'group_keys',
+      {
+        'groupId': groupId,
+        'encryptedKey': encryptedKey,
+        'keyVersion': keyVersion,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<Map<String, dynamic>?> getGroupKey(String groupId) async {
+    final db = await database;
+    final results = await db.query('group_keys', where: 'groupId = ?', whereArgs: [groupId], limit: 1);
+    return results.isNotEmpty ? results.first : null;
   }
 }

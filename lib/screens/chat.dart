@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:encrypt/encrypt.dart' as e;
@@ -21,7 +22,9 @@ import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/tor_service.dart';
+import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/download_location.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
@@ -70,7 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late ChatService _chatService;
 
   var _messages = InMemoryChatController();
-  final Map<String, TextMessage> _messageCache = {};
+  final Map<String, Message> _messageCache = {};
   late final User _user;
   bool _loading = false;
   bool _hasMore = true;
@@ -126,7 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_scrollListener);
     _initializeChat(); // ✅ NEW METHOD
     _checkPeerStatus(); // Check online status + fetch profile immediately
-    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _checkPeerStatus());
+    _pingTimer = Timer.periodic(const Duration(seconds: 90), (_) => _checkPeerStatus());
   }
 
   // ✅ NEW: Initialize ChatService
@@ -352,7 +355,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _initializeChat();
       _checkPeerStatus();
-      _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _checkPeerStatus());
+      _pingTimer = Timer.periodic(const Duration(seconds: 90), (_) => _checkPeerStatus());
     }
 
     if (oldWidget.currentTheme != widget.currentTheme) {
@@ -367,6 +370,28 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ==================== DECRYPTION (KEEP AS-IS) ====================
+
+  String _decryptDirectTextMessage(Map<String, dynamic> msg, KeyManager keyManager) {
+    final wire = msg['message'] as String?;
+    if (wire == null || wire.isEmpty) {
+      throw const FormatException('Empty message payload');
+    }
+
+    final trimmed = wire.trimLeft();
+    if (trimmed.startsWith('{')) {
+      final parsed = jsonDecode(wire);
+      if (parsed is Map<String, dynamic>) {
+        if (parsed['envelope'] == GroupCrypto.controlEnvelopeVersion) {
+          throw const FormatException('Misrouted group control payload');
+        }
+        if (parsed.containsKey('iv') && parsed.containsKey('ct')) {
+          throw const FormatException('Group-encoded payload in direct chat');
+        }
+      }
+    }
+
+    return keyManager.decryptMessage(wire);
+  }
 
   Future<List<Message>> decryptMessagesDeferred(
     List<Map<String, dynamic>> rawMessages,
@@ -390,7 +415,7 @@ class _ChatScreenState extends State<ChatScreen> {
               seenAt: msg['readAt'] != null
                   ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'])
                   : null,
-              text: keyManager.decryptMessage(msg['message']),
+              text: _decryptDirectTextMessage(msg, keyManager),
             ),
           );
         } else if (msg['type'] == 'file') {
@@ -461,24 +486,33 @@ class _ChatScreenState extends State<ChatScreen> {
             );
 
             if (!isViewOnce) {
+              final msgId = msg['id'] as String;
               decryptFileInBackground(msg, keyManager).then((decryptedBytes) {
-                final index = messages.indexWhere((m) => m.id == msg['id']);
-                if (index != -1) {
-                  final oldMessage = messages[index] as ImageMessage;
-                  final newMessage = oldMessage.copyWith(
-                    source: "data:image/png;base64,${base64Encode(decryptedBytes)}",
-                    size: decryptedBytes.length,
-                  );
-                  setState(() {
-                    messages[index] = newMessage;
-                  });
+                if (!mounted) return;
+                final newMessage = ImageMessage(
+                  id: msgId,
+                  authorId: User(id: msg['senderId']).id,
+                  createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+                  replyToMessageId: msg['replyTo'],
+                  size: decryptedBytes.length,
+                  seenAt: msg['readAt'] != null
+                      ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
+                      : null,
+                  source:
+                      "data:image/png;base64,${base64Encode(decryptedBytes)}",
+                );
+                _messageCache[msgId] = newMessage;
+                final idx = _messages.messages.indexWhere((m) => m.id == msgId);
+                if (idx != -1) {
+                  final oldMessage = _messages.messages[idx] as ImageMessage;
+                  _messages.updateMessage(oldMessage, newMessage);
                 }
               });
             }
           }
         }
       } catch (e) {
-        print(e);
+        debugPrint('Direct message decrypt failed (${msg['id']}): $e');
         messages.add(
           TextMessage(
             authorId: User(id: msg['senderId']).id,
@@ -497,14 +531,13 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, dynamic> msg,
     KeyManager keyManager,
   ) async {
-    final hybrid = jsonDecode(msg['message']);
-    final rsaEncryptedAesKey = hybrid['aes_key'];
-    final iv = e.IV.fromBase64(hybrid['iv']);
-    final encryptedData = base64Decode(hybrid['data']);
-    final aesKeyBytes = keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
-    final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
-    final decryptedBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
-    return decryptedBytes;
+    final hybrid = jsonDecode(msg['message']) as Map<String, dynamic>;
+    final aesKeyBytes = keyManager.decryptMyMessageBytes(hybrid['aes_key']);
+    return compute(_aesDecryptFilePayload, {
+      'aesKey': aesKeyBytes,
+      'iv': hybrid['iv'],
+      'data': hybrid['data'],
+    });
   }
 
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
@@ -544,6 +577,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     if (!mounted) return;
+
+    if (modifiableList.isNotEmpty) {
+      final newestTs = modifiableList
+          .map((m) => m['timestamp'] as int)
+          .reduce(max);
+      _chatService.seedNewestTimestamp(newestTs);
+    }
 
     setState(() {
       _messages.insertAllMessages(newMessages, index: 0);
@@ -1715,34 +1755,21 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.keyManager,
         );
 
-        Directory? dir;
-
-        if (Platform.isAndroid) {
-          dir = Directory("/storage/emulated/0/Download/");
-        } else {
-          dir = await getDownloadsDirectory();
-        }
-        File file = File('${dir!.path}/${message.name}');
-        int c = 0;
-        while (await file.exists()) {
-          file = File('${dir.path}/${message.name} - $c');
-          c++;
-        }
         if (bytes.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '${file.path.split("/").last} is still decrypting, please wait.',
+                '${message.name} is still decrypting, please wait.',
               ),
             ),
           );
           return;
         }
-        await file.writeAsBytes(bytes);
+        final file = await DownloadLocation.saveBytes(bytes, message.name);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Successfully downloaded ${file.path.split("/").last}',
+              'Successfully downloaded ${file.path.split(Platform.pathSeparator).last}',
             ),
           ),
         );
@@ -2411,4 +2438,11 @@ class _ViewOnceScreenState extends State<_ViewOnceScreen> {
       ),
     );
   }
+}
+
+Uint8List _aesDecryptFilePayload(Map<String, dynamic> args) {
+  final aesKey = e.Key(Uint8List.fromList(List<int>.from(args['aesKey'] as List)));
+  final iv = e.IV.fromBase64(args['iv'] as String);
+  final encryptedData = base64Decode(args['data'] as String);
+  return AESHelper.decryptBytes(encryptedData, aesKey, iv);
 }

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:prysm/util/download_location.dart';
 import 'privacy_settings_screen.dart';
 import 'data_storage_screen.dart';
 
@@ -38,11 +39,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _relayAddress;
   bool _aggressiveRetry = true;
   int _messageRetentionDays = 30;
+  String _downloadLocationDisplay = 'Loading...';
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadDownloadLocationDisplay();
   }
 
   void _loadSettings() {
@@ -56,6 +59,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _aggressiveRetry = settings.aggressiveRetry;
       _messageRetentionDays = settings.messageRetentionDays;
     });
+  }
+
+  Future<void> _loadDownloadLocationDisplay() async {
+    final path = await DownloadLocation.displayPath();
+    if (mounted) {
+      setState(() => _downloadLocationDisplay = path);
+    }
+  }
+
+  void _showDownloadLocationSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                child: Text(
+                  _downloadLocationDisplay,
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_open_outlined),
+                title: const Text('Choose folder'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _pickDownloadLocation();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.restore_outlined),
+                title: const Text('Use system default'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await settings.clearCustomDownloadPath();
+                  await _loadDownloadLocationDisplay();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Download location reset to default')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDownloadLocation() async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Choose download folder',
+    );
+    if (path == null) return;
+
+    final dir = Directory(path);
+    if (!await dir.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selected folder does not exist')),
+        );
+      }
+      return;
+    }
+
+    await settings.setCustomDownloadPath(path);
+    await _loadDownloadLocationDisplay();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Downloads will be saved to $path')),
+      );
+    }
   }
 
   // Theme selection
@@ -623,6 +703,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Data'),
               const SizedBox(height: 12),
               _buildCard([
+                _buildNavigationTile(
+                  'Download Location',
+                  Icons.download_outlined,
+                  _showDownloadLocationSheet,
+                  subtitle: _downloadLocationDisplay,
+                ),
+                const Divider(height: 1),
                 _buildNavigationTile(
                   'Create Backup',
                   Icons.backup_outlined,

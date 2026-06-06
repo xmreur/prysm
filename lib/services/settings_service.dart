@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/models/settings.dart';
 
 class SettingsService {
-  static const String appVersion = 'v0.1.0';
+  static const String appVersion = 'v0.2.0';
   static const String appName = 'Prysm';
   static const String appDescription = 'Privacy-focused P2P messaging';
 
@@ -44,6 +44,9 @@ class SettingsService {
   // Profile
   String? get avatar => _settings.avatar;
   String? get username => _settings.username;
+
+  // Files
+  String? get customDownloadPath => _settings.customDownloadPath;
 
   // Initialize (call at app startup)
   Future<void> init() async {
@@ -130,6 +133,16 @@ class SettingsService {
 
   Future<void> setUsername(String? value) async {
     _settings = _settings.copyWith(username: value);
+    await save();
+  }
+
+  Future<void> setCustomDownloadPath(String path) async {
+    _settings = _settings.copyWith(customDownloadPath: path);
+    await save();
+  }
+
+  Future<void> clearCustomDownloadPath() async {
+    _settings = _settings.copyWith(clearCustomDownloadPath: true);
     await save();
   }
 

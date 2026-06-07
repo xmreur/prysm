@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
@@ -545,12 +546,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               source: 'audio:0:$cachePath',
             ));
           } else {
+            final fileName = msg['fileName'] as String? ?? 'file';
             result.add(FileMessage(
               id: id,
               authorId: authorId,
               createdAt: createdAt,
               replyToMessageId: replyTo,
-              name: msg['fileName'] as String? ?? 'file',
+              name: fileName,
               size: bytes.length,
               seenAt: seenAt,
               source: base64Encode(bytes),
@@ -1135,14 +1137,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
         : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
 
-    Future<void> downloadFile() async {
+    final maxWidth = MediaQuery.of(context).size.width * 0.55;
+    final isLoading = ValueNotifier(false);
+
+    Future<void> handleDownload() async {
+      if (isLoading.value) return;
+      isLoading.value = true;
       try {
-        Uint8List bytes;
-        if (message.source.startsWith('data:') || message.source.length > 200) {
-          bytes = base64Decode(message.source);
-        } else {
-          bytes = base64Decode(message.source);
-        }
+        if (message.source.isEmpty) return;
+        final bytes = base64Decode(message.source);
+
         final file = await DownloadLocation.saveBytes(bytes, message.name);
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1151,9 +1155,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       } catch (e) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
+          SnackBar(content: Text('Error downloading file: $e')),
         );
+      } finally {
+        isLoading.value = false;
       }
+    }
+
+    String fileSizeString = '';
+    if (message.size != null) {
+      final sizeInKB = message.size! / 1024;
+      fileSizeString = sizeInKB < 1024
+          ? '${sizeInKB.toStringAsFixed(1)} KB'
+          : '${(sizeInKB / 1024).toStringAsFixed(1)} MB';
     }
 
     return Column(
@@ -1162,7 +1176,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       children: [
         _senderLabel(message.authorId, isSentByMe),
         GestureDetector(
-          onTap: downloadFile,
+          onTap: handleDownload,
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(

@@ -17,7 +17,8 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
-import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
+import 'package:prysm/services/chat_service.dart';
+import 'package:prysm/util/text_file_helper.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -418,13 +419,15 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           );
         } else if (msg['type'] == 'file') {
+          final fileName = msg['fileName'] ?? 'Unknown';
+          final msgId = msg['id'] as String;
           messages.add(
             FileMessage(
-              id: msg['id'],
+              id: msgId,
               authorId: User(id: msg['senderId']).id,
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               replyToMessageId: msg['replyTo'],
-              name: msg['fileName'] ?? "Unknown",
+              name: fileName,
               size: msg['fileSize'] ?? 0,
               seenAt: msg['readAt'] != null
                   ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
@@ -530,13 +533,10 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, dynamic> msg,
     KeyManager keyManager,
   ) async {
-    final hybrid = jsonDecode(msg['message']) as Map<String, dynamic>;
-    final aesKeyBytes = keyManager.decryptMyMessageBytes(hybrid['aes_key']);
-    return compute(_aesDecryptFilePayload, {
-      'aesKey': aesKeyBytes,
-      'iv': hybrid['iv'],
-      'data': hybrid['data'],
-    });
+    return resolveFileBytes(
+      source: msg['message'] as String,
+      keyManager: keyManager,
+    );
   }
 
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
@@ -1730,45 +1730,40 @@ class _ChatScreenState extends State<ChatScreen> {
       return _voiceMessageBuilder(context, message, index, isSentByMe: isSentByMe);
     }
 
-    final maxWidth = MediaQuery.of(context).size.width * 0.4;
-    final ValueNotifier<bool> isDownloading = ValueNotifier(false);
+    final maxWidth = MediaQuery.of(context).size.width * 0.55;
+    final ValueNotifier<bool> isLoading = ValueNotifier(false);
 
-    Future<void> downloadBase64File() async {
-      if (isDownloading.value == true) return;
+    Future<Uint8List?> resolveFileBytes() async {
+      if (message.source.isEmpty) return null;
+      return decryptFileInBackground(
+        {'message': message.source},
+        widget.keyManager,
+      );
+    }
 
-      isDownloading.value = true;
+    Future<void> handleDownload() async {
+      if (isLoading.value) return;
+      isLoading.value = true;
 
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
       if (!context.mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       try {
-        if (message.source.isEmpty) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('No encrypted data available for this file'),
-            ),
-          );
-          return;
-        }
-
-        final Map<String, dynamic> decryptInput = {'message': message.source};
-
-        Uint8List bytes = await decryptFileInBackground(
-          decryptInput,
-          widget.keyManager,
-        );
-
+        final bytes = await resolveFileBytes();
         if (!context.mounted) return;
-        if (bytes.isEmpty) {
+        if (bytes == null || bytes.isEmpty) {
           messenger.showSnackBar(
             SnackBar(
               content: Text(
-                '${message.name} is still decrypting, please wait.',
+                message.source.isEmpty
+                    ? 'No encrypted data available for this file'
+                    : '${message.name} is still decrypting, please wait.',
               ),
             ),
           );
           return;
         }
+
         final file = await DownloadLocation.saveBytes(bytes, message.name);
         if (!context.mounted) return;
         messenger.showSnackBar(
@@ -1782,7 +1777,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (!context.mounted) return;
         messenger.showSnackBar(SnackBar(content: Text('Error downloading file: $e')));
       } finally {
-        isDownloading.value = false;
+        isLoading.value = false;
       }
     }
 
@@ -1802,7 +1797,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    // ✅ Determine tick status
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
       final tickColor = Theme.of(context).colorScheme.onPrimary;
@@ -1817,7 +1811,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth),
           child: GestureDetector(
-            onTap: downloadBase64File,
+            onTap: handleDownload,
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -1828,9 +1822,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   ValueListenableBuilder<bool>(
-                    valueListenable: isDownloading,
-                    builder: (context, downloading, _) {
-                      if (downloading) {
+                    valueListenable: isLoading,
+                    builder: (context, loading, _) {
+                      if (loading) {
                         return SizedBox(
                           width: 36,
                           height: 36,
@@ -1867,7 +1861,6 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           overflow: TextOverflow.visible,
                         ),
-                        // ✅ File size + Time + Tick indicators
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -2446,11 +2439,4 @@ class _ViewOnceScreenState extends State<_ViewOnceScreen> {
       ),
     );
   }
-}
-
-Uint8List _aesDecryptFilePayload(Map<String, dynamic> args) {
-  final aesKey = e.Key(Uint8List.fromList(List<int>.from(args['aesKey'] as List)));
-  final iv = e.IV.fromBase64(args['iv'] as String);
-  final encryptedData = base64Decode(args['data'] as String);
-  return AESHelper.decryptBytes(encryptedData, aesKey, iv);
 }

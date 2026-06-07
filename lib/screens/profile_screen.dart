@@ -1,11 +1,13 @@
 import 'dart:convert';
-import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/prysm_id_qr.dart';
+import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
+import 'package:prysm/util/onion_id_codec.dart';
 import '../models/contact.dart';
 import 'privacy_settings_screen.dart';
 import 'package:prysm/screens/about_screen.dart';
@@ -17,11 +19,13 @@ class ProfileScreen extends StatefulWidget {
   final VoidCallback onClose;
   final ValueChanged<Contact> onUpdate;
   final Function() reloadUsers;
+  final ValueChanged<String>? onScanResult;
   const ProfileScreen({
     required this.user,
     required this.onClose,
     required this.onUpdate,
     required this.reloadUsers,
+    this.onScanResult,
     super.key,
   });
 
@@ -79,19 +83,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {
       _avatarBase64 = base64Encode(bytes);
     });
-  }
-
-  String encodeOnionToBase58(String onion) {
-    // Remove trailing '.onion' if present
-    final cleanOnion = onion.endsWith('.onion')
-        ? onion.substring(0, onion.length - 6)
-        : onion;
-
-    // Convert string to UTF8 bytes
-    final bytes = utf8.encode(cleanOnion);
-
-    // Encode bytes into Base58 string
-    return base58.encode(Uint8List.fromList(bytes));
   }
 
   @override
@@ -231,6 +222,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           fontSize: 12,
                           fontFamily: 'monospace',
                         ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.qr_code),
+                            tooltip: 'Show QR Code',
+                            onPressed: () => showPrysmIdQrDialog(
+                              context,
+                              encodeOnionToBase58(widget.user.id),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            tooltip: 'Scan a QR code',
+                            onPressed: () async {
+                              final scanned = await Navigator.push<String>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const QrScannerScreen(),
+                                ),
+                              );
+                              if (scanned != null && scanned.isNotEmpty) {
+                                widget.onScanResult?.call(scanned);
+                              }
+                            },
+                          ),
+                        ],
                       ),
                       onTap: () {
                         Clipboard.setData(

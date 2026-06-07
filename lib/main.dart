@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
@@ -33,6 +32,9 @@ import 'package:prysm/util/theme_manager.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
+import 'package:prysm/screens/widgets/prysm_id_qr.dart';
+import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
@@ -362,6 +364,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     if (!unlocked) {
       return MaterialApp(
+        debugShowCheckedModeBanner: false,
         title: "Unlock ${settings.name} Chat",
         theme: ThemeManager.getTheme(_currentTheme),
         home: PinScreen(
@@ -373,6 +376,7 @@ class _MyAppState extends State<MyApp> {
     }
     if (!_torReady) {
       return MaterialApp(
+        debugShowCheckedModeBanner: false,
         title: '${settings.name} Chat',
         theme: ThemeManager.getTheme(_currentTheme),
         home: Scaffold(
@@ -424,6 +428,7 @@ class _MyAppState extends State<MyApp> {
       );
     }
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: '${settings.name} Chat',
       theme: ThemeManager.getTheme(_currentTheme),
       home: HomeScreen(torManager: _torManager!, onionAddress: _onionAddress!, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
@@ -875,6 +880,94 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           children: [
             TextField(
               controller: idController,
+              decoration: InputDecoration(
+                labelText: 'User ID (Base58 Onion URL)',
+                hintText: 'eg. 51EsbujFRDJLHJ',
+                suffixIcon: (Platform.isAndroid || Platform.isIOS)
+                    ? IconButton(
+                        icon: const Icon(Icons.qr_code_scanner),
+                        tooltip: 'Scan QR Code',
+                        onPressed: () async {
+                          // Close the dialog first, then open scanner
+                          Navigator.of(context).pop();
+                          final scannedValue = await Navigator.push<String>(
+                            this.context,
+                            MaterialPageRoute(
+                              builder: (_) => const QrScannerScreen(),
+                            ),
+                          );
+                          if (scannedValue != null && scannedValue.isNotEmpty) {
+                            // Re-open the add user dialog with the scanned value pre-filled
+                            _showAddUserDialogWithId(scannedValue);
+                          }
+                        },
+                      )
+                    : null,
+              ),
+            ),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Display Name',
+                hintText: 'eg. Alice',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Cancel"),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          ElevatedButton(
+            child: const Text('Add'),
+            onPressed: () async {
+              String newId;
+              try {
+                newId = decodeBase58ToOnion(idController.text.trim());
+              } catch (e) {
+                return;
+              }
+              final newName = nameController.text.trim();
+
+              if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
+                return;
+              }
+              final added = await _addNewUser(newId, newName);
+              if (!context.mounted) return;
+              if (!added) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Could not reach peer or fetch their public key. '
+                      'Make sure they are online and try again.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              await loadUsers();
+              if (context.mounted) Navigator.of(context).pop();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddUserDialogWithId(String prefilledId) async {
+    final idController = TextEditingController(text: prefilledId);
+    final nameController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New User'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: idController,
               decoration: const InputDecoration(
                 labelText: 'User ID (Base58 Onion URL)',
                 hintText: 'eg. 51EsbujFRDJLHJ',
@@ -886,6 +979,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 labelText: 'Display Name',
                 hintText: 'eg. Alice',
               ),
+              autofocus: true,
             ),
           ],
         ),
@@ -1053,7 +1147,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ],
                   ),
-                )
+                ),
+                IconButton(
+                  icon: const Icon(Icons.qr_code, size: 20),
+                  tooltip: 'Show my QR code',
+                  onPressed: () => showPrysmIdQrDialog(
+                    context,
+                    encodeOnionToBase58(appUser.id),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.qr_code_scanner, size: 20),
+                  tooltip: 'Scan a QR code',
+                  onPressed: () async {
+                    final scanned = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const QrScannerScreen(),
+                      ),
+                    );
+                    if (scanned != null && scanned.isNotEmpty) {
+                      _showAddUserDialogWithId(scanned);
+                    }
+                  },
+                ),
               ],
             ),
           ),
@@ -1546,12 +1663,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Material(
                   color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(16),
-                  child: InkWell(
-                    onTap: _copyPrysmId,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
+                  child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                        horizontal: 12,
                         vertical: 14,
                       ),
                       child: Row(
@@ -1583,15 +1697,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               ],
                             ),
                           ),
-                          Icon(
-                            Icons.copy_rounded,
-                            size: 20,
-                            color: theme.colorScheme.primary,
+                          IconButton(
+                            icon: Icon(
+                              Icons.copy_rounded,
+                              size: 20,
+                              color: theme.colorScheme.primary,
+                            ),
+                            tooltip: 'Copy ID',
+                            onPressed: _copyPrysmId,
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              Icons.qr_code,
+                              color: theme.colorScheme.primary,
+                            ),
+                            tooltip: 'Show full QR code',
+                            onPressed: () => showPrysmIdQrDialog(context, prysmId),
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              Icons.qr_code_scanner,
+                              color: theme.colorScheme.primary,
+                            ),
+                            tooltip: 'Scan a QR code',
+                            onPressed: () async {
+                              final scanned = await Navigator.push<String>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const QrScannerScreen(),
+                                ),
+                              );
+                              if (scanned != null && scanned.isNotEmpty) {
+                                _showAddUserDialogWithId(scanned);
+                              }
+                            },
                           ),
                         ],
                       ),
                     ),
-                  ),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -1695,23 +1838,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  String encodeOnionToBase58(String onion) {
-    // Remove trailing '.onion' if present
-    final cleanOnion = onion.endsWith('.onion') ? onion.substring(0, onion.length - 6) : onion;
-
-    // Convert string to UTF8 bytes
-    final bytes = utf8.encode(cleanOnion);
-
-    // Encode bytes into Base58 string
-    return base58.encode(Uint8List.fromList(bytes));
-  } 
-
-  String decodeBase58ToOnion(String base58String) {
-    final bytes = base58.decode(base58String);
-    final onion = utf8.decode(bytes);
-    return '$onion.onion';
-  }
-
   void clearChat() {
     setState(() {
       loadUsers();
@@ -1727,6 +1853,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onClose: () => setState(() => showProfile = false),
         onUpdate: onUpdateProfile,
         reloadUsers: () => loadUsers(),
+        onScanResult: (scanned) => _showAddUserDialogWithId(scanned),
       );
     }
     if (showSettings) {

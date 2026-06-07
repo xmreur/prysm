@@ -4,7 +4,11 @@ import 'dart:typed_data';
 import 'package:docx_to_text/docx_to_text.dart';
 import 'package:excel/excel.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:prysm/util/pptx_text_extractor.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/util/temp_file_helper.dart';
+import 'package:prysm/util/video_preview_support.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 class TextPreviewData {
   final List<String> lines;
@@ -25,17 +29,45 @@ class PdfPreviewData {
   const PdfPreviewData({required this.documentBytes});
 }
 
+class MediaPreviewData {
+  final Uint8List mediaBytes;
+  final Uint8List? thumbnailBytes;
+  final String? mimeType;
+
+  const MediaPreviewData({
+    required this.mediaBytes,
+    this.thumbnailBytes,
+    this.mimeType,
+  });
+}
+
+class PresentationPreviewData {
+  final List<String> lines;
+  final String fullText;
+  final bool legacyFormat;
+
+  const PresentationPreviewData({
+    required this.lines,
+    required this.fullText,
+    this.legacyFormat = false,
+  });
+}
+
 class FilePreviewData {
   final FilePreviewCategory category;
   final TextPreviewData? text;
   final SpreadsheetPreviewData? spreadsheet;
   final PdfPreviewData? pdf;
+  final MediaPreviewData? media;
+  final PresentationPreviewData? presentation;
 
   const FilePreviewData._({
     required this.category,
     this.text,
     this.spreadsheet,
     this.pdf,
+    this.media,
+    this.presentation,
   });
 
   factory FilePreviewData.blocked() => const FilePreviewData._(
@@ -60,6 +92,18 @@ class FilePreviewData {
   factory FilePreviewData.pdf(PdfPreviewData data) => FilePreviewData._(
         category: FilePreviewCategory.pdf,
         pdf: data,
+      );
+
+  factory FilePreviewData.media(MediaPreviewData data, FilePreviewCategory category) =>
+      FilePreviewData._(
+        category: category,
+        media: data,
+      );
+
+  factory FilePreviewData.presentation(PresentationPreviewData data) =>
+      FilePreviewData._(
+        category: FilePreviewCategory.presentation,
+        presentation: data,
       );
 }
 
@@ -93,11 +137,25 @@ class FilePreviewService {
       FilePreviewCategory.document => FilePreviewData.text(
           _buildDocxPreview(capped, inline: inline),
         ),
+      FilePreviewCategory.presentation => FilePreviewData.presentation(
+          _buildPresentationPreview(fileName, capped, inline: inline),
+        ),
       FilePreviewCategory.spreadsheet => FilePreviewData.spreadsheet(
           _buildSpreadsheetPreview(capped, inline: inline),
         ),
       FilePreviewCategory.pdf => FilePreviewData.pdf(
           PdfPreviewData(documentBytes: capped),
+        ),
+      FilePreviewCategory.video => FilePreviewData.media(
+          await _buildVideoPreview(fileName, capped, inline: inline),
+          FilePreviewCategory.video,
+        ),
+      FilePreviewCategory.audio => FilePreviewData.media(
+          MediaPreviewData(
+            mediaBytes: capped,
+            mimeType: ReadableFilePolicy.mimeTypeFor(fileName),
+          ),
+          FilePreviewCategory.audio,
         ),
       _ => FilePreviewData.binary(),
     };
@@ -136,6 +194,35 @@ class FilePreviewService {
     }
   }
 
+  static PresentationPreviewData _buildPresentationPreview(
+    String fileName,
+    Uint8List bytes, {
+    required bool inline,
+  }) {
+    if (ReadableFilePolicy.isLegacyPresentation(fileName)) {
+      return const PresentationPreviewData(
+        lines: [],
+        fullText: '',
+        legacyFormat: true,
+      );
+    }
+
+    final fullText = PptxTextExtractor.extract(bytes);
+    if (fullText.isEmpty) {
+      return const PresentationPreviewData(
+        lines: ['Could not read presentation'],
+        fullText: '',
+      );
+    }
+
+    final allLines = const LineSplitter().convert(fullText);
+    final maxLines = inline
+        ? ReadableFilePolicy.textSnippetLines
+        : allLines.length;
+    final lines = allLines.take(maxLines).toList();
+    return PresentationPreviewData(lines: lines, fullText: fullText);
+  }
+
   static SpreadsheetPreviewData _buildSpreadsheetPreview(
     Uint8List bytes, {
     required bool inline,
@@ -167,6 +254,44 @@ class FilePreviewService {
       return SpreadsheetPreviewData(rows: rows);
     } catch (_) {
       return const SpreadsheetPreviewData(rows: []);
+    }
+  }
+
+  static Future<MediaPreviewData> _buildVideoPreview(
+    String fileName,
+    Uint8List bytes, {
+    required bool inline,
+  }) async {
+    Uint8List? thumbnailBytes;
+    if (inline) {
+      thumbnailBytes = await _buildVideoThumbnail(fileName, bytes);
+    }
+    return MediaPreviewData(
+      mediaBytes: bytes,
+      thumbnailBytes: thumbnailBytes,
+      mimeType: ReadableFilePolicy.mimeTypeFor(fileName),
+    );
+  }
+
+  static Future<Uint8List?> _buildVideoThumbnail(
+    String fileName,
+    Uint8List bytes,
+  ) async {
+    if (!VideoPreviewSupport.canUseVideoThumbnailPlugin) {
+      return null;
+    }
+    try {
+      final path = await TempFileHelper.write(bytes, fileName);
+      return await VideoThumbnail.thumbnailData(
+        video: path,
+        imageFormat: ImageFormat.PNG,
+        maxWidth: 320,
+        maxHeight: 120,
+        timeMs: 500,
+        quality: 75,
+      );
+    } catch (_) {
+      return null;
     }
   }
 

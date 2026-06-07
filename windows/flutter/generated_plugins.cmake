@@ -12,6 +12,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   record_windows
   screen_retriever_windows
   sqlite3_flutter_libs
+  syncfusion_pdfviewer_windows
   tray_manager
   url_launcher_windows
   window_manager

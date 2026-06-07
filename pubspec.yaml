@@ -69,6 +69,13 @@ dependencies:
   record: ^6.2.0
   audioplayers: ^6.6.0
   permission_handler: ^12.0.1
+  syncfusion_flutter_pdf: ^28.2.12
+  xml: ^6.5.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.0
+  syncfusion_flutter_pdfviewer: ^28.2.12
+  flutter_markdown: ^0.7.7+1
+  flutter_html: ^3.0.0
   tray_manager: ^0.5.2
   pdfx: ^2.9.2
   excel: ^4.0.6

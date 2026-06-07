@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
@@ -610,12 +611,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
             ));
           } else {
+            final fileName = msg['fileName'] as String? ?? 'file';
             result.add(FileMessage(
               id: id,
               authorId: authorId,
               createdAt: createdAt,
               replyToMessageId: replyTo,
-              name: msg['fileName'] as String? ?? 'file',
+              name: fileName,
               size: bytes.length,
               seenAt: seenAt,
               source: base64Encode(bytes),

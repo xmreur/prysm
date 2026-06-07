@@ -439,13 +439,15 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           );
         } else if (msg['type'] == 'file') {
+          final fileName = msg['fileName'] ?? 'Unknown';
+          final msgId = msg['id'] as String;
           messages.add(
             FileMessage(
-              id: msg['id'],
+              id: msgId,
               authorId: User(id: msg['senderId']).id,
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               replyToMessageId: msg['replyTo'],
-              name: msg['fileName'] ?? "Unknown",
+              name: fileName,
               size: msg['fileSize'] ?? 0,
               seenAt: msg['readAt'] != null
                   ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)

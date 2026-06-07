@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+*.db
+*.db-shm
+*.db-wal
+CMakeFiles/
+build/
+tor_executable/tor
+tor_executable/tor_data/
+.dart_tool/

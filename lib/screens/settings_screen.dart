@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:prysm/services/backup_service.dart';
+import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
@@ -32,6 +33,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Local state variables
   int _selectedTheme = 0;
   bool _notificationsEnabled = true;
+  bool _minimizeToTray = true;
+  bool _minimizeOnMinimizeButton = false;
   bool _enableRelay = false;
   String _downloadLocationDisplay = 'Loading...';
 
@@ -46,6 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _selectedTheme = settings.themeMode;
       _notificationsEnabled = settings.enableNotifications;
+      _minimizeToTray = settings.minimizeToTray;
+      _minimizeOnMinimizeButton = settings.minimizeOnMinimizeButton;
       _enableRelay = settings.enableRelay;
     });
   }
@@ -138,10 +143,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Toggle methods
   void _onNotificationToggle(bool value) async {
-    setState(() {
-      _notificationsEnabled = value;
-    });
     await settings.setEnableNotifications(value);
+    setState(() => _notificationsEnabled = value);
+  }
+
+  void _onMinimizeToTrayToggle(bool value) async {
+    await settings.setMinimizeToTray(value);
+    await TrayService.instance.applySettings();
+    setState(() => _minimizeToTray = value);
+  }
+
+  void _onMinimizeOnMinimizeButtonToggle(bool value) async {
+    await settings.setMinimizeOnMinimizeButton(value);
+    setState(() => _minimizeOnMinimizeButton = value);
   }
 
   void _showAboutDialog() {
@@ -539,6 +553,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _notificationsEnabled,
                   _onNotificationToggle,
                 ),
+                if (!Platform.isAndroid && !Platform.isIOS) ...[
+                  const Divider(height: 1),
+                  _buildSwitchTile(
+                    'Minimize to system tray on close',
+                    'Keep Prysm running in the tray when closing the window',
+                    Icons.minimize_outlined,
+                    _minimizeToTray,
+                    _onMinimizeToTrayToggle,
+                  ),
+                  const Divider(height: 1),
+                  _buildSwitchTile(
+                    'Minimize to tray when minimizing window',
+                    'Hide to tray when clicking the minimize button',
+                    Icons.keyboard_arrow_down_outlined,
+                    _minimizeOnMinimizeButton,
+                    _onMinimizeOnMinimizeButtonToggle,
+                  ),
+                ],
                 // const Divider(height: 1),
                 // _buildNavigationTile(
                 //   'Data & Storage',

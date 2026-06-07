@@ -4,6 +4,8 @@ class Settings {
   final bool enableNotifications;
   final bool showOnlineStatus;
   final bool sendReadReceipts;
+  final bool minimizeToTray;
+  final bool minimizeOnMinimizeButton;
 
   // Network/Relay
   final bool enableRelay;
@@ -27,6 +29,8 @@ class Settings {
     this.enableNotifications = true,
     this.showOnlineStatus = true,
     this.sendReadReceipts = true,
+    this.minimizeToTray = true,
+    this.minimizeOnMinimizeButton = false,
     this.enableRelay = false,
     this.personalRelayAddress,
     this.aggressiveRetry = true,
@@ -42,6 +46,8 @@ class Settings {
     'enableNotifications': enableNotifications,
     'showOnlineStatus': showOnlineStatus,
     'sendReadReceipts': sendReadReceipts,
+    'minimizeToTray': minimizeToTray,
+    'minimizeOnMinimizeButton': minimizeOnMinimizeButton,
     'enableRelay': enableRelay,
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
@@ -57,6 +63,8 @@ class Settings {
     enableNotifications: json['enableNotifications'] ?? true,
     showOnlineStatus: json['showOnlineStatus'] ?? true,
     sendReadReceipts: json['sendReadReceipts'] ?? true,
+    minimizeToTray: json['minimizeToTray'] ?? true,
+    minimizeOnMinimizeButton: json['minimizeOnMinimizeButton'] ?? false,
     enableRelay: json['enableRelay'] ?? false,
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
@@ -72,6 +80,8 @@ class Settings {
     bool? enableNotifications,
     bool? showOnlineStatus,
     bool? sendReadReceipts,
+    bool? minimizeToTray,
+    bool? minimizeOnMinimizeButton,
     bool? enableRelay,
     String? personalRelayAddress,
     bool? aggressiveRetry,
@@ -85,6 +95,9 @@ class Settings {
     enableNotifications: enableNotifications ?? this.enableNotifications,
     showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
     sendReadReceipts: sendReadReceipts ?? this.sendReadReceipts,
+    minimizeToTray: minimizeToTray ?? this.minimizeToTray,
+    minimizeOnMinimizeButton:
+        minimizeOnMinimizeButton ?? this.minimizeOnMinimizeButton,
     enableRelay: enableRelay ?? this.enableRelay,
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
@@ -116,6 +129,8 @@ class Settings {
         other.enableNotifications == enableNotifications &&
         other.showOnlineStatus == showOnlineStatus &&
         other.sendReadReceipts == sendReadReceipts &&
+        other.minimizeToTray == minimizeToTray &&
+        other.minimizeOnMinimizeButton == minimizeOnMinimizeButton &&
         other.enableRelay == enableRelay &&
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
@@ -131,6 +146,8 @@ class Settings {
     return enableNotifications.hashCode ^
         showOnlineStatus.hashCode ^
         sendReadReceipts.hashCode ^
+        minimizeToTray.hashCode ^
+        minimizeOnMinimizeButton.hashCode ^
         enableRelay.hashCode ^
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^

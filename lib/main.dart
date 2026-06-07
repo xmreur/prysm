@@ -14,6 +14,7 @@ import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'package:prysm/screens/chat.dart';
@@ -33,9 +34,29 @@ import 'package:prysm/util/theme_manager.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
+
+TorManager? _globalTorManager;
+File? _lockFile;
+
+Future<void> quitApp({TorManager? torManager}) async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    await TrayService.instance.destroy();
+    final tm = torManager ?? _globalTorManager;
+    if (tm != null) {
+      await tm.stopTor();
+    }
+    try {
+      if (_lockFile != null && await _lockFile!.exists()) {
+        await _lockFile!.delete();
+      }
+    } catch (_) {}
+    await windowManager.destroy();
+  }
+}
 
 Future<bool> _isProcessRunning(int pid) async {
   try {
@@ -57,11 +78,11 @@ void main() async {
   // Prevent multiple instances on desktop
   if (!Platform.isAndroid && !Platform.isIOS) {
     final docDir = await getApplicationDocumentsDirectory();
-    final lockFile = File(p.join(docDir.path, 'prysm', '.lock'));
+    _lockFile = File(p.join(docDir.path, 'prysm', '.lock'));
     await Directory(p.join(docDir.path, 'prysm')).create(recursive: true);
 
-    if (await lockFile.exists()) {
-      final pidStr = (await lockFile.readAsString()).trim();
+    if (await _lockFile!.exists()) {
+      final pidStr = (await _lockFile!.readAsString()).trim();
       final pid = int.tryParse(pidStr);
       if (pid != null && await _isProcessRunning(pid)) {
         // Another instance is running — activate it and exit
@@ -70,16 +91,17 @@ void main() async {
       }
     }
     // Write our PID
-    await lockFile.writeAsString('$pid');
+    await _lockFile!.writeAsString('$pid');
 
-    // Clean up lock file on exit
+    TrayService.instance.registerQuitHandler(
+      () => quitApp(torManager: _globalTorManager),
+    );
+
     ProcessSignal.sigterm.watch().listen((_) async {
-      try { await lockFile.delete(); } catch (_) {}
-      exit(0);
+      await quitApp(torManager: _globalTorManager);
     });
     ProcessSignal.sigint.watch().listen((_) async {
-      try { await lockFile.delete(); } catch (_) {}
-      exit(0);
+      await quitApp(torManager: _globalTorManager);
     });
   }
 
@@ -93,6 +115,15 @@ void main() async {
   messageServer.start();
 
   runApp(MyApp(keyManager: keyManager));
+
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await windowManager.ensureInitialized();
+      await windowManager.show();
+      await windowManager.focus();
+      await TrayService.instance.init();
+    });
+  }
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(NotificationService().init());
@@ -174,8 +205,6 @@ class TorInitResult {
   const TorInitResult({required this.torManager, required this.onionAddress});
 }
 
-enum TorConnectionState { connected, connecting, disconnected }
-
 Future<bool> isNewerVersion(String current, String latest) async {
   // Simple version comparison (assumes vX.Y.Z format)
   List<int> toNums(String v) =>
@@ -235,14 +264,18 @@ class MyWindowListener extends WindowListener {
 
   @override
   void onWindowClose() async {
-    await torManager.stopTor();
-    // Clean up lock file
-    try {
-      final docDir = await getApplicationDocumentsDirectory();
-      final lockFile = File(p.join(docDir.path, 'prysm', '.lock'));
-      if (await lockFile.exists()) await lockFile.delete();
-    } catch (_) {}
-    windowManager.destroy();
+    if (TrayService.instance.isEnabled) {
+      await windowManager.hide();
+      return;
+    }
+    await quitApp(torManager: torManager);
+  }
+
+  @override
+  void onWindowMinimize() async {
+    if (TrayService.instance.shouldMinimizeOnMinimizeButton) {
+      await windowManager.hide();
+    }
   }
 }
 
@@ -305,6 +338,7 @@ class _MyAppState extends State<MyApp> {
     try {
       setState(() => _torStatus = 'Starting Tor...');
       final result = await initializeTor();
+      _globalTorManager = result.torManager;
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
@@ -519,6 +553,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       scheduleLoadUsers(light: true);
     });
     NotificationService.onNotificationTap = _handleNotificationTap;
+
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      unawaited(TrayService.instance.start(
+        userId: widget.onionAddress,
+        torManager: widget.torManager,
+      ));
+    }
   }
 
   void scheduleLoadUsers({bool light = false}) {
@@ -1249,6 +1290,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted || _torStopped) {
       if (mounted && _torConnectionState != TorConnectionState.disconnected) {
         setState(() => _torConnectionState = TorConnectionState.disconnected);
+        TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
       return;
     }
@@ -1263,6 +1305,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final wasDisconnected =
           _torConnectionState == TorConnectionState.disconnected;
       setState(() => _torConnectionState = next);
+      TorConnectionNotifier.instance.update(next);
       if (wasDisconnected && next == TorConnectionState.connected) {
         unawaited(_onTorReconnected());
       }
@@ -1282,6 +1325,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _restartTor() async {
     if (!mounted) return;
     setState(() => _torConnectionState = TorConnectionState.connecting);
+    TorConnectionNotifier.instance.update(TorConnectionState.connecting);
 
     try {
       if (_torStopped) {
@@ -1296,6 +1340,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (!mounted) return;
       setState(() => _torConnectionState = TorConnectionState.connected);
+      TorConnectionNotifier.instance.update(TorConnectionState.connected);
       await _onTorReconnected();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1305,6 +1350,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _torStopped = true;
       if (!mounted) return;
       setState(() => _torConnectionState = TorConnectionState.disconnected);
+      TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Tor restart failed: $e')),
       );

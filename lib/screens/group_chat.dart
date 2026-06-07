@@ -259,7 +259,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 title: const Text('Modifica'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _startEditing(message as TextMessage);
+                  _startEditing(message);
                 },
               ),
             ListTile(

@@ -54,6 +54,7 @@ jobs:
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             libsecret-1-dev \
+            libayatana-appindicator3-dev \
             gstreamer1.0-tools \
             gstreamer1.0-plugins-base \
             gstreamer1.0-plugins-good
@@ -84,10 +85,30 @@ jobs:
         with:
           channel: stable
 
+      # ----------------------
+      # Restore debug keystore
+      # ----------------------
+      - name: Restore debug keystore
+        run: |
+          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE }}" | base64 -d > debug.keystore
+
+      # ----------------------
+      # Create key.properties
+      # ----------------------
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=android
+          keyPassword=android
+          keyAlias=androiddebugkey
+          storeFile=../debug.keystore
+          EOF
+
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses
 
       - run: flutter pub get
+
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4

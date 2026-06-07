@@ -6,6 +6,7 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/waveform_extractor.dart';
 
 class MessageComposer extends StatefulWidget {
   final Function(String) onSendText;
@@ -115,13 +116,10 @@ class MessageComposerState extends State<MessageComposer> {
     _recordTimer?.cancel();
 
     final path = await _recorder.stop();
-    final durationMs = _recordDuration.inMilliseconds;
 
     setState(() => _isRecording = false);
 
-    if (path == null || durationMs < 500) {
-      // Too short, discard
-      if (path != null) File(path).deleteSync();
+    if (path == null) {
       return;
     }
 
@@ -130,6 +128,11 @@ class MessageComposerState extends State<MessageComposer> {
 
     final bytes = await file.readAsBytes();
     await file.delete();
+
+    final durationMs = WaveformExtractor.estimateDurationMs(bytes);
+    if (durationMs < 500) {
+      return;
+    }
 
     widget.onSendVoice?.call(bytes, durationMs);
   }

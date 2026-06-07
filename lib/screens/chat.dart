@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:encrypt/encrypt.dart' as e;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,18 +12,25 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
-import 'package:prysm/services/chat_service.dart';
-import 'package:prysm/util/text_file_helper.dart';
+import 'package:prysm/screens/widgets/message_reaction_bar.dart';
+import 'package:prysm/screens/widgets/message_reaction_picker.dart';
+import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
+import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/reaction_refresh_notifier.dart';
+import 'package:prysm/util/waveform_extractor.dart';
+import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/download_location.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
@@ -71,6 +77,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   // ✅ ADD ChatService
   late ChatService _chatService;
+  late ReactionService _reactionService;
 
   var _messages = InMemoryChatController();
   final Map<String, Message> _messageCache = {};
@@ -101,6 +108,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
   StreamSubscription? _reachableSub;
+  StreamSubscription? _reactionSub;
+  StreamSubscription? _reactionRefreshSub;
 
   void _scrollListener() {
     if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
@@ -124,6 +133,11 @@ class _ChatScreenState extends State<ChatScreen> {
       userId: widget.userId,
       peerId: widget.peerId,
       keyManager: widget.keyManager,
+    );
+    _reactionService = ReactionService.direct(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      peerId: widget.peerId,
     );
 
     _scrollController.addListener(_scrollListener);
@@ -158,6 +172,9 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _peerOnline = true);
       }
     });
+    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionRefreshSub =
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
 
     await _loadInitialMessages();
 
@@ -229,9 +246,12 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     // ✅ DISPOSE ChatService
     _chatService.dispose();
+    _reactionService.dispose();
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
     _reachableSub?.cancel();
+    _reactionSub?.cancel();
+    _reactionRefreshSub?.cancel();
     _pingTimer?.cancel();
 
     _debounceTimer?.cancel();
@@ -526,16 +546,58 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     }
-    return messages;
+    return _attachReactions(messages);
+  }
+
+  Future<List<Message>> _attachReactions(List<Message> messages) async {
+    if (messages.isEmpty) return messages;
+    final ids = messages.map((m) => m.id).toList();
+    final reactions = await _reactionService.loadReactionsForMessages(ids);
+    return messages
+        .map((m) => applyReactionsToMessage(m, reactions[m.id]))
+        .toList();
+  }
+
+  void _applyReactionUpdate(ReactionUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      final updated = applyReactionsToMessage(msg, update.reactions);
+      setState(() {
+        _messages.updateMessage(msg, updated);
+        _messageCache[msg.id] = updated;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _onReactionSelected(Message message, String emoji) async {
+    await _reactionService.toggleReaction(
+      targetMessageId: message.id,
+      emoji: emoji,
+    );
+  }
+
+  Widget _reactionBarFor(Message message, bool isSentByMe) {
+    final reactions = message.reactions;
+    if (reactions == null || reactions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MessageReactionBar(
+      reactions: reactions,
+      currentUserId: widget.userId,
+      isSentByMe: isSentByMe,
+      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+    );
   }
 
   Future<Uint8List> decryptFileInBackground(
     Map<String, dynamic> msg,
     KeyManager keyManager,
   ) async {
-    return resolveFileBytes(
-      source: msg['message'] as String,
-      keyManager: keyManager,
+    return FileAttachmentResolver.decryptEncryptedSource(
+      msg['message'] as String,
+      keyManager,
     );
   }
 
@@ -779,6 +841,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final cacheDir = await getTemporaryDirectory();
     final cachePath = '${cacheDir.path}/voice_cache_$messageId.wav';
     await File(cachePath).writeAsBytes(bytes);
+    final peaks = WaveformExtractor.extractPeaks(bytes);
+    final waveformMeta = WaveformExtractor.encodePeaks(peaks);
 
     if (!mounted) return;
 
@@ -792,6 +856,7 @@ class _ChatScreenState extends State<ChatScreen> {
           size: bytes.length,
           source: 'audio:$durationMs:$cachePath',
           sentAt: DateTime.now(),
+          metadata: {'waveform': waveformMeta},
         ),
         index: _messages.messages.length,
       );
@@ -981,82 +1046,58 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMessageMenu(BuildContext context, Message message, Offset position) {
     final text = _getMessageText(message);
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-
-    showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(position.dx, position.dy, 0, 0),
-        Offset.zero & overlay.size,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items: [
-        if (text.isNotEmpty)
-          PopupMenuItem(
-            value: 'copy',
-            child: Row(
-              children: [
-                Icon(Icons.copy, size: 20, color: Theme.of(context).iconTheme.color),
-                const SizedBox(width: 12),
-                const Text('Copy'),
-              ],
-            ),
-          ),
-        PopupMenuItem(
-          value: 'reply',
-          child: Row(
-            children: [
-              Icon(Icons.reply, size: 20, color: Theme.of(context).iconTheme.color),
-              const SizedBox(width: 12),
-              const Text('Reply'),
-            ],
-          ),
+    final tiles = <Widget>[
+      if (text.isNotEmpty)
+        ListTile(
+          leading: const Icon(Icons.copy),
+          title: const Text('Copy'),
+          onTap: () {
+            Navigator.pop(context);
+            Clipboard.setData(ClipboardData(text: text));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Copied to clipboard'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          },
         ),
-        PopupMenuItem(
-          value: 'select',
-          child: Row(
-            children: [
-              Icon(Icons.check_circle_outline, size: 20, color: Theme.of(context).iconTheme.color),
-              const SizedBox(width: 12),
-              const Text('Select'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, size: 20, color: Colors.red),
-              const SizedBox(width: 12),
-              const Text('Delete', style: TextStyle(color: Colors.red)),
-            ],
-          ),
-        ),
-      ],
-    ).then((value) {
-      if (!context.mounted || value == null) return;
-      switch (value) {
-        case 'copy':
-          Clipboard.setData(ClipboardData(text: text));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
-          );
-          break;
-        case 'reply':
+      ListTile(
+        leading: const Icon(Icons.reply),
+        title: const Text('Reply'),
+        onTap: () {
+          Navigator.pop(context);
           setState(() => _replyToMessage = message);
-          break;
-        case 'select':
+        },
+      ),
+      ListTile(
+        leading: const Icon(Icons.select_all),
+        title: const Text('Select'),
+        onTap: () {
+          Navigator.pop(context);
           setState(() => selectedMessageIds.add(message.id));
-          break;
-        case 'delete':
+        },
+      ),
+      ListTile(
+        leading: Icon(Icons.delete_outline, color: Colors.red[400]),
+        title: Text('Delete', style: TextStyle(color: Colors.red[400])),
+        onTap: () {
+          Navigator.pop(context);
           _deleteMessage(message);
-          break;
-      }
-    });
+        },
+      ),
+    ];
+
+    showMessageActionsSheet(
+      context: context,
+      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      actionTiles: tiles,
+    );
   }
 
   Future<void> _deleteMessage(Message message) async {
     await MessagesDb.deleteMessageById(message.id);
+    await MessageReactionsDb.deleteReactionsForMessage(message.id);
     setState(() {
       _messages.removeMessage(message);
       selectedMessageIds.remove(message.id);
@@ -1097,6 +1138,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> deleteSelectedMessages() async {
     for (var id in selectedMessageIds) {
       await MessagesDb.deleteMessageById(id);
+      await MessageReactionsDb.deleteReactionsForMessage(id);
     }
 
     setState(() {
@@ -1469,6 +1511,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                               children: [
                                                 replyPreviewWidget,
                                                 child,
+                                                _reactionBarFor(message, isSentByMe),
                                               ],
                                             ),
                                           ),
@@ -1725,183 +1768,39 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isSentByMe,
     MessageGroupStatus? groupStatus,
   }) {
-    // Detect voice messages
-    if (message.name.contains('voice_message') || message.source.startsWith('audio:')) {
-      return _voiceMessageBuilder(context, message, index, isSentByMe: isSentByMe);
-    }
-
-    final maxWidth = MediaQuery.of(context).size.width * 0.55;
-    final ValueNotifier<bool> isLoading = ValueNotifier(false);
-
-    Future<Uint8List?> resolveFileBytes() async {
-      if (message.source.isEmpty) return null;
-      return decryptFileInBackground(
-        {'message': message.source},
-        widget.keyManager,
+    if (message.name.contains('voice_message') ||
+        message.source.startsWith('audio:')) {
+      return _voiceMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
       );
-    }
-
-    Future<void> handleDownload() async {
-      if (isLoading.value) return;
-      isLoading.value = true;
-
-      await Future.delayed(const Duration(milliseconds: 50));
-      if (!context.mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      try {
-        final bytes = await resolveFileBytes();
-        if (!context.mounted) return;
-        if (bytes == null || bytes.isEmpty) {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                message.source.isEmpty
-                    ? 'No encrypted data available for this file'
-                    : '${message.name} is still decrypting, please wait.',
-              ),
-            ),
-          );
-          return;
-        }
-
-        final file = await DownloadLocation.saveBytes(bytes, message.name);
-        if (!context.mounted) return;
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Successfully downloaded ${file.path.split(Platform.pathSeparator).last}',
-            ),
-          ),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        messenger.showSnackBar(SnackBar(content: Text('Error downloading file: $e')));
-      } finally {
-        isLoading.value = false;
-      }
     }
 
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
     );
     final timeString =
-        "${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}";
-
-    String fileSizeString = '';
-    if (message.size != null) {
-      final sizeInKB = message.size! / 1024;
-      if (sizeInKB < 1024) {
-        fileSizeString = "${sizeInKB.toStringAsFixed(1)} KB";
-      } else {
-        fileSizeString = "${(sizeInKB / 1024).toStringAsFixed(1)} MB";
-      }
-    }
+        '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
 
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
       final tickColor = Theme.of(context).colorScheme.onPrimary;
-      tickWidget = _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
+      tickWidget =
+          _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
     }
 
-    return Column(
-      crossAxisAlignment: isSentByMe
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [
-        ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: GestureDetector(
-            onTap: handleDownload,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withAlpha(225),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ValueListenableBuilder<bool>(
-                    valueListenable: isLoading,
-                    builder: (context, loading, _) {
-                      if (loading) {
-                        return SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Theme.of(context).colorScheme.onPrimary,
-                            ),
-                            strokeWidth: 2.5,
-                          ),
-                        );
-                      } else {
-                        return CircleAvatar(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary.withAlpha(120),
-                          child: Icon(
-                            Icons.insert_drive_file,
-                            size: 24,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          message.name,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          overflow: TextOverflow.visible,
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            if (fileSizeString.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 4),
-                                child: Text(
-                                  fileSizeString,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Theme.of(context).colorScheme.onPrimary.withAlpha(180),
-                                  ),
-                                ),
-                              ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  timeString,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Theme.of(context).colorScheme.onPrimary.withAlpha(180),
-                                  ),
-                                ),
-                                if (isSentByMe) ...[
-                                  const SizedBox(width: 4),
-                                  tickWidget,
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+    return FileAttachmentBubble(
+      fileName: message.name,
+      fileSize: message.size,
+      timeString: timeString,
+      isSentByMe: isSentByMe,
+      tickWidget: tickWidget,
+      resolveBytes: () => FileAttachmentResolver.resolve(
+        message,
+        keyManager: widget.keyManager,
+      ),
     );
   }
 
@@ -1991,380 +1890,23 @@ class _ChatScreenState extends State<ChatScreen> {
         : Theme.of(context).colorScheme.onSecondary;
     Widget tickWidget = _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
 
-    return _VoiceMessageBubble(
+    return VoiceMessageBubble(
       message: message,
       isSentByMe: isSentByMe,
       timeString: timeString,
       tickWidget: tickWidget,
-      keyManager: widget.keyManager,
-    );
-  }
-}
-
-/// Stateful widget for voice message playback with its own AudioPlayer
-class _VoiceMessageBubble extends StatefulWidget {
-  final FileMessage message;
-  final bool isSentByMe;
-  final String timeString;
-  final Widget tickWidget;
-  final KeyManager keyManager;
-
-  const _VoiceMessageBubble({
-    required this.message,
-    required this.isSentByMe,
-    required this.timeString,
-    required this.tickWidget,
-    required this.keyManager,
-  });
-
-  @override
-  State<_VoiceMessageBubble> createState() => _VoiceMessageBubbleState();
-}
-
-class _VoiceMessageBubbleState extends State<_VoiceMessageBubble> {
-  // audioplayers for mobile; Process-based for Linux desktop
-  AudioPlayer? _player;
-  Process? _linuxProcess;
-  Timer? _positionTimer;
-  bool _isPlaying = false;
-  bool _isLoading = false;
-  bool _hasCompleted = false; // track if playback finished
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  Uint8List? _audioBytes;
-  String? _resolvedPath; // cached file path for replay
-
-  bool get _useNativePlayback => Platform.isLinux || Platform.isMacOS || Platform.isWindows;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Parse duration from audio marker (own-sent messages)
-    if (widget.message.source.startsWith('audio:')) {
-      final parts = widget.message.source.split(':');
-      if (parts.length >= 2) {
-        final ms = int.tryParse(parts[1]) ?? 0;
-        _duration = Duration(milliseconds: ms);
-      }
-    }
-
-    if (!_useNativePlayback) {
-      _player = AudioPlayer();
-      _player!.onPlayerStateChanged.listen((state) {
-        if (mounted) {
-          setState(() => _isPlaying = state == PlayerState.playing);
-        }
-      });
-      _player!.onPositionChanged.listen((pos) {
-        if (mounted) setState(() => _position = pos);
-      });
-      _player!.onDurationChanged.listen((dur) {
-        if (mounted) {
-          setState(() => _duration = dur);
-        }
-      });
-      _player!.onPlayerComplete.listen((_) {
-        if (mounted) {
-          setState(() {
-            _isPlaying = false;
-            _hasCompleted = true;
-            _position = Duration.zero;
-          });
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _player?.dispose();
-    _positionTimer?.cancel();
-    _linuxProcess?.kill();
-    super.dispose();
-  }
-
-  Future<String?> _resolvePath() async {
-    if (_resolvedPath != null) return _resolvedPath;
-
-    if (widget.message.source.startsWith('audio:')) {
-      final parts = widget.message.source.split(':');
-      if (parts.length >= 3) {
-        final filePath = parts.sublist(2).join(':');
-        final file = File(filePath);
-        if (await file.exists()) {
-          _audioBytes = Uint8List(0);
-          _resolvedPath = filePath;
-          return _resolvedPath;
-        }
-      }
-      return null;
-    }
-
-    // Received message — decrypt
-    final hybrid = jsonDecode(widget.message.source);
-    final rsaEncryptedAesKey = hybrid['aes_key'];
-    final iv = e.IV.fromBase64(hybrid['iv']);
-    final encryptedData = base64Decode(hybrid['data']);
-    final aesKeyBytes = widget.keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
-    final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
-    _audioBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
-
-    // Estimate duration from WAV data if not already known
-    if (_duration == Duration.zero && _audioBytes!.length > 44) {
-      // WAV: 16kHz, mono, 16-bit PCM → 32000 bytes/sec
-      final dataSize = _audioBytes!.length - 44; // skip WAV header
-      final durationMs = (dataSize / 32000 * 1000).round();
-      _duration = Duration(milliseconds: durationMs);
-    }
-
-    final dir = await getTemporaryDirectory();
-    final ext = widget.message.name.split('.').last;
-    final tmpFile = File('${dir.path}/voice_${widget.message.id}.$ext');
-    await tmpFile.writeAsBytes(_audioBytes!);
-    _resolvedPath = tmpFile.path;
-    return _resolvedPath;
-  }
-
-  Future<void> _playFromFile() async {
-    final playPath = await _resolvePath();
-    if (playPath == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Voice message cache expired')),
-        );
-      }
-      return;
-    }
-
-    if (_useNativePlayback) {
-      await _playNative(playPath);
-    } else {
-      _hasCompleted = false;
-      await _player!.play(DeviceFileSource(playPath));
-    }
-  }
-
-  Future<void> _togglePlayback() async {
-    if (_isPlaying) {
-      if (_useNativePlayback) {
-        _linuxProcess?.kill();
-        _linuxProcess = null;
-        _positionTimer?.cancel();
-        setState(() => _isPlaying = false);
-      } else {
-        await _player!.pause();
-      }
-      return;
-    }
-
-    // Mobile: if completed or not yet loaded, play from file
-    if (!_useNativePlayback && _resolvedPath != null && !_hasCompleted) {
-      // Paused — resume
-      await _player!.resume();
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      await _playFromFile();
-    } catch (err) {
-      debugPrint('Voice playback error: $err');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to play voice message')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _seekTo(Duration position) async {
-    if (_useNativePlayback) return; // can't seek native process
-    if (_player != null) {
-      await _player!.seek(position);
-      setState(() => _position = position);
-    }
-  }
-
-  Future<void> _playNative(String path) async {
-    // Kill any previous playback
-    _linuxProcess?.kill();
-    _positionTimer?.cancel();
-
-    String? cmd;
-    List<String> args;
-
-    if (Platform.isLinux) {
-      for (final candidate in ['paplay', 'aplay', 'ffplay']) {
-        final result = await Process.run('which', [candidate]);
-        if (result.exitCode == 0) {
-          cmd = candidate;
-          break;
-        }
-      }
-      if (cmd == null) {
-        throw Exception('No audio player found. Install pulseaudio-utils, alsa-utils, or ffmpeg.');
-      }
-      args = cmd == 'ffplay' ? ['-nodisp', '-autoexit', path] : [path];
-    } else if (Platform.isMacOS) {
-      cmd = 'afplay';
-      args = [path];
-    } else {
-      cmd = 'powershell';
-      args = ['-c', '(New-Object Media.SoundPlayer "$path").PlaySync()'];
-    }
-
-    _linuxProcess = await Process.start(cmd, args);
-    setState(() => _isPlaying = true);
-
-    final startTime = DateTime.now();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!mounted) return;
-      final elapsed = DateTime.now().difference(startTime);
-      if (_duration > Duration.zero && elapsed > _duration) {
-        // Don't overshoot
-        setState(() => _position = _duration);
-      } else {
-        setState(() => _position = elapsed);
-      }
-    });
-
-    _linuxProcess!.exitCode.then((_) {
-      _positionTimer?.cancel();
-      if (mounted) {
-        setState(() {
-          _isPlaying = false;
-          _position = Duration.zero;
-        });
-      }
-      _linuxProcess = null;
-    });
-  }
-
-  String _formatDuration(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final maxWidth = MediaQuery.of(context).size.width * 0.65;
-    final bubbleColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.primary.withAlpha(225)
-        : Theme.of(context).colorScheme.secondary.withAlpha(225);
-    final contentColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondary;
-
-    final progress = _duration.inMilliseconds > 0
-        ? _position.inMilliseconds / _duration.inMilliseconds
-        : 0.0;
-
-    return Column(
-      crossAxisAlignment: widget.isSentByMe
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [
-        ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Play/pause button
-                _isLoading
-                    ? SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation(contentColor),
-                        ),
-                      )
-                    : IconButton(
-                        icon: Icon(
-                          _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          color: contentColor,
-                          size: 28,
-                        ),
-                        onPressed: _togglePlayback,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      ),
-                const SizedBox(width: 8),
-                // Seekable progress slider
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SliderTheme(
-                        data: SliderThemeData(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                          activeTrackColor: contentColor.withAlpha(200),
-                          inactiveTrackColor: contentColor.withAlpha(60),
-                          thumbColor: contentColor,
-                          overlayColor: contentColor.withAlpha(30),
-                        ),
-                        child: Slider(
-                          value: progress.clamp(0.0, 1.0),
-                          onChanged: (val) {
-                            if (_duration > Duration.zero) {
-                              final newPos = Duration(milliseconds: (val * _duration.inMilliseconds).round());
-                              _seekTo(newPos);
-                            }
-                          },
-                          onChangeEnd: (val) {
-                            if (_duration > Duration.zero && !_useNativePlayback) {
-                              final newPos = Duration(milliseconds: (val * _duration.inMilliseconds).round());
-                              _seekTo(newPos);
-                            }
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formatDuration(_isPlaying || _position > Duration.zero ? _position : _duration),
-                              style: TextStyle(fontSize: 11, color: contentColor.withAlpha(180)),
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  widget.timeString,
-                                  style: TextStyle(fontSize: 10, color: contentColor.withAlpha(180)),
-                                ),
-                                if (widget.isSentByMe) ...[
-                                  const SizedBox(width: 4),
-                                  widget.tickWidget,
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
+      decryptAudio: message.source.startsWith('audio:')
+          ? null
+          : (encryptedSource) async {
+              final hybrid = jsonDecode(encryptedSource);
+              final rsaEncryptedAesKey = hybrid['aes_key'];
+              final iv = e.IV.fromBase64(hybrid['iv']);
+              final encryptedData = base64Decode(hybrid['data']);
+              final aesKeyBytes =
+                  widget.keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
+              final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
+              return AESHelper.decryptBytes(encryptedData, aesKey, iv);
+            },
     );
   }
 }
@@ -2440,3 +1982,4 @@ class _ViewOnceScreenState extends State<_ViewOnceScreen> {
     );
   }
 }
+

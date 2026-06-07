@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,14 +12,22 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:prysm/util/download_location.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/message_reaction_bar.dart';
+import 'package:prysm/screens/widgets/message_reaction_picker.dart';
+import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
+import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/reaction_refresh_notifier.dart';
+import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -54,6 +61,7 @@ class GroupChatScreen extends StatefulWidget {
 class _GroupChatScreenState extends State<GroupChatScreen> {
   late GroupService _groupService;
   late GroupChatService _chatService;
+  late ReactionService _reactionService;
   late User _user;
 
   var _messages = InMemoryChatController();
@@ -67,9 +75,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
+  StreamSubscription? _reactionSub;
+  StreamSubscription? _reactionRefreshSub;
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
+  final Map<String, double> _dragOffsets = {};
 
   static final _urlRegex = RegExp(
     r'https?://[^\s<>\[\]{}|\\^`]+',
@@ -89,6 +100,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       userId: widget.userId,
       groupId: widget.group.id,
       keyManager: widget.keyManager,
+      groupService: _groupService,
+    );
+    _reactionService = ReactionService.group(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      groupId: widget.group.id,
       groupService: _groupService,
     );
     _init();
@@ -113,7 +130,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void _teardown() {
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
+    _reactionSub?.cancel();
+    _reactionRefreshSub?.cancel();
     _chatService.dispose();
+    _reactionService.dispose();
   }
 
   Future<void> _init() async {
@@ -131,6 +151,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
     _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionRefreshSub =
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
 
     await _loadMoreMessages();
     _chatService.startPolling();
@@ -239,55 +262,94 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _showMessageMenu(Message message) {
-    showModalBottomSheet<void>(
+    showMessageActionsSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _replyToMessage = message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.select_all),
-              title: const Text('Select'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => selectedMessageIds.add(message.id));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final storageId = MessagesDb.scopedId(
-                  wireId: message.id,
-                  groupId: widget.group.id,
-                );
-                await MessagesDb.deleteMessageById(storageId);
-                if (mounted) {
-                  setState(() {
-                    _messages.removeMessage(message);
-                  });
-                }
-              },
-            ),
-          ],
+      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      actionTiles: [
+        ListTile(
+          leading: const Icon(Icons.reply),
+          title: const Text('Reply'),
+          onTap: () {
+            Navigator.pop(context);
+            setState(() => _replyToMessage = message);
+          },
         ),
-      ),
+        ListTile(
+          leading: const Icon(Icons.select_all),
+          title: const Text('Select'),
+          onTap: () {
+            Navigator.pop(context);
+            setState(() => selectedMessageIds.add(message.id));
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.delete_outline),
+          title: const Text('Delete'),
+          onTap: () async {
+            Navigator.pop(context);
+            final storageId = MessagesDb.scopedId(
+              wireId: message.id,
+              groupId: widget.group.id,
+            );
+            await MessagesDb.deleteMessageById(storageId);
+            await MessageReactionsDb.deleteReactionsForMessage(storageId);
+            if (mounted) {
+              setState(() {
+                _messages.removeMessage(message);
+              });
+            }
+          },
+        ),
+      ],
     );
+  }
+
+  Future<void> _onReactionSelected(Message message, String emoji) async {
+    await _reactionService.toggleReaction(
+      targetMessageId: message.id,
+      emoji: emoji,
+    );
+  }
+
+  void _applyReactionUpdate(ReactionUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      final updated = applyReactionsToMessage(msg, update.reactions);
+      setState(() {
+        _messages.updateMessage(msg, updated);
+      });
+    } catch (_) {}
+  }
+
+  Widget _reactionBarFor(Message message, bool isSentByMe) {
+    final reactions = message.reactions;
+    if (reactions == null || reactions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MessageReactionBar(
+      reactions: reactions,
+      currentUserId: widget.userId,
+      isSentByMe: isSentByMe,
+      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+    );
+  }
+
+  Future<List<Message>> _attachReactions(List<Message> messages) async {
+    if (messages.isEmpty) return messages;
+    final ids = messages.map((m) => m.id).toList();
+    final reactions = await _reactionService.loadReactionsForMessages(ids);
+    return messages
+        .map((m) => applyReactionsToMessage(m, reactions[m.id]))
+        .toList();
   }
 
   Future<void> _deleteSelectedMessages() async {
     for (final id in selectedMessageIds) {
       final storageId = MessagesDb.scopedId(wireId: id, groupId: widget.group.id);
       await MessagesDb.deleteMessageById(storageId);
+      await MessageReactionsDb.deleteReactionsForMessage(storageId);
     }
     if (!mounted) return;
     setState(() {
@@ -535,6 +597,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             final cacheDir = await getTemporaryDirectory();
             final cachePath = '${cacheDir.path}/group_voice_$id.wav';
             await File(cachePath).writeAsBytes(bytes);
+            final durationMs = WaveformExtractor.estimateDurationMs(bytes);
+            final peaks = WaveformExtractor.extractPeaks(bytes);
             result.add(FileMessage(
               id: id,
               authorId: authorId,
@@ -543,7 +607,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               name: msg['fileName'] as String? ?? 'voice_message.wav',
               size: bytes.length,
               seenAt: seenAt,
-              source: 'audio:0:$cachePath',
+              source: 'audio:$durationMs:$cachePath',
+              metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
             ));
           } else {
             final fileName = msg['fileName'] as String? ?? 'file';
@@ -568,7 +633,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ));
       }
     }
-    return result;
+    return _attachReactions(result);
   }
 
   Future<void> _loadMoreMessages() async {
@@ -744,6 +809,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final cacheDir = await getTemporaryDirectory();
     final cachePath = '${cacheDir.path}/group_voice_cache_$messageId.wav';
     await File(cachePath).writeAsBytes(bytes);
+    final peaks = WaveformExtractor.extractPeaks(bytes);
 
     if (!mounted) return;
 
@@ -757,6 +823,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           size: bytes.length,
           source: 'audio:$durationMs:$cachePath',
           sentAt: DateTime.now(),
+          metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
         ),
         index: _messages.messages.length,
       );
@@ -1104,30 +1171,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     required bool isSentByMe,
     MessageGroupStatus? groupStatus,
   }) {
-    if (message.name.contains('voice_message') || message.source.startsWith('audio:')) {
-      final msgDate = DateTime.fromMillisecondsSinceEpoch(
-        message.createdAt!.millisecondsSinceEpoch,
-      );
-      final timeString =
-          '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
-      final tickColor = isSentByMe
-          ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-          : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
-      return Column(
-        crossAxisAlignment:
-            isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          _senderLabel(message.authorId, isSentByMe),
-          _GroupVoiceMessageBubble(
-            message: message,
-            isSentByMe: isSentByMe,
-            timeString: timeString,
-            tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
-          ),
-        ],
-      );
-    }
-
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
     );
@@ -1137,81 +1180,31 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
         : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
 
-    final maxWidth = MediaQuery.of(context).size.width * 0.55;
-    final isLoading = ValueNotifier(false);
-
-    Future<void> handleDownload() async {
-      if (isLoading.value) return;
-      isLoading.value = true;
-      try {
-        if (message.source.isEmpty) return;
-        final bytes = base64Decode(message.source);
-
-        final file = await DownloadLocation.saveBytes(bytes, message.name);
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved ${file.path.split('/').last}')),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error downloading file: $e')),
-        );
-      } finally {
-        isLoading.value = false;
-      }
-    }
-
-    String fileSizeString = '';
-    if (message.size != null) {
-      final sizeInKB = message.size! / 1024;
-      fileSizeString = sizeInKB < 1024
-          ? '${sizeInKB.toStringAsFixed(1)} KB'
-          : '${(sizeInKB / 1024).toStringAsFixed(1)} MB';
-    }
-
-    return Column(
-      crossAxisAlignment:
-          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        _senderLabel(message.authorId, isSentByMe),
-        GestureDetector(
-          onTap: handleDownload,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withAlpha(225),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.insert_drive_file,
-                    color: Theme.of(context).colorScheme.onPrimary),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    message.name,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
+    if (message.name.contains('voice_message') ||
+        message.source.startsWith('audio:')) {
+      return Column(
+        crossAxisAlignment:
+            isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          _senderLabel(message.authorId, isSentByMe),
+          VoiceMessageBubble(
+            message: message,
+            isSentByMe: isSentByMe,
+            timeString: timeString,
+            tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
           ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-            if (isSentByMe) ...[
-              const SizedBox(width: 4),
-              _buildStatusWidget(message, isSentByMe, tickColor),
-            ],
-          ],
-        ),
-      ],
+        ],
+      );
+    }
+
+    return FileAttachmentBubble(
+      fileName: message.name,
+      fileSize: message.size,
+      timeString: timeString,
+      isSentByMe: isSentByMe,
+      tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+      header: _senderLabel(message.authorId, isSentByMe),
+      resolveBytes: () => FileAttachmentResolver.resolve(message),
     );
   }
 
@@ -1350,6 +1343,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             ),
                           ),
                         GestureDetector(
+                          behavior: HitTestBehavior.translucent,
                           onLongPress: () => _showMessageMenu(message),
                           onTap: selectedMessageIds.isNotEmpty
                               ? () {
@@ -1362,30 +1356,70 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                   });
                                 }
                               : null,
-                          child: SizeTransition(
-                            sizeFactor: animation,
-                            child: Container(
-                              decoration: isSelected
-                                  ? BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withAlpha(40),
-                                    )
-                                  : null,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: isSentByMe
-                                      ? MainAxisAlignment.end
-                                      : MainAxisAlignment.start,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Flexible(child: child),
-                                  ],
+                          onHorizontalDragUpdate: (details) {
+                            setState(() {
+                              double delta = details.delta.dx;
+                              if (isSentByMe) delta = -delta;
+                              _dragOffsets[message.id] =
+                                  (_dragOffsets[message.id] ?? 0) + delta;
+                              if (_dragOffsets[message.id]! < 0) {
+                                _dragOffsets[message.id] = 0;
+                              }
+                              if (_dragOffsets[message.id]! > 100) {
+                                _dragOffsets[message.id] = 100;
+                              }
+                            });
+                          },
+                          onHorizontalDragEnd: (details) {
+                            setState(() {
+                              if ((_dragOffsets[message.id] ?? 0) > 50) {
+                                _replyToMessage = message;
+                              }
+                              _dragOffsets[message.id] = 0;
+                            });
+                          },
+                          child: Transform.translate(
+                            offset: Offset(
+                              isSentByMe
+                                  ? -(_dragOffsets[message.id] ?? 0)
+                                  : (_dragOffsets[message.id] ?? 0),
+                              0,
+                            ),
+                            child: SizeTransition(
+                              sizeFactor: animation,
+                              child: Container(
+                                decoration: isSelected
+                                    ? BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                            .withAlpha(40),
+                                      )
+                                    : null,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: isSentByMe
+                                        ? MainAxisAlignment.end
+                                        : MainAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment: isSentByMe
+                                              ? CrossAxisAlignment.end
+                                              : CrossAxisAlignment.start,
+                                          children: [
+                                            child,
+                                            _reactionBarFor(message, isSentByMe),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -1413,108 +1447,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _GroupVoiceMessageBubble extends StatefulWidget {
-  final FileMessage message;
-  final bool isSentByMe;
-  final String timeString;
-  final Widget tickWidget;
-
-  const _GroupVoiceMessageBubble({
-    required this.message,
-    required this.isSentByMe,
-    required this.timeString,
-    required this.tickWidget,
-  });
-
-  @override
-  State<_GroupVoiceMessageBubble> createState() => _GroupVoiceMessageBubbleState();
-}
-
-class _GroupVoiceMessageBubbleState extends State<_GroupVoiceMessageBubble> {
-  AudioPlayer? _player;
-  bool _isPlaying = false;
-
-  @override
-  void dispose() {
-    _player?.dispose();
-    super.dispose();
-  }
-
-  Future<String?> _audioPath() async {
-    if (!widget.message.source.startsWith('audio:')) return null;
-    final parts = widget.message.source.split(':');
-    if (parts.length < 3) return null;
-    return parts.sublist(2).join(':');
-  }
-
-  Future<void> _togglePlay() async {
-    final path = await _audioPath();
-    if (path == null || !await File(path).exists()) return;
-
-    _player ??= AudioPlayer();
-    if (_isPlaying) {
-      await _player!.stop();
-      if (mounted) setState(() => _isPlaying = false);
-      return;
-    }
-
-    await _player!.play(DeviceFileSource(path));
-    _player!.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _isPlaying = false);
-    });
-    if (mounted) setState(() => _isPlaying = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bubbleColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.primary.withAlpha(225)
-        : Theme.of(context).colorScheme.secondary.withAlpha(225);
-    final iconColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondary;
-
-    return Column(
-      crossAxisAlignment:
-          widget.isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onTap: _togglePlay,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: iconColor,
-                ),
-                const SizedBox(width: 8),
-                Text('Voice message', style: TextStyle(color: iconColor)),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(widget.timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-            if (widget.isSentByMe) ...[
-              const SizedBox(width: 4),
-              widget.tickWidget,
-            ],
-          ],
-        ),
-      ],
     );
   }
 }

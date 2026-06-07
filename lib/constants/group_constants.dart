@@ -14,6 +14,10 @@ const String groupImageType = 'group_image';
 const String groupFileType = 'group_file';
 const String groupAudioType = 'group_audio';
 
+// Reaction side-channel types (small encrypted JSON in `message` field)
+const String reactionType = 'reaction';
+const String groupReactionType = 'group_reaction';
+
 const Set<String> groupControlTypes = {
   groupInviteType,
   groupKeyRotateType,
@@ -28,5 +32,15 @@ const Set<String> groupMessageTypes = {
   groupAudioType,
 };
 
+const Set<String> reactionTypes = {reactionType, groupReactionType};
+
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
+bool isReactionType(String type) => reactionTypes.contains(type);
+
+/// Deterministic wire id for a reaction event (dedupe / pending queue).
+String reactionEventId({
+  required String targetMessageId,
+  required String reactorId,
+}) =>
+    '$targetMessageId::$reactorId';

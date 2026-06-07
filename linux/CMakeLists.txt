@@ -72,6 +72,24 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+
+# tray_manager uses app_indicator_set_label for setTitle; GNOME hover reads Title.
+set(TRAY_MANAGER_CC "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/tray_manager/linux/tray_manager_plugin.cc")
+if(EXISTS "${TRAY_MANAGER_CC}")
+  file(READ "${TRAY_MANAGER_CC}" TRAY_MANAGER_CC_CONTENT)
+  if(NOT TRAY_MANAGER_CC_CONTENT MATCHES "app_indicator_set_title\\(indicator, title\\)")
+    string(REPLACE
+      "  app_indicator_set_label(indicator, title, NULL);"
+      "  app_indicator_set_title(indicator, title);\n  app_indicator_set_label(indicator, \"\", NULL);"
+      TRAY_MANAGER_CC_CONTENT "${TRAY_MANAGER_CC_CONTENT}")
+    string(REPLACE
+      "} else if (strcmp(method, \"setContextMenu\") == 0) {"
+      "} else if (strcmp(method, \"setToolTip\") == 0) {\n    response = set_title(self, args);\n  } else if (strcmp(method, \"setContextMenu\") == 0) {"
+      TRAY_MANAGER_CC_CONTENT "${TRAY_MANAGER_CC_CONTENT}")
+    file(WRITE "${TRAY_MANAGER_CC}" "${TRAY_MANAGER_CC_CONTENT}")
+  endif()
+endif()
+
 include(flutter/generated_plugins.cmake)
 
 

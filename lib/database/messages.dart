@@ -1,3 +1,4 @@
+import 'package:prysm/database/message_reactions.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -9,7 +10,7 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 6;
+    static const _dbVersion = 7;
 
 	static const String _directChatTypeFilter =
 		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
@@ -46,6 +47,7 @@ class MessagesDb {
 					if (oldVersion < 4) await _upgradeToV4(db);
 					if (oldVersion < 5) await _upgradeToV5(db);
 					if (oldVersion < 6) await _upgradeToV6(db);
+					if (oldVersion < 7) await _upgradeToV7(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -93,6 +95,7 @@ class MessagesDb {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)'
         );
+        await MessageReactionsDb.createTable(db);
     }
 
 
@@ -160,6 +163,11 @@ class MessagesDb {
 		await db.execute(
 			'CREATE INDEX IF NOT EXISTS idx_direct_peer_ts ON messages(senderId, receiverId, timestamp DESC)',
 		);
+	}
+
+	static Future<void> _upgradeToV7(Database db) async {
+		print('UPGRADING DB TO v7');
+		await MessageReactionsDb.createTable(db);
 	}
 
 	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.

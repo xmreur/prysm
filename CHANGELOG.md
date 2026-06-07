@@ -2,6 +2,14 @@
 
 ---
 
+## Unreleased
+
+### Features
+
+- Message reactions (emoji) on all message types in 1:1 and group chats — one emoji per user, synced over Tor
+
+---
+
 ## 0.2.0
 
 ### Offline sync & reliability

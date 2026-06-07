@@ -12,11 +12,16 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/message_reaction_bar.dart';
+import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
 import 'package:prysm/util/db_helper.dart';
@@ -71,6 +76,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   // ✅ ADD ChatService
   late ChatService _chatService;
+  late ReactionService _reactionService;
 
   var _messages = InMemoryChatController();
   final Map<String, Message> _messageCache = {};
@@ -101,6 +107,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
   StreamSubscription? _reachableSub;
+  StreamSubscription? _reactionSub;
+  StreamSubscription? _reactionRefreshSub;
 
   void _scrollListener() {
     if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
@@ -124,6 +132,11 @@ class _ChatScreenState extends State<ChatScreen> {
       userId: widget.userId,
       peerId: widget.peerId,
       keyManager: widget.keyManager,
+    );
+    _reactionService = ReactionService.direct(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      peerId: widget.peerId,
     );
 
     _scrollController.addListener(_scrollListener);
@@ -158,6 +171,9 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _peerOnline = true);
       }
     });
+    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionRefreshSub =
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
 
     await _loadInitialMessages();
 
@@ -229,9 +245,12 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     // ✅ DISPOSE ChatService
     _chatService.dispose();
+    _reactionService.dispose();
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
     _reachableSub?.cancel();
+    _reactionSub?.cancel();
+    _reactionRefreshSub?.cancel();
     _pingTimer?.cancel();
 
     _debounceTimer?.cancel();
@@ -524,7 +543,49 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     }
-    return messages;
+    return _attachReactions(messages);
+  }
+
+  Future<List<Message>> _attachReactions(List<Message> messages) async {
+    if (messages.isEmpty) return messages;
+    final ids = messages.map((m) => m.id).toList();
+    final reactions = await _reactionService.loadReactionsForMessages(ids);
+    return messages
+        .map((m) => applyReactionsToMessage(m, reactions[m.id]))
+        .toList();
+  }
+
+  void _applyReactionUpdate(ReactionUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      final updated = applyReactionsToMessage(msg, update.reactions);
+      setState(() {
+        _messages.updateMessage(msg, updated);
+        _messageCache[msg.id] = updated;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _onReactionSelected(Message message, String emoji) async {
+    await _reactionService.toggleReaction(
+      targetMessageId: message.id,
+      emoji: emoji,
+    );
+  }
+
+  Widget _reactionBarFor(Message message, bool isSentByMe) {
+    final reactions = message.reactions;
+    if (reactions == null || reactions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MessageReactionBar(
+      reactions: reactions,
+      currentUserId: widget.userId,
+      isSentByMe: isSentByMe,
+      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+    );
   }
 
   Future<Uint8List> decryptFileInBackground(
@@ -985,82 +1046,58 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMessageMenu(BuildContext context, Message message, Offset position) {
     final text = _getMessageText(message);
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-
-    showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(position.dx, position.dy, 0, 0),
-        Offset.zero & overlay.size,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items: [
-        if (text.isNotEmpty)
-          PopupMenuItem(
-            value: 'copy',
-            child: Row(
-              children: [
-                Icon(Icons.copy, size: 20, color: Theme.of(context).iconTheme.color),
-                const SizedBox(width: 12),
-                const Text('Copy'),
-              ],
-            ),
-          ),
-        PopupMenuItem(
-          value: 'reply',
-          child: Row(
-            children: [
-              Icon(Icons.reply, size: 20, color: Theme.of(context).iconTheme.color),
-              const SizedBox(width: 12),
-              const Text('Reply'),
-            ],
-          ),
+    final tiles = <Widget>[
+      if (text.isNotEmpty)
+        ListTile(
+          leading: const Icon(Icons.copy),
+          title: const Text('Copy'),
+          onTap: () {
+            Navigator.pop(context);
+            Clipboard.setData(ClipboardData(text: text));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Copied to clipboard'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          },
         ),
-        PopupMenuItem(
-          value: 'select',
-          child: Row(
-            children: [
-              Icon(Icons.check_circle_outline, size: 20, color: Theme.of(context).iconTheme.color),
-              const SizedBox(width: 12),
-              const Text('Select'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, size: 20, color: Colors.red),
-              const SizedBox(width: 12),
-              const Text('Delete', style: TextStyle(color: Colors.red)),
-            ],
-          ),
-        ),
-      ],
-    ).then((value) {
-      if (!context.mounted || value == null) return;
-      switch (value) {
-        case 'copy':
-          Clipboard.setData(ClipboardData(text: text));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
-          );
-          break;
-        case 'reply':
+      ListTile(
+        leading: const Icon(Icons.reply),
+        title: const Text('Reply'),
+        onTap: () {
+          Navigator.pop(context);
           setState(() => _replyToMessage = message);
-          break;
-        case 'select':
+        },
+      ),
+      ListTile(
+        leading: const Icon(Icons.select_all),
+        title: const Text('Select'),
+        onTap: () {
+          Navigator.pop(context);
           setState(() => selectedMessageIds.add(message.id));
-          break;
-        case 'delete':
+        },
+      ),
+      ListTile(
+        leading: Icon(Icons.delete_outline, color: Colors.red[400]),
+        title: Text('Delete', style: TextStyle(color: Colors.red[400])),
+        onTap: () {
+          Navigator.pop(context);
           _deleteMessage(message);
-          break;
-      }
-    });
+        },
+      ),
+    ];
+
+    showMessageActionsSheet(
+      context: context,
+      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      actionTiles: tiles,
+    );
   }
 
   Future<void> _deleteMessage(Message message) async {
     await MessagesDb.deleteMessageById(message.id);
+    await MessageReactionsDb.deleteReactionsForMessage(message.id);
     setState(() {
       _messages.removeMessage(message);
       selectedMessageIds.remove(message.id);
@@ -1101,6 +1138,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> deleteSelectedMessages() async {
     for (var id in selectedMessageIds) {
       await MessagesDb.deleteMessageById(id);
+      await MessageReactionsDb.deleteReactionsForMessage(id);
     }
 
     setState(() {
@@ -1473,6 +1511,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                               children: [
                                                 replyPreviewWidget,
                                                 child,
+                                                _reactionBarFor(message, isSentByMe),
                                               ],
                                             ),
                                           ),

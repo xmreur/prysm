@@ -79,6 +79,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
+  final Map<String, double> _dragOffsets = {};
 
   static final _urlRegex = RegExp(
     r'https?://[^\s<>\[\]{}|\\^`]+',
@@ -1340,6 +1341,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             ),
                           ),
                         GestureDetector(
+                          behavior: HitTestBehavior.translucent,
                           onLongPress: () => _showMessageMenu(message),
                           onTap: selectedMessageIds.isNotEmpty
                               ? () {
@@ -1352,40 +1354,70 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                   });
                                 }
                               : null,
-                          child: SizeTransition(
-                            sizeFactor: animation,
-                            child: Container(
-                              decoration: isSelected
-                                  ? BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withAlpha(40),
-                                    )
-                                  : null,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: isSentByMe
-                                      ? MainAxisAlignment.end
-                                      : MainAxisAlignment.start,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Flexible(
-                                      child: Column(
-                                        crossAxisAlignment: isSentByMe
-                                            ? CrossAxisAlignment.end
-                                            : CrossAxisAlignment.start,
-                                        children: [
-                                          child,
-                                          _reactionBarFor(message, isSentByMe),
-                                        ],
+                          onHorizontalDragUpdate: (details) {
+                            setState(() {
+                              double delta = details.delta.dx;
+                              if (isSentByMe) delta = -delta;
+                              _dragOffsets[message.id] =
+                                  (_dragOffsets[message.id] ?? 0) + delta;
+                              if (_dragOffsets[message.id]! < 0) {
+                                _dragOffsets[message.id] = 0;
+                              }
+                              if (_dragOffsets[message.id]! > 100) {
+                                _dragOffsets[message.id] = 100;
+                              }
+                            });
+                          },
+                          onHorizontalDragEnd: (details) {
+                            setState(() {
+                              if ((_dragOffsets[message.id] ?? 0) > 50) {
+                                _replyToMessage = message;
+                              }
+                              _dragOffsets[message.id] = 0;
+                            });
+                          },
+                          child: Transform.translate(
+                            offset: Offset(
+                              isSentByMe
+                                  ? -(_dragOffsets[message.id] ?? 0)
+                                  : (_dragOffsets[message.id] ?? 0),
+                              0,
+                            ),
+                            child: SizeTransition(
+                              sizeFactor: animation,
+                              child: Container(
+                                decoration: isSelected
+                                    ? BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                            .withAlpha(40),
+                                      )
+                                    : null,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: isSentByMe
+                                        ? MainAxisAlignment.end
+                                        : MainAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment: isSentByMe
+                                              ? CrossAxisAlignment.end
+                                              : CrossAxisAlignment.start,
+                                          children: [
+                                            child,
+                                            _reactionBarFor(message, isSentByMe),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),

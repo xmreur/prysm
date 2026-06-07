@@ -29,6 +29,8 @@ class SettingsService {
   bool get enableNotifications => _settings.enableNotifications;
   bool get showOnlineStatus => _settings.showOnlineStatus;
   bool get sendReadReceipts => _settings.sendReadReceipts;
+  bool get minimizeToTray => _settings.minimizeToTray;
+  bool get minimizeOnMinimizeButton => _settings.minimizeOnMinimizeButton;
 
   // Network/Relay
   bool get enableRelay => _settings.enableRelay;
@@ -94,6 +96,16 @@ class SettingsService {
 
   Future<void> setSendReadReceipts(bool value) async {
     _settings = _settings.copyWith(sendReadReceipts: value);
+    await save();
+  }
+
+  Future<void> setMinimizeToTray(bool value) async {
+    _settings = _settings.copyWith(minimizeToTray: value);
+    await save();
+  }
+
+  Future<void> setMinimizeOnMinimizeButton(bool value) async {
+    _settings = _settings.copyWith(minimizeOnMinimizeButton: value);
     await save();
   }
 

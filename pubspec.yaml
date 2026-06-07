@@ -69,6 +69,7 @@ dependencies:
   record: ^6.2.0
   audioplayers: ^6.6.0
   permission_handler: ^12.0.1
+  tray_manager: ^0.5.2
 
 flutter_launcher_icons:
   windows:
@@ -134,3 +135,5 @@ flutter:
   # see https://flutter.dev/to/font-from-package
   assets:
     - assets/logo.png
+    - assets/tray/icon.png
+    - assets/tray/icon_template.png

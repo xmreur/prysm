@@ -1,4 +1,5 @@
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -68,6 +69,7 @@ class PendingMessageDbHelper {
       message,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    PendingActivityNotifier.instance.notify();
   }
 
   static Future<List<Map<String, dynamic>>> getPendingMessages({
@@ -153,6 +155,7 @@ class PendingMessageDbHelper {
     final db = await database;
 
     await db.delete('pending_messages', where: "id = ?", whereArgs: [messageId]);
+    PendingActivityNotifier.instance.notify();
   }
 
   static Future<void> removeMessages(List<String> messageIds) async {
@@ -164,5 +167,6 @@ class PendingMessageDbHelper {
       where: 'id IN ($placeholders)',
       whereArgs: messageIds,
     );
+    PendingActivityNotifier.instance.notify();
   }
 }

@@ -7,6 +7,7 @@ import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:prysm/util/tor_service.dart';
 
 /// Unified offline sync: pending delivery retries and adaptive sidebar refresh triggers.
@@ -91,6 +92,9 @@ class SyncCoordinator {
           any;
 
       await _refreshPendingBacklogFlag();
+      if (any) {
+        PendingActivityNotifier.instance.notify();
+      }
       return any;
     } finally {
       _flushing = false;

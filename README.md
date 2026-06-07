@@ -22,6 +22,15 @@ This is an early-stage prototype. APIs, storage, and networking layers are evolv
 - Flutter (Dart) for cross-platform UI.  
 - Tor embedding via process on desktop (mobile support available but slow on startup).
 
+## Desktop system tray (Linux)
+
+On Linux, the tray uses AppIndicator. Install development libraries when building from source:
+
+- **Arch:** `libayatana-appindicator`
+- **Ubuntu/Debian:** `libayatana-appindicator3-dev` (or `libappindicator3-dev` on older releases)
+
+GNOME may require the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear.
+
 ## Current version
 
 Latest stable version is: 0.2.0

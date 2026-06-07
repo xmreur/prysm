@@ -6,6 +6,7 @@
 
 ### Features
 
+- Desktop system tray (Linux, Windows, macOS): close hides to tray by default, unread badge, Tor status and pending queue in tooltip/menu
 - Message reactions (emoji) on all message types in 1:1 and group chats — one emoji per user, synced over Tor
 
 ---

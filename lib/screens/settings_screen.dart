@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:prysm/services/backup_service.dart';
+import 'package:prysm/screens/widgets/backup_flow.dart';
+import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -19,12 +21,14 @@ class SettingsScreen extends StatefulWidget {
   final Function(int) onThemeChanged;
   final dynamic torManager;
   final KeyManager? keyManager;
+  final String? onionAddress;
 
   const SettingsScreen({
     required this.onClose,
     required this.onThemeChanged,
     this.torManager,
     this.keyManager,
+    this.onionAddress,
     super.key,
   });
 
@@ -242,82 +246,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showBackupDialog() {
-    final passwordController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create Backup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Choose a strong password to encrypt your backup. You will need this password to restore.',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Backup Password',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock_outline),
-              ),
-            ),
-          ],
+  void _showBackupDialog() => showCreateBackupDialog(context);
+
+  void _openOnboardingReplay() {
+    final onion = widget.onionAddress;
+    if (onion == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OnboardingScreen(
+          onionAddress: onion,
+          torReady: true,
+          isReplay: true,
+          onComplete: () {},
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final password = passwordController.text;
-              if (password.length < 4) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password must be at least 4 characters')),
-                );
-                return;
-              }
-              Navigator.pop(context);
-              await _performBackup(password);
-            },
-            child: const Text('Create Backup'),
-          ),
-        ],
       ),
     );
-  }
-
-  Future<void> _performBackup(String password) async {
-    try {
-      // Save to Documents/prysm_backups/ on all platforms to avoid
-      // freedesktop portal issues on Linux desktop.
-      final dir = await getApplicationDocumentsDirectory();
-      final backupDir = Directory(p.join(dir.path, 'prysm_backups'));
-      if (!await backupDir.exists()) await backupDir.create(recursive: true);
-      final fileName = 'prysm_backup_${DateTime.now().millisecondsSinceEpoch}.prysmbackup';
-      final outputPath = p.join(backupDir.path, fileName);
-      await BackupService.createBackup(outputPath, password);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Backup saved to ${backupDir.path}/$fileName'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup failed: $e')),
-        );
-      }
-    }
   }
 
   void _showRestoreDialog() {
@@ -596,6 +539,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   BatterySaverService.instance.isActive,
                   _onBatterySavingToggle,
                 ),
+                if (widget.onionAddress != null) ...[
+                  const Divider(height: 1),
+                  _buildNavigationTile(
+                    'Getting started',
+                    Icons.tour_outlined,
+                    _openOnboardingReplay,
+                    subtitle: 'Replay the setup tour',
+                  ),
+                ],
                 if (!Platform.isAndroid && !Platform.isIOS) ...[
                   const Divider(height: 1),
                   _buildSwitchTile(

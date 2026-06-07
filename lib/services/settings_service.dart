@@ -56,6 +56,9 @@ class SettingsService {
   bool get enableLinkUnfurling => _settings.enableLinkUnfurling;
   String? get customDownloadPath => _settings.customDownloadPath;
 
+  // Onboarding
+  bool get onboardingCompleted => _settings.onboardingCompleted;
+
   // Initialize (call at app startup)
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -184,6 +187,11 @@ class SettingsService {
 
   Future<void> clearCustomDownloadPath() async {
     _settings = _settings.copyWith(clearCustomDownloadPath: true);
+    await save();
+  }
+
+  Future<void> setOnboardingCompleted(bool value) async {
+    _settings = _settings.copyWith(onboardingCompleted: value);
     await save();
   }
 

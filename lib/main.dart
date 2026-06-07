@@ -32,7 +32,6 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
 import 'package:prysm/screens/profile_screen.dart';
@@ -48,6 +47,8 @@ import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/decoy_session_data.dart';
 import 'package:prysm/screens/decoy_chat_screen.dart';
+import 'package:prysm/screens/onboarding/onboarding_screen.dart';
+import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
@@ -497,20 +498,32 @@ class _MyAppState extends State<MyApp> {
         ),
       );
     }
+    final onionAddress = _panicDecoySession
+        ? DecoySessionData.identityOnion
+        : _onionAddress!;
+    final showOnboarding =
+        !_panicDecoySession && !settings.onboardingCompleted;
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: '${settings.name} Chat',
       theme: ThemeManager.getTheme(_currentTheme),
-      home: HomeScreen(
-        torManager: _torManager!,
-        onionAddress: _panicDecoySession
-            ? DecoySessionData.identityOnion
-            : _onionAddress!,
-        keyManager: widget.keyManager,
-        onThemeChanged: updateTheme,
-        currentTheme: _currentTheme,
-        decoyMode: _panicDecoySession,
-      ),
+      home: showOnboarding
+          ? OnboardingScreen(
+              onionAddress: onionAddress,
+              torReady: _torReady,
+              onComplete: () {
+                if (mounted) setState(() {});
+              },
+            )
+          : HomeScreen(
+              torManager: _torManager!,
+              onionAddress: onionAddress,
+              keyManager: widget.keyManager,
+              onThemeChanged: updateTheme,
+              currentTheme: _currentTheme,
+              decoyMode: _panicDecoySession,
+            ),
     );
   }
 }
@@ -1253,56 +1266,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<bool> _addNewUser(String id, String name) async {
-    String? publicKeyPem;
-    String? avatarBase64;
-    String fetchedName = name;
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final peerOnion = id;
-      try {
-        final profileUri = Uri.parse("http://$peerOnion:80/profile");
-        final profileResponse = await torClient.get(profileUri, {});
-        final profileBody = await profileResponse.transform(utf8.decoder).join();
-        final profileData = jsonDecode(profileBody) as Map<String, dynamic>;
-        publicKeyPem = profileData['publicKeyPem'] as String?;
-        if (profileData['username'] != null && (profileData['username'] as String).isNotEmpty) {
-          fetchedName = profileData['username'] as String;
-        }
-        if (profileData['avatar'] != null && (profileData['avatar'] as String).isNotEmpty) {
-          avatarBase64 = profileData['avatar'] as String;
-        }
-      } catch (e) {
-        print("Profile fetch failed, trying /public: $e");
-        final uri = Uri.parse("http://$peerOnion:80/public");
-        final response = await torClient.get(uri, {});
-        publicKeyPem = await response.transform(utf8.decoder).join();
-      }
-    } catch (e) {
-      print("Failed to fetch public key from $id: $e");
-      return false;
-    } finally {
-      torClient.close();
-    }
-
-    if (publicKeyPem == null || publicKeyPem.isEmpty) {
-      return false;
-    }
-
-    final newUser = Contact(
-      id: id,
-      name: fetchedName,
-      avatarUrl: '',
-      avatarBase64: avatarBase64,
-      publicKeyPem: publicKeyPem,
+    return ContactAddService.instance.addContact(
+      onionId: id,
+      displayName: name,
     );
-    await DBHelper.insertOrUpdateUser({
-      'id': newUser.id,
-      'name': newUser.name,
-      'avatarUrl': newUser.avatarUrl,
-      'avatarBase64': avatarBase64,
-      'publicKeyPem': newUser.publicKeyPem,
-    });
-    return true;
   }
 
   String formatLastMessageTime(int? timestamp) {
@@ -2183,6 +2150,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onThemeChanged: onThemeChanged,
         torManager: widget.torManager,
         keyManager: widget.decoyMode ? null : widget.keyManager,
+        onionAddress: widget.decoyMode ? null : widget.onionAddress,
       );
     }
     if (selectedConversation is GroupConversation) {

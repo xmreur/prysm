@@ -10,6 +10,8 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/screens/widgets/notification_mute_tile.dart';
+import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/util/key_manager.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
@@ -384,6 +386,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         : null,
                   );
                 }),
+                const Divider(),
+                NotificationMuteTile(
+                  target: MuteTarget.group,
+                  id: widget.group.id,
+                  label: _groupName,
+                ),
                 const Divider(),
                 if (_isAdmin && _members.length < maxGroupMembers)
                   ListTile(

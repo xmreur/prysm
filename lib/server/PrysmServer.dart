@@ -13,6 +13,7 @@ import '../database/messages.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
@@ -251,22 +252,29 @@ class PrysmServer {
         if (appState == AppLifecycleState.paused ||
             appState == AppLifecycleState.inactive ||
             appState == AppLifecycleState.detached) {
-          final contact = await DBHelper.getUserById(
-            data['senderId'] as String,
-          );
-          final senderName = contact?['name'] ?? 'Unknown contact';
-          final body = isGroupMessageType(type)
-              ? 'New group message from $senderName'
-              : 'Open to view the message';
-          NotificationService().showNewMessageNotification(
-            senderName: isGroupMessageType(type) ? 'Group chat' : senderName,
-            message: body,
-            notificationId: Random().nextInt(99999999),
-            payload: jsonEncode({
-              'senderId': senderId,
-              if (data['groupId'] != null) 'groupId': data['groupId'],
-            }),
-          );
+          final groupId = data['groupId'] as String?;
+          final muteService = NotificationMuteService.instance;
+          final muted = groupId != null
+              ? muteService.isMuted(MuteTarget.group, groupId)
+              : muteService.isMuted(MuteTarget.user, senderId);
+          if (!muted) {
+            final contact = await DBHelper.getUserById(
+              data['senderId'] as String,
+            );
+            final senderName = contact?['name'] ?? 'Unknown contact';
+            final body = isGroupMessageType(type)
+                ? 'New group message from $senderName'
+                : 'Open to view the message';
+            NotificationService().showNewMessageNotification(
+              senderName: isGroupMessageType(type) ? 'Group chat' : senderName,
+              message: body,
+              notificationId: Random().nextInt(99999999),
+              payload: jsonEncode({
+                'senderId': senderId,
+                if (groupId != null) 'groupId': groupId,
+              }),
+            );
+          }
         }
       }
 

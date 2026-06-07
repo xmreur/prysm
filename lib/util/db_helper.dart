@@ -15,6 +15,13 @@ class DBHelper {
     return _db!;
   }
 
+  static Future<void> closeForWipe() async {
+    if (_db != null) {
+      await _db!.close();
+      _db = null;
+    }
+  }
+
   static void _initializeFfi() {
     // This initializes ffi for desktop platforms
     sqfliteFfiInit();

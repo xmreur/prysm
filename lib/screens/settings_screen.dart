@@ -11,17 +11,20 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/util/key_manager.dart';
 import 'privacy_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
   final Function(int) onThemeChanged;
   final dynamic torManager;
+  final KeyManager? keyManager;
 
   const SettingsScreen({
     required this.onClose,
     required this.onThemeChanged,
     this.torManager,
+    this.keyManager,
     super.key,
   });
 
@@ -511,6 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       MaterialPageRoute(
                         builder: (context) => PrivacySettingsScreen(
                           onClose: () => Navigator.of(context).pop(),
+                          keyManager: widget.keyManager,
                         ),
                       ),
                     );

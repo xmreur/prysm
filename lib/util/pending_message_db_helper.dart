@@ -158,6 +158,13 @@ class PendingMessageDbHelper {
     PendingActivityNotifier.instance.notify();
   }
 
+  static Future<void> closeForWipe() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+  }
+
   static Future<void> removeMessages(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final db = await database;

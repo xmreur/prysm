@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:prysm/screens/panic_pin_settings_screen.dart';
+import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/key_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PrivacySettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
+  final KeyManager? keyManager;
 
-  const PrivacySettingsScreen({required this.onClose, super.key});
+  const PrivacySettingsScreen({
+    required this.onClose,
+    this.keyManager,
+    super.key,
+  });
 
   @override
   State<PrivacySettingsScreen> createState() => _PrivacySettingsScreenState();
@@ -138,6 +146,54 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   ],
                 ),
               ),
+              if (widget.keyManager != null) ...[
+                const SizedBox(height: 30),
+                const Text(
+                  'Emergency',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.emergency_outlined),
+                    title: const Text('Panic mode'),
+                    subtitle: FutureBuilder<bool>(
+                      future: PanicPinService.instance.isConfigured(),
+                      builder: (context, snapshot) {
+                        final configured = snapshot.data == true;
+                        return Text(
+                          configured
+                              ? 'Panic PIN configured'
+                              : 'Set a secondary panic PIN',
+                        );
+                      },
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PanicPinSettingsScreen(
+                            keyManager: widget.keyManager!,
+                            onClose: () => Navigator.pop(context),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
               const SizedBox(height: 30),
               const Text(
                 'Privacy Information',

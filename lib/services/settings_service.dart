@@ -1,6 +1,7 @@
 // lib/services/settings_service.dart
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/settings.dart';
 import 'package:prysm/services/link_unfurl_service.dart';
 
@@ -41,6 +42,7 @@ class SettingsService {
 
   // Privacy
   int get messageRetentionDays => _settings.messageRetentionDays;
+  PanicAction get panicAction => _settings.panicAction;
 
   // Theme
   int get themeMode => _settings.themeMode;
@@ -137,6 +139,11 @@ class SettingsService {
   // Privacy Settings
   Future<void> setMessageRetentionDays(int value) async {
     _settings = _settings.copyWith(messageRetentionDays: value);
+    await save();
+  }
+
+  Future<void> setPanicAction(PanicAction value) async {
+    _settings = _settings.copyWith(panicAction: value);
     await save();
   }
 

@@ -19,7 +19,9 @@ import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
+import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
@@ -29,7 +31,6 @@ import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/download_location.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
@@ -592,13 +593,10 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, dynamic> msg,
     KeyManager keyManager,
   ) async {
-    final hybrid = jsonDecode(msg['message']) as Map<String, dynamic>;
-    final aesKeyBytes = keyManager.decryptMyMessageBytes(hybrid['aes_key']);
-    return compute(_aesDecryptFilePayload, {
-      'aesKey': aesKeyBytes,
-      'iv': hybrid['iv'],
-      'data': hybrid['data'],
-    });
+    return FileAttachmentResolver.decryptEncryptedSource(
+      msg['message'] as String,
+      keyManager,
+    );
   }
 
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
@@ -1768,190 +1766,39 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isSentByMe,
     MessageGroupStatus? groupStatus,
   }) {
-    // Detect voice messages
-    if (message.name.contains('voice_message') || message.source.startsWith('audio:')) {
-      return _voiceMessageBuilder(context, message, index, isSentByMe: isSentByMe);
-    }
-
-    final maxWidth = MediaQuery.of(context).size.width * 0.4;
-    final ValueNotifier<bool> isDownloading = ValueNotifier(false);
-
-    Future<void> downloadBase64File() async {
-      if (isDownloading.value == true) return;
-
-      isDownloading.value = true;
-
-      await Future.delayed(Duration(milliseconds: 50));
-      if (!context.mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      try {
-        if (message.source.isEmpty) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('No encrypted data available for this file'),
-            ),
-          );
-          return;
-        }
-
-        final Map<String, dynamic> decryptInput = {'message': message.source};
-
-        Uint8List bytes = await decryptFileInBackground(
-          decryptInput,
-          widget.keyManager,
-        );
-
-        if (!context.mounted) return;
-        if (bytes.isEmpty) {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                '${message.name} is still decrypting, please wait.',
-              ),
-            ),
-          );
-          return;
-        }
-        final file = await DownloadLocation.saveBytes(bytes, message.name);
-        if (!context.mounted) return;
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Successfully downloaded ${file.path.split(Platform.pathSeparator).last}',
-            ),
-          ),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        messenger.showSnackBar(SnackBar(content: Text('Error downloading file: $e')));
-      } finally {
-        isDownloading.value = false;
-      }
+    if (message.name.contains('voice_message') ||
+        message.source.startsWith('audio:')) {
+      return _voiceMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
     }
 
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
     );
     final timeString =
-        "${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}";
+        '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
 
-    String fileSizeString = '';
-    if (message.size != null) {
-      final sizeInKB = message.size! / 1024;
-      if (sizeInKB < 1024) {
-        fileSizeString = "${sizeInKB.toStringAsFixed(1)} KB";
-      } else {
-        fileSizeString = "${(sizeInKB / 1024).toStringAsFixed(1)} MB";
-      }
-    }
-
-    // ✅ Determine tick status
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
       final tickColor = Theme.of(context).colorScheme.onPrimary;
-      tickWidget = _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
+      tickWidget =
+          _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
     }
 
-    return Column(
-      crossAxisAlignment: isSentByMe
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [
-        ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: GestureDetector(
-            onTap: downloadBase64File,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withAlpha(225),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ValueListenableBuilder<bool>(
-                    valueListenable: isDownloading,
-                    builder: (context, downloading, _) {
-                      if (downloading) {
-                        return SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Theme.of(context).colorScheme.onPrimary,
-                            ),
-                            strokeWidth: 2.5,
-                          ),
-                        );
-                      } else {
-                        return CircleAvatar(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary.withAlpha(120),
-                          child: Icon(
-                            Icons.insert_drive_file,
-                            size: 24,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          message.name,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          overflow: TextOverflow.visible,
-                        ),
-                        // ✅ File size + Time + Tick indicators
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            if (fileSizeString.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 4),
-                                child: Text(
-                                  fileSizeString,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Theme.of(context).colorScheme.onPrimary.withAlpha(180),
-                                  ),
-                                ),
-                              ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  timeString,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Theme.of(context).colorScheme.onPrimary.withAlpha(180),
-                                  ),
-                                ),
-                                if (isSentByMe) ...[
-                                  const SizedBox(width: 4),
-                                  tickWidget,
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+    return FileAttachmentBubble(
+      fileName: message.name,
+      fileSize: message.size,
+      timeString: timeString,
+      isSentByMe: isSentByMe,
+      tickWidget: tickWidget,
+      resolveBytes: () => FileAttachmentResolver.resolve(
+        message,
+        keyManager: widget.keyManager,
+      ),
     );
   }
 
@@ -2134,9 +1981,3 @@ class _ViewOnceScreenState extends State<_ViewOnceScreen> {
   }
 }
 
-Uint8List _aesDecryptFilePayload(Map<String, dynamic> args) {
-  final aesKey = e.Key(Uint8List.fromList(List<int>.from(args['aesKey'] as List)));
-  final iv = e.IV.fromBase64(args['iv'] as String);
-  final encryptedData = base64Decode(args['data'] as String);
-  return AESHelper.decryptBytes(encryptedData, aesKey, iv);
-}

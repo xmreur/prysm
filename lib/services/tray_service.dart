@@ -13,7 +13,6 @@ import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
-import 'package:prysm/util/tor_service.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -50,7 +49,6 @@ class TrayService with TrayListener {
 
   bool _initialized = false;
   bool _started = false;
-  TorManager? _torManager;
   String? _userId;
 
   Timer? _pollTimer;
@@ -88,12 +86,10 @@ class TrayService with TrayListener {
 
   Future<void> start({
     required String userId,
-    required TorManager torManager,
   }) async {
     if (!_isDesktop || _started) return;
     _started = true;
     _userId = userId;
-    _torManager = torManager;
 
     _bootstrapSub?.cancel();
     _bootstrapSub =
@@ -136,16 +132,7 @@ class TrayService with TrayListener {
 
     final bootstrap = TorBootstrapNotifier.instance.progress;
     final torConn = TorConnectionNotifier.instance.state;
-    var torLabel = _torLabel(bootstrap, torConn);
-
-    if (_torManager != null &&
-        torConn == TorConnectionState.connected &&
-        bootstrap >= 100) {
-      final healthy = await _torManager!.isHealthy();
-      if (!healthy) {
-        torLabel = 'off';
-      }
-    }
+    final torLabel = _torLabel(bootstrap, torConn);
 
     final pending =
         await PendingMessageDbHelper.countOutboundPending(_userId!);

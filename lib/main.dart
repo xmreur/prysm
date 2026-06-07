@@ -557,7 +557,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!Platform.isAndroid && !Platform.isIOS) {
       unawaited(TrayService.instance.start(
         userId: widget.onionAddress,
-        torManager: widget.torManager,
       ));
     }
   }

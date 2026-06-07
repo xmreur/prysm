@@ -12,6 +12,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -109,6 +110,7 @@ void main() async {
   }
 
   await SettingsService().init();
+  await NotificationMuteService.instance.init();
 
   final keyManager = KeyManager();
 

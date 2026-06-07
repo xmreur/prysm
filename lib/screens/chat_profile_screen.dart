@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prysm/services/notification_mute_service.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
 import 'widgets/contact_avatar.dart';
+import 'widgets/notification_mute_tile.dart';
 
 class ChatProfileScreen extends StatefulWidget {
   final Contact peer;
@@ -273,7 +275,25 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              // Action buttons
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: NotificationMuteTile(
+                  target: MuteTarget.user,
+                  id: widget.peer.id,
+                  label: widget.peer.displayName,
+                ),
+              ),
+              const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,

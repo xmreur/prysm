@@ -517,11 +517,17 @@ class MessagesDb {
 		int limit = 20,
 		int? beforeTimestamp,
 		String? beforeId,
+		int? afterTimestamp,
 	}) async {
 		return await _dbMutex.protect(() async {
 			final db = await database;
 			String where = 'groupId = ?';
 			final whereArgs = <dynamic>[groupId];
+
+			if (afterTimestamp != null) {
+				where += ' AND timestamp >= ?';
+				whereArgs.add(afterTimestamp);
+			}
 
 			if (beforeTimestamp != null && beforeId != null) {
 				where += ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
@@ -568,15 +574,19 @@ class MessagesDb {
 			final previews = <String, String>{};
 
 			final groupRows = await db.rawQuery('''
-				SELECT groupId AS convKey, type, deletedAt
+				SELECT m.groupId AS convKey, m.type, m.deletedAt
 				FROM messages m
-				WHERE groupId IS NOT NULL
-				  AND timestamp = (
+				INNER JOIN group_members gm
+				  ON m.groupId = gm.groupId AND gm.memberId = ?
+				WHERE m.groupId IS NOT NULL
+				  AND m.timestamp >= gm.joinedAt
+				  AND m.timestamp = (
 				    SELECT MAX(m2.timestamp) FROM messages m2
 				    WHERE m2.groupId = m.groupId
+				      AND m2.timestamp >= gm.joinedAt
 				  )
-				GROUP BY groupId
-			''');
+				GROUP BY m.groupId
+			''', [localUserId]);
 			for (final row in groupRows) {
 				final key = row['convKey'] as String?;
 				if (key != null && key.isNotEmpty) {
@@ -624,18 +634,26 @@ class MessagesDb {
 		return await _dbMutex.protect(() async {
 			final db = await database;
 			final rows = await db.rawQuery('''
-				SELECT
-				  CASE
-				    WHEN groupId IS NOT NULL AND groupId != '' THEN groupId
-				    ELSE senderId
-				  END AS convKey,
-				  COUNT(*) AS cnt
-				FROM messages
-				WHERE senderId != ?
-				  AND status = 'received'
-				  AND readAt IS NULL
+				SELECT convKey, COUNT(*) AS cnt FROM (
+				  SELECT senderId AS convKey
+				  FROM messages
+				  WHERE groupId IS NULL
+				    AND senderId != ?
+				    AND status = 'received'
+				    AND readAt IS NULL
+				  UNION ALL
+				  SELECT m.groupId AS convKey
+				  FROM messages m
+				  INNER JOIN group_members gm
+				    ON m.groupId = gm.groupId AND gm.memberId = ?
+				  WHERE m.groupId IS NOT NULL
+				    AND m.senderId != ?
+				    AND m.status = 'received'
+				    AND m.readAt IS NULL
+				    AND m.timestamp >= gm.joinedAt
+				)
 				GROUP BY convKey
-			''', [localUserId]);
+			''', [localUserId, localUserId, localUserId]);
 
 			final counts = <String, int>{};
 			for (final row in rows) {
@@ -649,16 +667,21 @@ class MessagesDb {
 		});
 	}
 
-	/// Last message timestamp per group
-	static Future<Map<String, int>> getLastMessageTimestampsForAllGroups() async {
+	/// Last message timestamp per group (only messages after member joined).
+	static Future<Map<String, int>> getLastMessageTimestampsForAllGroups(
+		String localUserId,
+	) async {
 		return await _dbMutex.protect(() async {
 			final db = await database;
 			final result = await db.rawQuery('''
-				SELECT groupId, MAX(timestamp) as lastTimestamp
-				FROM messages
-				WHERE groupId IS NOT NULL
-				GROUP BY groupId
-			''');
+				SELECT m.groupId, MAX(m.timestamp) as lastTimestamp
+				FROM messages m
+				INNER JOIN group_members gm
+				  ON m.groupId = gm.groupId AND gm.memberId = ?
+				WHERE m.groupId IS NOT NULL
+				  AND m.timestamp >= gm.joinedAt
+				GROUP BY m.groupId
+			''', [localUserId]);
 
 			final Map<String, int> timestamps = {};
 			for (final row in result) {
@@ -676,6 +699,20 @@ class MessagesDb {
 		await _dbMutex.protect(() async {
 			final db = await database;
 			await db.delete('messages', where: 'groupId = ?', whereArgs: [groupId]);
+		});
+	}
+
+	static Future<void> deleteGroupMessagesBefore(
+		String groupId,
+		int beforeTimestamp,
+	) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			await db.delete(
+				'messages',
+				where: 'groupId = ? AND timestamp < ?',
+				whereArgs: [groupId, beforeTimestamp],
+			);
 		});
 	}
 

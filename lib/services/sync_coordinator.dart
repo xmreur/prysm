@@ -70,7 +70,6 @@ class SyncCoordinator {
       var any = false;
 
       any = await groupService.processPendingControlMessages() || any;
-      any = await groupService.processPendingHistoryRelay() || any;
       any = await GroupChatService.processGlobalPending(
             userId: userId,
             keyManager: keyManager,

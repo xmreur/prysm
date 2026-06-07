@@ -36,6 +36,7 @@ import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
+import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
@@ -77,12 +78,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool _hasMore = true;
   int? _oldestTimestamp;
   String? _oldestMessageId;
+  int? _joinedAt;
 
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
   StreamSubscription? _modifyRefreshSub;
+  StreamSubscription? _membershipSub;
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
@@ -145,11 +148,39 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _reactionSub?.cancel();
     _reactionRefreshSub?.cancel();
     _modifyRefreshSub?.cancel();
+    _membershipSub?.cancel();
     _chatService.dispose();
     _reactionService.dispose();
   }
 
+  void _onRemovedFromGroup() {
+    if (!mounted) return;
+    widget.onCloseChat?.call();
+    widget.reloadConversations();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('You are no longer in this group')),
+    );
+  }
+
   Future<void> _init() async {
+    if (!await _groupService.isMember(widget.group.id)) {
+      await _groupService.abandonGroupAfterRemoval(widget.group.id);
+      if (mounted) _onRemovedFromGroup();
+      return;
+    }
+
+    _membershipSub =
+        GroupMembershipNotifier.instance.onRemoved.listen((groupId) {
+      if (groupId == widget.group.id && mounted) {
+        _onRemovedFromGroup();
+      }
+    });
+
+    _joinedAt = await _groupService.joinedAtForCurrentUser(widget.group.id);
+    if (_joinedAt != null) {
+      await MessagesDb.deleteGroupMessagesBefore(widget.group.id, _joinedAt!);
+    }
+
     final members = await _groupService.getMembers(widget.group.id);
     _memberCount = members.length;
     await _resolveSenderNames(members.map((m) => m.memberId).toList());
@@ -668,7 +699,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (groupKey == null) return [];
 
     final List<Message> result = [];
+    var inboundDecryptFailures = 0;
     for (final msg in raw) {
+      final msgTimestamp = msg['timestamp'] as int;
+      if (_joinedAt != null && msgTimestamp < _joinedAt!) {
+        continue;
+      }
       try {
         final type = msg['type'] as String;
         final authorId = msg['senderId'] as String;
@@ -775,14 +811,27 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           }
         }
       } catch (_) {
+        if ((msg['senderId'] as String) != widget.userId) {
+          inboundDecryptFailures++;
+        }
         result.add(TextMessage(
           authorId: msg['senderId'] as String,
           createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp'] as int),
           id: MessagesDb.wireIdFromStorage(msg['id'] as String),
           text: 'Unable to decrypt message',
+          metadata: const {'decryptFailed': true},
         ));
       }
     }
+
+    if (inboundDecryptFailures >= 2) {
+      final exists = await DBHelper.getGroupById(widget.group.id);
+      if (exists != null) {
+        await _groupService.abandonGroupAfterRemoval(widget.group.id);
+        if (mounted) _onRemovedFromGroup();
+      }
+    }
+
     return _attachReactions(result);
   }
 
@@ -795,6 +844,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       limit: 20,
       beforeTimestamp: _oldestTimestamp,
       beforeId: _oldestMessageId,
+      afterTimestamp: _joinedAt,
     );
 
     if (!mounted) return;

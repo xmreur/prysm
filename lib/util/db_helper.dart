@@ -173,6 +173,48 @@ class DBHelper {
     return db.query('groups', orderBy: 'createdAt DESC');
   }
 
+  /// Groups where [memberId] is still listed in group_members.
+  static Future<List<Map<String, dynamic>>> getGroupsForMember(
+    String memberId,
+  ) async {
+    final db = await database;
+    return db.rawQuery(
+      '''
+      SELECT g.*
+      FROM groups g
+      INNER JOIN group_members gm ON g.id = gm.groupId
+      WHERE gm.memberId = ?
+      ORDER BY g.createdAt DESC
+      ''',
+      [memberId],
+    );
+  }
+
+  static Future<bool> isGroupMember(String groupId, String memberId) async {
+    final db = await database;
+    final rows = await db.query(
+      'group_members',
+      where: 'groupId = ? AND memberId = ?',
+      whereArgs: [groupId, memberId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  static Future<int?> getMemberJoinedAt(String groupId, String memberId) async {
+    final db = await database;
+    final rows = await db.query(
+      'group_members',
+      columns: ['joinedAt'],
+      where: 'groupId = ? AND memberId = ?',
+      whereArgs: [groupId, memberId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final value = rows.first['joinedAt'];
+    return value is int ? value : int.tryParse(value.toString());
+  }
+
   static Future<Map<String, dynamic>?> getGroupById(String id) async {
     final db = await database;
     final results = await db.query('groups', where: 'id = ?', whereArgs: [id], limit: 1);

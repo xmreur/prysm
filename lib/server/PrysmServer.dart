@@ -281,6 +281,20 @@ class PrysmServer {
       final messageTimestamp = incomingTimestamp is int && incomingTimestamp > 0
           ? incomingTimestamp
           : timeReceived;
+
+      final inboundGroupId = data['groupId'] as String?;
+      final localUserId = localOnionAddress;
+      if (inboundGroupId != null && localUserId != null) {
+        final joinedAt =
+            await DBHelper.getMemberJoinedAt(inboundGroupId, localUserId);
+        if (joinedAt != null && messageTimestamp < joinedAt) {
+          return Response.ok(
+            jsonEncode({'status': 'received', 'id': data['id']}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+      }
+
       final localId = localOnionAddress ?? receiverId;
       await MessagesDb.insertInboundMessage({
         'id': data['id'] as String,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:mutex/mutex.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 
 class TorManager {
@@ -22,6 +23,7 @@ class TorManager {
 
   final stdoutController = StreamController<String>.broadcast();
   final stderrController = StreamController<String>.broadcast();
+  final _controlMutex = Mutex();
 
   TorManager({
     required this.torPath,
@@ -65,7 +67,11 @@ class TorManager {
     // Desktop shutdown via control port if possible.
     try {
       if (_controlSocket != null) {
-        await _sendAndCollect('SIGNAL SHUTDOWN', untilOk: true, timeout: const Duration(seconds: 5));
+        await _controlMutex.protect(() => _sendAndCollectImpl(
+              'SIGNAL SHUTDOWN',
+              untilOk: true,
+              timeout: const Duration(seconds: 5),
+            ));
       }
     } catch (_) {
       // ignore
@@ -90,7 +96,11 @@ class TorManager {
   }
 
   /// Returns true if the Tor control port responds and the process is alive.
-  Future<bool> isHealthy() async {
+  Future<bool> isHealthy() {
+    return _controlMutex.protect(_isHealthyUnlocked);
+  }
+
+  Future<bool> _isHealthyUnlocked() async {
     try {
       if (!Platform.isAndroid) {
         final proc = _torProcess;
@@ -103,48 +113,67 @@ class TorManager {
         }
       }
 
-      if (_controlSocket == null) {
-        await _connectControlPort();
-        if (Platform.isAndroid) {
-          await _authenticateWithCookieFile();
-        } else {
-          await _authenticateDesktopPassword();
-        }
+      await _ensureControlSession();
+      try {
+        await _sendAndCollectImpl(
+          'GETINFO version',
+          untilOk: true,
+          timeout: const Duration(seconds: 3),
+        );
+        return true;
+      } catch (_) {
+        await _resetControlSession();
+        await _ensureControlSession();
+        await _sendAndCollectImpl(
+          'GETINFO version',
+          untilOk: true,
+          timeout: const Duration(seconds: 3),
+        );
+        return true;
       }
-
-      await _sendAndCollect(
-        'GETINFO version',
-        untilOk: true,
-        timeout: const Duration(seconds: 3),
-      );
-      return true;
     } catch (e) {
       print('Tor health check failed: $e');
-      _controlSocket?.close();
-      _controlSocket = null;
-      _controlStream = null;
+      await _resetControlSession();
       return false;
     }
   }
 
   /// Request a new Tor circuit via SIGNAL NEWNYM.
   /// Rate-limited by Tor to once every 10 seconds.
-  Future<bool> refreshCircuit() async {
+  Future<bool> refreshCircuit() {
+    return _controlMutex.protect(_refreshCircuitUnlocked);
+  }
+
+  Future<bool> _refreshCircuitUnlocked() async {
     try {
-      if (_controlSocket == null) {
-        await _connectControlPort();
-        if (Platform.isAndroid) {
-          await _authenticateWithCookieFile();
-        } else {
-          await _authenticateDesktopPassword();
-        }
-      }
-      await _sendAndCollect('SIGNAL NEWNYM', untilOk: true, timeout: const Duration(seconds: 5));
+      await _ensureControlSession();
+      await _sendAndCollectImpl(
+        'SIGNAL NEWNYM',
+        untilOk: true,
+        timeout: const Duration(seconds: 5),
+      );
       return true;
     } catch (e) {
       print('refreshCircuit error: $e');
+      await _resetControlSession();
       return false;
     }
+  }
+
+  Future<void> _ensureControlSession() async {
+    if (_controlSocket != null) return;
+    await _connectControlPort();
+    if (Platform.isAndroid) {
+      await _authenticateWithCookieFile();
+    } else {
+      await _authenticateDesktopPassword();
+    }
+  }
+
+  Future<void> _resetControlSession() async {
+    await _controlSocket?.close();
+    _controlSocket = null;
+    _controlStream = null;
   }
 
   // =========================
@@ -166,7 +195,7 @@ class TorManager {
   }
 
   Future<void> _authenticateWithCookieFile() async {
-    final proto = await _sendAndCollect('PROTOCOLINFO 1', untilOk: true);
+    final proto = await _sendAndCollectImpl('PROTOCOLINFO 1', untilOk: true);
 
     final authLine = proto.firstWhere(
       (l) => l.startsWith('250-AUTH'),
@@ -177,7 +206,7 @@ class TorManager {
 
     if (authLine.contains('METHODS=NULL')) {
       // Even with METHODS=NULL, send AUTHENTICATE "" before GETINFO. [web:83][web:84]
-      final authResp = await _sendAndCollect('AUTHENTICATE ""', untilOk: true);
+      final authResp = await _sendAndCollectImpl('AUTHENTICATE ""', untilOk: true);
       print('TorService AUTHENTICATE "" response: $authResp');
       return;
     }
@@ -188,7 +217,7 @@ class TorManager {
       final cookie = await File(cookiePath).readAsBytes();
       final cookieHex = cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       // ignore: unused_local_variable
-      final authResp = await _sendAndCollect('AUTHENTICATE $cookieHex', untilOk: true);
+      final authResp = await _sendAndCollectImpl('AUTHENTICATE $cookieHex', untilOk: true);
       return;
     }
 
@@ -257,7 +286,7 @@ HiddenServicePort 80 127.0.0.1:12345
 
   Future<void> _authenticateDesktopPassword() async {
     // Tor control-spec supports password auth when HashedControlPassword is set. [web:49]
-    final resp = await _sendAndCollect('AUTHENTICATE "$controlPassword"', untilOk: true);
+    final resp = await _sendAndCollectImpl('AUTHENTICATE "$controlPassword"', untilOk: true);
     if (resp.every((l) => !l.startsWith('250'))) {
       throw Exception('Desktop AUTHENTICATE failed: $resp');
     }
@@ -304,7 +333,7 @@ HiddenServicePort 80 127.0.0.1:12345
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
-      final resp = await _sendAndCollect('GETINFO status/bootstrap-phase', untilOk: true);
+      final resp = await _sendAndCollectImpl('GETINFO status/bootstrap-phase', untilOk: true);
 
       final line = resp.firstWhere((l) => l.contains('status/bootstrap-phase='), orElse: () => '');
       final m = RegExp(r'PROGRESS=(\d+)').firstMatch(line);
@@ -332,7 +361,7 @@ HiddenServicePort 80 127.0.0.1:12345
     sock.write('$cmd\r\n');
   }
 
-  Future<List<String>> _sendAndCollect(
+  Future<List<String>> _sendAndCollectImpl(
     String cmd, {
     required bool untilOk,
     Duration timeout = const Duration(seconds: 5),

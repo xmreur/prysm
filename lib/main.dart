@@ -33,6 +33,7 @@ import 'package:prysm/models/contact.dart';
 import 'package:prysm/util/theme_manager.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
@@ -514,6 +515,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _refreshTimer;
   Timer? _loadUsersDebounce;
   StreamSubscription<void>? _inboundRefreshSub;
+  StreamSubscription<String>? _groupMembershipSub;
   SyncCoordinator? _syncCoordinator;
   bool _loadUsersInProgress = false;
   bool _loadUsersQueued = false;
@@ -558,6 +560,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _startTorHealthMonitor();
     _inboundRefreshSub =
         ConversationRefreshNotifier.instance.onRefresh.listen((_) {
+      scheduleLoadUsers(light: true);
+    });
+    _groupMembershipSub =
+        GroupMembershipNotifier.instance.onRemoved.listen((groupId) {
+      if (!mounted) return;
+      if (selectedConversation is GroupConversation &&
+          (selectedConversation as GroupConversation).group.id == groupId) {
+        clearChat();
+      }
       scheduleLoadUsers(light: true);
     });
     NotificationService.onNotificationTap = _handleNotificationTap;
@@ -649,6 +660,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
     final groupService =
         GroupService(userId: widget.onionAddress, keyManager: widget.keyManager);
+    await groupService.pruneOrphanedGroups();
+    await groupService.discardPendingHistoryRelay();
 
     late final List<Map<String, dynamic>> userMaps;
     late final Map<String, int> timestamps;
@@ -1321,6 +1334,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _refreshTimer?.cancel();
     _loadUsersDebounce?.cancel();
     _inboundRefreshSub?.cancel();
+    _groupMembershipSub?.cancel();
     _torHealthTimer?.cancel();
     _syncCoordinator?.dispose();
     if (NotificationService.onNotificationTap == _handleNotificationTap) {

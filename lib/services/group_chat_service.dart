@@ -62,6 +62,11 @@ class GroupChatService {
   }
 
   Future<void> _refreshSession() async {
+    if (!await groupService.isMember(groupId)) {
+      _groupKey = null;
+      _memberIds = [];
+      return;
+    }
     _groupKey = await groupService.getDecryptedGroupKey(groupId);
     final members = await groupService.getMembers(groupId);
     _memberIds = members.map((m) => m.memberId).toList();
@@ -241,7 +246,12 @@ class GroupChatService {
 
   Future<bool> _fetchNewMessages() async {
     await _refreshSession();
-    final batch = await MessagesDb.getMessagesForGroupBatch(groupId, limit: 20);
+    final joinedAt = await groupService.joinedAtForCurrentUser(groupId);
+    final batch = await MessagesDb.getMessagesForGroupBatch(
+      groupId,
+      limit: 20,
+      afterTimestamp: joinedAt,
+    );
     if (batch.isEmpty) return false;
 
     final newMessages = batch.where((msg) {

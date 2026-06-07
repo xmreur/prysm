@@ -9,6 +9,7 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:uuid/uuid.dart';
@@ -35,11 +36,32 @@ class GroupService {
   }
 
   Future<List<Group>> getGroups() async {
-    final maps = await DBHelper.getGroups();
-    final timestamps = await MessagesDb.getLastMessageTimestampsForAllGroups();
+    final maps = await DBHelper.getGroupsForMember(userId);
+    final timestamps =
+        await MessagesDb.getLastMessageTimestampsForAllGroups(userId);
     return maps
         .map((m) => Group.fromMap(m, lastMessageTimestamp: timestamps[m['id'] as String]))
         .toList();
+  }
+
+  Future<bool> isMember(String groupId) =>
+      DBHelper.isGroupMember(groupId, userId);
+
+  Future<int?> joinedAtForCurrentUser(String groupId) =>
+      DBHelper.getMemberJoinedAt(groupId, userId);
+
+  /// Drops groups that exist locally but no longer list this user as a member.
+  Future<int> pruneOrphanedGroups() async {
+    final all = await DBHelper.getGroups();
+    var pruned = 0;
+    for (final row in all) {
+      final groupId = row['id'] as String;
+      if (!await isMember(groupId)) {
+        await deleteGroupLocal(groupId);
+        pruned++;
+      }
+    }
+    return pruned;
   }
 
   Future<List<GroupMember>> getMembers(String groupId) async {
@@ -405,8 +427,6 @@ class GroupService {
     // Re-send invites to every member so existing clients refresh roster + key,
     // and the new member receives their encrypted group key.
     await syncMemberInvites(groupId);
-
-    await _queueGroupHistoryRelay(groupId, memberOnion);
   }
 
   Future<void> removeMember(String groupId, String memberOnion) async {
@@ -432,6 +452,21 @@ class GroupService {
       groupId: groupId,
       encryptedKey: encryptedForSelf,
       keyVersion: newVersion,
+    );
+
+    // Tell the removed member to drop the group (queued if they are offline).
+    await _sendKeyRotate(
+      groupId: groupId,
+      groupKey: newKey,
+      keyVersion: newVersion,
+      removedMemberId: memberOnion,
+      targetMemberId: memberOnion,
+    );
+    await _sendMemberRemoved(
+      groupId: groupId,
+      removedMemberId: memberOnion,
+      keyVersion: newVersion,
+      targetMemberId: memberOnion,
     );
 
     final remaining = await getMembers(groupId);
@@ -518,9 +553,13 @@ class GroupService {
     }
   }
 
-  Future<void> deleteGroupLocal(String groupId) async {
+  Future<void> deleteGroupLocal(String groupId, {bool notify = true}) async {
     await MessagesDb.deleteMessagesForGroup(groupId);
     await DBHelper.deleteGroup(groupId);
+    invalidateGroupKeyCache(groupId);
+    if (notify) {
+      GroupMembershipNotifier.instance.notifyRemoved(groupId);
+    }
   }
 
   /// Handle incoming control messages (from PrysmServer).
@@ -602,6 +641,7 @@ class GroupService {
 
     final localMembers = existing != null ? await getMembers(groupId) : <GroupMember>[];
     final localMemberIds = localMembers.map((m) => m.memberId).toSet();
+    final isNewToGroup = !localMemberIds.contains(userId);
 
     for (final m in members) {
       final memberId = m['id'] as String;
@@ -614,6 +654,10 @@ class GroupService {
         'role': m['role'] as String,
         'joinedAt': joinedAt,
       });
+    }
+
+    if (isNewToGroup) {
+      await MessagesDb.deleteGroupMessagesBefore(groupId, now);
     }
 
     if (keyVersion == localKeyVersion && existing != null) {
@@ -662,6 +706,13 @@ class GroupService {
     }
 
     await DBHelper.removeGroupMember(groupId, removedMemberId);
+  }
+
+  /// Called when inbound group messages cannot be decrypted — likely key rotated
+  /// after this user was removed without receiving the control message.
+  Future<void> abandonGroupAfterRemoval(String groupId) async {
+    if (!await DBHelper.getGroupById(groupId).then((g) => g != null)) return;
+    await deleteGroupLocal(groupId);
   }
 
   Future<void> _handleProfileUpdate(Map<String, dynamic> data) async {
@@ -879,113 +930,18 @@ class GroupService {
     });
   }
 
-  Future<void> _queueGroupHistoryRelay(
-    String groupId,
-    String targetMemberId, {
-    int limit = 50,
-  }) async {
-    final batch = await MessagesDb.getMessagesForGroupBatch(groupId, limit: limit);
-    for (final msg in batch.reversed) {
-      final wireId = MessagesDb.wireIdFromStorage(msg['id'] as String);
-      await PendingMessageDbHelper.insertPendingMessage({
-        'id': 'history_${groupId}_${wireId}_$targetMemberId',
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'message': jsonEncode({
-          'wireId': wireId,
-          'originalSenderId': msg['senderId'],
-          'message': msg['message'],
-          'type': msg['type'],
-          'timestamp': msg['timestamp'],
-          if (msg['replyTo'] != null) 'replyTo': msg['replyTo'],
-          if (msg['fileName'] != null) 'fileName': msg['fileName'],
-          if (msg['fileSize'] != null) 'fileSize': msg['fileSize'],
-          if ((msg['viewOnce'] ?? 0) == 1) 'viewOnce': true,
-        }),
-        'type': groupHistoryRelayType,
-        'timestamp': msg['timestamp'] as int,
-        'status': 'pending',
-        'groupId': groupId,
-        'targetMemberId': targetMemberId,
-      });
-    }
-  }
-
-  /// Retry queued history relay messages to newly joined members.
-  Future<bool> processPendingHistoryRelay({int maxPerCycle = 20}) async {
+  /// Drop legacy queued history relays — new members no longer receive backlog.
+  Future<void> discardPendingHistoryRelay() async {
     final all = await PendingMessageDbHelper.getPendingGroupChatMessages(
       senderId: userId,
-      limit: maxPerCycle,
+      limit: 500,
     );
-    final pending = all.where((m) => m['type'] == groupHistoryRelayType).toList();
-    if (pending.isEmpty) return false;
-
-    final sentIds = <String>[];
-    for (final msg in pending) {
-      final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String;
-      final groupId = msg['groupId'] as String;
-      final data = jsonDecode(msg['message'] as String) as Map<String, dynamic>;
-      final ok = await _postGroupHistoryMessage(
-        targetMemberId: target,
-        groupId: groupId,
-        id: data['wireId'] as String,
-        originalSenderId: data['originalSenderId'] as String,
-        message: data['message'] as String,
-        type: data['type'] as String,
-        timestamp: data['timestamp'] as int,
-        replyTo: data['replyTo'] as String?,
-        fileName: data['fileName'] as String?,
-        fileSize: data['fileSize'] as int?,
-        viewOnce: data['viewOnce'] == true,
-      );
-      if (ok) sentIds.add(msg['id'] as String);
-    }
-
-    if (sentIds.isNotEmpty) {
-      await PendingMessageDbHelper.removeMessages(sentIds);
-    }
-    return sentIds.isNotEmpty;
-  }
-
-  Future<bool> _postGroupHistoryMessage({
-    required String targetMemberId,
-    required String groupId,
-    required String id,
-    required String originalSenderId,
-    required String message,
-    required String type,
-    required int timestamp,
-    String? replyTo,
-    String? fileName,
-    int? fileSize,
-    bool viewOnce = false,
-  }) async {
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final uri = Uri.parse('http://$targetMemberId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': originalSenderId,
-        'receiverId': targetMemberId,
-        'groupId': groupId,
-        'message': message,
-        'type': type,
-        'timestamp': timestamp,
-        if (replyTo != null) 'replyTo': replyTo,
-        if (fileName != null) 'fileName': fileName,
-        if (fileSize != null) 'fileSize': fileSize,
-        if (viewOnce) 'viewOnce': true,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
-      return true;
-    } catch (e) {
-      print('Group history relay failed for $id: $e');
-      return false;
-    } finally {
-      torClient.close();
+    final ids = all
+        .where((m) => m['type'] == groupHistoryRelayType)
+        .map((m) => m['id'] as String)
+        .toList();
+    if (ids.isNotEmpty) {
+      await PendingMessageDbHelper.removeMessages(ids);
     }
   }
 

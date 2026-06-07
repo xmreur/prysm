@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -57,6 +59,7 @@ class TrayService with TrayListener {
   StreamSubscription<TorConnectionState>? _torSub;
   StreamSubscription<void>? _pendingSub;
   StreamSubscription<void>? _refreshSub;
+  StreamSubscription<void>? _batterySaverSub;
 
   int _lastUnread = -1;
   String? _badgedIconPath;
@@ -109,13 +112,21 @@ class TrayService with TrayListener {
       _unreadDebounce = Timer(const Duration(milliseconds: 400), refreshStatus);
     });
 
+    _batterySaverSub?.cancel();
+    _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
+      _restartPollTimer();
+    });
+
+    _restartPollTimer();
+    await refreshStatus();
+  }
+
+  void _restartPollTimer() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      BatterySaverPolicy.trayPollInterval(),
       (_) => refreshStatus(),
     );
-
-    await refreshStatus();
   }
 
   Future<void> applySettings() async {
@@ -351,6 +362,7 @@ class TrayService with TrayListener {
     if (!_isDesktop) return;
     _pollTimer?.cancel();
     _unreadDebounce?.cancel();
+    await _batterySaverSub?.cancel();
     await _bootstrapSub?.cancel();
     await _torSub?.cancel();
     await _pendingSub?.cancel();

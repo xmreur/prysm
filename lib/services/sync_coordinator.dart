@@ -9,6 +9,7 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/tor_service.dart';
 
 /// Unified offline sync: pending delivery retries and adaptive sidebar refresh triggers.
@@ -35,8 +36,8 @@ class SyncCoordinator {
   }
 
   Duration get _tickInterval {
-    if (_hasPendingBacklog) return const Duration(seconds: 10);
-    return const Duration(seconds: 30);
+    if (_hasPendingBacklog) return BatterySaverPolicy.syncTickBacklog();
+    return BatterySaverPolicy.syncTickIdle();
   }
 
   void start() {

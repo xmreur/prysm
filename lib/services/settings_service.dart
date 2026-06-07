@@ -31,6 +31,7 @@ class SettingsService {
   bool get sendReadReceipts => _settings.sendReadReceipts;
   bool get minimizeToTray => _settings.minimizeToTray;
   bool get minimizeOnMinimizeButton => _settings.minimizeOnMinimizeButton;
+  bool get enableBatterySaving => _settings.enableBatterySaving;
 
   // Network/Relay
   bool get enableRelay => _settings.enableRelay;
@@ -107,6 +108,11 @@ class SettingsService {
 
   Future<void> setMinimizeOnMinimizeButton(bool value) async {
     _settings = _settings.copyWith(minimizeOnMinimizeButton: value);
+    await save();
+  }
+
+  Future<void> setEnableBatterySaving(bool value) async {
+    _settings = _settings.copyWith(enableBatterySaving: value);
     await save();
   }
 

@@ -690,6 +690,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         customName: map['customName'] as String?,
         publicKeyPem: (map['publicKeyPem'] as String?) ?? '',
         lastMessageTimestamp: timestamps[id],
+        isMuted: (map['muted'] as int?) == 1,
       ));
     }
 

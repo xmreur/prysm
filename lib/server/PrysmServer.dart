@@ -197,6 +197,25 @@ class PrysmServer {
         if (appState == AppLifecycleState.paused ||
             appState == AppLifecycleState.inactive ||
             appState == AppLifecycleState.detached) {
+          // Skip if contact or group is muted
+          final groupId = data['groupId'] as String?;
+          if (groupId != null) {
+            final group = await DBHelper.getGroupById(groupId);
+            if (group != null && (group['muted'] as int?) == 1) {
+              return Response.ok(
+                jsonEncode({'status': 'muted', 'id': data['id'], 'timestamp': timeReceived}),
+                headers: {'Content-Type': 'application/json'},
+              );
+            }
+          } else {
+            final contact = await DBHelper.getUserById(data['senderId'] as String);
+            if (contact != null && (contact['muted'] as int?) == 1) {
+              return Response.ok(
+                jsonEncode({'status': 'muted', 'id': data['id'], 'timestamp': timeReceived}),
+                headers: {'Content-Type': 'application/json'},
+              );
+            }
+          }
           final contact = await DBHelper.getUserById(
             data['senderId'] as String,
           );
@@ -210,7 +229,7 @@ class PrysmServer {
             notificationId: Random().nextInt(99999999),
             payload: jsonEncode({
               'senderId': senderId,
-              if (data['groupId'] != null) 'groupId': data['groupId'],
+              if (groupId != null) 'groupId': groupId,
             }),
           );
         }

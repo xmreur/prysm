@@ -23,7 +23,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 4, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 5, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -88,6 +88,15 @@ class DBHelper {
     }
     if (oldVersion < 4) {
       await _createGroupTables(db);
+    }
+    if (oldVersion < 5) {
+      for (final table in ['users', 'groups']) {
+        final cols = await db.rawQuery('PRAGMA table_info($table)');
+        final colNames = cols.map((c) => c['name'] as String).toSet();
+        if (!colNames.contains('muted')) {
+          await db.execute('ALTER TABLE $table ADD COLUMN muted INTEGER NOT NULL DEFAULT 0');
+        }
+      }
     }
   }
 
@@ -162,6 +171,17 @@ class DBHelper {
   }
 
   // --- Group helpers ---
+
+  /// Update specific fields for a group without overwriting other columns.
+  static Future<void> updateGroupFields(String groupId, Map<String, dynamic> fields) async {
+    final db = await database;
+    await db.update(
+      'groups',
+      fields,
+      where: 'id = ?',
+      whereArgs: [groupId],
+    );
+  }
 
   static Future<void> insertGroup(Map<String, dynamic> group) async {
     final db = await database;

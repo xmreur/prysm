@@ -7,6 +7,7 @@ class Group {
   final String createdBy;
   final int createdAt;
   final int? lastMessageTimestamp;
+  final bool isMuted;
 
   Group({
     required this.id,
@@ -15,12 +16,14 @@ class Group {
     required this.createdBy,
     required this.createdAt,
     this.lastMessageTimestamp,
+    this.isMuted = false,
   });
 
   Group copyWith({
     String? name,
     String? avatarBase64,
     int? lastMessageTimestamp,
+    bool? isMuted,
   }) {
     return Group(
       id: id,
@@ -29,6 +32,7 @@ class Group {
       createdBy: createdBy,
       createdAt: createdAt,
       lastMessageTimestamp: lastMessageTimestamp ?? this.lastMessageTimestamp,
+      isMuted: isMuted ?? this.isMuted,
     );
   }
 
@@ -40,6 +44,7 @@ class Group {
       createdBy: map['createdBy'] as String,
       createdAt: map['createdAt'] as int,
       lastMessageTimestamp: lastMessageTimestamp,
+      isMuted: (map['muted'] as int?) == 1,
     );
   }
 
@@ -49,6 +54,7 @@ class Group {
         'avatarBase64': avatarBase64,
         'createdBy': createdBy,
         'createdAt': createdAt,
+        'muted': isMuted ? 1 : 0,
       };
 }
 

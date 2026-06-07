@@ -32,17 +32,24 @@ class ChatProfileScreen extends StatefulWidget {
 
 class _ChatProfileScreenState extends State<ChatProfileScreen> {
   late TextEditingController _nameController;
+  late bool _isMuted;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.peer.displayName);
+    _isMuted = widget.peer.isMuted;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  void _toggleMute(bool value) async {
+    await DBHelper.updateUserFields(widget.peer.id, {'muted': value ? 1 : 0});
+    setState(() => _isMuted = value);
   }
 
   String encodeOnionToBase58(String onion) {
@@ -249,6 +256,21 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
                 child: Column(
                   children: [
+                    SwitchListTile(
+                      secondary: Icon(
+                        _isMuted ? Icons.notifications_off : Icons.notifications,
+                        color: _isMuted ? Colors.orange : null,
+                      ),
+                      title: Text(_isMuted ? 'Muted' : 'Notifications'),
+                      subtitle: Text(
+                        _isMuted
+                            ? 'Notifications are silenced'
+                            : 'Tap to mute this chat',
+                      ),
+                      value: !_isMuted,
+                      onChanged: (v) => _toggleMute(!v),
+                    ),
+                    const Divider(),
                     ListTile(
                       leading: const Icon(Icons.key_outlined),
                       title: const Text('User ID'),

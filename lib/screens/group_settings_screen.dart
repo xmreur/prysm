@@ -41,6 +41,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   bool _loading = true;
   String? _avatarBase64;
   late String _groupName;
+  late bool _isMuted;
   final Map<String, String?> _avatarByMemberId = {};
 
   @override
@@ -49,6 +50,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     _groupService = GroupService(userId: widget.userId, keyManager: widget.keyManager);
     _avatarBase64 = widget.group.avatarBase64;
     _groupName = widget.group.name;
+    _isMuted = widget.group.isMuted;
     _load();
   }
 
@@ -293,6 +295,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
+  void _toggleMute(bool value) async {
+    await DBHelper.updateGroupFields(widget.group.id, {'muted': value ? 1 : 0});
+    setState(() => _isMuted = value);
+  }
+
   Future<void> _deleteGroup() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -365,6 +372,20 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 ListTile(
                   title: Text('${_members.length} / $maxGroupMembers members'),
                   subtitle: Text(_isAdmin ? 'You are admin' : 'Member'),
+                ),
+                SwitchListTile(
+                  secondary: Icon(
+                    _isMuted ? Icons.notifications_off : Icons.notifications,
+                    color: _isMuted ? Colors.orange : null,
+                  ),
+                  title: Text(_isMuted ? 'Muted' : 'Notifications'),
+                  subtitle: Text(
+                    _isMuted
+                        ? 'Notifications are silenced'
+                        : 'Tap to mute this group',
+                  ),
+                  value: !_isMuted,
+                  onChanged: (v) => _toggleMute(!v),
                 ),
                 const Divider(),
                 ..._members.map((m) {

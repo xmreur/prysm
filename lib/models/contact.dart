@@ -6,6 +6,7 @@ class Contact {
   final String? customName;
   final String publicKeyPem;
   final int? lastMessageTimestamp;
+  final bool isMuted;
 
   /// Shows customName if set, otherwise the remote name
   String get displayName => (customName != null && customName!.isNotEmpty) ? customName! : name;
@@ -18,5 +19,19 @@ class Contact {
     this.customName,
     required this.publicKeyPem,
     this.lastMessageTimestamp,
+    this.isMuted = false,
   });
+
+  Contact copyWith({bool? isMuted}) {
+    return Contact(
+      id: id,
+      name: name,
+      avatarUrl: avatarUrl,
+      avatarBase64: avatarBase64,
+      customName: customName,
+      publicKeyPem: publicKeyPem,
+      lastMessageTimestamp: lastMessageTimestamp,
+      isMuted: isMuted ?? this.isMuted,
+    );
+  }
 }

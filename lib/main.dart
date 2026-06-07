@@ -21,7 +21,10 @@ import 'package:prysm/screens/chat.dart';
 import 'package:prysm/screens/create_group_screen.dart';
 import 'package:prysm/screens/group_chat.dart';
 import 'package:prysm/models/conversation.dart';
+import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/client/TorHttpClient.dart';
@@ -511,6 +514,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _searchQuery = '';
   Map<String, String> _lastMessagePreviews = {};
   Map<String, int> _unreadCounts = {};
+  Map<String, ConversationPreferences> _conversationPrefs = {};
+  bool _viewingArchived = false;
 
   Timer? _refreshTimer;
   Timer? _loadUsersDebounce;
@@ -521,11 +526,66 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
 
+  int get _archivedCount =>
+      conversations.where((c) => _conversationPrefs[c.id]?.isArchived ?? false).length;
+
   List<Conversation> get _filteredConversations {
-    if (_searchQuery.isEmpty) return conversations;
-    return conversations
-        .where((c) => c.displayName.toLowerCase().contains(_searchQuery))
-        .toList();
+    return conversations.where((c) {
+      final archived = _conversationPrefs[c.id]?.isArchived ?? false;
+      if (_searchQuery.isNotEmpty) {
+        if (!c.displayName.toLowerCase().contains(_searchQuery)) return false;
+        return _viewingArchived ? archived : true;
+      }
+      return _viewingArchived ? archived : !archived;
+    }).toList();
+  }
+
+  Future<void> _reloadConversationPreferences() async {
+    final prefs = await ConversationPreferencesService.instance.getAll();
+    if (!mounted) return;
+    setState(() {
+      _conversationPrefs = prefs;
+      ConversationPreferencesService.sortConversations(conversations, prefs);
+    });
+  }
+
+  Future<void> _pinConversation(String id) async {
+    await ConversationPreferencesService.instance.pin(id);
+    await _reloadConversationPreferences();
+  }
+
+  Future<void> _unpinConversation(String id) async {
+    await ConversationPreferencesService.instance.unpin(id);
+    await _reloadConversationPreferences();
+  }
+
+  Future<void> _archiveConversation(String id) async {
+    await ConversationPreferencesService.instance.archive(id);
+    if (selectedConversation?.id == id) {
+      clearChat();
+    }
+    if (mounted) {
+      setState(() => _viewingArchived = false);
+    }
+    await _reloadConversationPreferences();
+  }
+
+  Future<void> _unarchiveConversation(String id) async {
+    await ConversationPreferencesService.instance.unarchive(id);
+    await _reloadConversationPreferences();
+  }
+
+  void _showConversationActions(Conversation conv) {
+    showConversationActionsSheet(
+      context: context,
+      conversation: conv,
+      preferences: _conversationPrefs[conv.id],
+      viewingArchived: _viewingArchived,
+      onPin: () => _pinConversation(conv.id),
+      onUnpin: () => _unpinConversation(conv.id),
+      onArchive: () => _archiveConversation(conv.id),
+      onUnarchive: () => _unarchiveConversation(conv.id),
+    );
   }
 
   @override
@@ -666,6 +726,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     late final List<Map<String, dynamic>> userMaps;
     late final Map<String, int> timestamps;
     late final List<Group> newGroups;
+    late final Map<String, ConversationPreferences> prefs;
     Map<String, String> previews = _lastMessagePreviews;
     Map<String, int> unread = _unreadCounts;
 
@@ -676,6 +737,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         groupService.getGroups(),
         MessagesDb.getLastMessagePreviews(widget.onionAddress),
         MessagesDb.getUnreadCounts(widget.onionAddress),
+        ConversationPreferencesService.instance.getAll(),
       ]);
       if (!mounted) return;
       userMaps = results[0] as List<Map<String, dynamic>>;
@@ -683,16 +745,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       newGroups = results[2] as List<Group>;
       previews = results[3] as Map<String, String>;
       unread = results[4] as Map<String, int>;
+      prefs = results[5] as Map<String, ConversationPreferences>;
     } else {
       final fastResults = await Future.wait([
         DBHelper.getUsers(),
         MessagesDb.getLastMessageTimestampsForAllUsers(),
         groupService.getGroups(),
+        ConversationPreferencesService.instance.getAll(),
       ]);
       if (!mounted) return;
       userMaps = fastResults[0] as List<Map<String, dynamic>>;
       timestamps = fastResults[1] as Map<String, int>;
       newGroups = fastResults[2] as List<Group>;
+      prefs = fastResults[3] as Map<String, ConversationPreferences>;
 
       if (isLoading) {
         _applyLoadedUsers(
@@ -701,6 +766,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           newGroups: newGroups,
           previews: previews,
           unread: unread,
+          prefs: prefs,
         );
       }
 
@@ -719,6 +785,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       newGroups: newGroups,
       previews: previews,
       unread: unread,
+      prefs: prefs,
     );
     } finally {
       _loadUsersInProgress = false;
@@ -737,6 +804,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required List<Group> newGroups,
     required Map<String, String> previews,
     required Map<String, int> unread,
+    required Map<String, ConversationPreferences> prefs,
   }) {
     if (!mounted) return;
 
@@ -779,16 +847,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           .map((c) => DirectConversation(c)),
       ...newGroups.map((g) => GroupConversation(g)),
     ];
-    newConversations.sort((a, b) {
-      final aTs = a.lastMessageTimestamp ?? 0;
-      final bTs = b.lastMessageTimestamp ?? 0;
-      return bTs.compareTo(aTs);
-    });
+    ConversationPreferencesService.sortConversations(newConversations, prefs);
 
     final changed = newContacts.length != contacts.length ||
         newGroups.length != groups.length ||
         !_mapsEqual(previews, _lastMessagePreviews) ||
         !_mapsEqual(unread, _unreadCounts) ||
+        !_conversationPrefsEqual(prefs, _conversationPrefs) ||
         !newConversations.every((c) {
           final old = conversations.cast<Conversation?>().firstWhere(
                 (o) => o!.id == c.id,
@@ -804,6 +869,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _lastMessagePreviews = previews;
         _unreadCounts = unread;
+        _conversationPrefs = prefs;
         contacts = newContacts;
         groups = newGroups;
         conversations = newConversations;
@@ -841,6 +907,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (a.length != b.length) return false;
     for (final entry in a.entries) {
       if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  bool _conversationPrefsEqual(
+    Map<String, ConversationPreferences> a,
+    Map<String, ConversationPreferences> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      final other = b[entry.key];
+      if (other == null || other != entry.value) return false;
     }
     return true;
   }
@@ -1178,6 +1256,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
+          if (_viewingArchived)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: 'Back to chats',
+                    onPressed: () => setState(() {
+                      _viewingArchived = false;
+                      _searchQuery = '';
+                    }),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Archived',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 8),
           // Search bar
           Padding(
@@ -1197,12 +1300,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 onChanged: (value) {
                   setState(() => _searchQuery = value.trim().toLowerCase());
                 },
-                decoration: const InputDecoration(
-                  hintText: 'Search chats...',
-                  hintStyle: TextStyle(fontSize: 14),
-                  prefixIcon: Icon(Icons.search, size: 20),
+                decoration: InputDecoration(
+                  hintText: _viewingArchived
+                      ? 'Search archived...'
+                      : 'Search chats...',
+                  hintStyle: const TextStyle(fontSize: 14),
+                  prefixIcon: const Icon(Icons.search, size: 20),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12
                   ),
@@ -1215,10 +1320,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _filteredConversations.length,
+              itemCount: _filteredConversations.length +
+                  (!_viewingArchived && _searchQuery.isEmpty && _archivedCount > 0
+                      ? 1
+                      : 0),
               itemBuilder: (_, index) {
+                final showArchivedEntry = !_viewingArchived &&
+                    _searchQuery.isEmpty &&
+                    _archivedCount > 0;
+                if (showArchivedEntry && index == _filteredConversations.length) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.archive_outlined,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      title: const Text('Archived'),
+                      subtitle: Text('$_archivedCount'),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      onTap: () => setState(() => _viewingArchived = true),
+                    ),
+                  );
+                }
+
                 final conv = _filteredConversations[index];
                 final isSelected = selectedConversation?.id == conv.id;
+                final prefs = _conversationPrefs[conv.id];
+                final isPinned = prefs?.isPinned ?? false;
+                final isArchived = prefs?.isArchived ?? false;
                 final Widget leading;
                 final String subtitle;
 
@@ -1241,37 +1373,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       : 'Group · $timeLabel';
                 }
 
+                Widget? trailing;
+                if (unreadCount > 0) {
+                  trailing = CircleAvatar(
+                    radius: 11,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    child: Text(
+                      unreadCount > 9 ? '9+' : '$unreadCount',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                    ),
+                  );
+                } else if (isPinned && !_viewingArchived) {
+                  trailing = Icon(
+                    Icons.push_pin,
+                    size: 18,
+                    color: Theme.of(context).hintColor,
+                  );
+                }
+
                 return Padding(
                   key: ValueKey('${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount'),
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   child: ListTile(
                     leading: leading,
-                    title: Text(
-                      conv.displayName,
-                      style: TextStyle(
-                        fontWeight: unreadCount > 0 || isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            conv.displayName,
+                            style: TextStyle(
+                              fontWeight: unreadCount > 0 || isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isArchived && !_viewingArchived && _searchQuery.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Icon(
+                              Icons.archive_outlined,
+                              size: 14,
+                              color: Theme.of(context).hintColor,
+                            ),
+                          ),
+                      ],
                     ),
                     subtitle: Text(
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: unreadCount > 0
-                        ? CircleAvatar(
-                            radius: 11,
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            child: Text(
-                              unreadCount > 9 ? '9+' : '$unreadCount',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Theme.of(context).colorScheme.onPrimary,
-                              ),
-                            ),
-                          )
-                        : null,
+                    trailing: trailing,
                     selected: isSelected,
                     selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1282,6 +1439,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         onSelectGroup(conv.group);
                       }
                     },
+                    onLongPress: () => _showConversationActions(conv),
                   ),
                 );
               },

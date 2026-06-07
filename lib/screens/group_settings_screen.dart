@@ -10,6 +10,7 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
 import 'package:prysm/screens/widgets/notification_mute_tile.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -21,6 +22,7 @@ class GroupSettingsScreen extends StatefulWidget {
   final KeyManager keyManager;
   final VoidCallback onChanged;
   final VoidCallback onLeftOrDeleted;
+  final VoidCallback? onArchived;
 
   const GroupSettingsScreen({
     required this.group,
@@ -29,6 +31,7 @@ class GroupSettingsScreen extends StatefulWidget {
     required this.keyManager,
     required this.onChanged,
     required this.onLeftOrDeleted,
+    this.onArchived,
     super.key,
   });
 
@@ -386,6 +389,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         : null,
                   );
                 }),
+                const Divider(),
+                ConversationPrefsTiles(
+                  conversationId: widget.group.id,
+                  onChanged: widget.onChanged,
+                  onArchived: widget.onArchived,
+                ),
                 const Divider(),
                 NotificationMuteTile(
                   target: MuteTarget.group,

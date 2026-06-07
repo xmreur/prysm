@@ -6,6 +6,7 @@ import 'package:prysm/services/notification_mute_service.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
 import 'widgets/contact_avatar.dart';
+import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
 
 class ChatProfileScreen extends StatefulWidget {
@@ -16,6 +17,8 @@ class ChatProfileScreen extends StatefulWidget {
   final Function(Contact) onUpdateName;
   final Function() onDeleteChat;
   final Function() onDeleteContact;
+  final VoidCallback onPreferencesChanged;
+  final VoidCallback? onArchived;
 
   const ChatProfileScreen({
     required this.peer,
@@ -25,6 +28,8 @@ class ChatProfileScreen extends StatefulWidget {
     required this.onUpdateName,
     required this.onDeleteChat,
     required this.onDeleteContact,
+    required this.onPreferencesChanged,
+    this.onArchived,
     super.key,
   });
 
@@ -272,6 +277,25 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       },
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ConversationPrefsTiles(
+                  conversationId: widget.peer.id,
+                  onChanged: widget.onPreferencesChanged,
+                  onArchived: widget.onArchived,
                 ),
               ),
               const SizedBox(height: 20),

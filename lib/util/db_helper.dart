@@ -1,4 +1,5 @@
 
+import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,7 +24,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 4, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 5, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -39,6 +40,7 @@ class DBHelper {
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
     await _createGroupTables(db);
+    await ConversationPreferencesDb.createTable(db);
   }
 
   static Future<void> _createGroupTables(Database db) async {
@@ -88,6 +90,9 @@ class DBHelper {
     }
     if (oldVersion < 4) {
       await _createGroupTables(db);
+    }
+    if (oldVersion < 5) {
+      await ConversationPreferencesDb.createTable(db);
     }
   }
 

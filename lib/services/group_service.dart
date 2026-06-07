@@ -6,6 +6,7 @@ import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -555,6 +556,7 @@ class GroupService {
 
   Future<void> deleteGroupLocal(String groupId, {bool notify = true}) async {
     await MessagesDb.deleteMessagesForGroup(groupId);
+    await ConversationPreferencesService.instance.delete(groupId);
     await DBHelper.deleteGroup(groupId);
     invalidateGroupKeyCache(groupId);
     if (notify) {
@@ -753,7 +755,7 @@ class GroupService {
           'createdBy': userId,
           'members': members,
           'keyVersion': keyVersion,
-          if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+          'avatarBase64': ?avatarBase64,
         },
       );
       return;
@@ -772,7 +774,7 @@ class GroupService {
       'members': members,
       'encryptedGroupKey': encryptedGroupKey,
       'keyVersion': keyVersion,
-      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+      'avatarBase64': ?avatarBase64,
     });
 
     await _sendControlMessage(
@@ -835,7 +837,7 @@ class GroupService {
     final payload = jsonEncode({
       'groupId': groupId,
       'name': name,
-      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+      'avatarBase64': ?avatarBase64,
     });
 
     await _sendControlMessage(

@@ -1069,6 +1069,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             widget.onCloseChat?.call();
             widget.reloadConversations();
           },
+          onArchived: () {
+            Navigator.of(context).pop();
+            widget.onCloseChat?.call();
+            widget.reloadConversations();
+          },
         ),
       ),
     );

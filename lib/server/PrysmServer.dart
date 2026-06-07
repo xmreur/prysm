@@ -16,6 +16,7 @@ import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
 
@@ -312,6 +313,10 @@ class PrysmServer {
         'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
       }, localId);
 
+      final conversationId = inboundGroupId ?? senderId;
+      await ConversationPreferencesService.instance
+          .unarchiveIfArchived(conversationId);
+
       ConversationRefreshNotifier.instance.notifyInboundMessage();
 
       // Send local notification only if app is in background
@@ -339,7 +344,7 @@ class PrysmServer {
               notificationId: Random().nextInt(99999999),
               payload: jsonEncode({
                 'senderId': senderId,
-                if (groupId != null) 'groupId': groupId,
+                'groupId': ?groupId,
               }),
             );
           }

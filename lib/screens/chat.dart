@@ -31,6 +31,7 @@ import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
+import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
@@ -1079,6 +1080,7 @@ class _ChatScreenState extends State<ChatScreen> {
             _loadInitialMessages();
           },
           onDeleteContact: () async {
+            await ConversationPreferencesService.instance.delete(widget.peerId);
             await DBHelper.deleteUser(widget.peerId);
             resetChatState();
             setState(() {
@@ -1086,6 +1088,11 @@ class _ChatScreenState extends State<ChatScreen> {
               _chatKey = UniqueKey();
               _replyToMessage = null;
             });
+            widget.clearChat();
+          },
+          onPreferencesChanged: widget.reloadUsers,
+          onArchived: () {
+            Navigator.of(context).pop();
             widget.clearChat();
           },
         ),

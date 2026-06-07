@@ -1,4 +1,6 @@
 // lib/models/app_settings.dart
+import 'package:prysm/models/panic_action.dart';
+
 class Settings {
   // General
   final bool enableNotifications;
@@ -15,6 +17,7 @@ class Settings {
 
   // Privacy
   final int messageRetentionDays;
+  final PanicAction panicAction;
 
   // Theme
   final int themeMode; // 0=light, 1=dark, 2=pink, 3=cyan, 4=purple, 5=orange
@@ -39,6 +42,7 @@ class Settings {
     this.personalRelayAddress,
     this.aggressiveRetry = true,
     this.messageRetentionDays = 30,
+    this.panicAction = PanicAction.decoy,
     this.themeMode = 0,
     this.avatar,
     this.username,
@@ -59,6 +63,7 @@ class Settings {
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
     'messageRetentionDays': messageRetentionDays,
+    'panicAction': panicAction.name,
     'themeMode': themeMode,
     'avatar': avatar,
     'username': username,
@@ -79,6 +84,7 @@ class Settings {
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
+    panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     themeMode: json['themeMode'] ?? 0,
     avatar: json['avatar'],
     username: json['username'],
@@ -99,6 +105,7 @@ class Settings {
     String? personalRelayAddress,
     bool? aggressiveRetry,
     int? messageRetentionDays,
+    PanicAction? panicAction,
     int? themeMode,
     String? avatar,
     String? username,
@@ -118,6 +125,7 @@ class Settings {
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
+    panicAction: panicAction ?? this.panicAction,
     themeMode: themeMode ?? this.themeMode,
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
@@ -154,6 +162,7 @@ class Settings {
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
         other.messageRetentionDays == messageRetentionDays &&
+        other.panicAction == panicAction &&
         other.themeMode == themeMode &&
         other.avatar == avatar &&
         other.username == username &&
@@ -174,6 +183,7 @@ class Settings {
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^
         messageRetentionDays.hashCode ^
+        panicAction.hashCode ^
         themeMode.hashCode ^
         (avatar?.hashCode ?? 0) ^
         (username?.hashCode ?? 0) ^

@@ -167,6 +167,38 @@ class KeyManager {
     return encPrivate != null && salt != null;
   }
 
+  /// True if [pin] decrypts the stored identity (without loading keys into memory).
+  Future<bool> pinUnlocksStoredKeys(String pin) async {
+    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
+    final saltB64 = await safeRead(_pinSaltStorageKey);
+    if (encPrivate == null || saltB64 == null) return false;
+    final result = await compute(_decryptPrivateKeyIsolate, {
+      'pin': pin,
+      'encPrivate': encPrivate,
+      'saltB64': saltB64,
+    });
+    return result != null;
+  }
+
+  Future<void> loadEphemeralKeys() async {
+    final pair = RSAHelper.generateKeyPair();
+    _privateKey = pair.privateKey as RSAPrivateKey;
+    _publicKey = pair.publicKey as RSAPublicKey;
+  }
+
+  void lock() {
+    _privateKey = null;
+    _publicKey = null;
+  }
+
+  Future<void> wipeSecureStorage() async {
+    await _secureStorage.delete(key: _encryptedPrivateKeyStorageKey);
+    await _secureStorage.delete(key: _publicKeyStorageKey);
+    await _secureStorage.delete(key: _pinSaltStorageKey);
+    await _secureStorage.delete(key: 'PRIVATE_KEY');
+    lock();
+  }
+
 
   RSAPublicKey get publicKey {
     if (_publicKey == null) throw Exception("Keys not initialized. Call initKeys() first.");

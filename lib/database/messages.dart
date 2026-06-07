@@ -60,7 +60,14 @@ class MessagesDb {
 		}
 
 		return _openCompleter.future;
-	} 
+	}
+
+	static Future<void> closeForWipe() async {
+		if (_database != null) {
+			await _database!.close();
+			_database = null;
+		}
+	}
 
 	static Future<void> _createV2(Database db) async {
         await db.execute('''

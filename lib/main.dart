@@ -9,7 +9,10 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/screens/pin_entry.dart';
+import 'package:prysm/services/panic_pin_service.dart';
+import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
@@ -43,6 +46,8 @@ import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
+import 'package:prysm/util/decoy_session_data.dart';
+import 'package:prysm/screens/decoy_chat_screen.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
@@ -309,6 +314,7 @@ class _MyAppState extends State<MyApp> {
     static final settings = SettingsService();
     
   bool unlocked = false;
+  bool _panicDecoySession = false;
   int _currentTheme = 0;
 
   // Tor init state
@@ -327,13 +333,33 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<bool> onVerifyPin(String pin) async {
-    KeyManager keyManager = widget.keyManager;
-    bool ok = await keyManager.unlockWithPin(pin);
-    if (!ok) return false;
+    final keyManager = widget.keyManager;
+    if (await keyManager.unlockWithPin(pin)) {
+      setState(() {
+        unlocked = true;
+        _panicDecoySession = false;
+      });
+      return true;
+    }
 
-    setState(() => unlocked = true);
+    if (await PanicPinService.instance.isConfigured() &&
+        await PanicPinService.instance.verify(pin)) {
+      if (settings.panicAction == PanicAction.wipe) {
+        await PanicWipeService.wipeAll();
+        await keyManager.wipeSecureStorage();
+        await settings.load();
+      } else {
+        keyManager.lock();
+      }
+      await keyManager.loadEphemeralKeys();
+      setState(() {
+        unlocked = true;
+        _panicDecoySession = true;
+      });
+      return true;
+    }
 
-    return true;
+    return false;
   }
 
   @override
@@ -475,7 +501,16 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       title: '${settings.name} Chat',
       theme: ThemeManager.getTheme(_currentTheme),
-      home: HomeScreen(torManager: _torManager!, onionAddress: _onionAddress!, keyManager: widget.keyManager, onThemeChanged: updateTheme, currentTheme: _currentTheme),
+      home: HomeScreen(
+        torManager: _torManager!,
+        onionAddress: _panicDecoySession
+            ? DecoySessionData.identityOnion
+            : _onionAddress!,
+        keyManager: widget.keyManager,
+        onThemeChanged: updateTheme,
+        currentTheme: _currentTheme,
+        decoyMode: _panicDecoySession,
+      ),
     );
   }
 }
@@ -486,14 +521,16 @@ class HomeScreen extends StatefulWidget {
   final KeyManager keyManager;
   final Function(int)? onThemeChanged;
   final int currentTheme;
+  final bool decoyMode;
 
   const HomeScreen({
-    required this.torManager, 
-    required this.onionAddress, 
-    required this.keyManager, 
+    required this.torManager,
+    required this.onionAddress,
+    required this.keyManager,
     this.onThemeChanged,
     this.currentTheme = 0,
-    super.key
+    this.decoyMode = false,
+    super.key,
   });
 
   @override
@@ -518,6 +555,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Map<String, String> _lastMessagePreviews = {};
   Map<String, int> _unreadCounts = {};
   Map<String, ConversationPreferences> _conversationPrefs = {};
+  Map<String, List<DecoyMessage>> _decoyMessages = {};
   bool _viewingArchived = false;
 
   Timer? _refreshTimer;
@@ -545,6 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _reloadConversationPreferences() async {
+    if (widget.decoyMode) return;
     final prefs = await ConversationPreferencesService.instance.getAll();
     if (!mounted) return;
     setState(() {
@@ -553,17 +592,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  void _updateDecoyConversationPref(ConversationPreferences pref) {
+    setState(() {
+      _conversationPrefs = Map.of(_conversationPrefs)..[pref.conversationId] = pref;
+      ConversationPreferencesService.sortConversations(conversations, _conversationPrefs);
+    });
+  }
+
   Future<void> _pinConversation(String id) async {
+    if (widget.decoyMode) {
+      _updateDecoyConversationPref(ConversationPreferences(
+        conversationId: id,
+        isPinned: true,
+        pinnedAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      return;
+    }
     await ConversationPreferencesService.instance.pin(id);
     await _reloadConversationPreferences();
   }
 
   Future<void> _unpinConversation(String id) async {
+    if (widget.decoyMode) {
+      _updateDecoyConversationPref(ConversationPreferences(
+        conversationId: id,
+      ));
+      return;
+    }
     await ConversationPreferencesService.instance.unpin(id);
     await _reloadConversationPreferences();
   }
 
   Future<void> _archiveConversation(String id) async {
+    if (widget.decoyMode) {
+      _updateDecoyConversationPref(ConversationPreferences(
+        conversationId: id,
+        isArchived: true,
+        archivedAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      if (selectedConversation?.id == id) {
+        clearChat();
+      }
+      if (mounted) {
+        setState(() => _viewingArchived = false);
+      }
+      return;
+    }
     await ConversationPreferencesService.instance.archive(id);
     if (selectedConversation?.id == id) {
       clearChat();
@@ -575,6 +649,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _unarchiveConversation(String id) async {
+    if (widget.decoyMode) {
+      _updateDecoyConversationPref(ConversationPreferences(
+        conversationId: id,
+      ));
+      return;
+    }
     await ConversationPreferencesService.instance.unarchive(id);
     await _reloadConversationPreferences();
   }
@@ -598,14 +678,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     currentTheme = widget.currentTheme;
     final appSettings = SettingsService();
-    appUser = Contact(id: widget.onionAddress, name: appSettings.username ?? '', avatarUrl: '', publicKeyPem: 'NONE');
+    if (widget.decoyMode) {
+      _bootstrapDecoySession();
+    } else {
+      appUser = Contact(
+        id: widget.onionAddress,
+        name: appSettings.username ?? '',
+        avatarUrl: '',
+        publicKeyPem: 'NONE',
+      );
+    }
     _syncCoordinator = SyncCoordinator(
-      userId: widget.onionAddress,
+      userId: widget.decoyMode ? 'decoy-user' : widget.onionAddress,
       keyManager: widget.keyManager,
       torManager: widget.torManager,
       isTorStopped: () => _torStopped,
     );
-    _syncCoordinator!.start();
+    if (!widget.decoyMode) {
+      _syncCoordinator!.start();
+    }
+
+    if (widget.decoyMode) {
+      return;
+    }
 
     loadUsers().then((_) async {
       if (mounted && !_torStopped) {
@@ -725,7 +820,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> loadUsers({bool light = false}) async {
-    if (!mounted) return;
+    if (!mounted || widget.decoyMode) return;
     if (_loadUsersInProgress) {
       _loadUsersQueued = true;
       _loadUsersQueuedLight = _loadUsersQueuedLight || light;
@@ -950,10 +1045,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  void _bootstrapDecoySession() {
+    final data = DecoySessionData.build();
+    appUser = data.appUser;
+    contacts = data.contacts;
+    groups = data.groups;
+    conversations = data.conversations;
+    _lastMessagePreviews = data.lastMessagePreviews;
+    _unreadCounts = data.unreadCounts;
+    _conversationPrefs = data.conversationPrefs;
+    _decoyMessages = data.messagesByConversationId;
+    isLoading = false;
+  }
+
   void onUpdateProfile(Contact updatedUser) {
     setState(() {
       appUser = updatedUser;
     });
+    if (widget.decoyMode) return;
     saveAppUser(updatedUser);
     // Persist avatar and username to SettingsService so /profile serves fresh data
     final settings = SettingsService();
@@ -981,6 +1090,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showCreateGroup() {
+    if (widget.decoyMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not create group. Make sure all members are online and try again.',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CreateGroupScreen(
@@ -1032,6 +1151,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final newName = nameController.text.trim();
 
       if (newId.isEmpty || newId == '.onion' || newName.isEmpty) {
+        return;
+      }
+      if (widget.decoyMode) {
+        if (!dialogContext.mounted) return;
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not reach peer or fetch their public key. '
+              'Make sure they are online and try again.',
+            ),
+          ),
+        );
         return;
       }
       final added = await _addNewUser(newId, newName);
@@ -1494,7 +1625,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: const Icon(Icons.add_circle_outline),
                   onPressed: _showAddUserDialog,
                   tooltip: "Add Contact",
-                )
+                ),
               ],
             ),
           ),
@@ -2051,10 +2182,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onClose: () => setState(() => showSettings = false),
         onThemeChanged: onThemeChanged,
         torManager: widget.torManager,
+        keyManager: widget.decoyMode ? null : widget.keyManager,
       );
     }
     if (selectedConversation is GroupConversation) {
       final group = (selectedConversation as GroupConversation).group;
+      if (widget.decoyMode) {
+        return DecoyChatScreen(
+          key: ValueKey('decoy_group_${group.id}'),
+          title: group.name,
+          avatarName: group.name,
+          avatarBase64: group.avatarBase64,
+          isGroup: true,
+          initialMessages: _decoyMessages[group.id] ?? const [],
+          onCloseChat: () => clearChat(),
+        );
+      }
       return GroupChatScreen(
         key: ValueKey('group_${group.id}'),
         userId: appUser.id,
@@ -2066,6 +2209,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
     if (selectedContact != null) {
+      if (widget.decoyMode) {
+        final contact = selectedContact!;
+        return DecoyChatScreen(
+          key: ValueKey('decoy_dm_${contact.id}'),
+          title: contact.displayName,
+          avatarName: contact.displayName,
+          avatarBase64: contact.avatarBase64,
+          initialMessages: _decoyMessages[contact.id] ?? const [],
+          onCloseChat: () => clearChat(),
+        );
+      }
       return ChatScreen(
         userId: appUser.id,
         userName: appUser.name,

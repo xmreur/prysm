@@ -336,6 +336,10 @@ class _MyAppState extends State<MyApp> {
   Future<bool> onVerifyPin(String pin) async {
     final keyManager = widget.keyManager;
     if (await keyManager.unlockWithPin(pin)) {
+      await settings.migrateOnboardingIfExisting(
+        readPublicKey: () => keyManager.safeRead('PUBLIC_KEY'),
+        contactCount: (await DBHelper.getUsers()).length,
+      );
       setState(() {
         unlocked = true;
         _panicDecoySession = false;
@@ -583,6 +587,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   int get _archivedCount =>
       conversations.where((c) => _conversationPrefs[c.id]?.isArchived ?? false).length;
+
+  int get _archivedUnreadCount => conversations
+      .where(
+        (c) =>
+            (_conversationPrefs[c.id]?.isArchived ?? false) &&
+            (_unreadCounts[c.id] ?? 0) > 0,
+      )
+      .length;
 
   List<Conversation> get _filteredConversations {
     return conversations.where((c) {
@@ -1451,7 +1463,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                       title: const Text('Archived'),
-                      subtitle: Text('$_archivedCount'),
+                      subtitle: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('$_archivedCount'),
+                          if (_archivedUnreadCount > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -1818,6 +1846,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildTorAppBarAction() {
     final color = _torStatusColor(_torConnectionState);
+    final narrow = MediaQuery.sizeOf(context).width < 400;
     final shortLabel = switch (_torConnectionState) {
       TorConnectionState.connected => 'Tor',
       TorConnectionState.connecting => '…',
@@ -1835,22 +1864,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onTap: _showTorStatusSheet,
             borderRadius: BorderRadius.circular(20),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: EdgeInsets.symmetric(
+                horizontal: narrow ? 10 : 12,
+                vertical: 8,
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.shield_outlined, size: 18, color: color),
                   const SizedBox(width: 6),
                   _torStatusDot(_torConnectionState, size: 8),
-                  const SizedBox(width: 6),
-                  Text(
-                    shortLabel,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: color,
+                  if (!narrow) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      shortLabel,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -2235,9 +2269,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                '${settings.name} Chat',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  '${settings.name} Chat',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),

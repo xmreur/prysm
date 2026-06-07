@@ -67,4 +67,32 @@ class DownloadLocation {
     await file.writeAsBytes(bytes);
     return file;
   }
+
+  /// Backup files in the active download folder, plus any in the legacy app dir.
+  static Future<List<File>> listBackupFiles() async {
+    final files = <String, File>{};
+
+    final downloadDir = await resolveDirectory();
+    if (downloadDir != null) {
+      await for (final entity in downloadDir.list()) {
+        if (entity is File && entity.path.endsWith('.prysmbackup')) {
+          files[entity.path] = entity;
+        }
+      }
+    }
+
+    final docDir = await getApplicationDocumentsDirectory();
+    final legacyDir = Directory(p.join(docDir.path, 'prysm_backups'));
+    if (await legacyDir.exists()) {
+      await for (final entity in legacyDir.list()) {
+        if (entity is File && entity.path.endsWith('.prysmbackup')) {
+          files[entity.path] = entity;
+        }
+      }
+    }
+
+    final list = files.values.toList();
+    list.sort((a, b) => b.path.compareTo(a.path));
+    return list;
+  }
 }

@@ -45,11 +45,13 @@ class PresentationPreviewData {
   final List<String> lines;
   final String fullText;
   final bool legacyFormat;
+  final List<String> slides;
 
   const PresentationPreviewData({
     required this.lines,
     required this.fullText,
     this.legacyFormat = false,
+    this.slides = const [],
   });
 }
 
@@ -207,7 +209,8 @@ class FilePreviewService {
       );
     }
 
-    final fullText = PptxTextExtractor.extract(bytes);
+    final slideTexts = PptxTextExtractor.extractSlides(bytes);
+    final fullText = slideTexts.join('\n\n');
     if (fullText.isEmpty) {
       return const PresentationPreviewData(
         lines: ['Could not read presentation'],
@@ -220,7 +223,11 @@ class FilePreviewService {
         ? ReadableFilePolicy.textSnippetLines
         : allLines.length;
     final lines = allLines.take(maxLines).toList();
-    return PresentationPreviewData(lines: lines, fullText: fullText);
+    return PresentationPreviewData(
+      lines: lines,
+      fullText: fullText,
+      slides: slideTexts,
+    );
   }
 
   static SpreadsheetPreviewData _buildSpreadsheetPreview(

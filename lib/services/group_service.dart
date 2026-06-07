@@ -985,18 +985,24 @@ class GroupService {
   Future<RSAPublicKey?> _fetchPeerPublicKey(String peerId) async {
     final cached = await DBHelper.getUserById(peerId);
     final pem = cached?['publicKeyPem'] as String?;
-    if (pem != null && pem.isNotEmpty) {
-      return keyManager.importPeerPublicKey(pem);
+    if (pem != null && pem.isNotEmpty && pem != 'NONE') {
+      try {
+        return keyManager.importPeerPublicKey(pem);
+      } catch (e) {
+        print('Invalid cached peer public key for $peerId: $e');
+      }
     }
 
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
       final uri = Uri.parse('http://$peerId:80/public');
       final response = await torClient.get(uri, {}).timeout(const Duration(seconds: 20));
-      final publicKeyPem = await response.transform(utf8.decoder).join();
+      final publicKeyPem =
+          (await response.transform(utf8.decoder).join()).trim();
       if (publicKeyPem.isNotEmpty) {
+        final key = keyManager.importPeerPublicKey(publicKeyPem);
         await DBHelper.updateUserFields(peerId, {'publicKeyPem': publicKeyPem});
-        return keyManager.importPeerPublicKey(publicKeyPem);
+        return key;
       }
     } catch (e) {
       print('Failed to fetch peer public key: $e');

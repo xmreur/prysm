@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/rsa_helper.dart';
 
 class ContactAddService {
   ContactAddService._();
@@ -25,7 +26,7 @@ class ContactAddService {
         final profileBody =
             await profileResponse.transform(utf8.decoder).join();
         final profileData = jsonDecode(profileBody) as Map<String, dynamic>;
-        publicKeyPem = profileData['publicKeyPem'] as String?;
+        publicKeyPem = (profileData['publicKeyPem'] as String?)?.trim();
         if (profileData['username'] != null &&
             (profileData['username'] as String).isNotEmpty) {
           fetchedName = profileData['username'] as String;
@@ -38,7 +39,8 @@ class ContactAddService {
         print('Profile fetch failed, trying /public: $e');
         final uri = Uri.parse('http://$peerOnion:80/public');
         final response = await torClient.get(uri, {});
-        publicKeyPem = await response.transform(utf8.decoder).join();
+        publicKeyPem =
+            (await response.transform(utf8.decoder).join()).trim();
       }
     } catch (e) {
       print('Failed to fetch public key from $onionId: $e');
@@ -48,6 +50,13 @@ class ContactAddService {
     }
 
     if (publicKeyPem == null || publicKeyPem.isEmpty) {
+      return false;
+    }
+
+    try {
+      RSAHelper.normalizePublicKeyPem(publicKeyPem);
+    } catch (e) {
+      print('Invalid public key PEM from $onionId: $e');
       return false;
     }
 

@@ -33,8 +33,19 @@ class RSAHelper {
     return CryptoUtils.encodeRSAPrivateKeyToPem(privateKey);
   }
 
+  static String normalizePublicKeyPem(String raw) {
+    final pem = raw.trim();
+    if (pem.isEmpty || pem == 'NONE') {
+      throw FormatException('Invalid PEM: empty or placeholder');
+    }
+    if (!pem.contains('BEGIN PUBLIC KEY')) {
+      throw FormatException('Expected SPKI PEM (BEGIN PUBLIC KEY)');
+    }
+    return pem;
+  }
+
   static RSAPublicKey publicKeyFromPem(String pem) {
-    return CryptoUtils.rsaPublicKeyFromPem(pem);
+    return CryptoUtils.rsaPublicKeyFromPem(normalizePublicKeyPem(pem));
   }
 
   static RSAPrivateKey privateKeyFromPem(String pem) {

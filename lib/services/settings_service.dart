@@ -23,6 +23,7 @@ class SettingsService {
 
   Settings _settings = Settings();
   SharedPreferences? _prefs;
+  bool _settingsExistedAtLaunch = false;
 
   // Getters for easy access
   Settings get settings => _settings;
@@ -62,7 +63,22 @@ class SettingsService {
   // Initialize (call at app startup)
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    _settingsExistedAtLaunch = _prefs?.getString(_settingsKey) != null;
     await load();
+  }
+
+  /// Skips onboarding for upgrades: settings existed before this launch and
+  /// the user already has keys or contacts from a prior session.
+  Future<void> migrateOnboardingIfExisting({
+    required Future<String?> Function() readPublicKey,
+    required int contactCount,
+  }) async {
+    if (_settings.onboardingCompleted || !_settingsExistedAtLaunch) return;
+
+    final publicKey = await readPublicKey();
+    if (publicKey != null || contactCount > 0) {
+      await setOnboardingCompleted(true);
+    }
   }
 
   // Load settings from storage

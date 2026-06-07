@@ -1,13 +1,12 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:prysm/services/backup_service.dart';
+import 'package:prysm/util/download_location.dart';
 
 /// Shows the create-backup password dialog and writes an encrypted backup file.
-Future<void> showCreateBackupDialog(BuildContext context) async {
+/// Returns true when a backup file was written successfully.
+Future<bool> showCreateBackupDialog(BuildContext context) async {
   final passwordController = TextEditingController();
+  var created = false;
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -49,9 +48,9 @@ Future<void> showCreateBackupDialog(BuildContext context) async {
               );
               return;
             }
+            final messenger = ScaffoldMessenger.of(context);
             Navigator.pop(dialogContext);
-            if (!context.mounted) return;
-            await performBackup(context, password);
+            created = await performBackup(messenger, password);
           },
           child: const Text('Create Backup'),
         ),
@@ -59,34 +58,31 @@ Future<void> showCreateBackupDialog(BuildContext context) async {
     ),
   );
   passwordController.dispose();
+  return created;
 }
 
-/// Creates an encrypted backup at Documents/prysm_backups/.
-Future<bool> performBackup(BuildContext context, String password) async {
+/// Creates an encrypted backup in the user's download folder.
+Future<bool> performBackup(
+  ScaffoldMessengerState messenger,
+  String password,
+) async {
   try {
-    final dir = await getApplicationDocumentsDirectory();
-    final backupDir = Directory(p.join(dir.path, 'prysm_backups'));
-    if (!await backupDir.exists()) await backupDir.create(recursive: true);
     final fileName =
         'prysm_backup_${DateTime.now().millisecondsSinceEpoch}.prysmbackup';
-    final outputPath = p.join(backupDir.path, fileName);
-    await BackupService.createBackup(outputPath, password);
+    final file = await DownloadLocation.uniqueFile(fileName);
+    await BackupService.createBackup(file.path, password);
 
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Backup saved to ${backupDir.path}/$fileName'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Backup saved to ${file.path}'),
+        duration: const Duration(seconds: 5),
+      ),
+    );
     return true;
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup failed: $e')),
-      );
-    }
+    messenger.showSnackBar(
+      SnackBar(content: Text('Backup failed: $e')),
+    );
     return false;
   }
 }

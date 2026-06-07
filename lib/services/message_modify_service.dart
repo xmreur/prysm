@@ -106,7 +106,12 @@ class MessageModifyService {
       encryptedBody: encryptedPeer,
       modifiedAt: modifiedAt,
     );
-    await _sendDirectModify(payload);
+    try {
+      await _sendDirectModify(payload);
+    } catch (e) {
+      print('Direct message edit send failed: $e');
+      return false;
+    }
 
     MessageModifyRefreshNotifier.instance.notify(
       MessageModifyUpdate(
@@ -161,7 +166,8 @@ class MessageModifyService {
     final peerKey = await _loadPeerPublicKey();
     if (peerId == null || peerKey == null) return;
 
-    final encrypted = keyManager.encryptForPeer(payload.encode(), peerKey);
+    final encrypted =
+        keyManager.encryptHybridForPeer(payload.encode(), peerKey);
     final eventId = modifyEventId(
       targetMessageId: payload.targetMessageId,
       actorId: userId,
@@ -297,7 +303,8 @@ class MessageModifyService {
       final pem = user?['publicKeyPem'] as String?;
       if (pem == null || pem.isEmpty) return null;
       return keyManager.importPeerPublicKey(pem);
-    } catch (_) {
+    } catch (e) {
+      print('Failed to load peer public key for $peerId: $e');
       return null;
     }
   }
@@ -394,6 +401,9 @@ class MessageModifyService {
   }) async {
     try {
       if (type == messageModifyType) {
+        if (KeyManager.isHybridEnvelope(encrypted)) {
+          return keyManager.decryptHybridEnvelope(encrypted);
+        }
         return keyManager.decryptMessage(encrypted);
       }
       if (type == groupMessageModifyType &&

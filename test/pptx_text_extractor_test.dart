@@ -23,5 +23,9 @@ void main() {
 
     expect(text, contains('Hello slide'));
     expect(text, contains('Second line'));
+
+    final slides = PptxTextExtractor.extractSlides(bytes);
+    expect(slides, hasLength(1));
+    expect(slides.first, contains('Hello slide'));
   });
 }

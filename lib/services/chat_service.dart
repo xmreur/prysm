@@ -5,6 +5,7 @@ import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/rsa_helper.dart';
@@ -21,9 +22,7 @@ class ChatService {
   bool _isPolling = false;
   bool _isSending = false;
   bool _disposed = false;
-  int _pollIntervalSeconds = 2;
-  static const int _pollIntervalActive = 2;
-  static const int _pollIntervalIdle = 5;
+  int _pollIntervalSeconds = BatterySaverPolicy.chatPollActiveSeconds(false);
   int _consecutivePollErrors = 0;
 
   final _newMessagesController =
@@ -219,12 +218,14 @@ class ChatService {
       try {
         final hadNew = await _fetchNewMessages();
         _consecutivePollErrors = 0;
-        _pollIntervalSeconds = hadNew ? _pollIntervalActive : _pollIntervalIdle;
+        _pollIntervalSeconds = hadNew
+            ? BatterySaverPolicy.chatPollActiveSeconds()
+            : BatterySaverPolicy.chatPollIdleSeconds();
       } catch (e) {
         print('Polling error: $e');
         _consecutivePollErrors++;
-        // Exponential backoff: 2s, 4s, 8s, 16s, max 30s
-        _pollIntervalSeconds = min(30, _pollIntervalActive * (1 << _consecutivePollErrors));
+        final base = BatterySaverPolicy.chatPollActiveSeconds();
+        _pollIntervalSeconds = min(30, base * (1 << _consecutivePollErrors));
       }
 
       if (_isPolling && !_disposed) {

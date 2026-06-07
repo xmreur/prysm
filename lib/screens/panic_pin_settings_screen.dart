@@ -62,6 +62,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
     );
     if (first == null || !mounted) return;
     if (!await _validateNewPin(first)) return;
+    if (!mounted) return;
 
     final confirm = await showSixDigitPinDialog(
       context: context,
@@ -86,9 +87,11 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
     );
     if (current == null || !mounted) return;
     if (!await PanicPinService.instance.verify(current)) {
+      if (!mounted) return;
       _showSnack('Incorrect panic PIN');
       return;
     }
+    if (!mounted) return;
 
     final first = await showSixDigitPinDialog(
       context: context,
@@ -96,6 +99,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
     );
     if (first == null || !mounted) return;
     if (!await _validateNewPin(first)) return;
+    if (!mounted) return;
 
     final confirm = await showSixDigitPinDialog(
       context: context,
@@ -134,17 +138,19 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
     final selected = await showModalBottomSheet<PanicAction>(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: PanicAction.values.map((action) {
-            return RadioListTile<PanicAction>(
-              value: action,
-              groupValue: _action,
-              title: Text(action.label),
-              subtitle: Text(action.description),
-              onChanged: (value) => Navigator.pop(ctx, value),
-            );
-          }).toList(),
+        child: RadioGroup<PanicAction>(
+          groupValue: _action,
+          onChanged: (value) => Navigator.pop(ctx, value),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: PanicAction.values.map((action) {
+              return RadioListTile<PanicAction>(
+                value: action,
+                title: Text(action.label),
+                subtitle: Text(action.description),
+              );
+            }).toList(),
+          ),
         ),
       ),
     );

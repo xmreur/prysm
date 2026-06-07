@@ -31,6 +31,9 @@ class Settings {
   final bool enableLinkUnfurling;
   final String? customDownloadPath;
 
+  // Onboarding
+  final bool onboardingCompleted;
+
   Settings({
     this.enableNotifications = true,
     this.showOnlineStatus = true,
@@ -49,6 +52,7 @@ class Settings {
     this.enableFilePreview = false,
     this.enableLinkUnfurling = false,
     this.customDownloadPath,
+    this.onboardingCompleted = false,
   });
 
   // Serialize to JSON
@@ -70,6 +74,7 @@ class Settings {
     'enableFilePreview': enableFilePreview,
     'enableLinkUnfurling': enableLinkUnfurling,
     'customDownloadPath': customDownloadPath,
+    'onboardingCompleted': onboardingCompleted,
   };
 
   // Deserialize from JSON
@@ -91,6 +96,7 @@ class Settings {
     enableFilePreview: json['enableFilePreview'] ?? false,
     enableLinkUnfurling: json['enableLinkUnfurling'] ?? false,
     customDownloadPath: json['customDownloadPath'],
+    onboardingCompleted: json['onboardingCompleted'] ?? false,
   );
 
   // Copy with modifications (immutable pattern)
@@ -112,6 +118,7 @@ class Settings {
     bool? enableFilePreview,
     bool? enableLinkUnfurling,
     String? customDownloadPath,
+    bool? onboardingCompleted,
     bool clearCustomDownloadPath = false,
   }) => Settings(
     enableNotifications: enableNotifications ?? this.enableNotifications,
@@ -134,6 +141,7 @@ class Settings {
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
+    onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
   );
 
   @override
@@ -168,7 +176,8 @@ class Settings {
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
         other.enableLinkUnfurling == enableLinkUnfurling &&
-        other.customDownloadPath == customDownloadPath;
+        other.customDownloadPath == customDownloadPath &&
+        other.onboardingCompleted == onboardingCompleted;
   }
 
   @override
@@ -189,6 +198,7 @@ class Settings {
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^
         enableLinkUnfurling.hashCode ^
-        (customDownloadPath?.hashCode ?? 0);
+        (customDownloadPath?.hashCode ?? 0) ^
+        onboardingCompleted.hashCode;
   }
 }

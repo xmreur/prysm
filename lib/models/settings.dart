@@ -23,6 +23,7 @@ class Settings {
   final String? username; // display name
 
   // Files
+  final bool enableFilePreview;
   final String? customDownloadPath;
 
   Settings({
@@ -38,6 +39,7 @@ class Settings {
     this.themeMode = 0,
     this.avatar,
     this.username,
+    this.enableFilePreview = false,
     this.customDownloadPath,
   });
 
@@ -55,6 +57,7 @@ class Settings {
     'themeMode': themeMode,
     'avatar': avatar,
     'username': username,
+    'enableFilePreview': enableFilePreview,
     'customDownloadPath': customDownloadPath,
   };
 
@@ -72,6 +75,7 @@ class Settings {
     themeMode: json['themeMode'] ?? 0,
     avatar: json['avatar'],
     username: json['username'],
+    enableFilePreview: json['enableFilePreview'] ?? false,
     customDownloadPath: json['customDownloadPath'],
   );
 
@@ -89,6 +93,7 @@ class Settings {
     int? themeMode,
     String? avatar,
     String? username,
+    bool? enableFilePreview,
     String? customDownloadPath,
     bool clearCustomDownloadPath = false,
   }) => Settings(
@@ -105,6 +110,7 @@ class Settings {
     themeMode: themeMode ?? this.themeMode,
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
+    enableFilePreview: enableFilePreview ?? this.enableFilePreview,
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
@@ -138,6 +144,7 @@ class Settings {
         other.themeMode == themeMode &&
         other.avatar == avatar &&
         other.username == username &&
+        other.enableFilePreview == enableFilePreview &&
         other.customDownloadPath == customDownloadPath;
   }
 
@@ -155,6 +162,7 @@ class Settings {
         themeMode.hashCode ^
         (avatar?.hashCode ?? 0) ^
         (username?.hashCode ?? 0) ^
+        enableFilePreview.hashCode ^
         (customDownloadPath?.hashCode ?? 0);
   }
 }

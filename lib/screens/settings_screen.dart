@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _minimizeToTray = true;
   bool _minimizeOnMinimizeButton = false;
   bool _enableRelay = false;
+  bool _enableFilePreview = false;
   String _downloadLocationDisplay = 'Loading...';
 
   @override
@@ -52,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _minimizeToTray = settings.minimizeToTray;
       _minimizeOnMinimizeButton = settings.minimizeOnMinimizeButton;
       _enableRelay = settings.enableRelay;
+      _enableFilePreview = settings.enableFilePreview;
     });
   }
 
@@ -156,6 +158,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onMinimizeOnMinimizeButtonToggle(bool value) async {
     await settings.setMinimizeOnMinimizeButton(value);
     setState(() => _minimizeOnMinimizeButton = value);
+  }
+
+  void _onFilePreviewToggle(bool value) async {
+    await settings.setEnableFilePreview(value);
+    setState(() => _enableFilePreview = value);
   }
 
   void _showAboutDialog() {
@@ -601,6 +608,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Data'),
               const SizedBox(height: 12),
               _buildCard([
+                _buildSwitchTile(
+                  'File previews',
+                  'Show inline previews for documents, images, and media in chat',
+                  Icons.preview_outlined,
+                  _enableFilePreview,
+                  _onFilePreviewToggle,
+                ),
+                const Divider(height: 1),
                 _buildNavigationTile(
                   'Download Location',
                   Icons.download_outlined,

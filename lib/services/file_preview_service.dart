@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:docx_to_text/docx_to_text.dart';
+import 'package:prysm/util/docx_text_extractor.dart';
 import 'package:excel/excel.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:prysm/util/pptx_text_extractor.dart';
@@ -182,7 +182,7 @@ class FilePreviewService {
     required bool inline,
   }) {
     try {
-      final fullText = docxToText(bytes);
+      final fullText = DocxTextExtractor.extract(bytes);
       final allLines = const LineSplitter().convert(fullText);
       final maxLines = inline
           ? ReadableFilePolicy.textSnippetLines

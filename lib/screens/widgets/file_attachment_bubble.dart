@@ -5,6 +5,7 @@ import 'package:pdfx/pdfx.dart';
 import 'package:prysm/screens/file_preview_screen.dart';
 import 'package:prysm/screens/widgets/file_preview_content.dart';
 import 'package:prysm/services/file_preview_service.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 
@@ -45,7 +46,11 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   void initState() {
     super.initState();
     _category = ReadableFilePolicy.categorize(widget.fileName);
-    _loadPreview();
+    if (SettingsService().enableFilePreview) {
+      _loadPreview();
+    } else {
+      _loading = false;
+    }
   }
 
   @override
@@ -118,6 +123,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   }
 
   void _openFullPreview() {
+    if (!SettingsService().enableFilePreview) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => FilePreviewScreen(

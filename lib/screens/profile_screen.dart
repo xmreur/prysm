@@ -6,7 +6,6 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
-import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import '../models/contact.dart';
 import 'privacy_settings_screen.dart';

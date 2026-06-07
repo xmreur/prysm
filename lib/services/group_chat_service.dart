@@ -424,8 +424,8 @@ class GroupChatService {
         'type': type,
         'replyTo': replyToId,
         'timestamp': timestamp,
-        if (fileName != null) 'fileName': fileName,
-        if (fileSize != null) 'fileSize': fileSize,
+        'fileName': ?fileName,
+        'fileSize': ?fileSize,
         if (viewOnce) 'viewOnce': true,
       });
       final response = await torClient
@@ -471,8 +471,8 @@ class GroupChatService {
       'replyTo': replyToId,
       'groupId': groupId,
       'targetMemberId': targetMemberId,
-      if (fileName != null) 'fileName': fileName,
-      if (fileSize != null) 'fileSize': fileSize,
+      'fileName': ?fileName,
+      'fileSize': ?fileSize,
       'viewOnce': viewOnce ? 1 : 0,
     });
   }

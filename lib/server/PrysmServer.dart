@@ -344,7 +344,7 @@ class PrysmServer {
               notificationId: Random().nextInt(99999999),
               payload: jsonEncode({
                 'senderId': senderId,
-                if (groupId != null) 'groupId': groupId,
+                'groupId': ?groupId,
               }),
             );
           }

@@ -755,7 +755,7 @@ class GroupService {
           'createdBy': userId,
           'members': members,
           'keyVersion': keyVersion,
-          if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+          'avatarBase64': ?avatarBase64,
         },
       );
       return;
@@ -774,7 +774,7 @@ class GroupService {
       'members': members,
       'encryptedGroupKey': encryptedGroupKey,
       'keyVersion': keyVersion,
-      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+      'avatarBase64': ?avatarBase64,
     });
 
     await _sendControlMessage(
@@ -837,7 +837,7 @@ class GroupService {
     final payload = jsonEncode({
       'groupId': groupId,
       'name': name,
-      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+      'avatarBase64': ?avatarBase64,
     });
 
     await _sendControlMessage(

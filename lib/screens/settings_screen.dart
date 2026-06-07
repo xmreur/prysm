@@ -321,12 +321,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         final files = await DownloadLocation.listBackupFiles();
         if (files.isEmpty) {
-          if (mounted) {
-            final location = await DownloadLocation.displayPath();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('No backup files found in $location')),
-            );
-          }
+          final location = await DownloadLocation.displayPath();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No backup files found in $location')),
+          );
           return;
         }
 

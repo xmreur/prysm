@@ -1,8 +1,7 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:prysm/util/qr_platform.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -20,8 +19,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   @override
   void initState() {
     super.initState();
-    final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    if (isMobile) {
+    if (QrPlatform.isScanSupported) {
       _controller = MobileScannerController(
         detectionSpeed: DetectionSpeed.normal,
         facing: CameraFacing.back,
@@ -62,10 +60,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Only support scanning on mobile platforms
-    final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-
-    if (!isMobile) {
+    if (!QrPlatform.isScanSupported) {
       return Scaffold(
         appBar: AppBar(title: const Text('QR Scanner')),
         body: const Center(

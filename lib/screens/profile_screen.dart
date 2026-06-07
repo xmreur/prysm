@@ -234,21 +234,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               encodeOnionToBase58(widget.user.id),
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.qr_code_scanner),
-                            tooltip: 'Scan a QR code',
-                            onPressed: () async {
-                              final scanned = await Navigator.push<String>(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const QrScannerScreen(),
-                                ),
-                              );
-                              if (scanned != null && scanned.isNotEmpty) {
-                                widget.onScanResult?.call(scanned);
-                              }
-                            },
-                          ),
                         ],
                       ),
                       onTap: () {

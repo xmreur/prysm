@@ -36,6 +36,7 @@ import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
+import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:flutter_background/flutter_background.dart';
@@ -907,160 +908,107 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.onThemeChanged?.call(themeIndex);
   }
 
-  Future<void> _showAddUserDialog() async {
-    final idController = TextEditingController();
+  Future<void> _showAddUserDialog({String? prefilledId}) async {
+    final idController = TextEditingController(text: prefilledId ?? '');
     final nameController = TextEditingController();
+    final hostContext = context;
+
+    Future<void> submit(BuildContext dialogContext) async {
+      String newId;
+      try {
+        newId = decodeBase58ToOnion(idController.text.trim());
+      } catch (_) {
+        return;
+      }
+      final newName = nameController.text.trim();
+
+      if (newId.isEmpty || newId == '.onion' || newName.isEmpty) {
+        return;
+      }
+      final added = await _addNewUser(newId, newName);
+      if (!dialogContext.mounted) return;
+      if (!added) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not reach peer or fetch their public key. '
+              'Make sure they are online and try again.',
+            ),
+          ),
+        );
+        return;
+      }
+      await loadUsers();
+      if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+    }
 
     await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New User'),
+      context: hostContext,
+      builder: (dialogContext) {
+        Future<void> scanQrCode() async {
+          Navigator.of(dialogContext).pop();
+          final scannedValue = await Navigator.push<String>(
+            hostContext,
+            MaterialPageRoute(
+              builder: (_) => const QrScannerScreen(),
+            ),
+          );
+          if (scannedValue != null && scannedValue.isNotEmpty) {
+            _showAddUserDialog(prefilledId: scannedValue);
+          }
+        }
+
+        return AlertDialog(
+        title: const Text('Add contact'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
-              controller: idController,
-              decoration: InputDecoration(
-                labelText: 'User ID (Base58 Onion URL)',
-                hintText: 'eg. 51EsbujFRDJLHJ',
-                suffixIcon: (Platform.isAndroid || Platform.isIOS)
-                    ? IconButton(
-                        icon: const Icon(Icons.qr_code_scanner),
-                        tooltip: 'Scan QR Code',
-                        onPressed: () async {
-                          // Close the dialog first, then open scanner
-                          Navigator.of(context).pop();
-                          final scannedValue = await Navigator.push<String>(
-                            this.context,
-                            MaterialPageRoute(
-                              builder: (_) => const QrScannerScreen(),
-                            ),
-                          );
-                          if (scannedValue != null && scannedValue.isNotEmpty) {
-                            // Re-open the add user dialog with the scanned value pre-filled
-                            _showAddUserDialogWithId(scannedValue);
-                          }
-                        },
-                      )
-                    : null,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: idController,
+                    autofocus: prefilledId == null,
+                    decoration: const InputDecoration(
+                      labelText: 'User ID (Base58 Onion URL)',
+                      hintText: 'eg. 51EsbujFRDJLHJ',
+                    ),
+                  ),
+                ),
+                if (QrPlatform.isScanSupported)
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner),
+                    tooltip: 'Scan QR code',
+                    onPressed: scanQrCode,
+                  ),
+              ],
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: nameController,
+              autofocus: prefilledId != null,
               decoration: const InputDecoration(
-                labelText: 'Display Name',
+                labelText: 'Display name',
                 hintText: 'eg. Alice',
               ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(dialogContext),
             ),
           ],
         ),
         actions: [
           TextButton(
-            child: const Text("Cancel"),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
+            onPressed: () => submit(dialogContext),
             child: const Text('Add'),
-            onPressed: () async {
-              String newId;
-              try {
-                newId = decodeBase58ToOnion(idController.text.trim());
-              } catch (e) {
-                return;
-              }
-              final newName = nameController.text.trim();
-
-              if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
-                return;
-              }
-              final added = await _addNewUser(newId, newName);
-              if (!context.mounted) return;
-              if (!added) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Could not reach peer or fetch their public key. '
-                      'Make sure they are online and try again.',
-                    ),
-                  ),
-                );
-                return;
-              }
-              await loadUsers();
-              if (context.mounted) Navigator.of(context).pop();
-            },
           ),
         ],
-      ),
-    );
-  }
-
-  Future<void> _showAddUserDialogWithId(String prefilledId) async {
-    final idController = TextEditingController(text: prefilledId);
-    final nameController = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New User'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: idController,
-              decoration: const InputDecoration(
-                labelText: 'User ID (Base58 Onion URL)',
-                hintText: 'eg. 51EsbujFRDJLHJ',
-              ),
-            ),
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Display Name',
-                hintText: 'eg. Alice',
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            child: const Text("Cancel"),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          ElevatedButton(
-            child: const Text('Add'),
-            onPressed: () async {
-              String newId;
-              try {
-                newId = decodeBase58ToOnion(idController.text.trim());
-              } catch (e) {
-                return;
-              }
-              final newName = nameController.text.trim();
-
-              if (newId.isEmpty || newId == ".onion" || newName.isEmpty) {
-                return;
-              }
-              final added = await _addNewUser(newId, newName);
-              if (!context.mounted) return;
-              if (!added) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Could not reach peer or fetch their public key. '
-                      'Make sure they are online and try again.',
-                    ),
-                  ),
-                );
-                return;
-              }
-              await loadUsers();
-              if (context.mounted) Navigator.of(context).pop();
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1196,21 +1144,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     encodeOnionToBase58(appUser.id),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.qr_code_scanner, size: 20),
-                  tooltip: 'Scan a QR code',
-                  onPressed: () async {
-                    final scanned = await Navigator.push<String>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const QrScannerScreen(),
-                      ),
-                    );
-                    if (scanned != null && scanned.isNotEmpty) {
-                      _showAddUserDialogWithId(scanned);
-                    }
-                  },
-                ),
+                if (QrPlatform.isScanSupported)
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, size: 20),
+                    tooltip: 'Scan a QR code',
+                    onPressed: () async {
+                      final scanned = await Navigator.push<String>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const QrScannerScreen(),
+                        ),
+                      );
+                      if (scanned != null && scanned.isNotEmpty) {
+                        _showAddUserDialog(prefilledId: scanned);
+                      }
+                    },
+                  ),
               ],
             ),
           ),
@@ -1759,24 +1708,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             tooltip: 'Show full QR code',
                             onPressed: () => showPrysmIdQrDialog(context, prysmId),
                           ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.qr_code_scanner,
-                              color: theme.colorScheme.primary,
+                          if (QrPlatform.isScanSupported)
+                            IconButton(
+                              icon: Icon(
+                                Icons.qr_code_scanner,
+                                color: theme.colorScheme.primary,
+                              ),
+                              tooltip: 'Scan a QR code',
+                              onPressed: () async {
+                                final scanned = await Navigator.push<String>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const QrScannerScreen(),
+                                  ),
+                                );
+                                if (scanned != null && scanned.isNotEmpty) {
+                                  _showAddUserDialog(prefilledId: scanned);
+                                }
+                              },
                             ),
-                            tooltip: 'Scan a QR code',
-                            onPressed: () async {
-                              final scanned = await Navigator.push<String>(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const QrScannerScreen(),
-                                ),
-                              );
-                              if (scanned != null && scanned.isNotEmpty) {
-                                _showAddUserDialogWithId(scanned);
-                              }
-                            },
-                          ),
                         ],
                       ),
                     ),
@@ -1898,7 +1848,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onClose: () => setState(() => showProfile = false),
         onUpdate: onUpdateProfile,
         reloadUsers: () => loadUsers(),
-        onScanResult: (scanned) => _showAddUserDialogWithId(scanned),
+        onScanResult: (scanned) => _showAddUserDialog(prefilledId: scanned),
       );
     }
     if (showSettings) {

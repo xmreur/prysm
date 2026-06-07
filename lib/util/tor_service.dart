@@ -19,6 +19,7 @@ class TorManager {
   final String torPath;   // desktop tor binary path
   final String dataDir;   // desktop data dir
   final int controlPort;  // 9051
+  final int socksPort; // 9050 — used for health checks on desktop
   final String controlPassword; // desktop only
 
   final stdoutController = StreamController<String>.broadcast();
@@ -29,6 +30,7 @@ class TorManager {
     required this.torPath,
     required this.dataDir,
     this.controlPort = 9051,
+    this.socksPort = 9050,
     this.controlPassword = 'my_password',
   });
 
@@ -104,37 +106,104 @@ class TorManager {
     try {
       if (!Platform.isAndroid) {
         final proc = _torProcess;
-        if (proc == null) return false;
-        try {
-          await proc.exitCode.timeout(const Duration(milliseconds: 50));
-          return false;
-        } catch (_) {
-          // Timeout — process still running.
+        if (proc != null) {
+          try {
+            await proc.exitCode.timeout(const Duration(milliseconds: 50));
+            return false;
+          } catch (_) {
+            // Timeout — process still running.
+          }
         }
+        return _isDesktopTorOperational();
       }
 
       await _ensureControlSession();
-      try {
-        await _sendAndCollectImpl(
-          'GETINFO version',
-          untilOk: true,
-          timeout: const Duration(seconds: 3),
-        );
-        return true;
-      } catch (_) {
-        await _resetControlSession();
-        await _ensureControlSession();
-        await _sendAndCollectImpl(
-          'GETINFO version',
-          untilOk: true,
-          timeout: const Duration(seconds: 3),
-        );
-        return true;
-      }
+      await _sendAndCollectImpl(
+        'GETINFO version',
+        untilOk: true,
+        timeout: const Duration(seconds: 3),
+      );
+      return true;
     } catch (e) {
       print('Tor health check failed: $e');
       await _resetControlSession();
       return false;
+    }
+  }
+
+  /// Desktop health: SOCKS (what the app uses), then onion service, then control port.
+  Future<bool> _isDesktopTorOperational() async {
+    if (await _probeSocksPort()) return true;
+
+    final hostnameFile = File('$dataDir/hidden_service/hostname');
+    if (hostnameFile.existsSync()) {
+      final onion = hostnameFile.readAsStringSync().trim();
+      if (onion.endsWith('.onion')) return true;
+    }
+
+    return _probeDesktopControlPort();
+  }
+
+  Future<bool> _probeSocksPort() async {
+    try {
+      final socket = await Socket.connect(
+        '127.0.0.1',
+        socksPort,
+        timeout: const Duration(seconds: 2),
+      );
+      await socket.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// One-shot control port check for desktop (banner drain + auth + GETINFO).
+  Future<bool> _probeDesktopControlPort() async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        '127.0.0.1',
+        controlPort,
+        timeout: const Duration(seconds: 2),
+      );
+
+      final iterator = StreamIterator<String>(
+        socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter()),
+      );
+
+      Future<void> readUntilOk() async {
+        while (await iterator.moveNext()) {
+          final line = iterator.current;
+          if (line.startsWith('250 OK')) return;
+          if (line.startsWith('5')) {
+            throw Exception('Tor control error: $line');
+          }
+        }
+        throw Exception('Tor control stream closed');
+      }
+
+      void writeCmd(String cmd) => socket!.write('$cmd\r\n');
+
+      await readUntilOk(); // post-connect banner
+      try {
+        writeCmd('AUTHENTICATE "$controlPassword"');
+        await readUntilOk();
+      } catch (_) {
+        writeCmd('AUTHENTICATE $controlPassword');
+        await readUntilOk();
+      }
+      writeCmd('GETINFO version');
+      await readUntilOk();
+      return true;
+    } catch (e) {
+      print('Tor desktop probe failed: $e');
+      return false;
+    } finally {
+      await socket?.close();
     }
   }
 
@@ -262,6 +331,7 @@ class TorManager {
 
     final torrcContent = '''
 ControlPort $controlPort
+SocksPort $socksPort
 DataDirectory $dataDir
 HashedControlPassword $hashedPassword
 CookieAuthentication 0

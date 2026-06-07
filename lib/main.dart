@@ -1396,6 +1396,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _startTorHealthMonitor() {
     _torHealthTimer?.cancel();
+    if (TorBootstrapNotifier.instance.progress >= 100) {
+      _torConnectionState = TorConnectionState.connected;
+      TorConnectionNotifier.instance.update(TorConnectionState.connected);
+    }
     _torHealthTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _checkTorHealth();
     });

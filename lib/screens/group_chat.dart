@@ -23,6 +23,7 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
+import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
@@ -90,11 +91,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
   final Map<String, double> _dragOffsets = {};
-
-  static final _urlRegex = RegExp(
-    r'https?://[^\s<>\[\]{}|\\^`]+',
-    caseSensitive: false,
-  );
 
   @override
   void initState() {
@@ -248,55 +244,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ],
       ),
     );
-  }
-
-  Widget _buildLinkedText(String text, Color textColor, double fontSize) {
-    final matches = _urlRegex.allMatches(text).toList();
-    if (matches.isEmpty) {
-      return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
-    }
-
-    final spans = <InlineSpan>[];
-    var lastEnd = 0;
-    for (final match in matches) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
-          style: TextStyle(color: textColor, fontSize: fontSize),
-        ));
-      }
-      final url = match.group(0)!;
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.baseline,
-        baseline: TextBaseline.alphabetic,
-        child: GestureDetector(
-          onTap: () => _openUrl(url),
-          onLongPress: () {
-            Clipboard.setData(ClipboardData(text: url));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Link copied'), duration: Duration(seconds: 1)),
-            );
-          },
-          child: Text(
-            url,
-            style: TextStyle(
-              color: textColor,
-              fontSize: fontSize,
-              decoration: TextDecoration.underline,
-              decorationColor: textColor.withAlpha(180),
-            ),
-          ),
-        ),
-      ));
-      lastEnd = match.end;
-    }
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastEnd),
-        style: TextStyle(color: textColor, fontSize: fontSize),
-      ));
-    }
-    return RichText(text: TextSpan(children: spans));
   }
 
   Future<void> _openUrl(String url) async {
@@ -1147,12 +1094,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _replyPreviewWidget(message, isSentByMe),
-                _buildLinkedText(
-                  message.text,
-                  isSentByMe
+                LinkedMessageText(
+                  text: message.text,
+                  textColor: isSentByMe
                       ? Theme.of(context).colorScheme.onPrimary
                       : Theme.of(context).colorScheme.onSecondary,
-                  16,
+                  fontSize: 16,
+                  onOpenUrl: _openUrl,
                 ),
                 const SizedBox(height: 4),
                 Row(

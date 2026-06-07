@@ -20,6 +20,7 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
+import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
@@ -1145,63 +1146,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return '';
   }
 
-  static final _urlRegex = RegExp(
-    r'https?://[^\s<>\[\]{}|\\^`]+',
-    caseSensitive: false,
-  );
-
-  Widget _buildLinkedText(String text, Color textColor, double fontSize) {
-    final matches = _urlRegex.allMatches(text).toList();
-    if (matches.isEmpty) {
-      return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
-    }
-
-    final spans = <InlineSpan>[];
-    int lastEnd = 0;
-
-    for (final match in matches) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
-          style: TextStyle(color: textColor, fontSize: fontSize),
-        ));
-      }
-      final url = match.group(0)!;
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.baseline,
-        baseline: TextBaseline.alphabetic,
-        child: GestureDetector(
-          onTap: () => _openUrl(url),
-          onLongPress: () {
-            Clipboard.setData(ClipboardData(text: url));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Link copied'), duration: Duration(seconds: 1)),
-            );
-          },
-          child: Text(
-            url,
-            style: TextStyle(
-              color: textColor,
-              fontSize: fontSize,
-              decoration: TextDecoration.underline,
-              decorationColor: textColor.withAlpha(180),
-            ),
-          ),
-        ),
-      ));
-      lastEnd = match.end;
-    }
-
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastEnd),
-        style: TextStyle(color: textColor, fontSize: fontSize),
-      ));
-    }
-
-    return RichText(text: TextSpan(children: spans));
-  }
-
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);
     if (uri != null && await canLaunchUrl(uri)) {
@@ -2040,13 +1984,13 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ✅ Text with clickable links
-            _buildLinkedText(
-              message.text,
-              isSentByMe
+            LinkedMessageText(
+              text: message.text,
+              textColor: isSentByMe
                   ? Theme.of(context).colorScheme.onPrimary
                   : Theme.of(context).colorScheme.onSecondary,
-              14,
+              fontSize: 14,
+              onOpenUrl: _openUrl,
             ),
             const SizedBox(height: 4),
             // ✅ Time and ticks aligned to the right

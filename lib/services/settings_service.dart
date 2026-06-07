@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/models/settings.dart';
+import 'package:prysm/services/link_unfurl_service.dart';
 
 class SettingsService {
   static const String appVersion = 'v0.2.0';
@@ -50,6 +51,7 @@ class SettingsService {
 
   // Files
   bool get enableFilePreview => _settings.enableFilePreview;
+  bool get enableLinkUnfurling => _settings.enableLinkUnfurling;
   String? get customDownloadPath => _settings.customDownloadPath;
 
   // Initialize (call at app startup)
@@ -157,6 +159,14 @@ class SettingsService {
 
   Future<void> setEnableFilePreview(bool value) async {
     _settings = _settings.copyWith(enableFilePreview: value);
+    await save();
+  }
+
+  Future<void> setEnableLinkUnfurling(bool value) async {
+    _settings = _settings.copyWith(enableLinkUnfurling: value);
+    if (!value) {
+      LinkUnfurlService.instance.clearCache();
+    }
     await save();
   }
 

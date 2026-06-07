@@ -10,7 +10,6 @@ import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -320,32 +319,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (result == null || result.files.single.path == null) return;
         filePath = result.files.single.path!;
       } else {
-        // Desktop: list backups from the known backup directory
-        final dir = await getApplicationDocumentsDirectory();
-        final backupDir = Directory(p.join(dir.path, 'prysm_backups'));
-        if (!await backupDir.exists()) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('No backups found in ${backupDir.path}')),
-            );
-          }
-          return;
-        }
-        final files = await backupDir
-            .list()
-            .where((e) => e is File && e.path.endsWith('.prysmbackup'))
-            .cast<File>()
-            .toList();
+        final files = await DownloadLocation.listBackupFiles();
         if (files.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('No backup files found in ${backupDir.path}')),
-            );
-          }
+          final location = await DownloadLocation.displayPath();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No backup files found in $location')),
+          );
           return;
         }
-        // Sort newest first
-        files.sort((a, b) => b.path.compareTo(a.path));
 
         if (!mounted) return;
         final chosen = await showDialog<File>(

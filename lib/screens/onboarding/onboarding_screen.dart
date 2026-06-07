@@ -81,8 +81,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _createBackup() async {
-    await showCreateBackupDialog(context);
-    if (!mounted) return;
+    final created = await showCreateBackupDialog(context);
+    if (!mounted || !created) return;
     setState(() => _backupCreated = true);
   }
 

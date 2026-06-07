@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:core';
 import 'dart:math';
+import 'package:encrypt/encrypt.dart' as e;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:prysm/util/file_encrypt.dart';
 import 'rsa_helper.dart';
 import 'package:pointycastle/export.dart';
 
@@ -253,7 +255,47 @@ class KeyManager {
   }
 
   RSAPublicKey importPeerPublicKey(String pem) {
-    return RSAHelper.publicKeyFromPem(pem);
+    return RSAHelper.publicKeyFromPem(RSAHelper.normalizePublicKeyPem(pem));
+  }
+
+  /// Hybrid AES+RSA envelope for payloads larger than PKCS#1 RSA limit.
+  String encryptHybridForPeer(String plaintext, RSAPublicKey peerPublicKey) {
+    final aesKey = AESHelper.generateAESKey();
+    final iv = AESHelper.generateIV();
+    final encryptedBytes = AESHelper.encryptBytes(
+      Uint8List.fromList(utf8.encode(plaintext)),
+      aesKey,
+      iv,
+    );
+    final peerEncryptedKey =
+        RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, peerPublicKey);
+    return jsonEncode({
+      'aes_key': peerEncryptedKey,
+      'iv': iv.base64,
+      'data': base64Encode(encryptedBytes),
+    });
+  }
+
+  String decryptHybridEnvelope(String envelopeJson) {
+    final hybrid = jsonDecode(envelopeJson) as Map<String, dynamic>;
+    final aesKeyBytes = decryptMyMessageBytes(hybrid['aes_key'] as String);
+    final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
+    final iv = e.IV.fromBase64(hybrid['iv'] as String);
+    final encryptedData = base64Decode(hybrid['data'] as String);
+    final plainBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
+    return utf8.decode(plainBytes);
+  }
+
+  static bool isHybridEnvelope(String encrypted) {
+    if (!encrypted.trimLeft().startsWith('{')) return false;
+    try {
+      final map = jsonDecode(encrypted) as Map<String, dynamic>;
+      return map.containsKey('aes_key') &&
+          map.containsKey('iv') &&
+          map.containsKey('data');
+    } catch (_) {
+      return false;
+    }
   }
 
     String get privateKeyPem {

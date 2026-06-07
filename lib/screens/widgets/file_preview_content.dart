@@ -5,6 +5,7 @@ import 'package:pdfx/pdfx.dart';
 import 'package:prysm/screens/widgets/inline_video_preview.dart';
 import 'package:prysm/screens/widgets/media_preview_player.dart';
 import 'package:prysm/services/file_preview_service.dart';
+import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/pdf_system_open.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 
@@ -28,6 +29,14 @@ class FilePreviewContent extends StatefulWidget {
 
 class _FilePreviewContentState extends State<FilePreviewContent> {
   bool _openingExternally = false;
+  bool _downloading = false;
+  final PageController _slidePageController = PageController();
+
+  @override
+  void dispose() {
+    _slidePageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,11 +152,12 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     if (widget.pdfController != null) {
       return PdfViewPinch(controller: widget.pdfController!);
     }
-    return _externalOpenFallback(
+    return _inAppDownloadFallback(
       context,
       icon: Icons.picture_as_pdf,
       title: 'PDF document',
       subtitle: 'In-app PDF preview is not available on this platform.',
+      allowExternalOpen: true,
     );
   }
 
@@ -156,18 +166,72 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     PresentationPreviewData? data,
   ) {
     if (data?.legacyFormat == true) {
-      return _externalOpenFallback(
+      return _inAppDownloadFallback(
         context,
         icon: Icons.slideshow,
         title: 'Presentation',
         subtitle:
-            'Legacy presentation format. Open with a system app to view slides.',
+            'Slide preview is not supported for this format in Prysm.',
+        allowExternalOpen: true,
+      );
+    }
+
+    final slides = data?.slides ?? [];
+    if (slides.isNotEmpty) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Text(
+              '${slides.length} slide${slides.length == 1 ? '' : 's'}',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          Expanded(
+            child: PageView.builder(
+              controller: _slidePageController,
+              itemCount: slides.length,
+              itemBuilder: (context, index) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Slide ${index + 1}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            slides[index],
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       );
     }
 
     final text = data?.fullText ?? '';
-    if (text.isEmpty) {
-      return const Center(child: Text('Could not read presentation'));
+    if (text.isEmpty ||
+        text == 'Could not read presentation' ||
+        (data?.lines.isNotEmpty == true &&
+            data!.lines.first == 'Could not read presentation')) {
+      return _inAppDownloadFallback(
+        context,
+        icon: Icons.slideshow,
+        title: 'Presentation',
+        subtitle: 'Could not read presentation content in Prysm.',
+        allowExternalOpen: true,
+      );
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -198,13 +262,15 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     );
   }
 
-  Widget _externalOpenFallback(
+  Widget _inAppDownloadFallback(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
+    bool allowExternalOpen = false,
   }) {
     final bytes = widget.bytes;
+    final category = widget.preview.category;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -223,21 +289,55 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
             if (bytes != null && bytes.isNotEmpty) ...[
               const SizedBox(height: 24),
               FilledButton.icon(
-                onPressed: _openingExternally ? null : () => _openWithSystem(bytes),
-                icon: _openingExternally
+                onPressed: _downloading
+                    ? null
+                    : () => _download(bytes, category),
+                icon: _downloading
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.open_in_new),
-                label: Text(_openingExternally ? 'Opening…' : 'Open with system app'),
+                    : const Icon(Icons.download_outlined),
+                label: Text(_downloading ? 'Downloading…' : 'Download'),
               ),
+              if (allowExternalOpen) ...[
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _openingExternally
+                      ? null
+                      : () => _openWithSystem(bytes),
+                  icon: _openingExternally
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.open_in_new),
+                  label: Text(
+                    _openingExternally ? 'Opening…' : 'Open with system app',
+                  ),
+                ),
+              ],
             ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _download(Uint8List bytes, FilePreviewCategory category) async {
+    setState(() => _downloading = true);
+    try {
+      await FileDownloadHelper.download(
+        context,
+        fileName: widget.fileName,
+        bytes: bytes,
+        category: category,
+      );
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
   }
 
   Future<void> _openWithSystem(Uint8List bytes) async {

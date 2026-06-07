@@ -61,16 +61,26 @@ class ChatService {
   // PUBLIC API
 
   Future<bool> initialize(String? peerPublicKeyPem) async {
-    if (peerPublicKeyPem != null) {
-      peerPublicKey = keyManager.importPeerPublicKey(peerPublicKeyPem);
-      return true;
+    if (peerPublicKeyPem != null &&
+        peerPublicKeyPem.isNotEmpty &&
+        peerPublicKeyPem != 'NONE') {
+      try {
+        peerPublicKey = keyManager.importPeerPublicKey(peerPublicKeyPem);
+        return true;
+      } catch (e) {
+        print('Invalid cached peer public key: $e');
+      }
     }
 
     // Try cache db first
     final cachedPem = await _getPeerPublicKeyFromDb();
     if (cachedPem != null) {
-      peerPublicKey = keyManager.importPeerPublicKey(cachedPem);
-      return true;
+      try {
+        peerPublicKey = keyManager.importPeerPublicKey(cachedPem);
+        return true;
+      } catch (e) {
+        print('Invalid peer public key in database: $e');
+      }
     }
     return await _fetchPeerPublicKeyOverTor();
   }
@@ -414,7 +424,8 @@ class ChatService {
     try {
       final uri = Uri.parse('http://$peerId:80/public');
       final response = await torClient.get(uri, {});
-      final publicKeyPem = await response.transform(utf8.decoder).join();
+      final publicKeyPem =
+          (await response.transform(utf8.decoder).join()).trim();
       peerPublicKey = keyManager.importPeerPublicKey(publicKeyPem);
       await _persistPeerPublicKey(publicKeyPem);
       return true;

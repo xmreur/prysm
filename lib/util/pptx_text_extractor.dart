@@ -6,7 +6,7 @@ import 'package:archive/archive.dart';
 class PptxTextExtractor {
   PptxTextExtractor._();
 
-  static String extract(Uint8List bytes) {
+  static List<String> extractSlides(Uint8List bytes) {
     try {
       final archive = ZipDecoder().decodeBytes(bytes);
       final slideFiles = archive.files
@@ -19,19 +19,30 @@ class PptxTextExtractor {
           .toList()
         ..sort((a, b) => a.name.compareTo(b.name));
 
-      final buffer = StringBuffer();
+      final slides = <String>[];
       for (final slide in slideFiles) {
         final xml = utf8.decode(slide.content as List<int>);
-        for (final match in RegExp(r'<a:t[^>]*>([^<]*)</a:t>').allMatches(xml)) {
+        final buffer = StringBuffer();
+        for (final match
+            in RegExp(r'<a:t[^>]*>([^<]*)</a:t>').allMatches(xml)) {
           final text = match.group(1)?.trim();
           if (text != null && text.isNotEmpty) {
-            buffer.writeln(text);
+            if (buffer.isNotEmpty) buffer.writeln();
+            buffer.write(text);
           }
         }
+        final slideText = buffer.toString().trim();
+        if (slideText.isNotEmpty) {
+          slides.add(slideText);
+        }
       }
-      return buffer.toString().trim();
+      return slides;
     } catch (_) {
-      return '';
+      return [];
     }
+  }
+
+  static String extract(Uint8List bytes) {
+    return extractSlides(bytes).join('\n\n');
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/chat_service.dart';
 import 'package:prysm/services/group_chat_service.dart';
+import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -81,6 +82,16 @@ class SyncCoordinator {
           ) ||
           any;
       any = await ReactionService.processGlobalPendingDirect(
+            userId: userId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await MessageModifyService.processGlobalPendingGroup(
+            userId: userId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await MessageModifyService.processGlobalPendingDirect(
             userId: userId,
             keyManager: keyManager,
           ) ||

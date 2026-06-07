@@ -18,6 +18,9 @@ const String groupAudioType = 'group_audio';
 const String reactionType = 'reaction';
 const String groupReactionType = 'group_reaction';
 
+const String messageModifyType = 'message_modify';
+const String groupMessageModifyType = 'group_message_modify';
+
 const Set<String> groupControlTypes = {
   groupInviteType,
   groupKeyRotateType,
@@ -34,9 +37,15 @@ const Set<String> groupMessageTypes = {
 
 const Set<String> reactionTypes = {reactionType, groupReactionType};
 
+const Set<String> messageModifyTypes = {
+  messageModifyType,
+  groupMessageModifyType,
+};
+
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
 bool isReactionType(String type) => reactionTypes.contains(type);
+bool isMessageModifyType(String type) => messageModifyTypes.contains(type);
 
 /// Deterministic wire id for a reaction event (dedupe / pending queue).
 String reactionEventId({

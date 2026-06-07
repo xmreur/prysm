@@ -22,7 +22,11 @@ import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
+import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/message_modify_policy.dart';
+import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
@@ -110,6 +114,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _reachableSub;
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
+  StreamSubscription? _modifyRefreshSub;
+  late MessageModifyService _modifyService;
 
   void _scrollListener() {
     if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
@@ -135,6 +141,11 @@ class _ChatScreenState extends State<ChatScreen> {
       keyManager: widget.keyManager,
     );
     _reactionService = ReactionService.direct(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      peerId: widget.peerId,
+    );
+    _modifyService = MessageModifyService.direct(
       userId: widget.userId,
       keyManager: widget.keyManager,
       peerId: widget.peerId,
@@ -175,6 +186,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
     _reactionRefreshSub =
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
+    _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
+        .listen(_applyModifyUpdate);
 
     await _loadInitialMessages();
 
@@ -252,6 +265,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _reachableSub?.cancel();
     _reactionSub?.cancel();
     _reactionRefreshSub?.cancel();
+    _modifyRefreshSub?.cancel();
     _pingTimer?.cancel();
 
     _debounceTimer?.cancel();
@@ -372,6 +386,18 @@ class _ChatScreenState extends State<ChatScreen> {
         peerId: widget.peerId,
         keyManager: widget.keyManager,
       );
+      _reactionService.dispose();
+      _modifyRefreshSub?.cancel();
+      _reactionService = ReactionService.direct(
+        userId: widget.userId,
+        keyManager: widget.keyManager,
+        peerId: widget.peerId,
+      );
+      _modifyService = MessageModifyService.direct(
+        userId: widget.userId,
+        keyManager: widget.keyManager,
+        peerId: widget.peerId,
+      );
 
       _initializeChat();
       _checkPeerStatus();
@@ -424,6 +450,11 @@ class _ChatScreenState extends State<ChatScreen> {
         messages.add(_messageCache[msg['id']]!);
         continue;
       }
+      final meta = metadataFromDbRow(msg);
+      if (meta['deleted'] == true) {
+        messages.add(_deletedMessageFromRow(msg, meta));
+        continue;
+      }
       try {
         if (msg['type'] == 'text') {
           messages.add(
@@ -436,6 +467,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'])
                   : null,
               text: _decryptDirectTextMessage(msg, keyManager),
+              metadata: meta.isEmpty ? null : meta,
             ),
           );
         } else if (msg['type'] == 'file') {
@@ -558,6 +590,23 @@ class _ChatScreenState extends State<ChatScreen> {
         .toList();
   }
 
+  Message _deletedMessageFromRow(
+    Map<String, dynamic> msg,
+    Map<String, Object?> meta,
+  ) {
+    return TextMessage(
+      authorId: msg['senderId'] as String,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp'] as int),
+      id: msg['id'] as String,
+      replyToMessageId: msg['replyTo'] as String?,
+      seenAt: msg['readAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
+          : null,
+      text: '',
+      metadata: meta,
+    );
+  }
+
   void _applyReactionUpdate(ReactionUpdate update) {
     if (!mounted) return;
     try {
@@ -569,6 +618,109 @@ class _ChatScreenState extends State<ChatScreen> {
         _messageCache[msg.id] = updated;
       });
     } catch (_) {}
+  }
+
+  void _applyModifyUpdate(MessageModifyUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      Message updated;
+      if (update.isDelete) {
+        updated = markMessageDeleted(msg);
+      } else if (msg is TextMessage && update.newText != null) {
+        updated = msg.copyWith(
+          text: update.newText!,
+          metadata: {...?msg.metadata, 'edited': true},
+        );
+      } else {
+        return;
+      }
+      setState(() {
+        _messages.updateMessage(msg, updated);
+        _messageCache[msg.id] = updated;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _editMessage(Message message) async {
+    if (message is! TextMessage) return;
+    final controller = TextEditingController(text: message.text);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 1,
+          decoration: const InputDecoration(
+            hintText: 'Message',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newText == null || newText.isEmpty || newText == message.text) return;
+
+    final ok = await _modifyService.editTextMessage(
+      targetMessageId: message.id,
+      newText: newText,
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _messages.updateMessage(
+          message,
+          message.copyWith(
+            text: newText,
+            metadata: {...?message.metadata, 'edited': true},
+          ),
+        );
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not edit message')),
+      );
+    }
+  }
+
+  Widget _displayChildForMessage(
+    Message message,
+    Widget child,
+    bool isSentByMe,
+  ) {
+    if (!isMessageDeleted(message)) return child;
+    return DeletedMessageBubble(
+      isSentByMe: isSentByMe,
+      createdAt: message.createdAt!,
+      tickWidget: isSentByMe
+          ? _buildStatusWidget(
+              message,
+              isSentByMe,
+              Theme.of(context).colorScheme.onSurface.withAlpha(180),
+            )
+          : null,
+    );
+  }
+
+  String _replyPreviewText(Message message) {
+    if (isMessageDeleted(message)) return 'Deleted';
+    if (message is TextMessage) return message.text;
+    if (message is ImageMessage) return '📷 Image';
+    if (message is FileMessage) return '📎 File: ${message.name}';
+    return 'Message';
   }
 
   Future<void> _onReactionSelected(Message message, String emoji) async {
@@ -932,16 +1084,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildReplyPreview() {
     if (_replyToMessage == null) return SizedBox.shrink();
-    String previewText;
-    if (_replyToMessage is TextMessage) {
-      previewText = (_replyToMessage as TextMessage).text;
-    } else if (_replyToMessage is ImageMessage) {
-      previewText = '📷 Image';
-    } else if (_replyToMessage is FileMessage) {
-      previewText = '📎 File: ${(_replyToMessage as FileMessage).name}';
-    } else {
-      previewText = 'Unsupported message';
-    }
+    final previewText = _replyPreviewText(_replyToMessage!);
     return Container(
       color: Theme.of(context).brightness == Brightness.dark
           ? Theme.of(context).colorScheme.secondary
@@ -1045,7 +1188,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageMenu(BuildContext context, Message message, Offset position) {
+    if (isMessageDeleted(message)) return;
     final text = _getMessageText(message);
+    final isSentByMe = message.authorId == widget.userId;
     final tiles = <Widget>[
       if (text.isNotEmpty)
         ListTile(
@@ -1060,6 +1205,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 duration: Duration(seconds: 1),
               ),
             );
+          },
+        ),
+      if (canEditMessage(message, widget.userId))
+        ListTile(
+          leading: const Icon(Icons.edit_outlined),
+          title: const Text('Edit'),
+          onTap: () {
+            Navigator.pop(context);
+            _editMessage(message);
           },
         ),
       ListTile(
@@ -1080,7 +1234,10 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       ListTile(
         leading: Icon(Icons.delete_outline, color: Colors.red[400]),
-        title: Text('Delete', style: TextStyle(color: Colors.red[400])),
+        title: Text(
+          isSentByMe ? 'Delete for everyone' : 'Delete',
+          style: TextStyle(color: Colors.red[400]),
+        ),
         onTap: () {
           Navigator.pop(context);
           _deleteMessage(message);
@@ -1096,6 +1253,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _deleteMessage(Message message) async {
+    if (canDeleteForEveryone(message, widget.userId)) {
+      await _modifyService.deleteMessage(targetMessageId: message.id);
+      await MessageReactionsDb.deleteReactionsForMessage(message.id);
+      if (!mounted) return;
+      setState(() {
+        _messages.updateMessage(message, markMessageDeleted(message));
+        selectedMessageIds.remove(message.id);
+      });
+      return;
+    }
+
     await MessagesDb.deleteMessageById(message.id);
     await MessageReactionsDb.deleteReactionsForMessage(message.id);
     setState(() {
@@ -1136,19 +1304,31 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> deleteSelectedMessages() async {
-    for (var id in selectedMessageIds) {
-      await MessagesDb.deleteMessageById(id);
-      await MessageReactionsDb.deleteReactionsForMessage(id);
+    final ids = List<String>.from(selectedMessageIds);
+    for (final id in ids) {
+      final message = _messages.messages.firstWhere((msg) => msg.id == id);
+      if (canDeleteForEveryone(message, widget.userId)) {
+        await _modifyService.deleteMessage(targetMessageId: id);
+        await MessageReactionsDb.deleteReactionsForMessage(id);
+        if (mounted) {
+          setState(() {
+            _messages.updateMessage(message, markMessageDeleted(message));
+          });
+        }
+      } else {
+        await MessagesDb.deleteMessageById(id);
+        await MessageReactionsDb.deleteReactionsForMessage(id);
+        if (mounted) {
+          setState(() {
+            _messages.removeMessage(message);
+          });
+        }
+      }
     }
 
-    setState(() {
-      for (var id in selectedMessageIds) {
-        _messages.removeMessage(
-          _messages.messages.firstWhere((msg) => msg.id == id),
-        );
-      }
-      selectedMessageIds.clear();
-    });
+    if (mounted) {
+      setState(() => selectedMessageIds.clear());
+    }
   }
 
   // ==================== BUILD METHOD (KEEP EXACTLY AS-IS) ====================
@@ -1368,16 +1548,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           }
 
                           if (repliedMessage != null) {
-                            String previewText;
-                            if (repliedMessage is TextMessage) {
-                              previewText = repliedMessage.text;
-                            } else if (repliedMessage is ImageMessage) {
-                              previewText = '📷 Image';
-                            } else if (repliedMessage is FileMessage) {
-                              previewText = '📎 File: ${repliedMessage.name}';
-                            } else {
-                              previewText = 'Unsupported message';
-                            }
+                            final previewText = _replyPreviewText(repliedMessage);
 
                             replyPreviewWidget = Container(
                               padding: const EdgeInsets.all(8),
@@ -1510,8 +1681,16 @@ class _ChatScreenState extends State<ChatScreen> {
                                                   : CrossAxisAlignment.start,
                                               children: [
                                                 replyPreviewWidget,
-                                                child,
-                                                _reactionBarFor(message, isSentByMe),
+                                                _displayChildForMessage(
+                                                  message,
+                                                  child,
+                                                  isSentByMe,
+                                                ),
+                                                if (!isMessageDeleted(message))
+                                                  _reactionBarFor(
+                                                    message,
+                                                    isSentByMe,
+                                                  ),
                                               ],
                                             ),
                                           ),
@@ -1854,6 +2033,22 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (message.metadata?['edited'] == true) ...[
+                    Text(
+                      'edited',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: isSentByMe
+                            ? Theme.of(context).colorScheme.onPrimary.withAlpha(160)
+                            : Theme.of(context)
+                                .colorScheme
+                                .onSecondary
+                                .withAlpha(160),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   Text(
                     timeString,
                     style: TextStyle(

@@ -10,7 +10,7 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 7;
+    static const _dbVersion = 8;
 
 	static const String _directChatTypeFilter =
 		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
@@ -48,6 +48,7 @@ class MessagesDb {
 					if (oldVersion < 5) await _upgradeToV5(db);
 					if (oldVersion < 6) await _upgradeToV6(db);
 					if (oldVersion < 7) await _upgradeToV7(db);
+					if (oldVersion < 8) await _upgradeToV8(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -76,7 +77,9 @@ class MessagesDb {
                 readAt INTEGER,
                 viewOnce INTEGER DEFAULT 0,
                 viewed INTEGER DEFAULT 0,
-                groupId TEXT
+                groupId TEXT,
+                deletedAt INTEGER,
+                editedAt INTEGER
             )
         ''');
 
@@ -168,6 +171,17 @@ class MessagesDb {
 	static Future<void> _upgradeToV7(Database db) async {
 		print('UPGRADING DB TO v7');
 		await MessageReactionsDb.createTable(db);
+	}
+
+	static Future<void> _upgradeToV8(Database db) async {
+		print('UPGRADING DB TO v8');
+		final columns = await db.rawQuery('PRAGMA table_info(messages)');
+		if (!columns.any((col) => col['name'] == 'deletedAt')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN deletedAt INTEGER');
+		}
+		if (!columns.any((col) => col['name'] == 'editedAt')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN editedAt INTEGER');
+		}
 	}
 
 	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.
@@ -408,6 +422,49 @@ class MessagesDb {
 		});
 	}
 
+	static Future<void> softDeleteMessage(
+		String wireId, {
+		String? groupId,
+		required int deletedAt,
+	}) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			final storageId = scopedId(wireId: wireId, groupId: groupId);
+			await db.update(
+				'messages',
+				{
+					'deletedAt': deletedAt,
+					'message': null,
+					'fileName': null,
+					'fileSize': null,
+				},
+				where: 'id = ?',
+				whereArgs: [storageId],
+			);
+		});
+	}
+
+	static Future<void> updateMessageContent({
+		required String wireId,
+		String? groupId,
+		required String encryptedMessage,
+		required int editedAt,
+	}) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			final storageId = scopedId(wireId: wireId, groupId: groupId);
+			await db.update(
+				'messages',
+				{
+					'message': encryptedMessage,
+					'editedAt': editedAt,
+				},
+				where: 'id = ? AND deletedAt IS NULL',
+				whereArgs: [storageId],
+			);
+		});
+	}
+
 	/// Delete a message by it's id
 	static Future<void> deleteMessageById(String id) async {
 		await _dbMutex.protect(() async {
@@ -487,7 +544,8 @@ class MessagesDb {
 		});
 	}
 
-	static String previewLabelForType(String? type) {
+	static String previewLabelForType(String? type, {bool deleted = false}) {
+		if (deleted) return 'Deleted';
 		switch (type) {
 			case 'image':
 			case 'group_image':
@@ -510,7 +568,7 @@ class MessagesDb {
 			final previews = <String, String>{};
 
 			final groupRows = await db.rawQuery('''
-				SELECT groupId AS convKey, type
+				SELECT groupId AS convKey, type, deletedAt
 				FROM messages m
 				WHERE groupId IS NOT NULL
 				  AND timestamp = (
@@ -522,7 +580,10 @@ class MessagesDb {
 			for (final row in groupRows) {
 				final key = row['convKey'] as String?;
 				if (key != null && key.isNotEmpty) {
-					previews[key] = previewLabelForType(row['type'] as String?);
+					previews[key] = previewLabelForType(
+						row['type'] as String?,
+						deleted: row['deletedAt'] != null,
+					);
 				}
 			}
 
@@ -537,7 +598,7 @@ class MessagesDb {
 				    AND (senderId = ? OR receiverId = ?)
 				  GROUP BY convKey
 				)
-				SELECT l.convKey, m.type
+				SELECT l.convKey, m.type, m.deletedAt
 				FROM latest l
 				JOIN messages m ON m.timestamp = l.max_ts
 				  AND m.groupId IS NULL
@@ -548,7 +609,10 @@ class MessagesDb {
 			for (final row in directRows) {
 				final key = row['convKey'] as String?;
 				if (key != null && key.isNotEmpty) {
-					previews[key] = previewLabelForType(row['type'] as String?);
+					previews[key] = previewLabelForType(
+						row['type'] as String?,
+						deleted: row['deletedAt'] != null,
+					);
 				}
 			}
 			return previews;

@@ -224,6 +224,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     child: _wrapPreviewTap(
                       InlineFilePreview(
                         preview: _preview!,
+                        fileName: widget.fileName,
                         pdfController: _pdfController,
                       ),
                     ),

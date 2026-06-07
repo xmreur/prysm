@@ -6,6 +6,9 @@ enum FilePreviewCategory {
   pdf,
   spreadsheet,
   document,
+  presentation,
+  video,
+  audio,
   blocked,
   binary,
 }
@@ -27,6 +30,14 @@ class ReadableFilePolicy {
     'com', 'reg', 'lnk',
   };
 
+  static const _videoExtensions = {
+    'mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v', '3gp', 'wmv', 'mpeg', 'mpg',
+  };
+
+  static const _audioExtensions = {
+    'mp3', 'wav', 'ogg', 'oga', 'flac', 'm4a', 'aac', 'opus', 'wma',
+  };
+
   static FilePreviewCategory categorize(String fileName) {
     final ext = p.extension(fileName).toLowerCase().replaceFirst('.', '');
     if (ext.isNotEmpty && _blockedExtensions.contains(ext)) {
@@ -40,6 +51,10 @@ class ReadableFilePolicy {
         return FilePreviewCategory.spreadsheet;
       case 'docx':
         return FilePreviewCategory.document;
+      case 'pptx':
+      case 'ppt':
+      case 'odp':
+        return FilePreviewCategory.presentation;
       case 'txt':
       case 'md':
       case 'csv':
@@ -52,14 +67,25 @@ class ReadableFilePolicy {
       case 'htm':
         return FilePreviewCategory.text;
       case 'xls':
+      case 'doc':
+      case 'odt':
+      case 'ods':
         return FilePreviewCategory.binary;
       default:
+        if (_videoExtensions.contains(ext)) {
+          return FilePreviewCategory.video;
+        }
+        if (_audioExtensions.contains(ext)) {
+          return FilePreviewCategory.audio;
+        }
         break;
     }
 
     final mime = lookupMimeType(fileName)?.toLowerCase();
     if (mime != null) {
       if (mime == 'application/pdf') return FilePreviewCategory.pdf;
+      if (mime.startsWith('video/')) return FilePreviewCategory.video;
+      if (mime.startsWith('audio/')) return FilePreviewCategory.audio;
       if (mime ==
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
           mime == 'application/vnd.ms-excel') {
@@ -70,6 +96,12 @@ class ReadableFilePolicy {
       if (mime ==
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         return FilePreviewCategory.document;
+      }
+      if (mime ==
+              'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+          mime == 'application/vnd.ms-powerpoint' ||
+          mime == 'application/vnd.oasis.opendocument.presentation') {
+        return FilePreviewCategory.presentation;
       }
       if (mime.startsWith('text/') ||
           mime == 'application/json' ||
@@ -86,12 +118,20 @@ class ReadableFilePolicy {
     return FilePreviewCategory.binary;
   }
 
+  static bool isLegacyPresentation(String fileName) {
+    final ext = p.extension(fileName).toLowerCase().replaceFirst('.', '');
+    return ext == 'ppt' || ext == 'odp';
+  }
+
   static bool supportsInlinePreview(FilePreviewCategory category) {
     return switch (category) {
       FilePreviewCategory.text ||
       FilePreviewCategory.pdf ||
       FilePreviewCategory.spreadsheet ||
-      FilePreviewCategory.document =>
+      FilePreviewCategory.document ||
+      FilePreviewCategory.presentation ||
+      FilePreviewCategory.video ||
+      FilePreviewCategory.audio =>
         true,
       _ => false,
     };
@@ -103,5 +143,9 @@ class ReadableFilePolicy {
 
   static bool exceedsPreviewLimit(int byteLength) {
     return byteLength > maxPreviewBytes;
+  }
+
+  static String? mimeTypeFor(String fileName) {
+    return lookupMimeType(fileName);
   }
 }

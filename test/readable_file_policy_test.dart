@@ -9,6 +9,10 @@ void main() {
         FilePreviewCategory.spreadsheet);
     expect(ReadableFilePolicy.categorize('report.docx'),
         FilePreviewCategory.document);
+    expect(ReadableFilePolicy.categorize('deck.pptx'),
+        FilePreviewCategory.presentation);
+    expect(ReadableFilePolicy.categorize('clip.mp4'), FilePreviewCategory.video);
+    expect(ReadableFilePolicy.categorize('song.mp3'), FilePreviewCategory.audio);
   });
 
   test('blocks executable extensions', () {
@@ -25,9 +29,16 @@ void main() {
 
   test('legacy xls is binary not spreadsheet preview', () {
     expect(ReadableFilePolicy.categorize('old.xls'), FilePreviewCategory.binary);
+    expect(ReadableFilePolicy.categorize('legacy.ppt'),
+        FilePreviewCategory.presentation);
+    expect(ReadableFilePolicy.isLegacyPresentation('legacy.ppt'), isTrue);
     expect(
       ReadableFilePolicy.supportsInlinePreview(FilePreviewCategory.binary),
       isFalse,
+    );
+    expect(
+      ReadableFilePolicy.supportsInlinePreview(FilePreviewCategory.video),
+      isTrue,
     );
   });
 

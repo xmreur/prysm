@@ -39,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _minimizeOnMinimizeButton = false;
   bool _enableRelay = false;
   bool _enableFilePreview = false;
+  bool _enableLinkUnfurling = false;
   String _downloadLocationDisplay = 'Loading...';
   StreamSubscription<void>? _batterySaverSub;
 
@@ -66,6 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _minimizeOnMinimizeButton = settings.minimizeOnMinimizeButton;
       _enableRelay = settings.enableRelay;
       _enableFilePreview = settings.enableFilePreview;
+      _enableLinkUnfurling = settings.enableLinkUnfurling;
     });
   }
 
@@ -175,6 +177,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onFilePreviewToggle(bool value) async {
     await settings.setEnableFilePreview(value);
     setState(() => _enableFilePreview = value);
+  }
+
+  void _onLinkUnfurlingToggle(bool value) async {
+    await settings.setEnableLinkUnfurling(value);
+    setState(() => _enableLinkUnfurling = value);
   }
 
   void _onBatterySavingToggle(bool value) async {
@@ -639,6 +646,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Icons.preview_outlined,
                   _enableFilePreview,
                   _onFilePreviewToggle,
+                ),
+                const Divider(height: 1),
+                _buildSwitchTile(
+                  'Link previews',
+                  'Fetch titles and images for URLs in messages via Tor',
+                  Icons.link_outlined,
+                  _enableLinkUnfurling,
+                  _onLinkUnfurlingToggle,
                 ),
                 const Divider(height: 1),
                 _buildNavigationTile(

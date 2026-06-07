@@ -25,6 +25,7 @@ class Settings {
 
   // Files
   final bool enableFilePreview;
+  final bool enableLinkUnfurling;
   final String? customDownloadPath;
 
   Settings({
@@ -42,6 +43,7 @@ class Settings {
     this.avatar,
     this.username,
     this.enableFilePreview = false,
+    this.enableLinkUnfurling = false,
     this.customDownloadPath,
   });
 
@@ -61,6 +63,7 @@ class Settings {
     'avatar': avatar,
     'username': username,
     'enableFilePreview': enableFilePreview,
+    'enableLinkUnfurling': enableLinkUnfurling,
     'customDownloadPath': customDownloadPath,
   };
 
@@ -80,6 +83,7 @@ class Settings {
     avatar: json['avatar'],
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
+    enableLinkUnfurling: json['enableLinkUnfurling'] ?? false,
     customDownloadPath: json['customDownloadPath'],
   );
 
@@ -99,6 +103,7 @@ class Settings {
     String? avatar,
     String? username,
     bool? enableFilePreview,
+    bool? enableLinkUnfurling,
     String? customDownloadPath,
     bool clearCustomDownloadPath = false,
   }) => Settings(
@@ -117,6 +122,7 @@ class Settings {
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
+    enableLinkUnfurling: enableLinkUnfurling ?? this.enableLinkUnfurling,
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
@@ -152,6 +158,7 @@ class Settings {
         other.avatar == avatar &&
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
+        other.enableLinkUnfurling == enableLinkUnfurling &&
         other.customDownloadPath == customDownloadPath;
   }
 
@@ -171,6 +178,7 @@ class Settings {
         (avatar?.hashCode ?? 0) ^
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^
+        enableLinkUnfurling.hashCode ^
         (customDownloadPath?.hashCode ?? 0);
   }
 }

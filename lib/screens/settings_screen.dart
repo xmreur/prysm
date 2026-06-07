@@ -1,8 +1,10 @@
 // lib/screens/settings_screen.dart
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/services/tray_service.dart';
+import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
@@ -38,12 +40,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableRelay = false;
   bool _enableFilePreview = false;
   String _downloadLocationDisplay = 'Loading...';
+  StreamSubscription<void>? _batterySaverSub;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _loadDownloadLocationDisplay();
+    _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _batterySaverSub?.cancel();
+    super.dispose();
   }
 
   void _loadSettings() {
@@ -163,6 +175,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onFilePreviewToggle(bool value) async {
     await settings.setEnableFilePreview(value);
     setState(() => _enableFilePreview = value);
+  }
+
+  void _onBatterySavingToggle(bool value) async {
+    await BatterySaverService.instance.setUserEnabled(value);
+    if (mounted) setState(() {});
   }
 
   void _showAboutDialog() {
@@ -559,6 +576,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Icons.notifications_outlined,
                   _notificationsEnabled,
                   _onNotificationToggle,
+                ),
+                const Divider(height: 1),
+                _buildSwitchTile(
+                  'Battery saving',
+                  BatterySaverService.instance.statusSubtitle,
+                  Icons.battery_saver_outlined,
+                  BatterySaverService.instance.isActive,
+                  _onBatterySavingToggle,
                 ),
                 if (!Platform.isAndroid && !Platform.isIOS) ...[
                   const Divider(height: 1),

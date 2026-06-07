@@ -12,8 +12,10 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
@@ -114,6 +116,7 @@ void main() async {
   }
 
   await SettingsService().init();
+  await BatterySaverService.instance.init();
   await NotificationMuteService.instance.init();
 
   final keyManager = KeyManager();
@@ -519,6 +522,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Timer? _refreshTimer;
   Timer? _loadUsersDebounce;
+  StreamSubscription<void>? _batterySaverSub;
   StreamSubscription<void>? _inboundRefreshSub;
   StreamSubscription<String>? _groupMembershipSub;
   SyncCoordinator? _syncCoordinator;
@@ -618,6 +622,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _startAutoRefresh();
     _startTorHealthMonitor();
+    _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
+      if (!mounted) return;
+      _restartBackgroundIntervals();
+    });
     _inboundRefreshSub =
         ConversationRefreshNotifier.instance.onRefresh.listen((_) {
       scheduleLoadUsers(light: true);
@@ -643,7 +651,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void scheduleLoadUsers({bool light = false}) {
     _loadUsersQueuedLight = _loadUsersQueuedLight || light;
     _loadUsersDebounce?.cancel();
-    _loadUsersDebounce = Timer(const Duration(milliseconds: 400), () {
+    _loadUsersDebounce = Timer(BatterySaverPolicy.loadUsersDebounce(), () {
       if (!mounted) return;
       final lightOnly = _loadUsersQueuedLight;
       _loadUsersQueuedLight = false;
@@ -691,8 +699,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
 
+  void _restartBackgroundIntervals() {
+    _refreshTimer?.cancel();
+    _startAutoRefresh();
+    _startTorHealthMonitor();
+    _syncCoordinator?.start();
+  }
+
   void _startAutoRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(BatterySaverPolicy.homeRefreshInterval(), (timer) async {
       if (!mounted || _torStopped) return;
       await loadUsers();
       if (!mounted || _torStopped) return;
@@ -1491,6 +1507,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _refreshTimer?.cancel();
     _loadUsersDebounce?.cancel();
+    _batterySaverSub?.cancel();
     _inboundRefreshSub?.cancel();
     _groupMembershipSub?.cancel();
     _torHealthTimer?.cancel();
@@ -1523,7 +1540,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _torConnectionState = TorConnectionState.connected;
       TorConnectionNotifier.instance.update(TorConnectionState.connected);
     }
-    _torHealthTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+    _torHealthTimer = Timer.periodic(BatterySaverPolicy.torHealthInterval(), (_) {
       _checkTorHealth();
     });
     _checkTorHealth();

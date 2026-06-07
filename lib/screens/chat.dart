@@ -29,8 +29,10 @@ import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
+import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -100,6 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
   int _failedPings = 0;
   bool _probeConfirmedOffline = false; // Set by _checkPeerStatus on hard failure
   Timer? _pingTimer;
+  StreamSubscription<void>? _batterySaverSub;
 
   Set<String> selectedMessageIds = {};
   Message? _replyToMessage;
@@ -155,7 +158,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_scrollListener);
     _initializeChat(); // ✅ NEW METHOD
     _checkPeerStatus(); // Check online status + fetch profile immediately
-    _pingTimer = Timer.periodic(const Duration(seconds: 90), (_) => _checkPeerStatus());
+    _startPeerPingTimer();
+    _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
+      if (mounted) _startPeerPingTimer();
+    });
+  }
+
+  void _startPeerPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(
+      BatterySaverPolicy.peerStatusInterval(),
+      (_) => _checkPeerStatus(),
+    );
   }
 
   // ✅ NEW: Initialize ChatService
@@ -268,6 +282,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _reactionRefreshSub?.cancel();
     _modifyRefreshSub?.cancel();
     _pingTimer?.cancel();
+    _batterySaverSub?.cancel();
 
     _debounceTimer?.cancel();
     _scrollController.removeListener(_scrollListener);
@@ -402,7 +417,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _initializeChat();
       _checkPeerStatus();
-      _pingTimer = Timer.periodic(const Duration(seconds: 90), (_) => _checkPeerStatus());
+      _startPeerPingTimer();
     }
 
     if (oldWidget.currentTheme != widget.currentTheme) {

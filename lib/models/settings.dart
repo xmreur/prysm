@@ -6,6 +6,7 @@ class Settings {
   final bool sendReadReceipts;
   final bool minimizeToTray;
   final bool minimizeOnMinimizeButton;
+  final bool enableBatterySaving;
 
   // Network/Relay
   final bool enableRelay;
@@ -32,6 +33,7 @@ class Settings {
     this.sendReadReceipts = true,
     this.minimizeToTray = true,
     this.minimizeOnMinimizeButton = false,
+    this.enableBatterySaving = false,
     this.enableRelay = false,
     this.personalRelayAddress,
     this.aggressiveRetry = true,
@@ -50,6 +52,7 @@ class Settings {
     'sendReadReceipts': sendReadReceipts,
     'minimizeToTray': minimizeToTray,
     'minimizeOnMinimizeButton': minimizeOnMinimizeButton,
+    'enableBatterySaving': enableBatterySaving,
     'enableRelay': enableRelay,
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
@@ -68,6 +71,7 @@ class Settings {
     sendReadReceipts: json['sendReadReceipts'] ?? true,
     minimizeToTray: json['minimizeToTray'] ?? true,
     minimizeOnMinimizeButton: json['minimizeOnMinimizeButton'] ?? false,
+    enableBatterySaving: json['enableBatterySaving'] ?? false,
     enableRelay: json['enableRelay'] ?? false,
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
@@ -86,6 +90,7 @@ class Settings {
     bool? sendReadReceipts,
     bool? minimizeToTray,
     bool? minimizeOnMinimizeButton,
+    bool? enableBatterySaving,
     bool? enableRelay,
     String? personalRelayAddress,
     bool? aggressiveRetry,
@@ -103,6 +108,7 @@ class Settings {
     minimizeToTray: minimizeToTray ?? this.minimizeToTray,
     minimizeOnMinimizeButton:
         minimizeOnMinimizeButton ?? this.minimizeOnMinimizeButton,
+    enableBatterySaving: enableBatterySaving ?? this.enableBatterySaving,
     enableRelay: enableRelay ?? this.enableRelay,
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
@@ -137,6 +143,7 @@ class Settings {
         other.sendReadReceipts == sendReadReceipts &&
         other.minimizeToTray == minimizeToTray &&
         other.minimizeOnMinimizeButton == minimizeOnMinimizeButton &&
+        other.enableBatterySaving == enableBatterySaving &&
         other.enableRelay == enableRelay &&
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
@@ -155,6 +162,7 @@ class Settings {
         sendReadReceipts.hashCode ^
         minimizeToTray.hashCode ^
         minimizeOnMinimizeButton.hashCode ^
+        enableBatterySaving.hashCode ^
         enableRelay.hashCode ^
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^

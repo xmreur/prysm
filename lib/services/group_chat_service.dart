@@ -8,6 +8,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/group_crypto.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:uuid/uuid.dart';
@@ -24,9 +25,7 @@ class GroupChatService {
   bool _isPolling = false;
   bool _isSending = false;
   bool _disposed = false;
-  int _pollIntervalSeconds = 2;
-  static const int _pollIntervalActive = 2;
-  static const int _pollIntervalIdle = 5;
+  int _pollIntervalSeconds = BatterySaverPolicy.chatPollActiveSeconds(false);
   int _consecutivePollErrors = 0;
   int? _newestTimestamp;
   final Set<String> _seenMessageIds = {};
@@ -231,11 +230,14 @@ class GroupChatService {
       try {
         final hadNew = await _fetchNewMessages();
         _consecutivePollErrors = 0;
-        _pollIntervalSeconds = hadNew ? _pollIntervalActive : _pollIntervalIdle;
+        _pollIntervalSeconds = hadNew
+            ? BatterySaverPolicy.chatPollActiveSeconds()
+            : BatterySaverPolicy.chatPollIdleSeconds();
       } catch (e) {
         print('Group polling error: $e');
         _consecutivePollErrors++;
-        _pollIntervalSeconds = min(30, _pollIntervalActive * (1 << _consecutivePollErrors));
+        final base = BatterySaverPolicy.chatPollActiveSeconds();
+        _pollIntervalSeconds = min(30, base * (1 << _consecutivePollErrors));
       }
 
       if (_isPolling && !_disposed) {

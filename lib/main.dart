@@ -400,7 +400,7 @@ class _MyAppState extends State<MyApp> {
         theme: ThemeManager.getTheme(_currentTheme),
         home: PinScreen(
           onVerifyPin: onVerifyPin,
-          isSetupMode: widget.keyManager.isPinSet(),
+          isPinSet: widget.keyManager.isPinSet(),
           torBootstrapProgress: _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
         ),
       );

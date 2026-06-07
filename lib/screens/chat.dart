@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:encrypt/encrypt.dart' as e;
@@ -90,6 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Set<String> selectedMessageIds = {};
   Message? _replyToMessage;
+  TextMessage? _editingMessage;
   final Map<String, double> _dragOffsets = {};
 
   Key _chatKey = UniqueKey();
@@ -100,6 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
   StreamSubscription? _reachableSub;
+  StreamSubscription? _editSub;
 
   void _scrollListener() {
     if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
@@ -157,6 +160,8 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _peerOnline = true);
       }
     });
+
+    _setupEditListener();
 
     await _loadInitialMessages();
 
@@ -231,6 +236,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
     _reachableSub?.cancel();
+    _editSub?.cancel();
     _pingTimer?.cancel();
 
     _debounceTimer?.cancel();
@@ -414,6 +420,9 @@ class _ChatScreenState extends State<ChatScreen> {
               seenAt: msg['readAt'] != null
                   ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'])
                   : null,
+              editedAt: msg['editedAt'] != null
+                  ? DateTime.fromMillisecondsSinceEpoch(msg['editedAt'])
+                  : null,
               text: _decryptDirectTextMessage(msg, keyManager),
             ),
           );
@@ -592,6 +601,65 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  // ==================== MESSAGE EDITING ====================
+
+  void _startEditing(TextMessage message) {
+    setState(() {
+      _editingMessage = message;
+      _replyToMessage = null;
+    });
+  }
+
+  void _cancelEditing() {
+    setState(() => _editingMessage = null);
+  }
+
+  void _handleEditText(String newText) async {
+    if (!mounted) return;
+    final msg = _editingMessage;
+    if (msg == null || newText.isEmpty) return;
+
+    setState(() => _editingMessage = null);
+
+    final updatedMsg = msg.copyWith(text: newText, editedAt: DateTime.now());
+    final idx = _messages.messages.indexWhere((m) => m.id == msg.id);
+    if (idx != -1) {
+      _messages.updateMessage(_messages.messages[idx], updatedMsg);
+    }
+
+    await _chatService.editTextMessage(msg.id, newText);
+  }
+
+  void _setupEditListener() {
+    _editSub = MessageEditNotifier.instance.onEdited.listen((key) {
+      if (!mounted) return;
+      final parts = key.split('::');
+      final messageId = parts.length > 1 ? parts[1] : parts[0];
+      final groupId = parts.length > 1 ? parts[0] : null;
+      if (groupId != null) return;
+      if (messageId.contains('::')) return;
+
+      MessagesDb.getMessageById(messageId).then((rows) {
+        if (!mounted || rows.isEmpty) return;
+        final msg = rows.first;
+        if (msg['type'] != 'text') return;
+        final newText = _decryptDirectTextMessage(msg, widget.keyManager);
+        final editedAt = msg['editedAt'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(msg['editedAt'])
+            : null;
+        final idx = _messages.messages.indexWhere((m) => m.id == messageId);
+        if (idx == -1) return;
+        final existing = _messages.messages[idx];
+        if (existing is TextMessage) {
+          _messages.updateMessage(
+            existing,
+            existing.copyWith(text: newText, editedAt: editedAt),
+          );
+        }
+      });
+    });
+  }
+
   // ==================== MESSAGE SENDING ====================
 
   void _handleSendText(String text) async {
@@ -763,6 +831,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSend(dynamic message) {
+    if (_editingMessage != null) {
+      final text = message is TextMessage ? message.text : (message is String ? message : null);
+      if (text != null && text.isNotEmpty) {
+        _handleEditText(text);
+      }
+      return;
+    }
     if (message is TextMessage && message.text.isNotEmpty) {
       _handleSendText(message.text);
     } else if (message is String && message.isNotEmpty) {
@@ -981,6 +1056,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMessageMenu(BuildContext context, Message message, Offset position) {
     final text = _getMessageText(message);
+    final isOwn = message.authorId == widget.userId;
+    final canEdit = isOwn && message is TextMessage && text.isNotEmpty &&
+        message.createdAt != null &&
+        DateTime.now().difference(message.createdAt!).inMinutes < 10;
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
 
     showMenu<String>(
@@ -1012,6 +1091,17 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ),
+        if (canEdit)
+          PopupMenuItem(
+            value: 'edit',
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined, size: 20, color: Theme.of(context).iconTheme.color),
+                const SizedBox(width: 12),
+                const Text('Modifica'),
+              ],
+            ),
+          ),
         PopupMenuItem(
           value: 'select',
           child: Row(
@@ -1044,6 +1134,9 @@ class _ChatScreenState extends State<ChatScreen> {
           break;
         case 'reply':
           setState(() => _replyToMessage = message);
+          break;
+        case 'edit':
+          _startEditing(message as TextMessage);
           break;
         case 'select':
           setState(() => selectedMessageIds.add(message.id));
@@ -1418,6 +1511,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                   _dragOffsets[message.id] = 0;
                                 });
                               },
+                              onSecondaryTapDown: (details) {
+                                if (selectedMessageIds.isEmpty) {
+                                  _showMessageMenu(context, message, details.globalPosition);
+                                }
+                              },
                               onLongPressStart: (details) {
                                 if (selectedMessageIds.isNotEmpty) {
                                   // Multi-select mode: toggle selection
@@ -1498,6 +1596,8 @@ class _ChatScreenState extends State<ChatScreen> {
               onSendImage: _handleSendImage,
               onSendFile: _handleSendFile,
               onSendVoice: _handleSendVoice,
+              editingMessage: _editingMessage,
+              onCancelEdit: _cancelEditing,
             ),
           ],
         ),
@@ -1962,6 +2062,18 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (message.editedAt != null)
+                    Text(
+                      'edited',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: isSentByMe
+                            ? Theme.of(context).colorScheme.onPrimary.withAlpha(180)
+                            : Theme.of(context).colorScheme.onSecondary.withAlpha(180),
+                      ),
+                    ),
+                  if (message.editedAt != null) const SizedBox(width: 4),
                   Text(
                     timeString,
                     style: TextStyle(

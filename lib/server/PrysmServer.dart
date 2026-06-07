@@ -173,6 +173,27 @@ class PrysmServer {
           ? incomingTimestamp
           : timeReceived;
       final localId = localOnionAddress ?? receiverId;
+
+      // Handle message edits — update existing message content
+      if (data['editOf'] != null) {
+        final editOf = data['editOf'] as String;
+        await MessagesDb.updateMessageText(
+          editOf,
+          data['message'] as String,
+          timeReceived,
+          groupId: data['groupId'] as String?,
+        );
+        ConversationRefreshNotifier.instance.notifyInboundMessage();
+        MessageEditNotifier.instance.notifyEdited(
+          editOf,
+          groupId: data['groupId'] as String?,
+        );
+        return Response.ok(
+          jsonEncode({'status': 'edited', 'id': editOf}),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
       await MessagesDb.insertInboundMessage({
         'id': data['id'] as String,
         'senderId': senderId,

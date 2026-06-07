@@ -6,12 +6,15 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_chat_core/flutter_chat_core.dart';
 
 class MessageComposer extends StatefulWidget {
   final Function(String) onSendText;
   final VoidCallback onSendImage;
   final VoidCallback onSendFile;
   final Function(Uint8List bytes, int durationMs)? onSendVoice;
+  final TextMessage? editingMessage;
+  final VoidCallback? onCancelEdit;
 
   const MessageComposer({
     super.key,
@@ -19,6 +22,8 @@ class MessageComposer extends StatefulWidget {
     required this.onSendImage,
     required this.onSendFile,
     this.onSendVoice,
+    this.editingMessage,
+    this.onCancelEdit,
   });
 
   @override
@@ -26,7 +31,7 @@ class MessageComposer extends StatefulWidget {
 }
 
 class MessageComposerState extends State<MessageComposer> {
-  final TextEditingController _textController = TextEditingController();
+  late TextEditingController _textController;
   String currentText = '';
   bool showEmojiPicker = false;
 
@@ -36,6 +41,25 @@ class MessageComposerState extends State<MessageComposer> {
   Duration _recordDuration = Duration.zero;
   Timer? _recordTimer;
   String? _recordPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController();
+  }
+
+  @override
+  void didUpdateWidget(MessageComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.editingMessage != oldWidget.editingMessage &&
+        widget.editingMessage != null) {
+      _textController.text = widget.editingMessage!.text;
+      _textController.selection = TextSelection.collapsed(
+        offset: _textController.text.length,
+      );
+      setState(() => currentText = widget.editingMessage!.text);
+    }
+  }
 
   @override
   void dispose() {
@@ -157,6 +181,34 @@ class MessageComposerState extends State<MessageComposer> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.editingMessage != null)
+          Container(
+            color: Theme.of(context).colorScheme.primary.withAlpha(25),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined, size: 16, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Modifying message',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    _textController.clear();
+                    setState(() => currentText = '');
+                    widget.onCancelEdit?.call();
+                  },
+                  child: Icon(Icons.close, size: 16, color: Theme.of(context).colorScheme.primary),
+                ),
+              ],
+            ),
+          ),
         if (showEmojiPicker)
           SizedBox(
             height: 250,

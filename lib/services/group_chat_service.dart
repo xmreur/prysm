@@ -142,6 +142,68 @@ class GroupChatService {
     return id;
   }
 
+  Future<bool> editTextMessage(String originalId, String newText) async {
+    await _refreshSession();
+    if (_groupKey == null) return false;
+
+    final editedAt = DateTime.now().millisecondsSinceEpoch;
+    final encrypted = GroupCrypto.encryptText(_groupKey!, newText);
+
+    // Update DB locally first
+    await MessagesDb.updateMessageText(
+      originalId, encrypted, editedAt,
+      groupId: groupId,
+    );
+
+    // Send edit to all members
+    final targets = _memberIds.where((m) => m != userId).toList();
+    var successCount = 0;
+
+    for (final target in targets) {
+      final success = await _sendOverTor(
+        id: originalId,
+        targetMemberId: target,
+        encrypted: encrypted,
+        type: groupTextType,
+        replyToId: null,
+        timestamp: editedAt,
+        editOf: originalId,
+      );
+      if (success) {
+        successCount++;
+      } else {
+        await _addPendingEdit(
+          messageId: originalId,
+          targetMemberId: target,
+          encrypted: encrypted,
+          timestamp: editedAt,
+        );
+      }
+    }
+
+    // Don't await — edit doesn't change sent status
+    return successCount > 0;
+  }
+
+  Future<void> _addPendingEdit({
+    required String messageId,
+    required String targetMemberId,
+    required String encrypted,
+    required int timestamp,
+  }) async {
+    await PendingMessageDbHelper.insertPendingMessage({
+      'id': _pendingId('${messageId}_edit', targetMemberId),
+      'senderId': userId,
+      'receiverId': targetMemberId,
+      'editOf': messageId,
+      'message': encrypted,
+      'type': groupTextType,
+      'timestamp': timestamp,
+      'groupId': groupId,
+      'targetMemberId': targetMemberId,
+    });
+  }
+
   String _groupTypeForMedia(String type) {
     switch (type) {
       case 'image':
@@ -316,6 +378,7 @@ class GroupChatService {
             fileName: msg['fileName'] as String?,
             fileSize: msg['fileSize'] as int?,
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            editOf: msg['editOf'] as String?,
           );
 
           if (success) {
@@ -361,6 +424,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    String? editOf,
   }) async {
     if (isGroupControlType(type)) {
       return _postRaw(id, targetMemberId, encrypted, type, timestamp);
@@ -378,6 +442,7 @@ class GroupChatService {
         fileName: fileName,
         fileSize: fileSize,
         viewOnce: viewOnce,
+        editOf: editOf,
         timeout: isLargeMedia ? const Duration(minutes: 5) : const Duration(seconds: 30),
       );
       if (ok) return true;
@@ -398,6 +463,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    String? editOf,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
@@ -405,6 +471,7 @@ class GroupChatService {
       final uri = Uri.parse('http://$targetMemberId:80/message');
       final body = jsonEncode({
         'id': id,
+        if (editOf != null) 'editOf': editOf,
         'senderId': userId,
         'receiverId': targetMemberId,
         'groupId': groupId,

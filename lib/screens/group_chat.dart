@@ -12,6 +12,7 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
@@ -66,8 +67,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   StreamSubscription? _newMessagesSub;
   StreamSubscription? _statusSub;
+  StreamSubscription? _editSub;
 
   Message? _replyToMessage;
+  TextMessage? _editingMessage;
   final Set<String> selectedMessageIds = {};
 
   static final _urlRegex = RegExp(
@@ -112,6 +115,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void _teardown() {
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
+    _editSub?.cancel();
     _chatService.dispose();
   }
 
@@ -130,6 +134,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
     _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+    _setupEditListener();
 
     await _loadMoreMessages();
     _chatService.startPolling();
@@ -238,12 +243,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _showMessageMenu(Message message) {
+    final isOwn = message.authorId == widget.userId;
+    final canEdit = isOwn && message is TextMessage &&
+        message.createdAt != null &&
+        DateTime.now().difference(message.createdAt!).inMinutes < 10;
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (canEdit)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Modifica'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startEditing(message as TextMessage);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.reply),
               title: const Text('Reply'),
@@ -490,6 +508,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             text: text,
             replyToMessageId: replyTo,
             seenAt: seenAt,
+            editedAt: msg['editedAt'] != null
+                ? DateTime.fromMillisecondsSinceEpoch(msg['editedAt'] as int)
+                : null,
           ));
         } else if (type == groupImageType) {
           final isViewOnce = (msg['viewOnce'] ?? 0) == 1;
@@ -609,6 +630,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _handleSendText(String text) async {
+    if (_editingMessage != null) {
+      _handleEditText(text);
+      return;
+    }
     final messageId = const Uuid().v4();
     final replyToId = _replyToMessage?.id;
     setState(() {
@@ -636,6 +661,67 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
     widget.reloadConversations();
+  }
+
+  void _startEditing(TextMessage message) {
+    setState(() {
+      _editingMessage = message;
+      _replyToMessage = null;
+    });
+  }
+
+  void _cancelEditing() {
+    setState(() => _editingMessage = null);
+  }
+
+  void _handleEditText(String newText) async {
+    if (!mounted) return;
+    final msg = _editingMessage;
+    if (msg == null || newText.isEmpty) return;
+
+    setState(() => _editingMessage = null);
+
+    final updatedMsg = msg.copyWith(text: newText, editedAt: DateTime.now());
+    final idx = _messages.messages.indexWhere((m) => m.id == msg.id);
+    if (idx != -1) {
+      _messages.updateMessage(_messages.messages[idx], updatedMsg);
+    }
+
+    await _chatService.editTextMessage(msg.id, newText);
+    widget.reloadConversations();
+  }
+
+  void _setupEditListener() {
+    _editSub = MessageEditNotifier.instance.onEdited.listen((key) {
+      if (!mounted) return;
+      final parts = key.split('::');
+      final messageId = parts.length > 1 ? parts[1] : parts[0];
+      final groupId = parts.length > 1 ? parts[0] : null;
+      if (groupId != widget.group.id) return;
+
+      MessagesDb.getMessageById(messageId, groupId: groupId).then((rows) {
+        if (!mounted || rows.isEmpty) return;
+        final msg = rows.first;
+        if (msg['type'] != groupTextType) return;
+        _groupService.getDecryptedGroupKey(widget.group.id).then((groupKey) {
+          if (groupKey == null) return;
+          final newText = GroupCrypto.decryptText(groupKey, msg['message'] as String);
+          final editedAt = msg['editedAt'] != null
+              ? DateTime.fromMillisecondsSinceEpoch(msg['editedAt'] as int)
+              : null;
+          final wireId = MessagesDb.wireIdFromStorage(msg['id'] as String);
+          final idx = _messages.messages.indexWhere((m) => m.id == wireId);
+          if (idx == -1) return;
+          final existing = _messages.messages[idx];
+          if (existing is TextMessage) {
+            _messages.updateMessage(
+              existing,
+              existing.copyWith(text: newText, editedAt: editedAt),
+            );
+          }
+        });
+      });
+    });
   }
 
   void _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
@@ -884,6 +970,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (message.editedAt != null)
+                      Text(
+                        'edited',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                          color: tickColor,
+                        ),
+                      ),
+                    if (message.editedAt != null) const SizedBox(width: 4),
                     Text(
                       timeString,
                       style: TextStyle(
@@ -1336,6 +1432,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             ),
                           ),
                         GestureDetector(
+                          onSecondaryTapDown: (details) {
+                            if (selectedMessageIds.isEmpty) {
+                              _showMessageMenu(message);
+                            }
+                          },
                           onLongPress: () => _showMessageMenu(message),
                           onTap: selectedMessageIds.isNotEmpty
                               ? () {
@@ -1395,6 +1496,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               onSendImage: _handleSendImage,
               onSendFile: _handleSendFile,
               onSendVoice: _handleSendVoice,
+              editingMessage: _editingMessage,
+              onCancelEdit: _cancelEditing,
             ),
           ],
         ),

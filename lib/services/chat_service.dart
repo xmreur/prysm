@@ -147,6 +147,82 @@ class ChatService {
     return id;
   }
 
+  Future<bool> editTextMessage(String originalId, String newText) async {
+    if (peerPublicKey == null) return false;
+
+    final encryptedForPeer = keyManager.encryptForPeer(newText, peerPublicKey!);
+    final encryptedForSelf = keyManager.encryptForSelf(newText);
+    final editedAt = DateTime.now().millisecondsSinceEpoch;
+
+    // Update DB locally first
+    await MessagesDb.updateMessageText(originalId, encryptedForSelf, editedAt);
+
+    // Send edit to peer
+    final success = await _sendEditOverTor(originalId, encryptedForPeer);
+
+    if (success) {
+      _notifyPeerReachable();
+      _processSendQueue();
+    } else {
+      // If peer is offline, queue the edit for later delivery
+      await _addPendingEdit(
+        originalId,
+        encryptedForPeer,
+      );
+      _processSendQueue();
+    }
+
+    return success;
+  }
+
+  Future<bool> _sendEditOverTor(String originalId, String encrypted) async {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+      try {
+        final uri = Uri.parse('http://$peerId:80/message');
+        final body = jsonEncode({
+          "id": originalId,
+          "editOf": originalId,
+          "senderId": userId,
+          "receiverId": peerId,
+          "message": encrypted,
+          "type": 'text_edit',
+          "timestamp": DateTime.now().millisecondsSinceEpoch,
+        });
+
+        final response = await torClient
+            .post(uri, {'Content-Type': 'application/json'}, body)
+            .timeout(const Duration(seconds: 30));
+
+        await response.transform(utf8.decoder).join();
+        return true;
+      } on TimeoutException {
+        print('Edit send timeout (attempt ${attempt + 1})');
+      } catch (e) {
+        print('Edit send failed (attempt ${attempt + 1}): $e');
+      } finally {
+        torClient.close();
+      }
+
+      if (attempt == 0) {
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+    return false;
+  }
+
+  Future<void> _addPendingEdit(String originalId, String encrypted) async {
+    await PendingMessageDbHelper.insertPendingMessage({
+      'id': originalId,
+      'editOf': originalId,
+      'senderId': userId,
+      'receiverId': peerId,
+      'message': encrypted,
+      'type': 'text_edit',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
   Future<String?> sendFileMessage(
     Uint8List bytes,
     String fileName,
@@ -318,6 +394,7 @@ class ChatService {
             fileName: msg['fileName'],
             fileSize: msg['fileSize'],
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            editOf: msg['editOf'] as String?,
           );
 
           if (success) {
@@ -362,6 +439,7 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    String? editOf,
   }) async {
     final isLargeMedia = type == 'file' || type == 'image' || type == 'audio';
     final timeout = isLargeMedia
@@ -375,6 +453,7 @@ class ChatService {
         final uri = Uri.parse('http://$peerId:80/message');
         final body = jsonEncode({
           "id": id,
+          if (editOf != null) "editOf": editOf,
           "senderId": userId,
           "receiverId": peerId,
           "message": encrypted,
@@ -503,6 +582,7 @@ class ChatService {
           fileName: msg['fileName'] as String?,
           fileSize: msg['fileSize'] as int?,
           viewOnce: (msg['viewOnce'] ?? 0) == 1,
+          editOf: msg['editOf'] as String?,
         );
         if (success) {
           sentIds.add(msgId);

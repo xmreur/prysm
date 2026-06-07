@@ -9,7 +9,7 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 6;
+    static const _dbVersion = 7;
 
 	static const String _directChatTypeFilter =
 		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
@@ -44,8 +44,9 @@ class MessagesDb {
 					if (oldVersion < 2) await _upgradeToV2(db);
 					if (oldVersion < 3) await _upgradeToV3(db);
 					if (oldVersion < 4) await _upgradeToV4(db);
-					if (oldVersion < 5) await _upgradeToV5(db);
-					if (oldVersion < 6) await _upgradeToV6(db);
+				if (oldVersion < 5) await _upgradeToV5(db);
+				if (oldVersion < 6) await _upgradeToV6(db);
+				if (oldVersion < 7) await _upgradeToV7(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -162,6 +163,14 @@ class MessagesDb {
 		);
 	}
 
+	static Future<void> _upgradeToV7(Database db) async {
+		print('UPGRADING DB TO v7');
+		final columns = await db.rawQuery('PRAGMA table_info(messages)');
+		if (!columns.any((col) => col['name'] == 'editedAt')) {
+			await db.execute('ALTER TABLE messages ADD COLUMN editedAt INTEGER');
+		}
+	}
+
 	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.
 	static String scopedId({required String wireId, String? groupId}) {
 		if (groupId != null && groupId.isNotEmpty) return '$groupId::$wireId';
@@ -196,6 +205,25 @@ class MessagesDb {
 				'messages',
 				{'viewed': 1, 'message': null},
 				where: 'id = ? AND viewOnce = 1',
+				whereArgs: [storageId],
+			);
+		});
+	}
+
+	/// Update message text content and mark as edited.
+	static Future<void> updateMessageText(
+		String messageId,
+		String newMessage,
+		int editedAt, {
+		String? groupId,
+	}) async {
+		await _dbMutex.protect(() async {
+			final db = await database;
+			final storageId = scopedId(wireId: messageId, groupId: groupId);
+			await db.update(
+				'messages',
+				{'message': newMessage, 'editedAt': editedAt},
+				where: 'id = ?',
 				whereArgs: [storageId],
 			);
 		});

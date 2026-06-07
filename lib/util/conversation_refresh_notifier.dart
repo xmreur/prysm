@@ -19,3 +19,23 @@ class ConversationRefreshNotifier {
     _controller.close();
   }
 }
+
+/// Fired when a message is edited by the remote peer so the chat UI can update it in-place.
+class MessageEditNotifier {
+  MessageEditNotifier._();
+  static final MessageEditNotifier instance = MessageEditNotifier._();
+
+  final _controller = StreamController<String>.broadcast();
+
+  Stream<String> get onEdited => _controller.stream;
+
+  void notifyEdited(String messageId, {String? groupId}) {
+    if (!_controller.isClosed) {
+      _controller.add('${groupId ?? ''}::$messageId');
+    }
+  }
+
+  void dispose() {
+    _controller.close();
+  }
+}

@@ -25,7 +25,11 @@ import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
+import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/util/message_modify_policy.dart';
+import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
@@ -62,6 +66,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late GroupService _groupService;
   late GroupChatService _chatService;
   late ReactionService _reactionService;
+  late MessageModifyService _modifyService;
   late User _user;
 
   var _messages = InMemoryChatController();
@@ -77,6 +82,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _statusSub;
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
+  StreamSubscription? _modifyRefreshSub;
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
@@ -108,6 +114,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       groupId: widget.group.id,
       groupService: _groupService,
     );
+    _modifyService = MessageModifyService.group(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      groupId: widget.group.id,
+      groupService: _groupService,
+    );
     _init();
   }
 
@@ -132,6 +144,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _statusSub?.cancel();
     _reactionSub?.cancel();
     _reactionRefreshSub?.cancel();
+    _modifyRefreshSub?.cancel();
     _chatService.dispose();
     _reactionService.dispose();
   }
@@ -154,6 +167,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
     _reactionRefreshSub =
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
+    _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
+        .listen(_applyModifyUpdate);
 
     await _loadMoreMessages();
     _chatService.startPolling();
@@ -164,16 +179,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Widget _buildReplyPreview() {
     if (_replyToMessage == null) return const SizedBox.shrink();
-    String previewText;
-    if (_replyToMessage is TextMessage) {
-      previewText = (_replyToMessage as TextMessage).text;
-    } else if (_replyToMessage is ImageMessage) {
-      previewText = '📷 Image';
-    } else if (_replyToMessage is FileMessage) {
-      previewText = '📎 File: ${(_replyToMessage as FileMessage).name}';
-    } else {
-      previewText = 'Message';
-    }
+    final previewText = isMessageDeleted(_replyToMessage!)
+        ? 'Deleted'
+        : _replyToMessage is TextMessage
+            ? (_replyToMessage as TextMessage).text
+            : _replyToMessage is ImageMessage
+                ? '📷 Image'
+                : _replyToMessage is FileMessage
+                    ? '📎 File: ${(_replyToMessage as FileMessage).name}'
+                    : 'Message';
     return Container(
       color: Theme.of(context).brightness == Brightness.dark
           ? Theme.of(context).colorScheme.secondary
@@ -262,10 +276,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _showMessageMenu(Message message) {
+    if (isMessageDeleted(message)) return;
+    final isSentByMe = message.authorId == widget.userId;
     showMessageActionsSheet(
       context: context,
       onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
       actionTiles: [
+        if (canEditMessage(message, widget.userId))
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('Edit'),
+            onTap: () {
+              Navigator.pop(context);
+              _editMessage(message);
+            },
+          ),
         ListTile(
           leading: const Icon(Icons.reply),
           title: const Text('Reply'),
@@ -284,23 +309,136 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
         ListTile(
           leading: const Icon(Icons.delete_outline),
-          title: const Text('Delete'),
+          title: Text(isSentByMe ? 'Delete for everyone' : 'Delete'),
           onTap: () async {
             Navigator.pop(context);
-            final storageId = MessagesDb.scopedId(
-              wireId: message.id,
-              groupId: widget.group.id,
-            );
-            await MessagesDb.deleteMessageById(storageId);
-            await MessageReactionsDb.deleteReactionsForMessage(storageId);
-            if (mounted) {
-              setState(() {
-                _messages.removeMessage(message);
-              });
-            }
+            await _deleteMessage(message);
           },
         ),
       ],
+    );
+  }
+
+  Future<void> _deleteMessage(Message message) async {
+    if (canDeleteForEveryone(message, widget.userId)) {
+      await _modifyService.deleteMessage(targetMessageId: message.id);
+      final storageId = MessagesDb.scopedId(
+        wireId: message.id,
+        groupId: widget.group.id,
+      );
+      await MessageReactionsDb.deleteReactionsForMessage(storageId);
+      if (mounted) {
+        setState(() {
+          _messages.updateMessage(message, markMessageDeleted(message));
+        });
+      }
+      return;
+    }
+
+    final storageId = MessagesDb.scopedId(
+      wireId: message.id,
+      groupId: widget.group.id,
+    );
+    await MessagesDb.deleteMessageById(storageId);
+    await MessageReactionsDb.deleteReactionsForMessage(storageId);
+    if (mounted) {
+      setState(() {
+        _messages.removeMessage(message);
+      });
+    }
+  }
+
+  Future<void> _editMessage(Message message) async {
+    if (message is! TextMessage) return;
+    final controller = TextEditingController(text: message.text);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 1,
+          decoration: const InputDecoration(
+            hintText: 'Message',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newText == null || newText.isEmpty || newText == message.text) return;
+
+    final ok = await _modifyService.editTextMessage(
+      targetMessageId: message.id,
+      newText: newText,
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _messages.updateMessage(
+          message,
+          message.copyWith(
+            text: newText,
+            metadata: {...?message.metadata, 'edited': true},
+          ),
+        );
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not edit message')),
+      );
+    }
+  }
+
+  void _applyModifyUpdate(MessageModifyUpdate update) {
+    if (!mounted) return;
+    try {
+      final msg =
+          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      Message updated;
+      if (update.isDelete) {
+        updated = markMessageDeleted(msg);
+      } else if (msg is TextMessage && update.newText != null) {
+        updated = msg.copyWith(
+          text: update.newText!,
+          metadata: {...?msg.metadata, 'edited': true},
+        );
+      } else {
+        return;
+      }
+      setState(() {
+        _messages.updateMessage(msg, updated);
+      });
+    } catch (_) {}
+  }
+
+  Widget _displayChildForMessage(
+    Message message,
+    Widget child,
+    bool isSentByMe,
+  ) {
+    if (!isMessageDeleted(message)) return child;
+    return DeletedMessageBubble(
+      isSentByMe: isSentByMe,
+      createdAt: message.createdAt!,
+      tickWidget: isSentByMe
+          ? _buildStatusWidget(
+              message,
+              isSentByMe,
+              Theme.of(context).colorScheme.onSurface.withAlpha(180),
+            )
+          : null,
     );
   }
 
@@ -346,21 +484,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<void> _deleteSelectedMessages() async {
-    for (final id in selectedMessageIds) {
-      final storageId = MessagesDb.scopedId(wireId: id, groupId: widget.group.id);
-      await MessagesDb.deleteMessageById(storageId);
-      await MessageReactionsDb.deleteReactionsForMessage(storageId);
+    final ids = List<String>.from(selectedMessageIds);
+    for (final id in ids) {
+      try {
+        final msg = _messages.messages.firstWhere((m) => m.id == id);
+        await _deleteMessage(msg);
+      } catch (_) {}
     }
-    if (!mounted) return;
-    setState(() {
-      for (final id in List<String>.from(selectedMessageIds)) {
-        try {
-          final msg = _messages.messages.firstWhere((m) => m.id == id);
-          _messages.removeMessage(msg);
-        } catch (_) {}
-      }
-      selectedMessageIds.clear();
-    });
+    if (mounted) {
+      setState(() => selectedMessageIds.clear());
+    }
   }
 
   Widget _replyPreviewWidget(Message message, bool isSentByMe) {
@@ -376,7 +509,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (repliedMessage == null) return const SizedBox.shrink();
 
     String previewText;
-    if (repliedMessage is TextMessage) {
+    if (isMessageDeleted(repliedMessage)) {
+      previewText = 'Deleted';
+    } else if (repliedMessage is TextMessage) {
       previewText = repliedMessage.text;
     } else if (repliedMessage is ImageMessage) {
       previewText = '📷 Image';
@@ -543,6 +678,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         final seenAt = msg['readAt'] != null
             ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
             : null;
+        final meta = metadataFromDbRow(msg);
+
+        if (meta['deleted'] == true) {
+          result.add(TextMessage(
+            authorId: authorId,
+            createdAt: createdAt,
+            id: id,
+            replyToMessageId: replyTo,
+            seenAt: seenAt,
+            text: '',
+            metadata: meta,
+          ));
+          continue;
+        }
 
         if (type == groupTextType) {
           final text = GroupCrypto.decryptText(groupKey, msg['message'] as String);
@@ -553,6 +702,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             text: text,
             replyToMessageId: replyTo,
             seenAt: seenAt,
+            metadata: meta.isEmpty ? null : meta,
           ));
         } else if (type == groupImageType) {
           final isViewOnce = (msg['viewOnce'] ?? 0) == 1;
@@ -953,6 +1103,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (message.metadata?['edited'] == true) ...[
+                      Text(
+                        'edited',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                          color: tickColor.withAlpha(180),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     Text(
                       timeString,
                       style: TextStyle(
@@ -1413,8 +1574,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                               ? CrossAxisAlignment.end
                                               : CrossAxisAlignment.start,
                                           children: [
-                                            child,
-                                            _reactionBarFor(message, isSentByMe),
+                                            if (isMessageDeleted(message))
+                                              _senderLabel(
+                                                message.authorId,
+                                                isSentByMe,
+                                              ),
+                                            _displayChildForMessage(
+                                              message,
+                                              child,
+                                              isSentByMe,
+                                            ),
+                                            if (!isMessageDeleted(message))
+                                              _reactionBarFor(message, isSentByMe),
                                           ],
                                         ),
                                       ),

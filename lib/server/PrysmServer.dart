@@ -12,6 +12,7 @@ import 'package:shelf/shelf_io.dart' as io;
 import '../database/messages.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -124,6 +125,59 @@ class PrysmServer {
           print('PrysmServer: group control handling failed: $e');
           return Response.internalServerError(
             body: jsonEncode({'error': 'Group control processing failed'}),
+            headers: {'Content-Type': 'application/json'},
+          );
+        }
+
+        return Response.ok(
+          jsonEncode({'status': 'received', 'id': data['id']}),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
+      // Edit/delete side-channel — updates existing messages
+      if (isMessageModifyType(type)) {
+        final receiverId = data['receiverId'] as String;
+        final senderId = data['senderId'] as String;
+
+        if (localOnionAddress != null) {
+          if (senderId == localOnionAddress) {
+            return Response.ok(
+              jsonEncode({'status': 'received', 'id': data['id']}),
+              headers: {'Content-Type': 'application/json'},
+            );
+          }
+          if (receiverId != localOnionAddress) {
+            return Response.forbidden(
+              jsonEncode({'error': 'Message not addressed to this node'}),
+              headers: {'Content-Type': 'application/json'},
+            );
+          }
+        }
+
+        if (type == groupMessageModifyType && data['groupId'] == null) {
+          return _badRequest('groupId required for group message modifies');
+        }
+
+        await DBHelper.ensureUserExist(senderId);
+
+        final localId = localOnionAddress ?? receiverId;
+        final groupService =
+            GroupService(userId: localId, keyManager: keyManager);
+
+        try {
+          await MessageModifyService.applyInbound(
+            keyManager: keyManager,
+            encrypted: data['message'] as String,
+            senderId: senderId,
+            type: type,
+            groupId: data['groupId'] as String?,
+            groupService: groupService,
+          );
+        } catch (e) {
+          print('PrysmServer: message modify handling failed: $e');
+          return Response.internalServerError(
+            body: jsonEncode({'error': 'Message modify processing failed'}),
             headers: {'Content-Type': 'application/json'},
           );
         }

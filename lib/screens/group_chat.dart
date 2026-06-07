@@ -11,7 +11,6 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:prysm/util/download_location.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
@@ -22,7 +21,9 @@ import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
+import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
@@ -1167,15 +1168,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     required bool isSentByMe,
     MessageGroupStatus? groupStatus,
   }) {
-    if (message.name.contains('voice_message') || message.source.startsWith('audio:')) {
-      final msgDate = DateTime.fromMillisecondsSinceEpoch(
-        message.createdAt!.millisecondsSinceEpoch,
-      );
-      final timeString =
-          '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
-      final tickColor = isSentByMe
-          ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-          : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
+    final msgDate = DateTime.fromMillisecondsSinceEpoch(
+      message.createdAt!.millisecondsSinceEpoch,
+    );
+    final timeString =
+        '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
+    final tickColor = isSentByMe
+        ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
+        : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
+
+    if (message.name.contains('voice_message') ||
+        message.source.startsWith('audio:')) {
       return Column(
         crossAxisAlignment:
             isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -1191,78 +1194,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
 
-    final msgDate = DateTime.fromMillisecondsSinceEpoch(
-      message.createdAt!.millisecondsSinceEpoch,
-    );
-    final timeString =
-        '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
-    final tickColor = isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-        : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
-
-    Future<void> downloadFile() async {
-      try {
-        Uint8List bytes;
-        if (message.source.startsWith('data:') || message.source.length > 200) {
-          bytes = base64Decode(message.source);
-        } else {
-          bytes = base64Decode(message.source);
-        }
-        final file = await DownloadLocation.saveBytes(bytes, message.name);
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved ${file.path.split('/').last}')),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
-      }
-    }
-
-    return Column(
-      crossAxisAlignment:
-          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        _senderLabel(message.authorId, isSentByMe),
-        GestureDetector(
-          onTap: downloadFile,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withAlpha(225),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.insert_drive_file,
-                    color: Theme.of(context).colorScheme.onPrimary),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    message.name,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-            if (isSentByMe) ...[
-              const SizedBox(width: 4),
-              _buildStatusWidget(message, isSentByMe, tickColor),
-            ],
-          ],
-        ),
-      ],
+    return FileAttachmentBubble(
+      fileName: message.name,
+      fileSize: message.size,
+      timeString: timeString,
+      isSentByMe: isSentByMe,
+      tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+      header: _senderLabel(message.authorId, isSentByMe),
+      resolveBytes: () => FileAttachmentResolver.resolve(message),
     );
   }
 

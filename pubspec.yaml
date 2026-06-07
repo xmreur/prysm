@@ -70,6 +70,9 @@ dependencies:
   audioplayers: ^6.6.0
   permission_handler: ^12.0.1
   tray_manager: ^0.5.2
+  pdfx: ^2.9.2
+  excel: ^4.0.6
+  docx_to_text: ^1.0.1
 
 flutter_launcher_icons:
   windows:

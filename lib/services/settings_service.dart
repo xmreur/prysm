@@ -48,6 +48,7 @@ class SettingsService {
   String? get username => _settings.username;
 
   // Files
+  bool get enableFilePreview => _settings.enableFilePreview;
   String? get customDownloadPath => _settings.customDownloadPath;
 
   // Initialize (call at app startup)
@@ -145,6 +146,11 @@ class SettingsService {
 
   Future<void> setUsername(String? value) async {
     _settings = _settings.copyWith(username: value);
+    await save();
+  }
+
+  Future<void> setEnableFilePreview(bool value) async {
+    _settings = _settings.copyWith(enableFilePreview: value);
     await save();
   }
 

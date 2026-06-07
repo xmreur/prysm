@@ -1,4 +1,5 @@
 import 'package:prysm/database/message_reactions.dart';
+import 'package:prysm/util/db_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -572,29 +573,32 @@ class MessagesDb {
 		return await _dbMutex.protect(() async {
 			final db = await database;
 			final previews = <String, String>{};
+			final groupJoinedAt =
+				await DBHelper.getGroupJoinedAtByMember(localUserId);
 
-			final groupRows = await db.rawQuery('''
-				SELECT m.groupId AS convKey, m.type, m.deletedAt
-				FROM messages m
-				INNER JOIN group_members gm
-				  ON m.groupId = gm.groupId AND gm.memberId = ?
-				WHERE m.groupId IS NOT NULL
-				  AND m.timestamp >= gm.joinedAt
-				  AND m.timestamp = (
-				    SELECT MAX(m2.timestamp) FROM messages m2
-				    WHERE m2.groupId = m.groupId
-				      AND m2.timestamp >= gm.joinedAt
-				  )
-				GROUP BY m.groupId
-			''', [localUserId]);
-			for (final row in groupRows) {
-				final key = row['convKey'] as String?;
-				if (key != null && key.isNotEmpty) {
-					previews[key] = previewLabelForType(
-						row['type'] as String?,
-						deleted: row['deletedAt'] != null,
-					);
+			final groupMessages = await db.query(
+				'messages',
+				columns: ['groupId', 'type', 'deletedAt', 'timestamp'],
+				where: 'groupId IS NOT NULL',
+				orderBy: 'timestamp DESC',
+			);
+			final latestByGroup = <String, Map<String, dynamic>>{};
+			for (final row in groupMessages) {
+				final groupId = row['groupId'] as String?;
+				if (groupId == null || groupId.isEmpty) continue;
+				final joinedAt = groupJoinedAt[groupId];
+				if (joinedAt == null) continue;
+				final ts = row['timestamp'] as int? ?? 0;
+				if (ts < joinedAt) continue;
+				if (!latestByGroup.containsKey(groupId)) {
+					latestByGroup[groupId] = row;
 				}
+			}
+			for (final entry in latestByGroup.entries) {
+				previews[entry.key] = previewLabelForType(
+					entry.value['type'] as String?,
+					deleted: entry.value['deletedAt'] != null,
+				);
 			}
 
 			final directRows = await db.rawQuery('''
@@ -633,35 +637,41 @@ class MessagesDb {
 	static Future<Map<String, int>> getUnreadCounts(String localUserId) async {
 		return await _dbMutex.protect(() async {
 			final db = await database;
-			final rows = await db.rawQuery('''
-				SELECT convKey, COUNT(*) AS cnt FROM (
-				  SELECT senderId AS convKey
-				  FROM messages
-				  WHERE groupId IS NULL
-				    AND senderId != ?
-				    AND status = 'received'
-				    AND readAt IS NULL
-				  UNION ALL
-				  SELECT m.groupId AS convKey
-				  FROM messages m
-				  INNER JOIN group_members gm
-				    ON m.groupId = gm.groupId AND gm.memberId = ?
-				  WHERE m.groupId IS NOT NULL
-				    AND m.senderId != ?
-				    AND m.status = 'received'
-				    AND m.readAt IS NULL
-				    AND m.timestamp >= gm.joinedAt
-				)
-				GROUP BY convKey
-			''', [localUserId, localUserId, localUserId]);
-
 			final counts = <String, int>{};
-			for (final row in rows) {
+			final groupJoinedAt =
+				await DBHelper.getGroupJoinedAtByMember(localUserId);
+
+			final directRows = await db.rawQuery('''
+				SELECT senderId AS convKey, COUNT(*) AS cnt
+				FROM messages
+				WHERE groupId IS NULL
+				  AND senderId != ?
+				  AND status = 'received'
+				  AND readAt IS NULL
+				GROUP BY senderId
+			''', [localUserId]);
+			for (final row in directRows) {
 				final key = row['convKey'] as String?;
 				if (key == null || key.isEmpty) continue;
 				counts[key] = row['cnt'] is int
 					? row['cnt'] as int
 					: int.tryParse(row['cnt'].toString()) ?? 0;
+			}
+
+			final groupRows = await db.query(
+				'messages',
+				columns: ['groupId', 'timestamp'],
+				where: 'groupId IS NOT NULL AND senderId != ? AND status = ? AND readAt IS NULL',
+				whereArgs: [localUserId, 'received'],
+			);
+			for (final row in groupRows) {
+				final groupId = row['groupId'] as String?;
+				if (groupId == null || groupId.isEmpty) continue;
+				final joinedAt = groupJoinedAt[groupId];
+				if (joinedAt == null) continue;
+				final ts = row['timestamp'] as int? ?? 0;
+				if (ts < joinedAt) continue;
+				counts[groupId] = (counts[groupId] ?? 0) + 1;
 			}
 			return counts;
 		});
@@ -673,22 +683,25 @@ class MessagesDb {
 	) async {
 		return await _dbMutex.protect(() async {
 			final db = await database;
+			final groupJoinedAt =
+				await DBHelper.getGroupJoinedAtByMember(localUserId);
 			final result = await db.rawQuery('''
-				SELECT m.groupId, MAX(m.timestamp) as lastTimestamp
-				FROM messages m
-				INNER JOIN group_members gm
-				  ON m.groupId = gm.groupId AND gm.memberId = ?
-				WHERE m.groupId IS NOT NULL
-				  AND m.timestamp >= gm.joinedAt
-				GROUP BY m.groupId
-			''', [localUserId]);
+				SELECT groupId, MAX(timestamp) as lastTimestamp
+				FROM messages
+				WHERE groupId IS NOT NULL
+				GROUP BY groupId
+			''');
 
 			final Map<String, int> timestamps = {};
 			for (final row in result) {
 				final groupId = row['groupId'] as String?;
 				final ts = row['lastTimestamp'];
-				if (groupId != null && ts != null) {
-					timestamps[groupId] = ts is int ? ts : int.tryParse(ts.toString()) ?? 0;
+				if (groupId == null || ts == null) continue;
+				final joinedAt = groupJoinedAt[groupId];
+				if (joinedAt == null) continue;
+				final tsInt = ts is int ? ts : int.tryParse(ts.toString()) ?? 0;
+				if (tsInt >= joinedAt) {
+					timestamps[groupId] = tsInt;
 				}
 			}
 			return timestamps;

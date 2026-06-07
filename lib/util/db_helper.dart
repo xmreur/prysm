@@ -215,6 +215,25 @@ class DBHelper {
     return value is int ? value : int.tryParse(value.toString());
   }
 
+  /// groupId -> joinedAt for all groups [memberId] belongs to.
+  static Future<Map<String, int>> getGroupJoinedAtByMember(String memberId) async {
+    final db = await database;
+    final rows = await db.query(
+      'group_members',
+      columns: ['groupId', 'joinedAt'],
+      where: 'memberId = ?',
+      whereArgs: [memberId],
+    );
+    final joined = <String, int>{};
+    for (final row in rows) {
+      final groupId = row['groupId'] as String?;
+      final value = row['joinedAt'];
+      if (groupId == null || groupId.isEmpty || value == null) continue;
+      joined[groupId] = value is int ? value : int.tryParse(value.toString()) ?? 0;
+    }
+    return joined;
+  }
+
   static Future<Map<String, dynamic>?> getGroupById(String id) async {
     final db = await database;
     final results = await db.query('groups', where: 'id = ?', whereArgs: [id], limit: 1);

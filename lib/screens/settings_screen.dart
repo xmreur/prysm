@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'privacy_settings_screen.dart';
+import 'package:flutter/foundation.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -472,15 +473,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'Request a new circuit when connections are stuck',
                 ),
                 const Divider(height: 1),
-                _buildSwitchTile(
-                  'Enable Relay Server',
-                  'COMING SOON, NOT WORKING', //'Use relay for offline message delivery',
-                  Icons.cloud_outlined,
-                  _enableRelay,
-                  (bool value) {
-                    return true;
-                  }, //_onEnableRelayToggle,
-                ),
+                if (kDebugMode) ...[
+                  _buildSwitchTile(
+                    'Enable Relay Server',
+                    'COMING SOON, NOT WORKING', //'Use relay for offline message delivery',
+                    Icons.cloud_outlined,
+                    _enableRelay,
+                    (bool value) {
+                      return true;
+                    }, //_onEnableRelayToggle,
+                  ),
+                ]
                 // if (_enableRelay) ...[
                 //   const Divider(height: 1),
                 //   _buildNavigationTile(

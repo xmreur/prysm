@@ -1657,6 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   bool _torStopped = false;
+  bool _torRestartInProgress = false;
   TorConnectionState _torConnectionState = TorConnectionState.connected;
   Timer? _torHealthTimer;
 
@@ -1673,7 +1674,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkTorHealth() async {
-    if (!mounted || _torStopped) {
+    if (!mounted || _torStopped || _torRestartInProgress) {
       if (mounted && _torConnectionState != TorConnectionState.disconnected) {
         setState(() => _torConnectionState = TorConnectionState.disconnected);
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
@@ -1709,16 +1710,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _restartTor() async {
-    if (!mounted) return;
+    if (!mounted || _torRestartInProgress) return;
+
+    _torRestartInProgress = true;
+    _torHealthTimer?.cancel();
+    _torStopped = true;
+
     setState(() => _torConnectionState = TorConnectionState.connecting);
     TorConnectionNotifier.instance.update(TorConnectionState.connecting);
 
     try {
-      if (_torStopped) {
-        _torStopped = false;
-      } else {
-        await widget.torManager.stopTor();
-      }
+      await widget.torManager.stopTor();
+      TorBootstrapNotifier.instance.reset();
+      _torStopped = false;
       await widget.torManager.startTor();
       final onion = await widget.torManager.getOnionAddress();
       if (onion != null && onion != 'me') {
@@ -1740,6 +1744,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Tor restart failed: $e')),
       );
+    } finally {
+      _torRestartInProgress = false;
+      if (mounted && !_torStopped) {
+        _startTorHealthMonitor();
+      }
     }
   }
 
@@ -1771,7 +1780,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _torConnectionState == TorConnectionState.connecting
+                  onPressed: _torConnectionState == TorConnectionState.connecting ||
+                          _torRestartInProgress
                       ? null
                       : () {
                           Navigator.pop(ctx);

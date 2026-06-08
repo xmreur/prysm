@@ -13,6 +13,7 @@ class TorManager {
   // Shared control connection.
   Socket? _controlSocket;
   Stream<String>? _controlStream;
+  int _controlGeneration = 0;
 
   static const MethodChannel _channel = MethodChannel("prysm_tor");
 
@@ -38,12 +39,15 @@ class TorManager {
   // Public API
   // =========================
 
-  Future<void> startTor() async {
-    if (Platform.isAndroid) {
-      await _startAndroidTorService();
-      return;
-    }
-    await _startDesktopTorBinary();
+  Future<void> startTor() {
+    return _controlMutex.protect(() async {
+      TorBootstrapNotifier.instance.reset();
+      if (Platform.isAndroid) {
+        await _startAndroidTorService();
+        return;
+      }
+      await _startDesktopTorBinary();
+    });
   }
 
   Future<String?> getOnionAddress() async {
@@ -60,28 +64,32 @@ class TorManager {
     return hostnameFile.readAsStringSync().trim();
   }
 
-  Future<void> stopTor() async {
+  Future<void> stopTor() {
+    return _controlMutex.protect(_stopTorUnlocked);
+  }
+
+  Future<void> _stopTorUnlocked() async {
     if (Platform.isAndroid) {
       await _channel.invokeMethod("stopTor");
+      await _resetControlSession();
+      await Future.delayed(const Duration(milliseconds: 300));
       return;
     }
 
     // Desktop shutdown via control port if possible.
     try {
       if (_controlSocket != null) {
-        await _controlMutex.protect(() => _sendAndCollectImpl(
-              'SIGNAL SHUTDOWN',
-              untilOk: true,
-              timeout: const Duration(seconds: 5),
-            ));
+        await _sendAndCollectImpl(
+          'SIGNAL SHUTDOWN',
+          untilOk: true,
+          timeout: const Duration(seconds: 5),
+        );
       }
     } catch (_) {
       // ignore
     }
 
-    await _controlSocket?.close();
-    _controlSocket = null;
-    _controlStream = null;
+    await _resetControlSession();
 
     if (_torProcess != null) {
       try {
@@ -240,10 +248,18 @@ class TorManager {
   }
 
   Future<void> _resetControlSession() async {
+    _controlGeneration++;
     await _controlSocket?.close();
     _controlSocket = null;
     _controlStream = null;
   }
+
+  /// Whether a socket [done] callback should clear the active control session.
+  static bool shouldClearControlSessionOnSocketDone(
+    int closedGeneration,
+    int currentGeneration,
+  ) =>
+      closedGeneration == currentGeneration;
 
   // =========================
   // Android implementation
@@ -367,24 +383,33 @@ HiddenServicePort 80 127.0.0.1:12345
   // =========================
 
   Future<void> _connectControlPort() async {
+    await _resetControlSession();
+
     const maxRetries = 40;
     for (var i = 0; i < maxRetries; i++) {
       try {
-        _controlSocket = await Socket.connect(
+        final socket = await Socket.connect(
           '127.0.0.1',
           controlPort,
           timeout: const Duration(seconds: 2),
         );
 
-        _controlStream = _controlSocket!
+        final generation = ++_controlGeneration;
+        _controlSocket = socket;
+        _controlStream = socket
             .cast<List<int>>()
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .asBroadcastStream();
 
-        _controlSocket!.done.then((_) {
-          _controlSocket = null;
-          _controlStream = null;
+        socket.done.then((_) {
+          if (shouldClearControlSessionOnSocketDone(
+            generation,
+            _controlGeneration,
+          )) {
+            _controlSocket = null;
+            _controlStream = null;
+          }
         });
 
         return;

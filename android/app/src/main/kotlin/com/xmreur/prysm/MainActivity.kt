@@ -1,15 +1,13 @@
 package com.xmreur.prysm
 
 import TorController
-import android.content.Intent
-import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
 import android.view.WindowManager
+import androidx.lifecycle.lifecycleScope
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import org.torproject.jni.TorService;
+import kotlinx.coroutines.launch
 
 class MainActivity : FlutterActivity() {
     private lateinit var torController: TorController
@@ -21,13 +19,26 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "prysm_tor").setMethodCallHandler { call, result ->
             when (call.method) {
                 "startTor" -> {
-                    torController.startTor {
-                        result.success(null)
+                    lifecycleScope.launch {
+                        try {
+                            torController.startTor()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.e("TOR", "startTor failed", e)
+                            result.error("START_FAILED", e.message, null)
+                        }
                     }
                 }
                 "stopTor" -> {
-                    torController.stopTor()
-                    result.success(true)
+                    lifecycleScope.launch {
+                        try {
+                            torController.stopTor()
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e("TOR", "stopTor failed", e)
+                            result.error("STOP_FAILED", e.message, null)
+                        }
+                    }
                 }
                 "getOnionAddress" -> {
                     torController.getOnionAddressAsync { onionAddress ->
@@ -43,7 +54,6 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Screenshot prevention for view-once images
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "prysm/flag_secure").setMethodCallHandler { call, result ->
             when (call.method) {
                 "enable" -> {
@@ -58,5 +68,4 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
-
 }

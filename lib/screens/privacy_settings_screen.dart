@@ -53,6 +53,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       _showOnlineStatus = value;
     });
     _savePrivacySetting('show_online_status', value);
+    settings.setShowOnlineStatus(value);
   }
 
   Future<void> _onReadReceiptsToggle(bool value) async {
@@ -112,12 +113,33 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                 ),
                 child: Column(
                   children: [
-                    _buildPrivacyOption(
-                      context,
-                      'Show Online Status',
-                      Icons.visibility_outlined,
-                      _showOnlineStatus,
-                      _onOnlineStatusToggle,
+                    ListTile(
+                      leading: const Icon(Icons.visibility_outlined),
+                      title: const Text('Show Online Status'),
+                      subtitle: const Text(
+                        'When enabled, recent contacts are notified when you come online so they can deliver pending messages faster.',
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.black.withValues(alpha: 0.05),
+                        ),
+                        child: Switch(
+                          value: _showOnlineStatus,
+                          onChanged: _onOnlineStatusToggle,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: Theme.of(context).primaryColor,
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor:
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.grey[700]
+                                  : Colors.grey[400],
+                        ),
+                      ),
+                      onTap: () => _onOnlineStatusToggle(!_showOnlineStatus),
                     ),
                     const Divider(height: 1),
                     _buildPrivacyOption(

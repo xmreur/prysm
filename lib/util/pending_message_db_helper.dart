@@ -110,6 +110,35 @@ class PendingMessageDbHelper {
     );
   }
 
+  /// Pending 1:1 outbound rows for a specific peer.
+  static Future<List<Map<String, dynamic>>> getPendingDirectMessagesForReceiver({
+    required String senderId,
+    required String receiverId,
+    int? limit,
+  }) async {
+    final db = await database;
+    return db.query(
+      'pending_messages',
+      where: 'groupId IS NULL AND senderId = ? AND receiverId = ?',
+      whereArgs: [senderId, receiverId],
+      orderBy: 'timestamp ASC',
+      limit: limit,
+    );
+  }
+
+  static Future<bool> hasOutboundDirectPending(
+    String senderId,
+    String receiverId,
+  ) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM pending_messages '
+      'WHERE groupId IS NULL AND senderId = ? AND receiverId = ?',
+      [senderId, receiverId],
+    );
+    return (Sqflite.firstIntValue(result) ?? 0) > 0;
+  }
+
   static Future<int> countOutboundPending(String senderId) async {
     final db = await database;
     final result = await db.rawQuery(

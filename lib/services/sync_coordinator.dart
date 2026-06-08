@@ -147,6 +147,55 @@ class SyncCoordinator {
     return flushAllPending();
   }
 
+  /// Flush outbound pending queues for one direct peer (wake-hint response).
+  Future<bool> flushPendingForPeer(String receiverId) async {
+    if (isTorStopped() || _flushing) return false;
+
+    final hasPending = await PendingMessageDbHelper.hasOutboundDirectPending(
+      userId,
+      receiverId,
+    );
+    if (!hasPending) return false;
+
+    _flushing = true;
+    try {
+      var any = false;
+
+      any = await ReadReceiptService.processPendingForPeer(
+            userId: userId,
+            peerId: receiverId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await ReactionService.processPendingForPeer(
+            userId: userId,
+            peerId: receiverId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await MessageModifyService.processPendingForPeer(
+            userId: userId,
+            peerId: receiverId,
+            keyManager: keyManager,
+          ) ||
+          any;
+      any = await ChatService.processPendingForPeer(
+            userId: userId,
+            peerId: receiverId,
+            keyManager: keyManager,
+          ) ||
+          any;
+
+      await _refreshPendingBacklogFlag();
+      if (any) {
+        PendingActivityNotifier.instance.notify();
+      }
+      return any;
+    } finally {
+      _flushing = false;
+    }
+  }
+
   /// Speed up ticks while backlog exists.
   void notifyPendingActivity() {
     _hasPendingBacklog = true;

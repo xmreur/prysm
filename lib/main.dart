@@ -52,6 +52,7 @@ import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
+import 'package:prysm/services/wake_hint_service.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -721,6 +722,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     if (!widget.decoyMode) {
       _syncCoordinator!.start();
+      WakeHintService.instance.configure(
+        userId: widget.onionAddress,
+        isTorStopped: () => _torStopped,
+        showOnlineStatus: () => appSettings.showOnlineStatus,
+        onFlushPeer: (peerId) =>
+            _syncCoordinator!.flushPendingForPeer(peerId),
+      );
     }
 
     if (widget.decoyMode) {
@@ -732,6 +740,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final flushed = await _syncCoordinator!.flushAllPending();
         if (flushed && mounted) {
           scheduleLoadUsers(light: true);
+        }
+        if (mounted) {
+          unawaited(_maybeBroadcastWakeHints(coldStart: true));
         }
       }
     });
@@ -1660,6 +1671,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _torRestartInProgress = false;
   TorConnectionState _torConnectionState = TorConnectionState.connected;
   Timer? _torHealthTimer;
+  DateTime? _lastTorDisconnectedAt;
 
   void _startTorHealthMonitor() {
     _torHealthTimer?.cancel();
@@ -1676,6 +1688,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _checkTorHealth() async {
     if (!mounted || _torStopped || _torRestartInProgress) {
       if (mounted && _torConnectionState != TorConnectionState.disconnected) {
+        _lastTorDisconnectedAt = DateTime.now();
         setState(() => _torConnectionState = TorConnectionState.disconnected);
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
@@ -1691,12 +1704,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (next != _torConnectionState) {
       final wasDisconnected =
           _torConnectionState == TorConnectionState.disconnected;
+      if (next == TorConnectionState.disconnected) {
+        _lastTorDisconnectedAt = DateTime.now();
+      }
       setState(() => _torConnectionState = next);
       TorConnectionNotifier.instance.update(next);
       if (wasDisconnected && next == TorConnectionState.connected) {
         unawaited(_onTorReconnected());
       }
     }
+  }
+
+  Future<void> _maybeBroadcastWakeHints({bool coldStart = false}) async {
+    if (_torStopped || widget.decoyMode) return;
+    if (!coldStart) {
+      final disconnectedAt = _lastTorDisconnectedAt;
+      if (disconnectedAt == null) return;
+      final offlineFor = DateTime.now().difference(disconnectedAt);
+      if (offlineFor < BatterySaverPolicy.wakeHintMinOfflineBeforeBroadcast) {
+        return;
+      }
+    }
+    await WakeHintService.instance.broadcastRecentPeerHints();
   }
 
   Future<void> _onTorReconnected() async {
@@ -1706,6 +1735,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (flushed) {
         _syncCoordinator?.notifyPendingActivity();
       }
+      unawaited(_maybeBroadcastWakeHints());
     }
   }
 

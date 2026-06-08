@@ -18,6 +18,7 @@ import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
 
 class PrysmServer {
@@ -73,6 +74,11 @@ class PrysmServer {
       // GET /profile (public key + username + avatar)
       if (request.method == 'GET' && request.url.path == 'profile') {
         return _handleGetProfile();
+      }
+
+      // POST /sync-hint — peer reachable; flush pending if any
+      if (request.method == 'POST' && request.url.path == 'sync-hint') {
+        return await _handlePostSyncHint(request);
       }
 
       return Response.notFound(
@@ -408,6 +414,43 @@ class PrysmServer {
       );
     } catch (e, stack) {
       print('PrysmServer POST /message Error $e\n$stack');
+      return Response.internalServerError(
+        body: jsonEncode({'error': 'Processing failed'}),
+        headers: {'Content-Type': 'application/json'},
+      );
+    }
+  }
+
+  Future<Response> _handlePostSyncHint(Request request) async {
+    try {
+      final payload = await request.readAsString();
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+
+      final validationError = WakeHintService.validateSyncHintPayload(
+        data,
+        localOnionAddress,
+      );
+      if (validationError != null) {
+        return _badRequest(validationError);
+      }
+
+      final senderId = data['senderId'] as String;
+      final contact = await DBHelper.getUserById(senderId);
+      if (contact == null) {
+        return Response.forbidden(
+          jsonEncode({'error': 'Unknown sender'}),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
+      unawaited(WakeHintService.instance.handleIncomingHint(senderId));
+
+      return Response.ok(
+        jsonEncode({'status': 'ok'}),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } catch (e, stack) {
+      print('PrysmServer POST /sync-hint Error $e\n$stack');
       return Response.internalServerError(
         body: jsonEncode({'error': 'Processing failed'}),
         headers: {'Content-Type': 'application/json'},

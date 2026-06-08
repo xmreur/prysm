@@ -37,7 +37,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _showOnlineStatus = prefs.getBool('show_online_status') ?? true;
-      _readReceipts = prefs.getBool('read_receipts') ?? true;
+      _readReceipts = settings.sendReadReceipts;
       _lastSeen = prefs.getBool('last_seen') ?? true;
       _profilePhoto = prefs.getBool('profile_photo') ?? true;
     });
@@ -55,11 +55,11 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     _savePrivacySetting('show_online_status', value);
   }
 
-  void _onReadReceiptsToggle(bool value) {
+  Future<void> _onReadReceiptsToggle(bool value) async {
     setState(() {
       _readReceipts = value;
     });
-    _savePrivacySetting('read_receipts', value);
+    await settings.setSendReadReceipts(value);
   }
 
   void _onLastSeenToggle(bool value) {

@@ -1,4 +1,5 @@
 import 'package:prysm/database/message_reactions.dart';
+import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -11,7 +12,7 @@ class MessagesDb {
 	static final _openCompleter = Completer<Database>();
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 8;
+    static const _dbVersion = 9;
 
 	static const String _directChatTypeFilter =
 		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
@@ -50,6 +51,7 @@ class MessagesDb {
 					if (oldVersion < 6) await _upgradeToV6(db);
 					if (oldVersion < 7) await _upgradeToV7(db);
 					if (oldVersion < 8) await _upgradeToV8(db);
+					if (oldVersion < 9) await _upgradeToV9(db);
 				},
 				onDowngrade: (db, oldVersion, newVersion) async {
 					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -107,6 +109,7 @@ class MessagesDb {
             'CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)'
         );
         await MessageReactionsDb.createTable(db);
+        await MessageReadReceiptsDb.createTable(db);
     }
 
 
@@ -190,6 +193,18 @@ class MessagesDb {
 		if (!columns.any((col) => col['name'] == 'editedAt')) {
 			await db.execute('ALTER TABLE messages ADD COLUMN editedAt INTEGER');
 		}
+	}
+
+	static Future<void> _upgradeToV9(Database db) async {
+		print('UPGRADING DB TO v9');
+		await MessageReadReceiptsDb.createTable(db);
+		// Outbound rows had readAt set on delivery — not peer read confirmations.
+		await db.execute('''
+			UPDATE messages
+			SET readAt = NULL
+			WHERE COALESCE(status, '') = 'sent'
+			  AND COALESCE(status, '') != 'received'
+		''');
 	}
 
 	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.
@@ -501,6 +516,68 @@ class MessagesDb {
             );
         });
     }
+
+	/// Mark inbound direct messages as read locally. Returns wire IDs newly marked.
+	static Future<List<String>> markInboundConversationRead(
+		String localUserId,
+		String peerId,
+	) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final now = DateTime.now().millisecondsSinceEpoch;
+			final rows = await db.query(
+				'messages',
+				columns: ['id'],
+				where:
+					'groupId IS NULL AND senderId = ? AND receiverId = ? AND status = ? AND readAt IS NULL',
+				whereArgs: [peerId, localUserId, 'received'],
+			);
+			if (rows.isEmpty) return <String>[];
+
+			await db.update(
+				'messages',
+				{'readAt': now},
+				where:
+					'groupId IS NULL AND senderId = ? AND receiverId = ? AND status = ? AND readAt IS NULL',
+				whereArgs: [peerId, localUserId, 'received'],
+			);
+
+			return rows
+				.map((r) => wireIdFromStorage(r['id'] as String))
+				.toList();
+		});
+	}
+
+	/// Mark inbound group messages as read locally. Returns wire IDs newly marked.
+	static Future<List<String>> markInboundGroupRead(
+		String localUserId,
+		String groupId,
+	) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			final now = DateTime.now().millisecondsSinceEpoch;
+			final rows = await db.query(
+				'messages',
+				columns: ['id'],
+				where:
+					'groupId = ? AND senderId != ? AND status = ? AND readAt IS NULL',
+				whereArgs: [groupId, localUserId, 'received'],
+			);
+			if (rows.isEmpty) return <String>[];
+
+			await db.update(
+				'messages',
+				{'readAt': now},
+				where:
+					'groupId = ? AND senderId != ? AND status = ? AND readAt IS NULL',
+				whereArgs: [groupId, localUserId, 'received'],
+			);
+
+			return rows
+				.map((r) => wireIdFromStorage(r['id'] as String))
+				.toList();
+		});
+	}
 
     static Future<void> updateMessageStatus(
 		String messageId,

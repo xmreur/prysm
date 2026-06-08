@@ -26,6 +26,13 @@ import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/database/message_read_receipts.dart';
+import 'package:prysm/screens/widgets/message_status_icon.dart';
+import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
+import 'package:prysm/util/message_status_mapper.dart';
+import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
@@ -86,6 +93,8 @@ class _ChatScreenState extends State<ChatScreen> {
   // ✅ ADD ChatService
   late ChatService _chatService;
   late ReactionService _reactionService;
+  late ReadReceiptService _readReceiptService;
+  final _settings = SettingsService();
 
   var _messages = InMemoryChatController();
   final Map<String, Message> _messageCache = {};
@@ -120,6 +129,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
   StreamSubscription? _modifyRefreshSub;
+  StreamSubscription? _readReceiptRefreshSub;
+  Timer? _readReceiptDebounce;
   late MessageModifyService _modifyService;
 
   void _scrollListener() {
@@ -146,6 +157,11 @@ class _ChatScreenState extends State<ChatScreen> {
       keyManager: widget.keyManager,
     );
     _reactionService = ReactionService.direct(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      peerId: widget.peerId,
+    );
+    _readReceiptService = ReadReceiptService.direct(
       userId: widget.userId,
       keyManager: widget.keyManager,
       peerId: widget.peerId,
@@ -204,8 +220,12 @@ class _ChatScreenState extends State<ChatScreen> {
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
     _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
         .listen(_applyModifyUpdate);
+    _readReceiptRefreshSub =
+        ReadReceiptRefreshNotifier.instance.onReadReceiptChanged
+            .listen(_applyReadReceiptUpdate);
 
     await _loadInitialMessages();
+    await _markInboundAsRead();
 
     if (mounted && _messages.messages.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -241,6 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
       });
+      await _markInboundAsRead();
     } catch (e) {
       debugPrint('Error handling new messages: $e');
     }
@@ -254,21 +275,52 @@ class _ChatScreenState extends State<ChatScreen> {
     if (idx != -1) {
       setState(() {
         final msg = _messages.messages[idx];
-
-        if (update.status == 'read') {
-          _messages.updateMessage(msg, msg.copyWith(seenAt: DateTime.now()));
-        } else if (update.status == 'failed') {
-          _messages.updateMessage(msg, msg.copyWith(
-            metadata: {...?msg.metadata, 'failed': true},
-          ));
-        } else if (update.status == 'pending') {
-          // Resend in progress — clear failed flag
-          _messages.updateMessage(msg, msg.copyWith(
-            metadata: {...?msg.metadata, 'failed': false},
-          ));
-        }
+        final updated = messageWithDeliveryUpdate(
+          msg,
+          status: update.status,
+          readReceiptsEnabled: _settings.sendReadReceipts,
+        );
+        _messages.updateMessage(msg, updated);
+        _messageCache[msg.id] = updated;
       });
     }
+  }
+
+  Future<void> _markInboundAsRead() async {
+    final wireIds = await MessagesDb.markInboundConversationRead(
+      widget.userId,
+      widget.peerId,
+    );
+    if (wireIds.isEmpty) return;
+
+    _readReceiptDebounce?.cancel();
+    _readReceiptDebounce = Timer(const Duration(milliseconds: 300), () async {
+      if (_settings.sendReadReceipts) {
+        await _readReceiptService.sendReceiptsForMessages(wireIds);
+      }
+    });
+  }
+
+  void _applyReadReceiptUpdate(ReadReceiptUpdate update) {
+    if (!mounted || !_settings.sendReadReceipts) return;
+    if (update.groupId != null) return;
+
+    try {
+      final msg = _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      if (msg.authorId != widget.userId) return;
+      if (!update.allRead) return;
+
+      final latest = update.readByMemberId.values.reduce(max);
+      final updated = msg.copyWith(
+        sentAt: msg.sentAt ?? DateTime.now(),
+        seenAt: DateTime.fromMillisecondsSinceEpoch(latest),
+        metadata: {...?msg.metadata, 'deliveryStatus': 'read'},
+      );
+      setState(() {
+        _messages.updateMessage(msg, updated);
+        _messageCache[msg.id] = updated;
+      });
+    } catch (_) {}
   }
 
   @override
@@ -282,6 +334,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _reactionSub?.cancel();
     _reactionRefreshSub?.cancel();
     _modifyRefreshSub?.cancel();
+    _readReceiptRefreshSub?.cancel();
+    _readReceiptDebounce?.cancel();
     _pingTimer?.cancel();
     _batterySaverSub?.cancel();
 
@@ -480,9 +534,6 @@ class _ChatScreenState extends State<ChatScreen> {
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               id: msg['id'],
               replyToMessageId: msg['replyTo'],
-              seenAt: msg['readAt'] != null
-                  ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'])
-                  : null,
               text: _decryptDirectTextMessage(msg, keyManager),
               metadata: meta.isEmpty ? null : meta,
             ),
@@ -498,9 +549,6 @@ class _ChatScreenState extends State<ChatScreen> {
               replyToMessageId: msg['replyTo'],
               name: fileName,
               size: msg['fileSize'] ?? 0,
-              seenAt: msg['readAt'] != null
-                  ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-                  : null,
               source: msg['message'],
             ),
           );
@@ -513,9 +561,6 @@ class _ChatScreenState extends State<ChatScreen> {
               replyToMessageId: msg['replyTo'],
               name: msg['fileName'] ?? 'voice_message.wav',
               size: msg['fileSize'] ?? 0,
-              seenAt: msg['readAt'] != null
-                  ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-                  : null,
               source: msg['message'],
             ),
           );
@@ -532,9 +577,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                 replyToMessageId: msg['replyTo'],
                 size: 0,
-                seenAt: msg['readAt'] != null
-                    ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-                    : null,
                 source: "",
                 metadata: {'viewOnce': true, 'viewed': true},
               ),
@@ -547,9 +589,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                 replyToMessageId: msg['replyTo'],
                 size: msg['fileSize'] ?? 0,
-                seenAt: msg['readAt'] != null
-                    ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-                    : null,
                 source:
                     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
                 metadata: isViewOnce ? {'viewOnce': true, 'viewed': false} : null,
@@ -566,9 +605,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                   replyToMessageId: msg['replyTo'],
                   size: decryptedBytes.length,
-                  seenAt: msg['readAt'] != null
-                      ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-                      : null,
                   source:
                       "data:image/png;base64,${base64Encode(decryptedBytes)}",
                 );
@@ -595,7 +631,8 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     }
-    return _attachReactions(messages);
+    final withReactions = await _attachReactions(messages);
+    return _attachOutboundStatus(withReactions, rawMessages);
   }
 
   Future<List<Message>> _attachReactions(List<Message> messages) async {
@@ -607,6 +644,41 @@ class _ChatScreenState extends State<ChatScreen> {
         .toList();
   }
 
+  Future<List<Message>> _attachOutboundStatus(
+    List<Message> messages,
+    List<Map<String, dynamic>> rawRows,
+  ) async {
+    final readReceiptsEnabled = _settings.sendReadReceipts;
+    final outboundWireIds = <String>[];
+    final rowByWireId = <String, Map<String, dynamic>>{};
+
+    for (final row in rawRows) {
+      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
+      if (row['senderId'] == widget.userId) {
+        outboundWireIds.add(wireId);
+        rowByWireId[wireId] = row;
+      }
+    }
+
+    if (outboundWireIds.isEmpty) return messages;
+
+    final receipts =
+        await MessageReadReceiptsDb.getReceiptsForMessages(outboundWireIds);
+
+    return messages.map((m) {
+      final row = rowByWireId[m.id];
+      if (row == null) return m;
+      final status = outboundStatusFromDbRow(
+        row: row,
+        localUserId: widget.userId,
+        readReceiptsEnabled: readReceiptsEnabled,
+        receipts: receipts[m.id] ?? const [],
+        requiredReadCount: 1,
+      );
+      return applyOutboundStatus(m, status: status);
+    }).toList();
+  }
+
   Message _deletedMessageFromRow(
     Map<String, dynamic> msg,
     Map<String, Object?> meta,
@@ -616,9 +688,6 @@ class _ChatScreenState extends State<ChatScreen> {
       createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp'] as int),
       id: msg['id'] as String,
       replyToMessageId: msg['replyTo'] as String?,
-      seenAt: msg['readAt'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-          : null,
       text: '',
       metadata: meta,
     );
@@ -835,13 +904,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       _messages.insertMessage(
-        TextMessage(
-          authorId: _user.id,
-          createdAt: DateTime.now(),
-          id: messageId,
-          text: text,
-          sentAt: DateTime.now(), // Optimistic: show single tick
-          replyToMessageId: replyToId,
+        messageWithPendingStatus(
+          TextMessage(
+            authorId: _user.id,
+            createdAt: DateTime.now(),
+            id: messageId,
+            text: text,
+            replyToMessageId: replyToId,
+          ),
         ),
         index: _messages.messages.length,
       );
@@ -875,29 +945,31 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       if (type == "file") {
         _messages.insertMessage(
-          FileMessage(
-            authorId: _user.id,
-            createdAt: DateTime.now(),
-            id: messageId,
-            name: fileName,
-            size: bytes.length,
-            replyToMessageId: replyToId,
-            source: base64Encode(bytes),
-            sentAt: DateTime.now(),
+          messageWithPendingStatus(
+            FileMessage(
+              authorId: _user.id,
+              createdAt: DateTime.now(),
+              id: messageId,
+              name: fileName,
+              size: bytes.length,
+              replyToMessageId: replyToId,
+              source: base64Encode(bytes),
+            ),
           ),
           index: _messages.messages.length,
         );
       } else if (type == "image") {
         _messages.insertMessage(
-          ImageMessage(
-            authorId: _user.id,
-            createdAt: DateTime.now(),
-            id: messageId,
-            size: bytes.length,
-            replyToMessageId: replyToId,
-            source: "data:image/png;base64,${base64Encode(bytes.toList())}",
-            sentAt: DateTime.now(),
-            metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
+          messageWithPendingStatus(
+            ImageMessage(
+              authorId: _user.id,
+              createdAt: DateTime.now(),
+              id: messageId,
+              size: bytes.length,
+              replyToMessageId: replyToId,
+              source: "data:image/png;base64,${base64Encode(bytes.toList())}",
+              metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
+            ),
           ),
           index: _messages.messages.length,
         );
@@ -1017,15 +1089,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       _messages.insertMessage(
-        FileMessage(
-          authorId: _user.id,
-          createdAt: DateTime.now(),
-          id: messageId,
-          name: 'voice_message.wav',
-          size: bytes.length,
-          source: 'audio:$durationMs:$cachePath',
-          sentAt: DateTime.now(),
-          metadata: {'waveform': waveformMeta},
+        messageWithPendingStatus(
+          FileMessage(
+            authorId: _user.id,
+            createdAt: DateTime.now(),
+            id: messageId,
+            name: 'voice_message.wav',
+            size: bytes.length,
+            source: 'audio:$durationMs:$cachePath',
+            metadata: {'waveform': waveformMeta},
+          ),
         ),
         index: _messages.messages.length,
       );
@@ -1182,6 +1255,15 @@ class _ChatScreenState extends State<ChatScreen> {
             _editMessage(message);
           },
         ),
+      if (isSentByMe)
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('Info'),
+          onTap: () {
+            Navigator.pop(context);
+            _openMessageInfo(message);
+          },
+        ),
       ListTile(
         leading: const Icon(Icons.reply),
         title: const Text('Reply'),
@@ -1242,31 +1324,34 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatService.resendMessage(message.id);
   }
 
-  /// Build tick/status widget for sent messages. Shows ⚠ for failed.
+  String _deliveryStatusLabel(Message message) {
+    if (message.metadata?['failed'] == true) return 'Failed';
+    if (isOutboundPending(message)) return 'Pending';
+    if (_settings.sendReadReceipts && message.seenAt != null) return 'Read';
+    if (message.sentAt != null) return 'Delivered';
+    return 'Pending';
+  }
+
+  void _openMessageInfo(Message message) {
+    ReadReceiptDetailsSheet.show(
+      context,
+      messageId: message.id,
+      localUserId: widget.userId,
+      messageAuthorId: message.authorId,
+      directPeerId: widget.peerId,
+      deliveryStatusLabel: _deliveryStatusLabel(message),
+      showReadSection: _settings.sendReadReceipts,
+    );
+  }
+
   Widget _buildStatusWidget(Message message, bool isSentByMe, Color tickColor) {
-    if (!isSentByMe) return const SizedBox.shrink();
-
-    final isFailed = message.metadata?['failed'] == true;
-    if (isFailed) {
-      return GestureDetector(
-        onTap: () => _resendMessage(message),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red[400]),
-            const SizedBox(width: 2),
-            Text('Tap to retry', style: TextStyle(fontSize: 9, color: Colors.red[400])),
-          ],
-        ),
-      );
-    }
-
-    if (message.seenAt != null) {
-      return Icon(Icons.done_all, size: 14, color: tickColor);
-    } else if (message.sentAt != null) {
-      return Icon(Icons.done, size: 14, color: tickColor.withAlpha(140));
-    }
-    return const SizedBox.shrink();
+    return MessageStatusIcon(
+      message: message,
+      isSentByMe: isSentByMe,
+      tickColor: tickColor,
+      readReceiptsEnabled: _settings.sendReadReceipts,
+      onRetry: () => _resendMessage(message),
+    );
   }
 
   Future<void> deleteSelectedMessages() async {

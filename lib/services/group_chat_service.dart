@@ -638,9 +638,8 @@ class GroupChatService {
 
   Future<void> _markAsSent(String messageId) async {
     await MessagesDb.updateMessageStatus(messageId, 'sent', groupId: groupId);
-    await MessagesDb.setAsRead(messageId, groupId: groupId);
     if (!_disposed) {
-      _messageStatusController.add(GroupMessageStatusUpdate(messageId, 'read'));
+      _messageStatusController.add(GroupMessageStatusUpdate(messageId, 'sent'));
     }
   }
 }

@@ -29,6 +29,13 @@ import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
+import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/database/message_read_receipts.dart';
+import 'package:prysm/screens/widgets/message_status_icon.dart';
+import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
+import 'package:prysm/util/message_status_mapper.dart';
+import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
@@ -68,8 +75,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late GroupService _groupService;
   late GroupChatService _chatService;
   late ReactionService _reactionService;
+  late ReadReceiptService _readReceiptService;
   late MessageModifyService _modifyService;
   late User _user;
+  final _settings = SettingsService();
 
   var _messages = InMemoryChatController();
   final Map<String, String> _senderNames = {};
@@ -87,6 +96,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _reactionRefreshSub;
   StreamSubscription? _modifyRefreshSub;
   StreamSubscription? _membershipSub;
+  StreamSubscription? _readReceiptRefreshSub;
+  Timer? _readReceiptDebounce;
+  List<String> _groupMemberIds = [];
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
@@ -108,6 +120,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       groupService: _groupService,
     );
     _reactionService = ReactionService.group(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+      groupId: widget.group.id,
+      groupService: _groupService,
+    );
+    _readReceiptService = ReadReceiptService.group(
       userId: widget.userId,
       keyManager: widget.keyManager,
       groupId: widget.group.id,
@@ -145,6 +163,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _reactionRefreshSub?.cancel();
     _modifyRefreshSub?.cancel();
     _membershipSub?.cancel();
+    _readReceiptRefreshSub?.cancel();
+    _readReceiptDebounce?.cancel();
     _chatService.dispose();
     _reactionService.dispose();
   }
@@ -179,7 +199,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final members = await _groupService.getMembers(widget.group.id);
     _memberCount = members.length;
-    await _resolveSenderNames(members.map((m) => m.memberId).toList());
+    _groupMemberIds = members.map((m) => m.memberId).toList();
+    await _resolveSenderNames(_groupMemberIds);
 
     final ok = await _chatService.initialize();
     if (!ok && mounted) {
@@ -196,8 +217,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
     _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
         .listen(_applyModifyUpdate);
+    _readReceiptRefreshSub =
+        ReadReceiptRefreshNotifier.instance.onReadReceiptChanged
+            .listen(_applyReadReceiptUpdate);
 
     await _loadMoreMessages();
+    await _markInboundAsRead();
     _chatService.startPolling();
     _chatService.startSendQueue();
 
@@ -267,6 +292,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             onTap: () {
               Navigator.pop(context);
               _editMessage(message);
+            },
+          ),
+        if (isSentByMe)
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('Info'),
+            onTap: () {
+              Navigator.pop(context);
+              _openMessageInfo(message);
             },
           ),
         ListTile(
@@ -565,6 +599,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
       }
     });
+    await _markInboundAsRead();
   }
 
   void _handleStatusUpdate(GroupMessageStatusUpdate update) {
@@ -573,41 +608,49 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (idx == -1) return;
     final msg = _messages.messages[idx];
     setState(() {
-      if (msg is TextMessage) {
-        _messages.updateMessage(
-          msg,
-          msg.copyWith(
-            seenAt: update.status == 'read' ? DateTime.now() : msg.seenAt,
-            metadata: {
-              ...?msg.metadata,
-              'failed': update.status == 'failed',
-            },
-          ),
-        );
-      } else if (msg is ImageMessage) {
-        _messages.updateMessage(
-          msg,
-          msg.copyWith(
-            seenAt: update.status == 'read' ? DateTime.now() : msg.seenAt,
-            metadata: {
-              ...?msg.metadata,
-              'failed': update.status == 'failed',
-            },
-          ),
-        );
-      } else if (msg is FileMessage) {
-        _messages.updateMessage(
-          msg,
-          msg.copyWith(
-            seenAt: update.status == 'read' ? DateTime.now() : msg.seenAt,
-            metadata: {
-              ...?msg.metadata,
-              'failed': update.status == 'failed',
-            },
-          ),
-        );
+      final updated = messageWithDeliveryUpdate(
+        msg,
+        status: update.status,
+        readReceiptsEnabled: _settings.sendReadReceipts,
+      );
+      _messages.updateMessage(msg, updated);
+    });
+  }
+
+  Future<void> _markInboundAsRead() async {
+    final wireIds = await MessagesDb.markInboundGroupRead(
+      widget.userId,
+      widget.group.id,
+    );
+    if (wireIds.isEmpty) return;
+
+    _readReceiptDebounce?.cancel();
+    _readReceiptDebounce = Timer(const Duration(milliseconds: 300), () async {
+      if (_settings.sendReadReceipts) {
+        await _readReceiptService.sendReceiptsForMessages(wireIds);
       }
     });
+  }
+
+  void _applyReadReceiptUpdate(ReadReceiptUpdate update) {
+    if (!mounted || !_settings.sendReadReceipts) return;
+    if (update.groupId != widget.group.id) return;
+
+    try {
+      final msg = _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
+      if (msg.authorId != widget.userId) return;
+      if (!update.allRead) return;
+
+      final latest = update.readByMemberId.values.reduce(max);
+      final updated = msg.copyWith(
+        sentAt: msg.sentAt ?? DateTime.now(),
+        seenAt: DateTime.fromMillisecondsSinceEpoch(latest),
+        metadata: {...?msg.metadata, 'deliveryStatus': 'read'},
+      );
+      setState(() {
+        _messages.updateMessage(msg, updated);
+      });
+    } catch (_) {}
   }
 
   void _resendMessage(Message message) {
@@ -658,9 +701,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         final createdAt = DateTime.fromMillisecondsSinceEpoch(msg['timestamp'] as int);
         final id = MessagesDb.wireIdFromStorage(msg['id'] as String);
         final replyTo = msg['replyTo'] as String?;
-        final seenAt = msg['readAt'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(msg['readAt'] as int)
-            : null;
         final meta = metadataFromDbRow(msg);
 
         if (meta['deleted'] == true) {
@@ -669,7 +709,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             createdAt: createdAt,
             id: id,
             replyToMessageId: replyTo,
-            seenAt: seenAt,
             text: '',
             metadata: meta,
           ));
@@ -684,7 +723,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             id: id,
             text: text,
             replyToMessageId: replyTo,
-            seenAt: seenAt,
             metadata: meta.isEmpty ? null : meta,
           ));
         } else if (type == groupImageType) {
@@ -697,7 +735,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               createdAt: createdAt,
               replyToMessageId: replyTo,
               size: 0,
-              seenAt: seenAt,
               source: '',
               metadata: const {'viewOnce': true, 'viewed': true},
             ));
@@ -708,7 +745,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               createdAt: createdAt,
               replyToMessageId: replyTo,
               size: msg['fileSize'] as int? ?? 0,
-              seenAt: seenAt,
               source: '',
               metadata: const {'viewOnce': true, 'viewed': false},
             ));
@@ -720,7 +756,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               createdAt: createdAt,
               replyToMessageId: replyTo,
               size: bytes.length,
-              seenAt: seenAt,
               source: 'data:image/png;base64,${base64Encode(bytes)}',
             ));
           }
@@ -739,7 +774,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               replyToMessageId: replyTo,
               name: msg['fileName'] as String? ?? 'voice_message.wav',
               size: bytes.length,
-              seenAt: seenAt,
               source: 'audio:$durationMs:$cachePath',
               metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
             ));
@@ -752,7 +786,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               replyToMessageId: replyTo,
               name: fileName,
               size: bytes.length,
-              seenAt: seenAt,
               source: base64Encode(bytes),
             ));
           }
@@ -779,7 +812,47 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       }
     }
 
-    return _attachReactions(result);
+    final withReactions = await _attachReactions(result);
+    return _attachOutboundStatus(withReactions, raw);
+  }
+
+  Future<List<Message>> _attachOutboundStatus(
+    List<Message> messages,
+    List<Map<String, dynamic>> rawRows,
+  ) async {
+    final readReceiptsEnabled = _settings.sendReadReceipts;
+    final outboundWireIds = <String>[];
+    final rowByWireId = <String, Map<String, dynamic>>{};
+
+    for (final row in rawRows) {
+      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
+      if (row['senderId'] == widget.userId) {
+        outboundWireIds.add(wireId);
+        rowByWireId[wireId] = row;
+      }
+    }
+
+    if (outboundWireIds.isEmpty) return messages;
+
+    final receipts = await MessageReadReceiptsDb.getReceiptsForMessages(
+      outboundWireIds,
+      groupId: widget.group.id,
+    );
+
+    final requiredReadCount = _memberCount > 1 ? _memberCount - 1 : 1;
+
+    return messages.map((m) {
+      final row = rowByWireId[m.id];
+      if (row == null) return m;
+      final status = outboundStatusFromDbRow(
+        row: row,
+        localUserId: widget.userId,
+        readReceiptsEnabled: readReceiptsEnabled,
+        receipts: receipts[m.id] ?? const [],
+        requiredReadCount: requiredReadCount,
+      );
+      return applyOutboundStatus(m, status: status);
+    }).toList();
   }
 
   Future<void> _loadMoreMessages() async {
@@ -827,13 +900,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final replyToId = _replyToMessage?.id;
     setState(() {
       _messages.insertMessage(
-        TextMessage(
-          authorId: _user.id,
-          createdAt: DateTime.now(),
-          id: messageId,
-          text: text,
-          sentAt: DateTime.now(),
-          replyToMessageId: replyToId,
+        messageWithPendingStatus(
+          TextMessage(
+            authorId: _user.id,
+            createdAt: DateTime.now(),
+            id: messageId,
+            text: text,
+            replyToMessageId: replyToId,
+          ),
         ),
         index: _messages.messages.length,
       );
@@ -857,27 +931,29 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     setState(() {
       if (type == 'file') {
         _messages.insertMessage(
-          FileMessage(
-            authorId: _user.id,
-            createdAt: DateTime.now(),
-            id: messageId,
-            name: fileName,
-            size: bytes.length,
-            source: base64Encode(bytes),
-            sentAt: DateTime.now(),
+          messageWithPendingStatus(
+            FileMessage(
+              authorId: _user.id,
+              createdAt: DateTime.now(),
+              id: messageId,
+              name: fileName,
+              size: bytes.length,
+              source: base64Encode(bytes),
+            ),
           ),
           index: _messages.messages.length,
         );
       } else if (type == 'image') {
         _messages.insertMessage(
-          ImageMessage(
-            authorId: _user.id,
-            createdAt: DateTime.now(),
-            id: messageId,
-            size: bytes.length,
-            source: 'data:image/png;base64,${base64Encode(bytes)}',
-            sentAt: DateTime.now(),
-            metadata: viewOnce ? const {'viewOnce': true, 'viewed': false} : null,
+          messageWithPendingStatus(
+            ImageMessage(
+              authorId: _user.id,
+              createdAt: DateTime.now(),
+              id: messageId,
+              size: bytes.length,
+              source: 'data:image/png;base64,${base64Encode(bytes)}',
+              metadata: viewOnce ? const {'viewOnce': true, 'viewed': false} : null,
+            ),
           ),
           index: _messages.messages.length,
         );
@@ -962,15 +1038,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     setState(() {
       _messages.insertMessage(
-        FileMessage(
-          authorId: _user.id,
-          createdAt: DateTime.now(),
-          id: messageId,
-          name: 'voice_message.wav',
-          size: bytes.length,
-          source: 'audio:$durationMs:$cachePath',
-          sentAt: DateTime.now(),
-          metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
+        messageWithPendingStatus(
+          FileMessage(
+            authorId: _user.id,
+            createdAt: DateTime.now(),
+            id: messageId,
+            name: 'voice_message.wav',
+            size: bytes.length,
+            source: 'audio:$durationMs:$cachePath',
+            metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
+          ),
         ),
         index: _messages.messages.length,
       );
@@ -1007,8 +1084,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           onChanged: () async {
             final members = await _groupService.getMembers(widget.group.id);
             if (mounted) {
-              setState(() => _memberCount = members.length);
-              await _resolveSenderNames(members.map((m) => m.memberId).toList());
+              setState(() {
+                _memberCount = members.length;
+                _groupMemberIds = members.map((m) => m.memberId).toList();
+              });
+              await _resolveSenderNames(_groupMemberIds);
             }
             widget.reloadConversations();
           },
@@ -1032,30 +1112,35 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     super.dispose();
   }
 
+  String _deliveryStatusLabel(Message message) {
+    if (message.metadata?['failed'] == true) return 'Failed';
+    if (isOutboundPending(message)) return 'Pending';
+    if (_settings.sendReadReceipts && message.seenAt != null) return 'Read';
+    if (message.sentAt != null) return 'Delivered';
+    return 'Pending';
+  }
+
+  void _openMessageInfo(Message message) {
+    ReadReceiptDetailsSheet.show(
+      context,
+      messageId: message.id,
+      localUserId: widget.userId,
+      groupId: widget.group.id,
+      messageAuthorId: message.authorId,
+      groupMemberIds: _groupMemberIds,
+      deliveryStatusLabel: _deliveryStatusLabel(message),
+      showReadSection: _settings.sendReadReceipts,
+    );
+  }
+
   Widget _buildStatusWidget(Message message, bool isSentByMe, Color tickColor) {
-    if (!isSentByMe) return const SizedBox.shrink();
-
-    final isFailed = message.metadata?['failed'] == true;
-    if (isFailed) {
-      return GestureDetector(
-        onTap: () => _resendMessage(message),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red[400]),
-            const SizedBox(width: 2),
-            Text('Tap to retry', style: TextStyle(fontSize: 9, color: Colors.red[400])),
-          ],
-        ),
-      );
-    }
-
-    if (message.seenAt != null) {
-      return Icon(Icons.done_all, size: 14, color: tickColor);
-    } else if (message.sentAt != null) {
-      return Icon(Icons.done, size: 14, color: tickColor.withAlpha(140));
-    }
-    return const SizedBox.shrink();
+    return MessageStatusIcon(
+      message: message,
+      isSentByMe: isSentByMe,
+      tickColor: tickColor,
+      readReceiptsEnabled: _settings.sendReadReceipts,
+      onRetry: () => _resendMessage(message),
+    );
   }
 
   Widget _groupTextMessageBuilder(

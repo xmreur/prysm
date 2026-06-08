@@ -60,11 +60,24 @@ class SettingsService {
   // Onboarding
   bool get onboardingCompleted => _settings.onboardingCompleted;
 
+  static const String _legacyReadReceiptsKey = 'read_receipts';
+
   // Initialize (call at app startup)
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _settingsExistedAtLaunch = _prefs?.getString(_settingsKey) != null;
     await load();
+    await _migrateLegacyPrefs();
+  }
+
+  /// One-time migration from privacy screen SharedPreferences keys.
+  Future<void> _migrateLegacyPrefs() async {
+    if (_prefs == null) return;
+    if (_prefs!.containsKey(_legacyReadReceiptsKey)) {
+      final legacy = _prefs!.getBool(_legacyReadReceiptsKey) ?? true;
+      await setSendReadReceipts(legacy);
+      await _prefs!.remove(_legacyReadReceiptsKey);
+    }
   }
 
   /// Skips onboarding for upgrades: settings existed before this launch and

@@ -542,11 +542,8 @@ class ChatService {
 
   Future<void> _markAsSent(String messageId) async {
     await MessagesDb.updateMessageStatus(messageId, 'sent');
-    await MessagesDb.setAsRead(messageId);
-
-    // ✅ Only emit 'read' - UI already shows 'sent' optimistically
     if (!_disposed) {
-      _messageStatusController.add(MessageStatusUpdate(messageId, 'read'));
+      _messageStatusController.add(MessageStatusUpdate(messageId, 'sent'));
     }
   }
 

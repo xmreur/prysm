@@ -21,6 +21,9 @@ const String groupReactionType = 'group_reaction';
 const String messageModifyType = 'message_modify';
 const String groupMessageModifyType = 'group_message_modify';
 
+const String readReceiptType = 'read_receipt';
+const String groupReadReceiptType = 'group_read_receipt';
+
 const Set<String> groupControlTypes = {
   groupInviteType,
   groupKeyRotateType,
@@ -42,10 +45,13 @@ const Set<String> messageModifyTypes = {
   groupMessageModifyType,
 };
 
+const Set<String> readReceiptTypes = {readReceiptType, groupReadReceiptType};
+
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
 bool isReactionType(String type) => reactionTypes.contains(type);
 bool isMessageModifyType(String type) => messageModifyTypes.contains(type);
+bool isReadReceiptType(String type) => readReceiptTypes.contains(type);
 
 /// Deterministic wire id for a reaction event (dedupe / pending queue).
 String reactionEventId({
@@ -53,3 +59,10 @@ String reactionEventId({
   required String reactorId,
 }) =>
     '$targetMessageId::$reactorId';
+
+/// Deterministic wire id for a read receipt event (dedupe / pending queue).
+String readReceiptEventId({
+  required String targetMessageId,
+  required String readerId,
+}) =>
+    '$targetMessageId::$readerId';

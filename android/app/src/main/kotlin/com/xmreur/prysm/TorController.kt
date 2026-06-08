@@ -4,20 +4,28 @@ import android.util.Log
 import kotlinx.coroutines.*
 import org.torproject.jni.TorService
 import java.io.File
+import java.net.Socket
+import java.util.concurrent.atomic.AtomicReference
 
 class TorController(private val context: Context) {
 
-    // Fix: Use the same data directory as TorService native layer, matching your app structure.
-    // Adjust this path if TorService uses a different one like "app_TorService/data" on your device.
-    // Use the actual DataDirectory used by TorService
-    private val dataDir: File by lazy { File(context.dataDir, "app_TorService") } // or just context.dataDir
+    private val dataDir: File by lazy { File(context.dataDir, "app_TorService") }
     private val hiddenServiceDir: File by lazy { File(dataDir, "hidden_service") }
-
 
     private var torServiceConnection: ServiceConnection? = null
     private var torService: TorService? = null
+    private var isBound = false
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val stopLatch = AtomicReference<CompletableDeferred<Unit>?>(null)
+
+    companion object {
+        private const val CONTROL_PORT = 9051
+        private const val STOP_SETTLE_MS = 500L
+        private const val RESTART_SETTLE_MS = 800L
+        private const val PORT_POLL_MS = 100L
+        private const val PORT_POLL_TIMEOUT_MS = 3000L
+    }
 
     init {
         if (!dataDir.exists()) {
@@ -30,16 +38,14 @@ class TorController(private val context: Context) {
         }
     }
 
-    // Write a torrc matching the actual data directory with HiddenServiceDir inside it
     fun writeTorrc() {
         val torrcFile = File(dataDir, "torrc")
         val torrcContent = """
-            ControlPort 9051
+            ControlPort $CONTROL_PORT
             DataDirectory ${dataDir.absolutePath}
             CookieAuthentication 1
             HiddenServiceDir ${hiddenServiceDir.absolutePath}
             HiddenServicePort 80 127.0.0.1:12345
-            # Enable verbose logs to stdout to debug startup issues
             Log notice stdout
             Log debug stdout
             Log info stdout
@@ -49,37 +55,106 @@ class TorController(private val context: Context) {
         Log.d("TorController", "Wrote torrc:\n$torrcContent")
     }
 
-    fun startTor(onStarted: () -> Unit) {
+    suspend fun startTor() {
+        val restarting = isBound
+        if (restarting) {
+            stopTor()
+            waitForControlPortClosed()
+            delay(RESTART_SETTLE_MS)
+        }
+
         writeTorrc()
         val intent = Intent(context, TorService::class.java)
 
-        torServiceConnection = object : ServiceConnection {
+        // TorService from tor-android enters the foreground via bindService
+        // (BIND_AUTO_CREATE). Do NOT call startForegroundService here — on
+        // restart Android kills the app if startForeground() is not called in
+        // time, and TorService only promotes itself when bound.
+
+        val connected = CompletableDeferred<Unit>()
+
+        val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 Log.d("TorController", "TorService connected")
                 torService = (binder as TorService.LocalBinder).service
-                onStarted()
+                isBound = true
+                connected.complete(Unit)
             }
+
             override fun onServiceDisconnected(name: ComponentName?) {
                 Log.d("TorController", "TorService disconnected")
-                torService = null
+                clearBindingState()
+                stopLatch.getAndSet(null)?.complete(Unit)
             }
         }
 
-        val bound = context.bindService(intent, torServiceConnection!!, Context.BIND_AUTO_CREATE)
+        torServiceConnection = connection
+        val bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
         Log.d("TorController", "bindService called, result: $bound")
+
+        if (!bound) {
+            clearBindingState()
+            throw IllegalStateException("bindService failed")
+        }
+
+        withTimeout(60_000) {
+            connected.await()
+        }
+
+        delay(STOP_SETTLE_MS)
     }
 
-    fun stopTor() {
+    suspend fun stopTor() {
+        val latch = CompletableDeferred<Unit>()
+        stopLatch.set(latch)
+
         torService?.stopSelf()
-        torServiceConnection?.let {
-            context.unbindService(it)
-            Log.d("TorController", "TorService unbound")
-            torServiceConnection = null
-            torService = null
+        torService = null
+
+        unbindSafely()
+        waitForControlPortClosed()
+        delay(STOP_SETTLE_MS)
+
+        latch.complete(Unit)
+        stopLatch.set(null)
+    }
+
+    private fun unbindSafely() {
+        val connection = torServiceConnection
+        if (connection != null && isBound) {
+            try {
+                context.unbindService(connection)
+                Log.d("TorController", "TorService unbound")
+            } catch (e: IllegalArgumentException) {
+                Log.w("TorController", "unbindService skipped: ${e.message}")
+            }
+        }
+        clearBindingState()
+    }
+
+    private fun clearBindingState() {
+        torServiceConnection = null
+        torService = null
+        isBound = false
+    }
+
+    private suspend fun waitForControlPortClosed() {
+        val deadline = System.currentTimeMillis() + PORT_POLL_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (!isControlPortOpen()) return
+            delay(PORT_POLL_MS)
+        }
+        Log.w("TorController", "Control port still open after stop timeout")
+    }
+
+    private fun isControlPortOpen(): Boolean {
+        return try {
+            Socket("127.0.0.1", CONTROL_PORT).use { true }
+        } catch (_: Exception) {
+            false
         }
     }
 
-    // Read onion address from the hidden service hostname file in the correct directory
     fun getOnionAddressAsync(onResult: (String?) -> Unit) {
         scope.launch {
             var address: String? = null

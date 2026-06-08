@@ -419,6 +419,39 @@ class MessageModifyService {
     return null;
   }
 
+  static Future<bool> processPendingForPeer({
+    required String userId,
+    required String peerId,
+    required KeyManager keyManager,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+      senderId: userId,
+      receiverId: peerId,
+    );
+    final modifies =
+        pending.where((m) => m['type'] == messageModifyType).toList();
+    if (modifies.isEmpty) return false;
+
+    var any = false;
+    for (final row in modifies) {
+      final service = MessageModifyService.direct(
+        userId: userId,
+        keyManager: keyManager,
+        peerId: peerId,
+      );
+      final ok = await service._postDirect(
+        id: row['id'] as String,
+        encrypted: row['message'] as String,
+        timestamp: row['timestamp'] as int,
+      );
+      if (ok) {
+        await PendingMessageDbHelper.removeMessages([row['id'] as String]);
+        any = true;
+      }
+    }
+    return any;
+  }
+
   static Future<bool> processGlobalPendingDirect({
     required String userId,
     required KeyManager keyManager,

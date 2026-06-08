@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -451,6 +452,45 @@ class ChatService {
     } catch (e) {
       print('Failed to persist peer public key: $e');
     }
+  }
+
+  /// Retry pending 1:1 deliveries for one peer (wake-hint response).
+  static Future<bool> processPendingForPeer({
+    required String userId,
+    required String peerId,
+    required KeyManager keyManager,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+      senderId: userId,
+      receiverId: peerId,
+    );
+    final chatPending = pending.where((m) {
+      final type = m['type'] as String?;
+      if (type == null) return false;
+      return !isReadReceiptType(type) &&
+          !isReactionType(type) &&
+          !isMessageModifyType(type);
+    }).toList();
+    if (chatPending.isEmpty) return false;
+
+    final service = ChatService(
+      userId: userId,
+      peerId: peerId,
+      keyManager: keyManager,
+    );
+    final cached = await service._getPeerPublicKeyFromDb();
+    if (cached != null) {
+      service.peerPublicKey = keyManager.importPeerPublicKey(cached);
+    } else {
+      final ok = await service._fetchPeerPublicKeyOverTor();
+      if (!ok) {
+        service.dispose();
+        return false;
+      }
+    }
+    await service._processPendingOnce();
+    service.dispose();
+    return true;
   }
 
   /// Retry pending 1:1 deliveries for all peers (called from global sync timer).

@@ -314,6 +314,43 @@ class ReadReceiptService {
     return null;
   }
 
+  static Future<bool> processPendingForPeer({
+    required String userId,
+    required String peerId,
+    required KeyManager keyManager,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+      senderId: userId,
+      receiverId: peerId,
+    );
+    final receipts =
+        pending.where((m) => m['type'] == readReceiptType).toList();
+    if (receipts.isEmpty) return false;
+
+    var any = false;
+    for (final msg in receipts) {
+      final service = ReadReceiptService.direct(
+        userId: userId,
+        keyManager: keyManager,
+        peerId: peerId,
+      );
+      final encrypted = msg['message'] as String?;
+      if (encrypted == null || encrypted.isEmpty) {
+        continue;
+      }
+      final ok = await service._postDirect(
+        id: msg['id'] as String,
+        encrypted: encrypted,
+        timestamp: msg['timestamp'] as int,
+      );
+      if (ok) {
+        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
+        any = true;
+      }
+    }
+    return any;
+  }
+
   static Future<bool> processGlobalPendingDirect({
     required String userId,
     required KeyManager keyManager,

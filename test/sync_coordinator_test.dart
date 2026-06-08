@@ -32,4 +32,16 @@ void main() {
     expect(await coordinator.onTorReconnected(), false);
     coordinator.dispose();
   });
+
+  test('flushPendingForPeer is skipped when Tor is stopped', () async {
+    final coordinator = SyncCoordinator(
+      userId: 'me.onion',
+      keyManager: KeyManager(),
+      torManager: TorManager(torPath: '', dataDir: '', controlPassword: ''),
+      isTorStopped: () => true,
+    );
+
+    expect(await coordinator.flushPendingForPeer('peer.onion'), false);
+    coordinator.dispose();
+  });
 }

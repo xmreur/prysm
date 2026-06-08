@@ -46,4 +46,22 @@ class BatterySaverPolicy {
       (saving ?? active)
           ? const Duration(milliseconds: 800)
           : const Duration(milliseconds: 400);
+
+  static const int wakeHintMaxPeers = 20;
+
+  static const Duration wakeHintSendCooldown = Duration(minutes: 5);
+
+  static const Duration wakeHintReceiveDebounce = Duration(seconds: 30);
+
+  static const Duration wakeHintMinOfflineBeforeBroadcast = Duration(seconds: 30);
+
+  static Duration wakeHintStaggerMin([bool? saving]) =>
+      (saving ?? active)
+          ? const Duration(milliseconds: 500)
+          : const Duration(milliseconds: 200);
+
+  static Duration wakeHintStaggerMax([bool? saving]) =>
+      (saving ?? active)
+          ? const Duration(milliseconds: 800)
+          : const Duration(milliseconds: 400);
 }

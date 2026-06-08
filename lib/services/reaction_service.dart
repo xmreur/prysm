@@ -355,6 +355,46 @@ class ReactionService {
     return null;
   }
 
+  /// Retry pending direct reactions for one peer.
+  static Future<bool> processPendingForPeer({
+    required String userId,
+    required String peerId,
+    required KeyManager keyManager,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+      senderId: userId,
+      receiverId: peerId,
+    );
+    final reactions =
+        pending.where((m) => m['type'] == reactionType).toList();
+    if (reactions.isEmpty) return false;
+
+    var any = false;
+    for (final msg in reactions) {
+      final service = ReactionService.direct(
+        userId: userId,
+        keyManager: keyManager,
+        peerId: peerId,
+      );
+      final encrypted = msg['message'] as String?;
+      if (encrypted == null || encrypted.isEmpty) {
+        service.dispose();
+        continue;
+      }
+      final ok = await service._postDirect(
+        id: msg['id'] as String,
+        encrypted: encrypted,
+        timestamp: msg['timestamp'] as int,
+      );
+      if (ok) {
+        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
+        any = true;
+      }
+      service.dispose();
+    }
+    return any;
+  }
+
   /// Retry pending direct reactions for all peers.
   static Future<bool> processGlobalPendingDirect({
     required String userId,

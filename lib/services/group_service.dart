@@ -958,18 +958,15 @@ class GroupService {
     bool quiet = false,
   }) async {
     try {
-      final send = () => _postMessageOnce(
-        id: id,
-        targetMemberId: targetMemberId,
-        groupId: groupId,
-        message: message,
-        type: type,
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postMessageOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          groupId: groupId,
+          message: message,
+          type: type,
+        ),
       );
-      if (TorOutboundGateway.isConfigured) {
-        await send();
-      } else {
-        await TorDelivery.withTorRetry<void>(attempt: send);
-      }
       return true;
     } catch (e) {
       if (!quiet) {

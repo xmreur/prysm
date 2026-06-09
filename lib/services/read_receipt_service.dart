@@ -153,17 +153,15 @@ class ReadReceiptService {
   }) async {
     if (peerId == null) return false;
     try {
-      final send = () => _postDirectOnce(
-        id: id,
-        encrypted: encrypted,
-        timestamp: timestamp,
-        messageType: messageType,
+      await TorDelivery.withTorRetry<void>(
+        maxAttempts: 2,
+        attempt: () => _postDirectOnce(
+          id: id,
+          encrypted: encrypted,
+          timestamp: timestamp,
+          messageType: messageType,
+        ),
       );
-      if (TorOutboundGateway.isConfigured) {
-        await send();
-      } else {
-        await TorDelivery.withTorRetry<void>(maxAttempts: 2, attempt: send);
-      }
       return true;
     } catch (e) {
       debugPrint('Read waterline deferred (will retry via sync): $e');
@@ -216,18 +214,16 @@ class ReadReceiptService {
   }) async {
     if (groupId == null) return false;
     try {
-      final send = () => _postGroupOnce(
-        id: id,
-        targetMemberId: targetMemberId,
-        encrypted: encrypted,
-        timestamp: timestamp,
-        messageType: messageType,
+      await TorDelivery.withTorRetry<void>(
+        maxAttempts: 2,
+        attempt: () => _postGroupOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          encrypted: encrypted,
+          timestamp: timestamp,
+          messageType: messageType,
+        ),
       );
-      if (TorOutboundGateway.isConfigured) {
-        await send();
-      } else {
-        await TorDelivery.withTorRetry<void>(maxAttempts: 2, attempt: send);
-      }
       return true;
     } catch (e) {
       debugPrint('Group read waterline deferred (will retry via sync): $e');
@@ -362,14 +358,15 @@ class ReadReceiptService {
         readAt: payload.timestamp,
         groupId: effectiveGroupId,
       );
-      await _upsertAndNotifyReceipt(
-        wireMessageId: wireId,
-        readerId: payload.readerId,
-        readAt: payload.timestamp,
-        effectiveGroupId: effectiveGroupId,
-        groupService: groupService,
-      );
     }
+
+    await _upsertAndNotifyReceipt(
+      wireMessageId: payload.targetMessageId,
+      readerId: payload.readerId,
+      readAt: payload.timestamp,
+      effectiveGroupId: effectiveGroupId,
+      groupService: groupService,
+    );
   }
 
   static Future<void> _upsertAndNotifyReceipt({

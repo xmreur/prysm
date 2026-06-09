@@ -243,16 +243,13 @@ class MessageModifyService {
   }) async {
     if (peerId == null) return false;
     try {
-      final send = () => _postDirectOnce(
-        id: id,
-        encrypted: encrypted,
-        timestamp: timestamp,
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postDirectOnce(
+          id: id,
+          encrypted: encrypted,
+          timestamp: timestamp,
+        ),
       );
-      if (TorOutboundGateway.isConfigured) {
-        await send();
-      } else {
-        await TorDelivery.withTorRetry<void>(attempt: send);
-      }
       return true;
     } catch (e) {
       print('Message modify send failed: $e');
@@ -303,17 +300,14 @@ class MessageModifyService {
   }) async {
     if (groupId == null) return false;
     try {
-      final send = () => _postGroupOnce(
-        id: id,
-        targetMemberId: targetMemberId,
-        encrypted: encrypted,
-        timestamp: timestamp,
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postGroupOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          encrypted: encrypted,
+          timestamp: timestamp,
+        ),
       );
-      if (TorOutboundGateway.isConfigured) {
-        await send();
-      } else {
-        await TorDelivery.withTorRetry<void>(attempt: send);
-      }
       return true;
     } catch (e) {
       print('Group message modify send failed: $e');

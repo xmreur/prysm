@@ -40,6 +40,7 @@ import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/screens/widgets/message_status_icon.dart';
 import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
+import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
@@ -332,35 +333,46 @@ class _ChatScreenState extends State<ChatScreen> {
     if (waterline == null) return;
 
     _readReceiptDebounce?.cancel();
-    _readReceiptDebounce = Timer(const Duration(milliseconds: 300), () async {
+    _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
       if (_settings.sendReadReceipts) {
         await _readReceiptService.sendWaterline(waterline);
       }
     });
   }
 
-  void _applyReadReceiptUpdate(ReadReceiptUpdate update) {
+  Future<void> _applyReadReceiptUpdate(ReadReceiptUpdate update) async {
     if (!mounted || !_settings.sendReadReceipts) return;
     if (update.groupId != null) return;
 
-    try {
-      final msg = _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
-      if (msg.authorId != widget.userId) return;
-      if (!update.allRead) return;
+    final refreshed = await refreshOutboundReadStatus(
+      messages: _messages.messages,
+      localUserId: widget.userId,
+      readReceiptsEnabled: _settings.sendReadReceipts,
+      requiredReadCount: 1,
+    );
+    if (!mounted) return;
 
-      _recordPeerActivity();
+    var anyNewlyRead = false;
+    setState(() {
+      for (final updated in refreshed) {
+        if (updated.authorId != widget.userId) continue;
+        try {
+          final old = _messages.messages.firstWhere((m) => m.id == updated.id);
+          if (old.seenAt == updated.seenAt &&
+              old.metadata?['deliveryStatus'] ==
+                  updated.metadata?['deliveryStatus']) {
+            continue;
+          }
+          if (updated.seenAt != null && old.seenAt == null) {
+            anyNewlyRead = true;
+          }
+          _messages.updateMessage(old, updated);
+          _messageCache[updated.id] = updated;
+        } catch (_) {}
+      }
+    });
 
-      final latest = update.readByMemberId.values.reduce(max);
-      final updated = msg.copyWith(
-        sentAt: msg.sentAt ?? DateTime.now(),
-        seenAt: DateTime.fromMillisecondsSinceEpoch(latest),
-        metadata: {...?msg.metadata, 'deliveryStatus': 'read'},
-      );
-      setState(() {
-        _messages.updateMessage(msg, updated);
-        _messageCache[msg.id] = updated;
-      });
-    } catch (_) {}
+    if (anyNewlyRead) _recordPeerActivity();
   }
 
   @override

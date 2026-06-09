@@ -24,17 +24,45 @@ class ReadReceiptUpdate {
   final String? groupId;
   final bool allRead;
   final Map<String, int> readByMemberId;
+  final int? readUpToTimestamp;
+  final bool isWaterline;
 
   const ReadReceiptUpdate({
     required this.targetMessageId,
     this.groupId,
     required this.allRead,
     required this.readByMemberId,
+    this.readUpToTimestamp,
+    this.isWaterline = false,
   });
 }
 
 /// Sends, receives, and persists read receipts.
 class ReadReceiptService {
+  static Future<bool> Function(String peerId)? _flushPendingForPeer;
+  static final Map<String, int> _lastDispatchedReadUpTo = {};
+
+  static void configure({
+    Future<bool> Function(String peerId)? flushPendingForPeer,
+  }) {
+    _flushPendingForPeer = flushPendingForPeer;
+  }
+
+  @visibleForTesting
+  static void resetForTest() {
+    _flushPendingForPeer = null;
+    _lastDispatchedReadUpTo.clear();
+  }
+
+  static String _dispatchKey({
+    required String readerId,
+    required String? peerId,
+    required String? groupId,
+  }) {
+    if (groupId != null) return '$readerId::group::$groupId';
+    return '$readerId::$peerId';
+  }
+
   final String userId;
   final KeyManager keyManager;
   final String? peerId;
@@ -59,6 +87,22 @@ class ReadReceiptService {
   /// Send one read waterline for a batch of locally-marked-read messages.
   Future<void> sendWaterline(ReadWaterlineMark mark) async {
     if (!_settings.sendReadReceipts) return;
+
+    final dispatchKey = _dispatchKey(
+      readerId: userId,
+      peerId: peerId,
+      groupId: groupId ?? mark.groupId,
+    );
+    final lastDispatched = _lastDispatchedReadUpTo[dispatchKey] ?? 0;
+    if (mark.readUpToTimestamp <= lastDispatched) {
+      if (peerId != null) {
+        final flush = _flushPendingForPeer;
+        if (flush != null) {
+          unawaited(flush(peerId!));
+        }
+      }
+      return;
+    }
 
     final payload = ReadReceiptPayload(
       targetMessageId: mark.latestMessageId,
@@ -90,7 +134,10 @@ class ReadReceiptService {
       encrypted: encrypted,
       timestamp: payload.timestamp,
       messageType: readWaterlineType,
+      fastFail: true,
     );
+    _lastDispatchedReadUpTo[_dispatchKey(readerId: userId, peerId: peerId, groupId: null)] =
+        payload.readUpToTimestamp ?? payload.timestamp;
     if (!ok) {
       await PendingMessageDbHelper.insertPendingMessage({
         'id': eventId,
@@ -101,6 +148,10 @@ class ReadReceiptService {
         'timestamp': payload.timestamp,
         'status': 'pending',
       });
+      final flush = _flushPendingForPeer;
+      if (flush != null) {
+        unawaited(flush(peerId!));
+      }
     }
   }
 
@@ -120,6 +171,10 @@ class ReadReceiptService {
       groupId: groupId,
     );
 
+    _lastDispatchedReadUpTo[
+      _dispatchKey(readerId: userId, peerId: null, groupId: groupId)
+    ] = payload.readUpToTimestamp ?? payload.timestamp;
+
     for (final target in targets) {
       final pendingId = '$eventId::$target';
       final ok = await _postGroup(
@@ -128,6 +183,7 @@ class ReadReceiptService {
         encrypted: encrypted,
         timestamp: payload.timestamp,
         messageType: groupReadWaterlineType,
+        fastFail: true,
       );
       if (!ok) {
         await PendingMessageDbHelper.insertPendingMessage({
@@ -141,6 +197,10 @@ class ReadReceiptService {
           'groupId': groupId,
           'targetMemberId': target,
         });
+        final flush = _flushPendingForPeer;
+        if (flush != null) {
+          unawaited(flush(target));
+        }
       }
     }
   }
@@ -150,11 +210,13 @@ class ReadReceiptService {
     required String encrypted,
     required int timestamp,
     required String messageType,
+    bool fastFail = false,
+    bool logOnFailure = true,
   }) async {
     if (peerId == null) return false;
     try {
       await TorDelivery.withTorRetry<void>(
-        maxAttempts: 2,
+        maxAttempts: fastFail ? 1 : 2,
         attempt: () => _postDirectOnce(
           id: id,
           encrypted: encrypted,
@@ -164,7 +226,9 @@ class ReadReceiptService {
       );
       return true;
     } catch (e) {
-      debugPrint('Read waterline deferred (will retry via sync): $e');
+      if (logOnFailure) {
+        debugPrint('Read waterline deferred (will retry via sync): $e');
+      }
       return false;
     }
   }
@@ -211,11 +275,13 @@ class ReadReceiptService {
     required String encrypted,
     required int timestamp,
     required String messageType,
+    bool fastFail = false,
+    bool logOnFailure = true,
   }) async {
     if (groupId == null) return false;
     try {
       await TorDelivery.withTorRetry<void>(
-        maxAttempts: 2,
+        maxAttempts: fastFail ? 1 : 2,
         attempt: () => _postGroupOnce(
           id: id,
           targetMemberId: targetMemberId,
@@ -226,7 +292,9 @@ class ReadReceiptService {
       );
       return true;
     } catch (e) {
-      debugPrint('Group read waterline deferred (will retry via sync): $e');
+      if (logOnFailure) {
+        debugPrint('Group read waterline deferred (will retry via sync): $e');
+      }
       return false;
     }
   }
@@ -366,6 +434,8 @@ class ReadReceiptService {
       readAt: payload.timestamp,
       effectiveGroupId: effectiveGroupId,
       groupService: groupService,
+      readUpToTimestamp: payload.effectiveReadUpToTimestamp,
+      isWaterline: true,
     );
   }
 
@@ -375,6 +445,8 @@ class ReadReceiptService {
     required int readAt,
     required String? effectiveGroupId,
     GroupService? groupService,
+    int? readUpToTimestamp,
+    bool isWaterline = false,
   }) async {
     final receipts = await MessageReadReceiptsDb.getReceiptsForMessage(
       wireMessageId: wireMessageId,
@@ -406,6 +478,8 @@ class ReadReceiptService {
         groupId: effectiveGroupId,
         allRead: receipts.length >= requiredReadCount,
         readByMemberId: readByMemberId,
+        readUpToTimestamp: readUpToTimestamp,
+        isWaterline: isWaterline,
       ),
     );
   }
@@ -465,6 +539,8 @@ class ReadReceiptService {
         encrypted: encrypted,
         timestamp: msg['timestamp'] as int,
         messageType: msg['type'] as String,
+        fastFail: true,
+        logOnFailure: false,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);
@@ -508,6 +584,8 @@ class ReadReceiptService {
         encrypted: encrypted,
         timestamp: msg['timestamp'] as int,
         messageType: msg['type'] as String,
+        fastFail: true,
+        logOnFailure: false,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);
@@ -552,6 +630,8 @@ class ReadReceiptService {
         encrypted: msg['message'] as String,
         timestamp: msg['timestamp'] as int,
         messageType: msg['type'] as String,
+        fastFail: true,
+        logOnFailure: false,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);

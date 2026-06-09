@@ -272,15 +272,11 @@ class ChatService {
         .map((m) => m['timestamp'] as int)
         .reduce(max);
 
-    // Only treat peer messages as proof of reachability if they're
-    // very recent (just arrived via PrysmServer), not old DB messages
-    // being read for the first time on chat open.
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final hasFreshPeerMessage = newMessages.any(
-      (msg) => msg['senderId'] == peerId &&
-          (now - (msg['timestamp'] as int)).abs() < 15000,
-    );
-    if (hasFreshPeerMessage) {
+    // seedNewestTimestamp() prevents historical messages from counting; any
+    // new peer-originated row here is live traffic.
+    final hasNewPeerMessage =
+        newMessages.any((msg) => msg['senderId'] == peerId);
+    if (hasNewPeerMessage) {
       _notifyPeerReachable();
     }
 

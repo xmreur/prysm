@@ -12,7 +12,7 @@ import 'widgets/notification_mute_tile.dart';
 class ChatProfileScreen extends StatefulWidget {
   final Contact peer;
   final String currentUserName;
-  final bool isOnline;
+  final bool? isOnline;
   final VoidCallback onClose;
   final Function(Contact) onUpdateName;
   final Function() onDeleteChat;
@@ -23,7 +23,7 @@ class ChatProfileScreen extends StatefulWidget {
   const ChatProfileScreen({
     required this.peer,
     required this.currentUserName,
-    this.isOnline = false,
+    this.isOnline,
     required this.onClose,
     required this.onUpdateName,
     required this.onDeleteChat,
@@ -211,32 +211,45 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: widget.isOnline
-                                ? Colors.green
-                                : Theme.of(context).colorScheme.onSurface.withAlpha(100),
-                          ),
+                    if (widget.isOnline == null)
+                      Text(
+                        'Checking...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).hintColor,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          widget.isOnline ? 'Online' : 'Offline',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: widget.isOnline
-                                ? Colors.green
-                                : Theme.of(context).hintColor,
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: widget.isOnline!
+                                  ? Colors.green
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withAlpha(100),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.isOnline! ? 'Online' : 'Offline',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: widget.isOnline!
+                                  ? Colors.green
+                                  : Theme.of(context).hintColor,
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),

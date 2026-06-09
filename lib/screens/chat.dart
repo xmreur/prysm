@@ -34,6 +34,7 @@ import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/peer_presence_tracker.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/screens/widgets/message_status_icon.dart';
@@ -116,9 +117,9 @@ class _ChatScreenState extends State<ChatScreen> {
   // ignore: unused_field
   int _currentTheme = 0;
   bool? _peerOnline;
-  int _failedPings = 0;
-  bool _probeConfirmedOffline = false; // Set by _checkPeerStatus on hard failure
+  late PeerPresenceTracker _presenceTracker;
   Timer? _pingTimer;
+  Timer? _presenceStaleTimer;
   StreamSubscription<void>? _batterySaverSub;
 
   Set<String> selectedMessageIds = {};
@@ -179,13 +180,39 @@ class _ChatScreenState extends State<ChatScreen> {
       peerId: widget.peerId,
     );
 
+    _presenceTracker = PeerPresenceTracker();
     _scrollController.addListener(_scrollListener);
     _initializeChat(); // ✅ NEW METHOD
     _checkPeerStatus(); // Check online status + fetch profile immediately
     _startPeerPingTimer();
+    _startPresenceStaleTimer();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
-      if (mounted) _startPeerPingTimer();
+      if (mounted) {
+        _startPeerPingTimer();
+        _startPresenceStaleTimer();
+      }
     });
+  }
+
+  void _syncPeerPresence() {
+    if (!mounted) return;
+    final online = _presenceTracker.isOnline;
+    if (online != _peerOnline) {
+      setState(() => _peerOnline = online);
+    }
+  }
+
+  void _recordPeerActivity() {
+    _presenceTracker.recordActivity();
+    _syncPeerPresence();
+  }
+
+  void _startPresenceStaleTimer() {
+    _presenceStaleTimer?.cancel();
+    _presenceStaleTimer = Timer.periodic(
+      BatterySaverPolicy.presenceStaleCheckInterval(),
+      (_) => _syncPeerPresence(),
+    );
   }
 
   void _startPeerPingTimer() {
@@ -213,14 +240,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
     _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
     _reachableSub = _chatService.onPeerReachable.listen((_) {
-      // A successful send/receive proves the peer is online —
-      // but only if the probe hasn't confirmed them offline.
-      // A fresh message delivery overrides the probe result.
-      if (mounted && _peerOnline != true && !_probeConfirmedOffline) {
-        _failedPings = 0;
-        _probeConfirmedOffline = false;
-        setState(() => _peerOnline = true);
-      }
+      if (mounted) _recordPeerActivity();
     });
     _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
     _reactionRefreshSub =
@@ -247,12 +267,19 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatService.startSendQueue();
   }
 
+  void _suspendPresenceProbeDuringMediaUpload() {
+    _presenceTracker.suspendProbeFailuresFor(
+      BatterySaverPolicy.mediaUploadPresenceGrace,
+    );
+  }
+
   // ✅ NEW: Handle incoming messages from ChatService
   void _handleNewMessages(List<Map<String, dynamic>> rawMessages) async {
     if (!mounted) return;
 
-    // Don't mark online from DB messages — _reachableSub handles
-    // genuinely fresh peer messages already.
+    if (rawMessages.any((msg) => msg['senderId'] == widget.peerId)) {
+      _recordPeerActivity();
+    }
 
     try {
       final decrypted = await decryptMessagesDeferred(
@@ -277,6 +304,10 @@ class _ChatScreenState extends State<ChatScreen> {
   // ✅ NEW: Handle message status updates
   void _handleStatusUpdate(MessageStatusUpdate update) {
     if (!mounted) return;
+
+    if (update.status == 'sent') {
+      _recordPeerActivity();
+    }
 
     final idx = _messages.messages.indexWhere((m) => m.id == update.messageId);
     if (idx != -1) {
@@ -317,6 +348,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (msg.authorId != widget.userId) return;
       if (!update.allRead) return;
 
+      _recordPeerActivity();
+
       final latest = update.readByMemberId.values.reduce(max);
       final updated = msg.copyWith(
         sentAt: msg.sentAt ?? DateTime.now(),
@@ -344,6 +377,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _readReceiptRefreshSub?.cancel();
     _readReceiptDebounce?.cancel();
     _pingTimer?.cancel();
+    _presenceStaleTimer?.cancel();
     _batterySaverSub?.cancel();
 
     _debounceTimer?.cancel();
@@ -379,12 +413,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (!mounted) return;
 
-      // Peer responded — they're online
-      _failedPings = 0;
-      _probeConfirmedOffline = false;
-      if (_peerOnline != true) {
-        setState(() => _peerOnline = true);
-      }
+      _recordPeerActivity();
 
       // Update DB with fresh remote data
       final updates = <String, dynamic>{};
@@ -419,23 +448,13 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       debugPrint('Profile check failed: $e');
-      if (mounted) {
-        _failedPings++;
-        final errStr = e.toString();
-        // After TorDelivery retries, repeated failures likely mean peer is offline.
-        final isHardFailure = errStr.contains('hostUnreachable') ||
-            errStr.contains('connectionRefused') ||
-            errStr.contains('ttlExpired');
-        if (isHardFailure && _failedPings >= 2) {
-          _probeConfirmedOffline = true;
-          if (_peerOnline != false) {
-            setState(() => _peerOnline = false);
-          }
-        } else if (_failedPings >= 3 && _peerOnline != false) {
-          _probeConfirmedOffline = true;
-          setState(() => _peerOnline = false);
-        }
-      }
+      if (!mounted) return;
+      final errStr = e.toString();
+      final isHardFailure = errStr.contains('hostUnreachable') ||
+          errStr.contains('connectionRefused') ||
+          errStr.contains('ttlExpired');
+      _presenceTracker.considerProfileFailure(isHardFailure: isHardFailure);
+      _syncPeerPresence();
     }
   }
 
@@ -461,15 +480,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _statusSub?.cancel();
       _reachableSub?.cancel();
       _pingTimer?.cancel();
+      _presenceStaleTimer?.cancel();
 
+      _presenceTracker = PeerPresenceTracker();
       setState(() {
         resetChatState();
         _chatKey = UniqueKey();
         _peerName = widget.peerName;
         _peerAvatarBase64 = widget.peerAvatarBase64;
         _peerOnline = null;
-        _failedPings = 0;
-        _probeConfirmedOffline = false;
       });
 
       _chatService = ChatService(
@@ -493,6 +512,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _initializeChat();
       _checkPeerStatus();
       _startPeerPingTimer();
+      _startPresenceStaleTimer();
     }
 
     if (oldWidget.currentTheme != widget.currentTheme) {
@@ -997,6 +1017,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     // ✅ NOW send in background
+    _suspendPresenceProbeDuringMediaUpload();
     _chatService
         .sendFileMessage(
           bytes,
@@ -1101,6 +1122,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     });
 
+    _suspendPresenceProbeDuringMediaUpload();
     _chatService
         .sendFileMessage(bytes, 'voice_message.wav', 'audio', messageId: messageId)
         .then((sentId) {
@@ -1129,7 +1151,7 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (context) => ChatProfileScreen(
           peer: peerContact,
           currentUserName: widget.userName,
-          isOnline: _peerOnline ?? false,
+          isOnline: _peerOnline,
           onClose: () => Navigator.of(context).pop(),
           onUpdateName: (Contact updatedContact) async {
             // Save custom name to the customName column (not name)

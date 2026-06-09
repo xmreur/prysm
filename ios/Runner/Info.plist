@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Prysm needs microphone access to record voice messages.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Prysm needs access to save images to your photo library.</string>
 </dict>
 </plist>

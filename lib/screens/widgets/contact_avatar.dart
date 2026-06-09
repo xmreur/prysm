@@ -1,6 +1,5 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:prysm/util/avatar_image_cache.dart';
 
 class ContactAvatar extends StatelessWidget {
   final String name;
@@ -17,33 +16,33 @@ class ContactAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cachedImage = AvatarImageCache.imageForBase64(avatarBase64);
 
-    if (avatarBase64 != null && avatarBase64!.isNotEmpty) {
-      try {
-        final bytes = base64Decode(avatarBase64!);
-        return CircleAvatar(
+    if (cachedImage != null) {
+      return RepaintBoundary(
+        child: CircleAvatar(
           radius: radius,
-          backgroundImage: MemoryImage(Uint8List.fromList(bytes)),
+          backgroundImage: cachedImage,
           backgroundColor: Colors.transparent,
-        );
-      } catch (_) {
-        // Fall through to letter avatar
-      }
+        ),
+      );
     }
 
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: isDark
-          ? Theme.of(context).colorScheme.primaryContainer
-          : Theme.of(context).colorScheme.primary,
-      child: Text(
-        name.isNotEmpty ? name[0].toUpperCase() : '?',
-        style: TextStyle(
-          color: isDark
-              ? Theme.of(context).colorScheme.onPrimaryContainer
-              : Theme.of(context).colorScheme.onPrimary,
-          fontWeight: FontWeight.bold,
-          fontSize: radius * 0.8,
+    return RepaintBoundary(
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: isDark
+            ? Theme.of(context).colorScheme.primaryContainer
+            : Theme.of(context).colorScheme.primary,
+        child: Text(
+          name.isNotEmpty ? name[0].toUpperCase() : '?',
+          style: TextStyle(
+            color: isDark
+                ? Theme.of(context).colorScheme.onPrimaryContainer
+                : Theme.of(context).colorScheme.onPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: radius * 0.8,
+          ),
         ),
       ),
     );

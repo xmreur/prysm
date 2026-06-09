@@ -25,7 +25,11 @@ import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/screens/widgets/image_message_bubble.dart';
+import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
@@ -684,6 +688,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     return GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
   }
 
+  Future<Uint8List> _decryptGroupImageFromDb(String messageId) async {
+    final rows = await MessagesDb.getMessageById(
+      messageId,
+      groupId: widget.group.id,
+    );
+    if (rows.isEmpty) {
+      throw StateError('Group image not found: $messageId');
+    }
+    return _decryptGroupFileBytes(rows.first);
+  }
+
+  String _mimeTypeForImageBytes(Uint8List bytes) {
+    return ImageAttachmentCache.sniffImageMimeType(bytes);
+  }
+
   Future<List<Message>> _decryptBatch(List<Map<String, dynamic>> raw) async {
     final groupKey = await _groupService.getDecryptedGroupKey(widget.group.id);
     if (groupKey == null) return [];
@@ -749,14 +768,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               metadata: const {'viewOnce': true, 'viewed': false},
             ));
           } else {
-            final bytes = GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
             result.add(ImageMessage(
               id: id,
               authorId: authorId,
               createdAt: createdAt,
               replyToMessageId: replyTo,
-              size: bytes.length,
-              source: 'data:image/png;base64,${base64Encode(bytes)}',
+              size: msg['fileSize'] as int? ?? 0,
+              source: deferredImageSourceFor(id),
+              metadata: meta.isEmpty ? null : meta,
             ));
           }
         } else if (type == groupFileType || type == groupAudioType) {
@@ -951,7 +970,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               createdAt: DateTime.now(),
               id: messageId,
               size: bytes.length,
-              source: 'data:image/png;base64,${base64Encode(bytes)}',
+              source:
+                  'data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}',
               metadata: viewOnce ? const {'viewOnce': true, 'viewed': false} : null,
             ),
           ),
@@ -994,28 +1014,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     if (!mounted) return;
 
-    final viewOnce = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image),
-              title: const Text('Send Photo'),
-              onTap: () => Navigator.pop(ctx, false),
-            ),
-            ListTile(
-              leading: const Icon(Icons.timer),
-              title: const Text('View Once'),
-              onTap: () => Navigator.pop(ctx, true),
-            ),
-          ],
-        ),
-      ),
-    );
+    final viewOnce = await ImageSendPreviewScreen.open(context, bytes);
+    if (viewOnce == null || !mounted) return;
 
-    if (viewOnce == null) return;
     _sendFile(bytes, pickedFile.name, 'image', viewOnce: viewOnce);
   }
 
@@ -1351,65 +1352,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
 
-    Uint8List? imageBytes;
-    final src = message.source;
-    if (src.startsWith('data:image') && src.contains(',')) {
-      try {
-        imageBytes = base64Decode(src.split(',').last);
-      } catch (_) {}
-    }
-
-    return Column(
-      crossAxisAlignment:
-          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        _senderLabel(message.authorId, isSentByMe),
-        if (imageBytes != null)
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => Scaffold(
-                    backgroundColor: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.black
-                        : Colors.white,
-                    appBar: AppBar(
-                      backgroundColor: Colors.transparent,
-                      elevation: 0,
-                    ),
-                    body: Center(
-                      child: InteractiveViewer(child: Image.memory(imageBytes!)),
-                    ),
-                  ),
-                ),
-              );
-            },
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(
-                imageBytes,
-                width: max(200, (message.width ?? 20) / 4),
-                height: max(200, (message.height ?? 20) / 4),
-                fit: BoxFit.cover,
-              ),
-            ),
-          )
-        else
-          const SizedBox(
-            width: 200,
-            height: 120,
-            child: Icon(Icons.broken_image),
-          ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-            if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
-          ],
-        ),
-      ],
+    return ImageMessageBubble(
+      message: message,
+      isSentByMe: isSentByMe,
+      timeString: timeString,
+      tickWidget: tickWidget,
+      decryptFromDb: () => _decryptGroupImageFromDb(message.id),
+      senderLabel: _senderLabel(message.authorId, isSentByMe),
     );
   }
 

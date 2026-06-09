@@ -25,7 +25,11 @@ import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
+import 'package:prysm/screens/widgets/image_message_bubble.dart';
+import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
@@ -598,40 +602,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             );
           } else {
+            final msgId = msg['id'] as String;
             messages.add(
               ImageMessage(
-                id: msg['id'],
+                id: msgId,
                 authorId: User(id: msg['senderId']).id,
                 createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                 replyToMessageId: msg['replyTo'],
                 size: msg['fileSize'] ?? 0,
-                source:
-                    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-                metadata: isViewOnce ? {'viewOnce': true, 'viewed': false} : null,
+                source: isViewOnce
+                    ? ''
+                    : deferredImageSourceFor(msgId),
+                metadata: isViewOnce
+                    ? {'viewOnce': true, 'viewed': false}
+                    : (meta.isEmpty ? null : meta),
               ),
             );
-
-            if (!isViewOnce) {
-              final msgId = msg['id'] as String;
-              decryptFileInBackground(msg, keyManager).then((decryptedBytes) {
-                if (!mounted) return;
-                final newMessage = ImageMessage(
-                  id: msgId,
-                  authorId: User(id: msg['senderId']).id,
-                  createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-                  replyToMessageId: msg['replyTo'],
-                  size: decryptedBytes.length,
-                  source:
-                      "data:image/png;base64,${base64Encode(decryptedBytes)}",
-                );
-                _messageCache[msgId] = newMessage;
-                final idx = _messages.messages.indexWhere((m) => m.id == msgId);
-                if (idx != -1) {
-                  final oldMessage = _messages.messages[idx] as ImageMessage;
-                  _messages.updateMessage(oldMessage, newMessage);
-                }
-              });
-            }
           }
         }
       } catch (e) {
@@ -854,6 +840,23 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<Uint8List> _decryptImageFromDb(String messageId) async {
+    final rows = await MessagesDb.getMessageById(messageId);
+    if (rows.isEmpty) {
+      throw StateError('Image message not found: $messageId');
+    }
+    final row = rows.first;
+    final wire = row['message'] as String?;
+    if (wire == null || wire.isEmpty) {
+      throw StateError('Empty image payload: $messageId');
+    }
+    return decryptFileInBackground(row, widget.keyManager);
+  }
+
+  String _mimeTypeForImageBytes(Uint8List bytes) {
+    return ImageAttachmentCache.sniffImageMimeType(bytes);
+  }
+
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
 
   Future<void> _loadInitialMessages() async {
@@ -982,7 +985,8 @@ class _ChatScreenState extends State<ChatScreen> {
               id: messageId,
               size: bytes.length,
               replyToMessageId: replyToId,
-              source: "data:image/png;base64,${base64Encode(bytes.toList())}",
+              source:
+                  "data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}",
               metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
             ),
           ),
@@ -1044,30 +1048,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (!mounted) return;
 
-    // Show bottom sheet to choose normal or view-once
-    final viewOnce = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image),
-              title: const Text('Send Photo'),
-              onTap: () => Navigator.pop(ctx, false),
-            ),
-            ListTile(
-              leading: const Icon(Icons.timer),
-              title: const Text('View Once'),
-              subtitle: const Text('Photo disappears after viewing'),
-              onTap: () => Navigator.pop(ctx, true),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (viewOnce == null) return; // dismissed
+    final viewOnce = await ImageSendPreviewScreen.open(context, bytes);
+    if (viewOnce == null || !mounted) return;
 
     _sendFile(bytes, pickedFile.name, "image", viewOnce: viewOnce);
   }
@@ -1465,7 +1447,13 @@ class _ChatScreenState extends State<ChatScreen> {
           },
           child: Row(
             children: [
-              ContactAvatar(name: _peerName, radius: 20, avatarBase64: _peerAvatarBase64),
+              RepaintBoundary(
+                child: ContactAvatar(
+                  name: _peerName,
+                  radius: 20,
+                  avatarBase64: _peerAvatarBase64,
+                ),
+              ),
               const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1947,62 +1935,12 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // Normal image
-    final base64Str = message.source.contains('base64,')
-        ? message.source.split('base64,')[1]
-        : message.source;
-
-    Uint8List bytes = base64Decode(base64Str);
-
-    return Column(
-      crossAxisAlignment: isSentByMe
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => Scaffold(
-                  backgroundColor:
-                      Theme.of(context).brightness == Brightness.dark
-                      ? Colors.black
-                      : Colors.white,
-                  appBar: AppBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                  ),
-                  body: Center(
-                    child: InteractiveViewer(child: Image.memory(bytes)),
-                  ),
-                ),
-              ),
-            );
-          },
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.memory(
-              width: max(200, (message.width ?? 20) / 4),
-              height: max(200, (message.height ?? 20) / 4),
-              bytes,
-              fit: BoxFit.cover,
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        // ✅ Time + Tick indicators
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              timeString,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-            ),
-            if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
-          ],
-        ),
-      ],
+    return ImageMessageBubble(
+      message: message,
+      isSentByMe: isSentByMe,
+      timeString: timeString,
+      tickWidget: tickWidget,
+      decryptFromDb: () => _decryptImageFromDb(message.id),
     );
   }
 

@@ -22,5 +22,8 @@ class TorBootstrapNotifier {
 
   void reset() {
     _progress = 0;
+    if (!_controller.isClosed) {
+      _controller.add(0);
+    }
   }
 }

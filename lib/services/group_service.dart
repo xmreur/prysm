@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
@@ -955,28 +957,58 @@ class GroupService {
     required String type,
     bool quiet = false,
   }) async {
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$targetMemberId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'groupId': groupId,
-        'message': message,
-        'type': type,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postMessageOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          groupId: groupId,
+          message: message,
+          type: type,
+        ),
+      );
       return true;
     } catch (e) {
       if (!quiet) {
         print('Group control send failed: $e');
       }
       return false;
+    }
+  }
+
+  Future<void> _postMessageOnce({
+    required String id,
+    required String targetMemberId,
+    required String groupId,
+    required String message,
+    required String type,
+  }) async {
+    final payload = {
+      'id': id,
+      'senderId': userId,
+      'receiverId': targetMemberId,
+      'groupId': groupId,
+      'message': message,
+      'type': type,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: targetMemberId,
+        payload: payload,
+      );
+      return;
+    }
+    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    try {
+      final response = await torClient
+          .post(
+            Uri.parse('http://$targetMemberId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }
@@ -993,12 +1025,24 @@ class GroupService {
       }
     }
 
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$peerId:80/public');
-      final response = await torClient.get(uri, {}).timeout(const Duration(seconds: 20));
-      final publicKeyPem =
-          (await response.transform(utf8.decoder).join()).trim();
+      final publicKeyPem = TorOutboundGateway.isConfigured
+          ? (await TorOutboundGateway.instance.getPublic(peerId)).trim()
+          : await TorDelivery.withTorRetry<String>(
+              attempt: () async {
+                final torClient =
+                    TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+                try {
+                  final uri = Uri.parse('http://$peerId:80/public');
+                  final response = await torClient
+                      .get(uri, {})
+                      .timeout(const Duration(seconds: 20));
+                  return (await torClient.readUtf8Body(response)).trim();
+                } finally {
+                  torClient.close();
+                }
+              },
+            );
       if (publicKeyPem.isNotEmpty) {
         final key = keyManager.importPeerPublicKey(publicKeyPem);
         await DBHelper.updateUserFields(peerId, {'publicKeyPem': publicKeyPem});
@@ -1006,8 +1050,6 @@ class GroupService {
       }
     } catch (e) {
       print('Failed to fetch peer public key: $e');
-    } finally {
-      torClient.close();
     }
     return null;
   }

@@ -23,6 +23,8 @@ const String groupMessageModifyType = 'group_message_modify';
 
 const String readReceiptType = 'read_receipt';
 const String groupReadReceiptType = 'group_read_receipt';
+const String readWaterlineType = 'read_waterline';
+const String groupReadWaterlineType = 'group_read_waterline';
 
 const Set<String> groupControlTypes = {
   groupInviteType,
@@ -45,7 +47,12 @@ const Set<String> messageModifyTypes = {
   groupMessageModifyType,
 };
 
-const Set<String> readReceiptTypes = {readReceiptType, groupReadReceiptType};
+const Set<String> readReceiptTypes = {
+  readReceiptType,
+  groupReadReceiptType,
+  readWaterlineType,
+  groupReadWaterlineType,
+};
 
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
@@ -66,3 +73,13 @@ String readReceiptEventId({
   required String readerId,
 }) =>
     '$targetMessageId::$readerId';
+
+/// One pending row per peer conversation for read waterlines.
+String readWaterlineEventId({
+  required String readerId,
+  required String peerId,
+  String? groupId,
+}) =>
+    groupId != null
+        ? 'read_waterline::$readerId::$groupId'
+        : 'read_waterline::$readerId::$peerId';

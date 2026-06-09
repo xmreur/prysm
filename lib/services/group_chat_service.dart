@@ -10,6 +10,9 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:uuid/uuid.dart';
 
@@ -283,7 +286,7 @@ class GroupChatService {
   final Map<String, int> _retryCounts = {};
 
   Future<void> _processSendQueue() async {
-    if (_isSending || _disposed) return;
+    if (_isSending || _disposed || TorRuntimeGate.blocked) return;
     _isSending = true;
 
     int consecutiveFailures = 0;
@@ -374,33 +377,44 @@ class GroupChatService {
     int? fileSize,
     bool viewOnce = false,
   }) async {
+    if (TorRuntimeGate.blocked) return false;
+
     if (isGroupControlType(type)) {
-      return _postRaw(id, targetMemberId, encrypted, type, timestamp);
+      try {
+        await _postRaw(id, targetMemberId, encrypted, type, timestamp);
+        return true;
+      } catch (e) {
+        print('Group control send failed: $e');
+        return false;
+      }
     }
 
     final isLargeMedia = isGroupMessageType(type) && type != groupTextType;
-    for (int attempt = 0; attempt < 2; attempt++) {
-      final ok = await _postRaw(
-        id,
-        targetMemberId,
-        encrypted,
-        type,
-        timestamp,
-        replyToId: replyToId,
-        fileName: fileName,
-        fileSize: fileSize,
-        viewOnce: viewOnce,
-        timeout: isLargeMedia ? const Duration(minutes: 5) : const Duration(seconds: 30),
+    final timeout =
+        isLargeMedia ? const Duration(minutes: 5) : const Duration(seconds: 30);
+    try {
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postRaw(
+          id,
+          targetMemberId,
+          encrypted,
+          type,
+          timestamp,
+          replyToId: replyToId,
+          fileName: fileName,
+          fileSize: fileSize,
+          viewOnce: viewOnce,
+          timeout: timeout,
+        ),
       );
-      if (ok) return true;
-      if (attempt == 0) {
-        await Future.delayed(const Duration(seconds: 2));
-      }
+      return true;
+    } catch (e) {
+      print('Group send failed: $e');
+      return false;
     }
-    return false;
   }
 
-  Future<bool> _postRaw(
+  Future<void> _postRaw(
     String id,
     String targetMemberId,
     String encrypted,
@@ -412,30 +426,37 @@ class GroupChatService {
     bool viewOnce = false,
     Duration timeout = const Duration(seconds: 30),
   }) async {
+    final payload = <String, dynamic>{
+      'id': id,
+      'senderId': userId,
+      'receiverId': targetMemberId,
+      'groupId': groupId,
+      'message': encrypted,
+      'type': type,
+      'replyTo': replyToId,
+      'timestamp': timestamp,
+      if (fileName != null) 'fileName': fileName,
+      if (fileSize != null) 'fileSize': fileSize,
+      if (viewOnce) 'viewOnce': true,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: targetMemberId,
+        payload: payload,
+        timeout: timeout,
+      );
+      return;
+    }
     final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$targetMemberId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'groupId': groupId,
-        'message': encrypted,
-        'type': type,
-        'replyTo': replyToId,
-        'timestamp': timestamp,
-        'fileName': ?fileName,
-        'fileSize': ?fileSize,
-        if (viewOnce) 'viewOnce': true,
-      });
       final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
+          .post(
+            Uri.parse('http://$targetMemberId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
           .timeout(timeout);
-      await response.transform(utf8.decoder).join();
-      return true;
-    } catch (e) {
-      print('Group send failed: $e');
-      return false;
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }

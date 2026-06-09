@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/message_read_receipts.dart';
@@ -13,6 +14,9 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/read_receipt_payload.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
+import 'package:prysm/util/read_waterline_mark.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:pointycastle/asymmetric/api.dart';
 
 class ReadReceiptUpdate {
@@ -52,48 +56,55 @@ class ReadReceiptService {
     required this.groupService,
   }) : peerId = null;
 
-  Future<void> sendReceiptsForMessages(List<String> wireMessageIds) async {
-    if (!_settings.sendReadReceipts || wireMessageIds.isEmpty) return;
+  /// Send one read waterline for a batch of locally-marked-read messages.
+  Future<void> sendWaterline(ReadWaterlineMark mark) async {
+    if (!_settings.sendReadReceipts) return;
 
-    for (final messageId in wireMessageIds) {
-      final payload = ReadReceiptPayload(
-        targetMessageId: messageId,
-        readerId: userId,
-        groupId: groupId,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      );
-      if (groupId != null) {
-        await _sendGroupReceipt(payload);
-      } else {
-        await _sendDirectReceipt(payload);
-      }
+    final payload = ReadReceiptPayload(
+      targetMessageId: mark.latestMessageId,
+      readerId: userId,
+      groupId: mark.groupId ?? groupId,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      readUpToTimestamp: mark.readUpToTimestamp,
+    );
+
+    if (groupId != null) {
+      await _sendGroupWaterline(payload);
+    } else {
+      await _sendDirectWaterline(payload);
     }
   }
 
-  Future<void> _sendDirectReceipt(ReadReceiptPayload payload) async {
+  Future<void> _sendDirectWaterline(ReadReceiptPayload payload) async {
     final peerKey = await _loadPeerPublicKey();
-    if (peerKey == null) {
-      await _queueDirectReceipt(payload, peerKeyMissing: true);
-      return;
-    }
+    if (peerKey == null || peerId == null) return;
 
     final encrypted = keyManager.encryptForPeer(payload.encode(), peerKey);
-    final eventId = readReceiptEventId(
-      targetMessageId: payload.targetMessageId,
+    final eventId = readWaterlineEventId(
       readerId: userId,
+      peerId: peerId!,
     );
 
     final ok = await _postDirect(
       id: eventId,
       encrypted: encrypted,
       timestamp: payload.timestamp,
+      messageType: readWaterlineType,
     );
     if (!ok) {
-      await _queueDirectReceipt(payload, encrypted: encrypted);
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': eventId,
+        'senderId': userId,
+        'receiverId': peerId,
+        'message': encrypted,
+        'type': readWaterlineType,
+        'timestamp': payload.timestamp,
+        'status': 'pending',
+      });
     }
   }
 
-  Future<void> _sendGroupReceipt(ReadReceiptPayload payload) async {
+  Future<void> _sendGroupWaterline(ReadReceiptPayload payload) async {
     final gs = groupService;
     if (gs == null || groupId == null) return;
 
@@ -103,26 +114,28 @@ class ReadReceiptService {
     final encrypted = GroupCrypto.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     final targets = members.map((m) => m.memberId).where((id) => id != userId);
-
-    final eventId = readReceiptEventId(
-      targetMessageId: payload.targetMessageId,
+    final eventId = readWaterlineEventId(
       readerId: userId,
+      peerId: userId,
+      groupId: groupId,
     );
 
     for (final target in targets) {
+      final pendingId = '$eventId::$target';
       final ok = await _postGroup(
-        id: eventId,
+        id: pendingId,
         targetMemberId: target,
         encrypted: encrypted,
         timestamp: payload.timestamp,
+        messageType: groupReadWaterlineType,
       );
       if (!ok) {
         await PendingMessageDbHelper.insertPendingMessage({
-          'id': '${eventId}__$target',
+          'id': pendingId,
           'senderId': userId,
           'receiverId': target,
           'message': encrypted,
-          'type': groupReadReceiptType,
+          'type': groupReadWaterlineType,
           'timestamp': payload.timestamp,
           'status': 'pending',
           'groupId': groupId,
@@ -132,52 +145,61 @@ class ReadReceiptService {
     }
   }
 
-  Future<void> _queueDirectReceipt(
-    ReadReceiptPayload payload, {
-    String? encrypted,
-    bool peerKeyMissing = false,
-  }) async {
-    if (peerKeyMissing) return;
-    final eventId = readReceiptEventId(
-      targetMessageId: payload.targetMessageId,
-      readerId: userId,
-    );
-    await PendingMessageDbHelper.insertPendingMessage({
-      'id': eventId,
-      'senderId': userId,
-      'receiverId': peerId,
-      'message': encrypted ?? '',
-      'type': readReceiptType,
-      'timestamp': payload.timestamp,
-      'status': 'pending',
-    });
-  }
-
   Future<bool> _postDirect({
     required String id,
     required String encrypted,
     required int timestamp,
+    required String messageType,
   }) async {
     if (peerId == null) return false;
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$peerId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': peerId,
-        'message': encrypted,
-        'type': readReceiptType,
-        'timestamp': timestamp,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
+      await TorDelivery.withTorRetry<void>(
+        maxAttempts: 2,
+        attempt: () => _postDirectOnce(
+          id: id,
+          encrypted: encrypted,
+          timestamp: timestamp,
+          messageType: messageType,
+        ),
+      );
       return true;
     } catch (e) {
-      print('Read receipt send failed: $e');
+      debugPrint('Read waterline deferred (will retry via sync): $e');
       return false;
+    }
+  }
+
+  Future<void> _postDirectOnce({
+    required String id,
+    required String encrypted,
+    required int timestamp,
+    required String messageType,
+  }) async {
+    final payload = {
+      'id': id,
+      'senderId': userId,
+      'receiverId': peerId,
+      'message': encrypted,
+      'type': messageType,
+      'timestamp': timestamp,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: peerId!,
+        payload: payload,
+      );
+      return;
+    }
+    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    try {
+      final response = await torClient
+          .post(
+            Uri.parse('http://$peerId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }
@@ -188,28 +210,60 @@ class ReadReceiptService {
     required String targetMemberId,
     required String encrypted,
     required int timestamp,
+    required String messageType,
   }) async {
     if (groupId == null) return false;
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$targetMemberId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'groupId': groupId,
-        'message': encrypted,
-        'type': groupReadReceiptType,
-        'timestamp': timestamp,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
+      await TorDelivery.withTorRetry<void>(
+        maxAttempts: 2,
+        attempt: () => _postGroupOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          encrypted: encrypted,
+          timestamp: timestamp,
+          messageType: messageType,
+        ),
+      );
       return true;
     } catch (e) {
-      print('Group read receipt send failed: $e');
+      debugPrint('Group read waterline deferred (will retry via sync): $e');
       return false;
+    }
+  }
+
+  Future<void> _postGroupOnce({
+    required String id,
+    required String targetMemberId,
+    required String encrypted,
+    required int timestamp,
+    required String messageType,
+  }) async {
+    final payload = {
+      'id': id,
+      'senderId': userId,
+      'receiverId': targetMemberId,
+      'groupId': groupId,
+      'message': encrypted,
+      'type': messageType,
+      'timestamp': timestamp,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: targetMemberId,
+        payload: payload,
+      );
+      return;
+    }
+    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    try {
+      final response = await torClient
+          .post(
+            Uri.parse('http://$targetMemberId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }
@@ -232,6 +286,7 @@ class ReadReceiptService {
     required String encrypted,
     required String senderId,
     required String type,
+    required String localUserId,
     String? groupId,
     GroupService? groupService,
   }) async {
@@ -247,6 +302,17 @@ class ReadReceiptService {
     final payload = ReadReceiptPayload.decode(plaintext);
     final effectiveGroupId = payload.groupId ?? groupId;
 
+    if (type == readWaterlineType || type == groupReadWaterlineType) {
+      await _applyWaterlineInbound(
+        payload: payload,
+        localUserId: localUserId,
+        peerId: senderId,
+        effectiveGroupId: effectiveGroupId,
+        groupService: groupService,
+      );
+      return;
+    }
+
     await MessageReadReceiptsDb.upsertReceipt(
       wireMessageId: payload.targetMessageId,
       readerId: payload.readerId,
@@ -254,8 +320,64 @@ class ReadReceiptService {
       groupId: effectiveGroupId,
     );
 
-    final receipts = await MessageReadReceiptsDb.getReceiptsForMessage(
+    await _upsertAndNotifyReceipt(
       wireMessageId: payload.targetMessageId,
+      readerId: payload.readerId,
+      readAt: payload.timestamp,
+      effectiveGroupId: effectiveGroupId,
+      groupService: groupService,
+    );
+  }
+
+  static Future<void> _applyWaterlineInbound({
+    required ReadReceiptPayload payload,
+    required String localUserId,
+    required String peerId,
+    required String? effectiveGroupId,
+    GroupService? groupService,
+  }) async {
+    final rows = effectiveGroupId == null
+        ? await MessagesDb.getOutboundDirectUpToTimestamp(
+            senderId: localUserId,
+            receiverId: peerId,
+            readUpToTimestamp: payload.effectiveReadUpToTimestamp,
+          )
+        : await MessagesDb.getOutboundGroupUpToTimestamp(
+            senderId: localUserId,
+            groupId: effectiveGroupId,
+            readUpToTimestamp: payload.effectiveReadUpToTimestamp,
+          );
+
+    if (rows.isEmpty) return;
+
+    for (final row in rows) {
+      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
+      await MessageReadReceiptsDb.upsertReceipt(
+        wireMessageId: wireId,
+        readerId: payload.readerId,
+        readAt: payload.timestamp,
+        groupId: effectiveGroupId,
+      );
+    }
+
+    await _upsertAndNotifyReceipt(
+      wireMessageId: payload.targetMessageId,
+      readerId: payload.readerId,
+      readAt: payload.timestamp,
+      effectiveGroupId: effectiveGroupId,
+      groupService: groupService,
+    );
+  }
+
+  static Future<void> _upsertAndNotifyReceipt({
+    required String wireMessageId,
+    required String readerId,
+    required int readAt,
+    required String? effectiveGroupId,
+    GroupService? groupService,
+  }) async {
+    final receipts = await MessageReadReceiptsDb.getReceiptsForMessage(
+      wireMessageId: wireMessageId,
       groupId: effectiveGroupId,
     );
 
@@ -263,15 +385,13 @@ class ReadReceiptService {
     if (effectiveGroupId != null && groupService != null) {
       final members = await groupService.getMembers(effectiveGroupId);
       final msgRows = await MessagesDb.getMessageById(
-        payload.targetMessageId,
+        wireMessageId,
         groupId: effectiveGroupId,
       );
-      final authorId = msgRows.isNotEmpty
-          ? msgRows.first['senderId'] as String?
-          : null;
-      requiredReadCount = members
-          .where((m) => m.memberId != authorId)
-          .length;
+      final authorId =
+          msgRows.isNotEmpty ? msgRows.first['senderId'] as String? : null;
+      requiredReadCount =
+          members.where((m) => m.memberId != authorId).length;
       if (requiredReadCount < 1) requiredReadCount = 1;
     }
 
@@ -282,7 +402,7 @@ class ReadReceiptService {
 
     ReadReceiptRefreshNotifier.instance.notify(
       ReadReceiptUpdate(
-        targetMessageId: payload.targetMessageId,
+        targetMessageId: wireMessageId,
         groupId: effectiveGroupId,
         allRead: receipts.length >= requiredReadCount,
         readByMemberId: readByMemberId,
@@ -298,10 +418,10 @@ class ReadReceiptService {
     GroupService? groupService,
   }) async {
     try {
-      if (type == readReceiptType) {
+      if (type == readReceiptType || type == readWaterlineType) {
         return keyManager.decryptMessage(encrypted);
       }
-      if (type == groupReadReceiptType &&
+      if ((type == groupReadReceiptType || type == groupReadWaterlineType) &&
           groupId != null &&
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
@@ -323,8 +443,10 @@ class ReadReceiptService {
       senderId: userId,
       receiverId: peerId,
     );
-    final receipts =
-        pending.where((m) => m['type'] == readReceiptType).toList();
+    final receipts = pending
+        .where((m) =>
+            m['type'] == readReceiptType || m['type'] == readWaterlineType)
+        .toList();
     if (receipts.isEmpty) return false;
 
     var any = false;
@@ -342,6 +464,7 @@ class ReadReceiptService {
         id: msg['id'] as String,
         encrypted: encrypted,
         timestamp: msg['timestamp'] as int,
+        messageType: msg['type'] as String,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);
@@ -360,8 +483,10 @@ class ReadReceiptService {
       senderId: userId,
       limit: maxPerCycle,
     );
-    final receipts =
-        pending.where((m) => m['type'] == readReceiptType).toList();
+    final receipts = pending
+        .where((m) =>
+            m['type'] == readReceiptType || m['type'] == readWaterlineType)
+        .toList();
     if (receipts.isEmpty) return false;
 
     var any = false;
@@ -382,6 +507,7 @@ class ReadReceiptService {
         id: msg['id'] as String,
         encrypted: encrypted,
         timestamp: msg['timestamp'] as int,
+        messageType: msg['type'] as String,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);
@@ -400,8 +526,11 @@ class ReadReceiptService {
       senderId: userId,
       limit: maxPerCycle,
     );
-    final receipts =
-        pending.where((m) => m['type'] == groupReadReceiptType).toList();
+    final receipts = pending
+        .where((m) =>
+            m['type'] == groupReadReceiptType ||
+            m['type'] == groupReadWaterlineType)
+        .toList();
     if (receipts.isEmpty) return false;
 
     var any = false;
@@ -418,10 +547,11 @@ class ReadReceiptService {
         groupService: gs,
       );
       final ok = await service._postGroup(
-        id: _eventIdFromPending(msg['id'] as String),
+        id: msg['id'] as String,
         targetMemberId: target,
         encrypted: msg['message'] as String,
         timestamp: msg['timestamp'] as int,
+        messageType: msg['type'] as String,
       );
       if (ok) {
         await PendingMessageDbHelper.removeMessage(msg['id'] as String);
@@ -429,10 +559,5 @@ class ReadReceiptService {
       }
     }
     return any;
-  }
-
-  static String _eventIdFromPending(String pendingId) {
-    final idx = pendingId.lastIndexOf('__');
-    return idx >= 0 ? pendingId.substring(0, idx) : pendingId;
   }
 }

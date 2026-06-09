@@ -618,16 +618,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<void> _markInboundAsRead() async {
-    final wireIds = await MessagesDb.markInboundGroupRead(
+    final waterline = await MessagesDb.markInboundGroupRead(
       widget.userId,
       widget.group.id,
     );
-    if (wireIds.isEmpty) return;
+    if (waterline == null) return;
 
     _readReceiptDebounce?.cancel();
     _readReceiptDebounce = Timer(const Duration(milliseconds: 300), () async {
       if (_settings.sendReadReceipts) {
-        await _readReceiptService.sendReceiptsForMessages(wireIds);
+        await _readReceiptService.sendWaterline(waterline);
       }
     });
   }

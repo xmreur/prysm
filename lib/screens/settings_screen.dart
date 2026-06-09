@@ -13,6 +13,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'package:flutter/foundation.dart';
 
@@ -415,22 +416,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Privacy'),
               const SizedBox(height: 12),
               _buildCard([
-                // _buildSwitchTile(
-                //   'Show Online Status',
-                //   'Let others see when you\'re online',
-                //   Icons.circle_outlined,
-                //   _showOnlineStatus,
-                //   _onOnlineStatusToggle,
-                // ),
-                // const Divider(height: 1),
-                // _buildSwitchTile(
-                //   'Read Receipts',
-                //   'Let others know when you read messages',
-                //   Icons.done_all_outlined,
-                //   _readReceipts,
-                //   _onReadReceiptsToggle,
-                // ),
-                // const Divider(height: 1),
+                if (widget.keyManager != null) ...[
+                  _buildNavigationTile(
+                    'Change passcode',
+                    Icons.pin_outlined,
+                    () => runChangePasscodeFlow(context, widget.keyManager!),
+                    subtitle:
+                        'Update your unlock PIN without changing your identity',
+                  ),
+                  const Divider(height: 1),
+                ],
                 _buildNavigationTile(
                   'Advanced Privacy',
                   Icons.privacy_tip_outlined,

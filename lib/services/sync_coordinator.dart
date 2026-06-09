@@ -21,6 +21,8 @@ class SyncCoordinator {
   final bool Function() isTorStopped;
 
   Timer? _tickTimer;
+  Timer? _pendingFlushDebounce;
+  StreamSubscription<void>? _pendingActivitySub;
   bool _flushing = false;
   bool _hasPendingBacklog = false;
 
@@ -34,6 +36,10 @@ class SyncCoordinator {
   void dispose() {
     _tickTimer?.cancel();
     _tickTimer = null;
+    _pendingFlushDebounce?.cancel();
+    _pendingFlushDebounce = null;
+    _pendingActivitySub?.cancel();
+    _pendingActivitySub = null;
   }
 
   Duration get _tickInterval {
@@ -44,6 +50,14 @@ class SyncCoordinator {
   void start() {
     _tickTimer?.cancel();
     _scheduleTick(_tickInterval);
+    _pendingActivitySub ??=
+        PendingActivityNotifier.instance.onChanged.listen((_) {
+      _hasPendingBacklog = true;
+      _pendingFlushDebounce?.cancel();
+      _pendingFlushDebounce = Timer(const Duration(milliseconds: 750), () {
+        unawaited(flushAllPending());
+      });
+    });
   }
 
   void _scheduleTick(Duration interval) {
@@ -77,6 +91,11 @@ class SyncCoordinator {
             keyManager: keyManager,
           ) ||
           any;
+      any = await ChatService.processGlobalPending(
+            userId: userId,
+            keyManager: keyManager,
+          ) ||
+          any;
       any = await ReactionService.processGlobalPendingGroup(
             userId: userId,
             keyManager: keyManager,
@@ -103,11 +122,6 @@ class SyncCoordinator {
           ) ||
           any;
       any = await MessageModifyService.processGlobalPendingDirect(
-            userId: userId,
-            keyManager: keyManager,
-          ) ||
-          any;
-      any = await ChatService.processGlobalPending(
             userId: userId,
             keyManager: keyManager,
           ) ||
@@ -161,6 +175,12 @@ class SyncCoordinator {
     try {
       var any = false;
 
+      any = await ChatService.processPendingForPeer(
+            userId: userId,
+            peerId: receiverId,
+            keyManager: keyManager,
+          ) ||
+          any;
       any = await ReadReceiptService.processPendingForPeer(
             userId: userId,
             peerId: receiverId,
@@ -174,12 +194,6 @@ class SyncCoordinator {
           ) ||
           any;
       any = await MessageModifyService.processPendingForPeer(
-            userId: userId,
-            peerId: receiverId,
-            keyManager: keyManager,
-          ) ||
-          any;
-      any = await ChatService.processPendingForPeer(
             userId: userId,
             peerId: receiverId,
             keyManager: keyManager,

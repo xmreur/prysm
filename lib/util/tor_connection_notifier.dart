@@ -8,7 +8,7 @@ class TorConnectionNotifier {
   static final TorConnectionNotifier instance = TorConnectionNotifier._();
 
   final _controller = StreamController<TorConnectionState>.broadcast();
-  TorConnectionState _state = TorConnectionState.connected;
+  TorConnectionState _state = TorConnectionState.disconnected;
 
   Stream<TorConnectionState> get onStateChanged => _controller.stream;
   TorConnectionState get state => _state;

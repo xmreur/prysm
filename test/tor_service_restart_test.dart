@@ -1,7 +1,51 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/util/tor_health_status.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
+  group('parseBootstrapProgress', () {
+    test('reads PROGRESS from bootstrap-phase line', () {
+      expect(
+        parseBootstrapProgress([
+          '250-status/bootstrap-phase=NOTICE PROGRESS=100 TAG=done',
+        ]),
+        100,
+      );
+      expect(
+        parseBootstrapProgress([
+          '250-status/bootstrap-phase=NOTICE PROGRESS=42 TAG=loading',
+        ]),
+        42,
+      );
+    });
+
+    test('returns null when line missing', () {
+      expect(parseBootstrapProgress(const ['250 OK']), isNull);
+    });
+  });
+
+  group('isNetworkLive', () {
+    test('treats netdown as unhealthy', () {
+      expect(
+        isNetworkLive(['250-network-liveness=netdown']),
+        isFalse,
+      );
+    });
+
+    test('treats missing line as live', () {
+      expect(isNetworkLive(const []), isTrue);
+    });
+  });
+
+  group('TorManager.shouldHandleProcessExit', () {
+    test('ignores stale generation exits', () {
+      expect(
+        TorManager.shouldHandleProcessExit(1, 2, null, null),
+        isFalse,
+      );
+    });
+  });
+
   group('TorManager.shouldClearControlSessionOnSocketDone', () {
     test('clears only when closed generation matches current', () {
       expect(

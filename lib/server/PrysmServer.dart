@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/notification_service.dart';
@@ -215,7 +217,8 @@ class PrysmServer {
           }
         }
 
-        if (type == groupReadReceiptType && data['groupId'] == null) {
+        if ((type == groupReadReceiptType || type == groupReadWaterlineType) &&
+            data['groupId'] == null) {
           return _badRequest('groupId required for group read receipts');
         }
 
@@ -230,6 +233,7 @@ class PrysmServer {
             keyManager: keyManager,
             encrypted: data['message'] as String,
             senderId: senderId,
+            localUserId: localId,
             type: type,
             groupId: data['groupId'] as String?,
             groupService: groupService,
@@ -507,11 +511,24 @@ class PrysmServer {
         },
       ),
     ).run(() async {
-      final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
       try {
-        final uri = Uri.parse('http://$senderId:80/profile');
-        final response = await torClient.get(uri, {}).timeout(const Duration(seconds: 20));
-        final body = await response.transform(utf8.decoder).join();
+        final body = TorOutboundGateway.isConfigured
+            ? await TorOutboundGateway.instance.getProfile(senderId)
+            : await TorDelivery.withTorRetry<String>(
+                attempt: () async {
+                  final torClient =
+                      TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+                  try {
+                    final uri = Uri.parse('http://$senderId:80/profile');
+                    final response = await torClient
+                        .get(uri, {})
+                        .timeout(const Duration(seconds: 20));
+                    return torClient.readUtf8Body(response);
+                  } finally {
+                    torClient.close();
+                  }
+                },
+              );
         final data = jsonDecode(body) as Map<String, dynamic>;
 
         final updates = <String, dynamic>{};
@@ -530,8 +547,6 @@ class PrysmServer {
         PeerProfileCache.instance.markFetched(senderId);
       } catch (e) {
         print('Failed to fetch sender profile: $e');
-      } finally {
-        torClient.close();
       }
     });
   }

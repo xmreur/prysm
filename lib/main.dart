@@ -34,6 +34,9 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
+import 'package:prysm/util/tor_supervisor.dart';
 import 'package:prysm/screens/profile_screen.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/models/contact.dart';
@@ -207,12 +210,9 @@ Future<TorInitResult> initializeTor() async {
 
   await torManager.startTor();
 
-  late String onionAddress;
-  try {
-    onionAddress = (await torManager.getOnionAddress())!;
-  } catch (e) {
-    print('Failed to create hidden service: $e');
-    onionAddress = 'me';
+  final onionAddress = await torManager.getOnionAddress();
+  if (onionAddress == null || onionAddress.isEmpty) {
+    throw Exception('Failed to create hidden service: no onion address');
   }
 
   return TorInitResult(torManager: torManager, onionAddress: onionAddress);
@@ -383,13 +383,10 @@ class _MyAppState extends State<MyApp> {
       setState(() => _torStatus = 'Starting Tor...');
       final result = await initializeTor();
       _globalTorManager = result.torManager;
+      TorOutboundGateway.configure(result.torManager);
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
-      }
-
-      if (result.onionAddress == 'me') {
-        throw Exception('Hidden service could not be created');
       }
 
       if (mounted) {
@@ -582,6 +579,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<void>? _inboundRefreshSub;
   StreamSubscription<String>? _groupMembershipSub;
   SyncCoordinator? _syncCoordinator;
+  TorSupervisor? _torSupervisor;
   bool _loadUsersInProgress = false;
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
@@ -721,6 +719,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       isTorStopped: () => _torStopped,
     );
     if (!widget.decoyMode) {
+      TorOutboundGateway.configure(widget.torManager);
+      TorRuntimeGate.isTorStopped = () => _torStopped;
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        _torSupervisor = TorSupervisor(
+          torManager: widget.torManager,
+          isTorStopped: () => _torStopped,
+          isRestartInProgress: () => _torRestartInProgress,
+          performRestart: ({bool userInitiated = false}) =>
+              _performTorRestart(userInitiated: userInitiated),
+        );
+      }
       _syncCoordinator!.start();
       WakeHintService.instance.configure(
         userId: widget.onionAddress,
@@ -1648,6 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _inboundRefreshSub?.cancel();
     _groupMembershipSub?.cancel();
     _torHealthTimer?.cancel();
+    _torSupervisor?.dispose();
     _syncCoordinator?.dispose();
     if (NotificationService.onNotificationTap == _handleNotificationTap) {
       NotificationService.onNotificationTap = null;
@@ -1669,6 +1679,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   bool _torStopped = false;
   bool _torRestartInProgress = false;
+  bool _torNeedsAttention = false;
   TorConnectionState _torConnectionState = TorConnectionState.connected;
   Timer? _torHealthTimer;
   DateTime? _lastTorDisconnectedAt;
@@ -1689,28 +1700,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted || _torStopped || _torRestartInProgress) {
       if (mounted && _torConnectionState != TorConnectionState.disconnected) {
         _lastTorDisconnectedAt = DateTime.now();
-        setState(() => _torConnectionState = TorConnectionState.disconnected);
+        setState(() {
+          _torConnectionState = TorConnectionState.disconnected;
+          _torNeedsAttention = false;
+        });
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
       return;
     }
 
-    final healthy = await widget.torManager.isHealthy();
+    TorConnectionState next;
+    var needsAttention = false;
+
+    final supervisor = _torSupervisor;
+    if (supervisor != null) {
+      final evaluation = await supervisor.evaluateHealth();
+      needsAttention =
+          evaluation.connection == TorConnectionEvaluation.needsAttention;
+      next = evaluation.connection == TorConnectionEvaluation.connected
+          ? TorConnectionState.connected
+          : TorConnectionState.disconnected;
+    } else {
+      final healthy = await widget.torManager.isHealthy();
+      next = healthy
+          ? TorConnectionState.connected
+          : TorConnectionState.disconnected;
+    }
+
     if (!mounted) return;
 
-    final next = healthy
-        ? TorConnectionState.connected
-        : TorConnectionState.disconnected;
-    if (next != _torConnectionState) {
+    final stateChanged = next != _torConnectionState;
+    final attentionChanged = needsAttention != _torNeedsAttention;
+    if (stateChanged || attentionChanged) {
       final wasDisconnected =
           _torConnectionState == TorConnectionState.disconnected;
       if (next == TorConnectionState.disconnected) {
         _lastTorDisconnectedAt = DateTime.now();
       }
-      setState(() => _torConnectionState = next);
-      TorConnectionNotifier.instance.update(next);
-      if (wasDisconnected && next == TorConnectionState.connected) {
-        unawaited(_onTorReconnected());
+      setState(() {
+        _torConnectionState = next;
+        _torNeedsAttention = needsAttention;
+      });
+      if (stateChanged) {
+        TorConnectionNotifier.instance.update(next);
+        if (wasDisconnected && next == TorConnectionState.connected) {
+          unawaited(_onTorReconnected());
+        }
       }
     }
   }
@@ -1741,39 +1776,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _restartTor() async {
     if (!mounted || _torRestartInProgress) return;
+    final supervisor = _torSupervisor;
+    if (supervisor != null) {
+      await supervisor.restartTor(userInitiated: true);
+    } else {
+      await _performTorRestart(userInitiated: true);
+    }
+  }
+
+  Future<void> _performTorRestart({bool userInitiated = false}) async {
+    if (!mounted || _torRestartInProgress) return;
 
     _torRestartInProgress = true;
     _torHealthTimer?.cancel();
     _torStopped = true;
 
-    setState(() => _torConnectionState = TorConnectionState.connecting);
+    setState(() {
+      _torConnectionState = TorConnectionState.connecting;
+      _torNeedsAttention = false;
+    });
     TorConnectionNotifier.instance.update(TorConnectionState.connecting);
 
     try {
       await widget.torManager.stopTor();
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        await Future.delayed(TorManager.restartSettleDelay);
+      }
       TorBootstrapNotifier.instance.reset();
       _torStopped = false;
       await widget.torManager.startTor();
       final onion = await widget.torManager.getOnionAddress();
-      if (onion != null && onion != 'me') {
+      if (onion != null && onion.isNotEmpty) {
         PrysmServer.instance?.localOnionAddress = onion;
       }
       if (!mounted) return;
-      setState(() => _torConnectionState = TorConnectionState.connected);
+      setState(() {
+        _torConnectionState = TorConnectionState.connected;
+        _torNeedsAttention = false;
+      });
       TorConnectionNotifier.instance.update(TorConnectionState.connected);
       await _onTorReconnected();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tor restarted successfully')),
-      );
+      if (userInitiated && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tor restarted successfully')),
+        );
+      }
     } catch (e) {
       _torStopped = true;
       if (!mounted) return;
-      setState(() => _torConnectionState = TorConnectionState.disconnected);
+      setState(() {
+        _torConnectionState = TorConnectionState.disconnected;
+        _torNeedsAttention = false;
+      });
       TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tor restart failed: $e')),
-      );
+      if (userInitiated) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Tor restart failed: $e')),
+        );
+      }
     } finally {
       _torRestartInProgress = false;
       if (mounted && !_torStopped) {
@@ -1801,11 +1861,75 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   Expanded(child: Text(_torStatusLabel(_torConnectionState))),
                 ],
               ),
+              if (_torNeedsAttention) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Tor needs attention — automatic recovery paused. '
+                  'Try Restart Tor manually.',
+                  style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(ctx).colorScheme.error,
+                      ),
+                ),
+              ],
+              if (_torSupervisor?.lastHealthFailureReason != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Last issue: ${_torSupervisor!.lastHealthFailureReason}',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ],
+              if (_torSupervisor != null && _torSupervisor!.autoRestartCount > 0) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Auto-restarts: ${_torSupervisor!.autoRestartCount}',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ],
+              if (TorOutboundGateway.isConfigured) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Outbound queue depth: '
+                  '${TorOutboundGateway.instance.outboundQueueDepth}',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ],
+              if (!Platform.isAndroid && !Platform.isIOS) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Health check: '
+                  '${widget.torManager.lastHealthPollWasLight ? 'light (SOCKS)' : 'full (control)'}',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 'Onion: ${widget.onionAddress}',
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
+              if (_torSupervisor != null &&
+                  _torSupervisor!.recentStderrLines.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Recent Tor log', style: Theme.of(ctx).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxHeight: 120),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      _torSupervisor!.recentStderrLines.join('\n'),
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -1878,11 +2002,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _torStatusLabel(TorConnectionState state) => switch (state) {
-        TorConnectionState.connected => 'Connected',
-        TorConnectionState.connecting => 'Connecting…',
-        TorConnectionState.disconnected => 'Disconnected',
-      };
+  String _torStatusLabel(TorConnectionState state) {
+    if (_torNeedsAttention) return 'Needs attention';
+    return switch (state) {
+      TorConnectionState.connected => 'Connected',
+      TorConnectionState.connecting => 'Connecting…',
+      TorConnectionState.disconnected => 'Disconnected',
+    };
+  }
 
   Widget _buildTorAppBarAction() {
     final color = _torStatusColor(_torConnectionState);

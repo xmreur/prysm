@@ -5,10 +5,12 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/util/tor_health_status.dart';
 
 class TorManager {
   // Desktop-only Tor process.
   Process? _torProcess;
+  int _processGeneration = 0;
 
   // Shared control connection.
   Socket? _controlSocket;
@@ -16,16 +18,28 @@ class TorManager {
   int _controlGeneration = 0;
 
   static const MethodChannel _channel = MethodChannel("prysm_tor");
+  static const int _stderrLineLimit = 20;
+  static const Duration restartSettleDelay = Duration(milliseconds: 800);
 
-  final String torPath;   // desktop tor binary path
-  final String dataDir;   // desktop data dir
-  final int controlPort;  // 9051
-  final int socksPort; // 9050 — used for health checks on desktop
-  final String controlPassword; // desktop only
+  final String torPath;
+  final String dataDir;
+  final int controlPort;
+  final int socksPort;
+  final String controlPassword;
 
   final stdoutController = StreamController<String>.broadcast();
   final stderrController = StreamController<String>.broadcast();
-  final _controlMutex = Mutex();
+  final _controlReadMutex = Mutex();
+  final _controlWriteMutex = Mutex();
+  final List<String> _recentStderrLines = [];
+  int _healthPollCount = 0;
+  static const int _fullHealthEvery = 4;
+
+  /// Set when desktop Tor finishes bootstrap (used for restart grace).
+  DateTime? lastStartAt;
+
+  /// Desktop-only: fired when the tor child process exits.
+  void Function(int exitCode)? onDesktopProcessExited;
 
   TorManager({
     required this.torPath,
@@ -35,17 +49,20 @@ class TorManager {
     this.controlPassword = 'my_password',
   });
 
+  List<String> get recentStderrLines => List.unmodifiable(_recentStderrLines);
+
   // =========================
   // Public API
   // =========================
 
   Future<void> startTor() {
-    return _controlMutex.protect(() async {
+    return _controlWriteMutex.protect(() async {
       TorBootstrapNotifier.instance.reset();
       if (Platform.isAndroid) {
         await _startAndroidTorService();
         return;
       }
+      await _cleanupOrphanTorBeforeStart();
       await _startDesktopTorBinary();
     });
   }
@@ -65,7 +82,7 @@ class TorManager {
   }
 
   Future<void> stopTor() {
-    return _controlMutex.protect(_stopTorUnlocked);
+    return _controlWriteMutex.protect(_stopTorUnlocked);
   }
 
   Future<void> _stopTorUnlocked() async {
@@ -76,7 +93,6 @@ class TorManager {
       return;
     }
 
-    // Desktop shutdown via control port if possible.
     try {
       if (_controlSocket != null) {
         await _sendAndCollectImpl(
@@ -85,9 +101,7 @@ class TorManager {
           timeout: const Duration(seconds: 5),
         );
       }
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
 
     await _resetControlSession();
 
@@ -103,53 +117,161 @@ class TorManager {
       }
       _torProcess = null;
     }
+
+    await _removePidFile();
   }
 
-  /// Returns true if the Tor control port responds and the process is alive.
-  Future<bool> isHealthy() {
-    return _controlMutex.protect(_isHealthyUnlocked);
+  Future<TorHealthStatus> getHealthStatus() {
+    return _getHealthStatusUnlocked();
   }
 
-  Future<bool> _isHealthyUnlocked() async {
+  Future<bool> isHealthy() async {
+    return (await getHealthStatus()).ok;
+  }
+
+  Future<TorHealthStatus> _getHealthStatusUnlocked() async {
     try {
       if (!Platform.isAndroid) {
         final proc = _torProcess;
-        if (proc != null) {
-          try {
-            await proc.exitCode.timeout(const Duration(milliseconds: 50));
-            return false;
-          } catch (_) {
-            // Timeout — process still running.
-          }
+        if (proc == null) {
+          return const TorHealthStatus(
+            ok: false,
+            reason: 'Tor process not running',
+          );
         }
-        return _isDesktopTorOperational();
+        try {
+          await proc.exitCode.timeout(const Duration(milliseconds: 50));
+          return const TorHealthStatus(
+            ok: false,
+            reason: 'Tor process exited',
+          );
+        } catch (_) {}
+
+        if (!await _probeSocksPort()) {
+          return const TorHealthStatus(
+            ok: false,
+            reason: 'SOCKS port unreachable',
+          );
+        }
+
+        _healthPollCount++;
+        if (_healthPollCount % _fullHealthEvery != 0) {
+          return TorHealthStatus.healthy;
+        }
+
+        return _controlReadMutex.protect(_checkDesktopControlHealth);
       }
 
-      await _ensureControlSession();
-      await _sendAndCollectImpl(
-        'GETINFO version',
-        untilOk: true,
-        timeout: const Duration(seconds: 3),
-      );
-      return true;
+      return _controlReadMutex.protect(() async {
+        await _ensureControlSession();
+        await _sendAndCollectImpl(
+          'GETINFO version',
+          untilOk: true,
+          timeout: const Duration(seconds: 3),
+        );
+        return TorHealthStatus.healthy;
+      });
     } catch (e) {
       print('Tor health check failed: $e');
       await _resetControlSession();
-      return false;
+      return TorHealthStatus(ok: false, reason: e.toString());
     }
   }
 
-  /// Desktop health: SOCKS (what the app uses), then onion service, then control port.
-  Future<bool> _isDesktopTorOperational() async {
-    if (await _probeSocksPort()) return true;
+  /// Whether the most recent health poll used SOCKS-only (no control port).
+  bool get lastHealthPollWasLight =>
+      _healthPollCount > 0 && _healthPollCount % _fullHealthEvery != 0;
 
-    final hostnameFile = File('$dataDir/hidden_service/hostname');
-    if (hostnameFile.existsSync()) {
-      final onion = hostnameFile.readAsStringSync().trim();
-      if (onion.endsWith('.onion')) return true;
+  Future<TorHealthStatus> _checkDesktopControlHealth() async {
+    try {
+      return await _desktopControlHealthViaEphemeral();
+    } catch (_) {
+      try {
+        return await _desktopControlHealthViaEphemeral();
+      } catch (retryError) {
+        return TorHealthStatus(
+          ok: false,
+          reason: 'Control check failed: $retryError',
+        );
+      }
+    }
+  }
+
+  Future<TorHealthStatus> _desktopControlHealthViaEphemeral() async {
+    final bootstrap = await _ephemeralControlCommand(
+      'GETINFO status/bootstrap-phase',
+      timeout: const Duration(seconds: 3),
+    );
+    final progress = parseBootstrapProgress(bootstrap) ?? 0;
+    if (progress < 100) {
+      return TorHealthStatus(
+        ok: false,
+        reason: 'Tor bootstrap incomplete ($progress%)',
+      );
     }
 
-    return _probeDesktopControlPort();
+    final liveness = await _ephemeralControlCommand(
+      'GETINFO network-liveness',
+      timeout: const Duration(seconds: 3),
+    );
+    if (!isNetworkLive(liveness)) {
+      return const TorHealthStatus(ok: false, reason: 'Tor network down');
+    }
+
+    return TorHealthStatus.healthy;
+  }
+
+  Future<List<String>> _ephemeralControlCommand(
+    String cmd, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        '127.0.0.1',
+        controlPort,
+        timeout: const Duration(seconds: 2),
+      );
+
+      final iterator = StreamIterator<String>(
+        socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter()),
+      );
+
+      Future<List<String>> readUntilOk() async {
+        final lines = <String>[];
+        while (await iterator.moveNext()) {
+          final line = iterator.current;
+          lines.add(line);
+          if (line.startsWith('250 OK')) return lines;
+          if (line.startsWith('5')) {
+            throw Exception('Tor control error: $line');
+          }
+        }
+        throw Exception('Tor control stream closed');
+      }
+
+      void writeCmd(String command) => socket!.write('$command\r\n');
+
+      await readUntilOk();
+      if (Platform.isAndroid) {
+        throw UnsupportedError('Ephemeral control is desktop-only');
+      }
+      try {
+        writeCmd('AUTHENTICATE "$controlPassword"');
+        await readUntilOk();
+      } catch (_) {
+        writeCmd('AUTHENTICATE $controlPassword');
+        await readUntilOk();
+      }
+
+      writeCmd(cmd);
+      return readUntilOk().timeout(timeout);
+    } finally {
+      await socket?.close();
+    }
   }
 
   Future<bool> _probeSocksPort() async {
@@ -166,59 +288,8 @@ class TorManager {
     }
   }
 
-  /// One-shot control port check for desktop (banner drain + auth + GETINFO).
-  Future<bool> _probeDesktopControlPort() async {
-    Socket? socket;
-    try {
-      socket = await Socket.connect(
-        '127.0.0.1',
-        controlPort,
-        timeout: const Duration(seconds: 2),
-      );
-
-      final iterator = StreamIterator<String>(
-        socket
-            .cast<List<int>>()
-            .transform(utf8.decoder)
-            .transform(const LineSplitter()),
-      );
-
-      Future<void> readUntilOk() async {
-        while (await iterator.moveNext()) {
-          final line = iterator.current;
-          if (line.startsWith('250 OK')) return;
-          if (line.startsWith('5')) {
-            throw Exception('Tor control error: $line');
-          }
-        }
-        throw Exception('Tor control stream closed');
-      }
-
-      void writeCmd(String cmd) => socket!.write('$cmd\r\n');
-
-      await readUntilOk(); // post-connect banner
-      try {
-        writeCmd('AUTHENTICATE "$controlPassword"');
-        await readUntilOk();
-      } catch (_) {
-        writeCmd('AUTHENTICATE $controlPassword');
-        await readUntilOk();
-      }
-      writeCmd('GETINFO version');
-      await readUntilOk();
-      return true;
-    } catch (e) {
-      print('Tor desktop probe failed: $e');
-      return false;
-    } finally {
-      await socket?.close();
-    }
-  }
-
-  /// Request a new Tor circuit via SIGNAL NEWNYM.
-  /// Rate-limited by Tor to once every 10 seconds.
   Future<bool> refreshCircuit() {
-    return _controlMutex.protect(_refreshCircuitUnlocked);
+    return _controlWriteMutex.protect(_refreshCircuitUnlocked);
   }
 
   Future<bool> _refreshCircuitUnlocked() async {
@@ -254,28 +325,28 @@ class TorManager {
     _controlStream = null;
   }
 
-  /// Whether a socket [done] callback should clear the active control session.
   static bool shouldClearControlSessionOnSocketDone(
     int closedGeneration,
     int currentGeneration,
   ) =>
       closedGeneration == currentGeneration;
 
+  static bool shouldHandleProcessExit(
+    int exitedGeneration,
+    int currentGeneration,
+    Process? activeProcess,
+    Process? exitedProcess,
+  ) =>
+      exitedGeneration == currentGeneration && activeProcess == exitedProcess;
+
   // =========================
   // Android implementation
   // =========================
 
   Future<void> _startAndroidTorService() async {
-    // Kotlin side: writes torrc + starts/binds TorService.
     await _channel.invokeMethod("startTor");
-
-    // ControlPort on localhost:9051 inside the same app sandbox.
     await _connectControlPort();
-
-    // Match your Kotlin: PROTOCOLINFO -> COOKIEFILE -> AUTHENTICATE <cookieHex>.
     await _authenticateWithCookieFile();
-
-    // Match your Kotlin: poll status/bootstrap-phase until PROGRESS=100.
     await _waitForBootstrap(timeout: const Duration(minutes: 2));
   }
 
@@ -287,31 +358,24 @@ class TorManager {
       orElse: () => throw Exception('PROTOCOLINFO missing 250-AUTH: $proto'),
     );
 
-    print('TorService PROTOCOLINFO auth: $authLine'); // debug
-
     if (authLine.contains('METHODS=NULL')) {
-      // Even with METHODS=NULL, send AUTHENTICATE "" before GETINFO. [web:83][web:84]
-      final authResp = await _sendAndCollectImpl('AUTHENTICATE ""', untilOk: true);
-      print('TorService AUTHENTICATE "" response: $authResp');
+      await _sendAndCollectImpl('AUTHENTICATE ""', untilOk: true);
       return;
     }
 
-    // Fallback cookie auth if COOKIEFILE present (future-proof).
     final cookiePath = _parseCookieFileFromProtocolInfo(authLine);
     if (cookiePath != null) {
       final cookie = await File(cookiePath).readAsBytes();
-      final cookieHex = cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      // ignore: unused_local_variable
-      final authResp = await _sendAndCollectImpl('AUTHENTICATE $cookieHex', untilOk: true);
+      final cookieHex =
+          cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      await _sendAndCollectImpl('AUTHENTICATE $cookieHex', untilOk: true);
       return;
     }
 
     throw Exception('Unsupported auth: $authLine');
   }
 
-
   String? _parseCookieFileFromProtocolInfo(String authLine) {
-    // Tor control-spec: COOKIEFILE="...". [web:49]
     final m = RegExp(r'COOKIEFILE="([^"]+)"').firstMatch(authLine);
     return m?.group(1);
   }
@@ -320,8 +384,73 @@ class TorManager {
   // Desktop implementation
   // =========================
 
+  Future<void> _cleanupOrphanTorBeforeStart() async {
+    if (await _probeOurControlPort()) {
+      try {
+        await _connectControlPort();
+        await _authenticateDesktopPassword();
+        await _sendAndCollectImpl(
+          'SIGNAL SHUTDOWN',
+          untilOk: true,
+          timeout: const Duration(seconds: 5),
+        );
+        await _resetControlSession();
+        await Future.delayed(restartSettleDelay);
+      } catch (_) {
+        await _resetControlSession();
+      }
+    }
+    await _removePidFile();
+  }
+
+  Future<bool> _probeOurControlPort() async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        '127.0.0.1',
+        controlPort,
+        timeout: const Duration(seconds: 1),
+      );
+
+      final iterator = StreamIterator<String>(
+        socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter()),
+      );
+
+      Future<void> readUntilOk() async {
+        while (await iterator.moveNext()) {
+          final line = iterator.current;
+          if (line.startsWith('250 OK')) return;
+          if (line.startsWith('5')) {
+            throw Exception('Tor control error: $line');
+          }
+        }
+        throw Exception('Tor control stream closed');
+      }
+
+      void writeCmd(String cmd) => socket!.write('$cmd\r\n');
+
+      await readUntilOk();
+      try {
+        writeCmd('AUTHENTICATE "$controlPassword"');
+        await readUntilOk();
+      } catch (_) {
+        writeCmd('AUTHENTICATE $controlPassword');
+        await readUntilOk();
+      }
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      await socket?.close();
+    }
+  }
+
   Future<void> _startDesktopTorBinary() async {
     final torrcPath = await _writeTorrcDesktop();
+    final processGeneration = ++_processGeneration;
 
     _torProcess = await Process.start(
       torPath,
@@ -329,12 +458,49 @@ class TorManager {
       mode: ProcessStartMode.normal,
     );
 
-    _torProcess!.stdout.transform(utf8.decoder).listen(stdoutController.add);
-    _torProcess!.stderr.transform(utf8.decoder).listen(stderrController.add);
+    final proc = _torProcess!;
+    await _writePidFile(proc.pid);
+
+    proc.stdout.transform(utf8.decoder).listen(stdoutController.add);
+    proc.stderr.transform(utf8.decoder).listen(_recordStderrLine);
+
+    proc.exitCode.then((code) {
+      if (shouldHandleProcessExit(
+        processGeneration,
+        _processGeneration,
+        _torProcess,
+        proc,
+      )) {
+        _torProcess = null;
+        onDesktopProcessExited?.call(code);
+      }
+    });
 
     await _connectControlPort();
     await _authenticateDesktopPassword();
     await _waitForBootstrap(timeout: const Duration(minutes: 2));
+  }
+
+  void _recordStderrLine(String line) {
+    stderrController.add(line);
+    if (line.trim().isEmpty) return;
+    _recentStderrLines.add(line);
+    if (_recentStderrLines.length > _stderrLineLimit) {
+      _recentStderrLines.removeAt(0);
+    }
+  }
+
+  Future<void> _writePidFile(int pid) async {
+    try {
+      await File('$dataDir/tor.pid').writeAsString('$pid');
+    } catch (_) {}
+  }
+
+  Future<void> _removePidFile() async {
+    try {
+      final file = File('$dataDir/tor.pid');
+      if (file.existsSync()) await file.delete();
+    } catch (_) {}
   }
 
   Future<String> _writeTorrcDesktop() async {
@@ -342,7 +508,6 @@ class TorManager {
     if (!dir.existsSync()) dir.createSync(recursive: true);
 
     final torrcFile = File('$dataDir/torrc');
-
     final hashedPassword = await _hashControlPasswordDesktop();
 
     final torrcContent = '''
@@ -360,19 +525,31 @@ HiddenServicePort 80 127.0.0.1:12345
   }
 
   Future<String> _hashControlPasswordDesktop() async {
-    final result = await Process.run(torPath, ['--hash-password', controlPassword]);
+    final cacheFile = File('$dataDir/.control_hash');
+    if (cacheFile.existsSync()) {
+      final cached = cacheFile.readAsStringSync().trim();
+      if (cached.startsWith('16:')) return cached;
+    }
+
+    final result =
+        await Process.run(torPath, ['--hash-password', controlPassword]);
     if (result.exitCode != 0) {
       throw Exception('Failed to hash control password: ${result.stderr}');
     }
-    final output = (result.stdout as String).split('\n').map((l) => l.trim()).toList();
-    return output.firstWhere((l) => l.startsWith('16:'), orElse: () {
+    final output =
+        (result.stdout as String).split('\n').map((l) => l.trim()).toList();
+    final hash = output.firstWhere((l) => l.startsWith('16:'), orElse: () {
       throw Exception('No hashed password line (16:...) in: $output');
     });
+    try {
+      await cacheFile.writeAsString(hash);
+    } catch (_) {}
+    return hash;
   }
 
   Future<void> _authenticateDesktopPassword() async {
-    // Tor control-spec supports password auth when HashedControlPassword is set. [web:49]
-    final resp = await _sendAndCollectImpl('AUTHENTICATE "$controlPassword"', untilOk: true);
+    final resp =
+        await _sendAndCollectImpl('AUTHENTICATE "$controlPassword"', untilOk: true);
     if (resp.every((l) => !l.startsWith('250'))) {
       throw Exception('Desktop AUTHENTICATE failed: $resp');
     }
@@ -428,15 +605,17 @@ HiddenServicePort 80 127.0.0.1:12345
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
-      final resp = await _sendAndCollectImpl('GETINFO status/bootstrap-phase', untilOk: true);
+      final resp = await _sendAndCollectImpl(
+        'GETINFO status/bootstrap-phase',
+        untilOk: true,
+      );
 
-      final line = resp.firstWhere((l) => l.contains('status/bootstrap-phase='), orElse: () => '');
-      final m = RegExp(r'PROGRESS=(\d+)').firstMatch(line);
-      final progress = m == null ? 0 : int.parse(m.group(1)!);
+      final progress = parseBootstrapProgress(resp) ?? 0;
       TorBootstrapNotifier.instance.update(progress);
 
       if (progress >= 100) {
         TorBootstrapNotifier.instance.update(100);
+        lastStartAt = DateTime.now();
         return;
       }
 
@@ -471,13 +650,14 @@ HiddenServicePort 80 127.0.0.1:12345
     sub = stream.listen((line) {
       lines.add(line);
 
-      // Replies follow SMTP-style 250 success / 5xx error codes. [web:49]
       if (line.startsWith('250 OK') || (!untilOk && line.startsWith('250'))) {
         sub.cancel();
         if (!completer.isCompleted) completer.complete(lines);
       } else if (line.startsWith('5')) {
         sub.cancel();
-        if (!completer.isCompleted) completer.completeError('Tor control error: $line');
+        if (!completer.isCompleted) {
+          completer.completeError('Tor control error: $line');
+        }
       }
     });
 

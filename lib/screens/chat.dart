@@ -12,6 +12,9 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
@@ -287,16 +290,16 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _markInboundAsRead() async {
-    final wireIds = await MessagesDb.markInboundConversationRead(
+    final waterline = await MessagesDb.markInboundConversationRead(
       widget.userId,
       widget.peerId,
     );
-    if (wireIds.isEmpty) return;
+    if (waterline == null) return;
 
     _readReceiptDebounce?.cancel();
     _readReceiptDebounce = Timer(const Duration(milliseconds: 300), () async {
       if (_settings.sendReadReceipts) {
-        await _readReceiptService.sendReceiptsForMessages(wireIds);
+        await _readReceiptService.sendWaterline(waterline);
       }
     });
   }
@@ -348,11 +351,26 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Check peer status by calling /profile — determines online/offline
   /// AND fetches fresh name/avatar in one round-trip.
   Future<void> _checkPeerStatus() async {
-    final client = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    if (TorRuntimeGate.blocked) return;
     try {
-      final uri = Uri.parse('http://${widget.peerId}:80/profile');
-      final response = await client.get(uri, {}).timeout(const Duration(seconds: 20));
-      final body = await response.transform(utf8.decoder).join();
+      final body = TorOutboundGateway.isConfigured
+          ? await TorOutboundGateway.instance.getProfile(widget.peerId)
+          : await TorDelivery.withTorRetry<String>(
+              attempt: () async {
+                final client =
+                    TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+                try {
+                  final uri =
+                      Uri.parse('http://${widget.peerId}:80/profile');
+                  final response = await client
+                      .get(uri, {})
+                      .timeout(const Duration(seconds: 20));
+                  return client.readUtf8Body(response);
+                } finally {
+                  client.close();
+                }
+              },
+            );
       final data = jsonDecode(body) as Map<String, dynamic>;
 
       if (!mounted) return;
@@ -400,11 +418,11 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         _failedPings++;
         final errStr = e.toString();
-        // hostUnreachable / connection refused = peer is definitely offline
+        // After TorDelivery retries, repeated failures likely mean peer is offline.
         final isHardFailure = errStr.contains('hostUnreachable') ||
             errStr.contains('connectionRefused') ||
             errStr.contains('ttlExpired');
-        if (isHardFailure) {
+        if (isHardFailure && _failedPings >= 2) {
           _probeConfirmedOffline = true;
           if (_peerOnline != false) {
             setState(() => _peerOnline = false);
@@ -414,8 +432,6 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() => _peerOnline = false);
         }
       }
-    } finally {
-      client.close();
     }
   }
 

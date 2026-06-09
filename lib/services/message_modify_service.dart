@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
@@ -240,25 +242,51 @@ class MessageModifyService {
     required int timestamp,
   }) async {
     if (peerId == null) return false;
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$peerId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': peerId,
-        'message': encrypted,
-        'type': messageModifyType,
-        'timestamp': timestamp,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postDirectOnce(
+          id: id,
+          encrypted: encrypted,
+          timestamp: timestamp,
+        ),
+      );
       return true;
     } catch (e) {
       print('Message modify send failed: $e');
       return false;
+    }
+  }
+
+  Future<void> _postDirectOnce({
+    required String id,
+    required String encrypted,
+    required int timestamp,
+  }) async {
+    final payload = {
+      'id': id,
+      'senderId': userId,
+      'receiverId': peerId,
+      'message': encrypted,
+      'type': messageModifyType,
+      'timestamp': timestamp,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: peerId!,
+        payload: payload,
+      );
+      return;
+    }
+    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    try {
+      final response = await torClient
+          .post(
+            Uri.parse('http://$peerId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }
@@ -271,26 +299,54 @@ class MessageModifyService {
     required int timestamp,
   }) async {
     if (groupId == null) return false;
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
     try {
-      final uri = Uri.parse('http://$targetMemberId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'groupId': groupId,
-        'message': encrypted,
-        'type': groupMessageModifyType,
-        'timestamp': timestamp,
-      });
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(const Duration(seconds: 30));
-      await response.transform(utf8.decoder).join();
+      await TorDelivery.withTorRetry<void>(
+        attempt: () => _postGroupOnce(
+          id: id,
+          targetMemberId: targetMemberId,
+          encrypted: encrypted,
+          timestamp: timestamp,
+        ),
+      );
       return true;
     } catch (e) {
       print('Group message modify send failed: $e');
       return false;
+    }
+  }
+
+  Future<void> _postGroupOnce({
+    required String id,
+    required String targetMemberId,
+    required String encrypted,
+    required int timestamp,
+  }) async {
+    final payload = {
+      'id': id,
+      'senderId': userId,
+      'receiverId': targetMemberId,
+      'groupId': groupId,
+      'message': encrypted,
+      'type': groupMessageModifyType,
+      'timestamp': timestamp,
+    };
+    if (TorOutboundGateway.isConfigured) {
+      await TorOutboundGateway.instance.postMessage(
+        peerOnion: targetMemberId,
+        payload: payload,
+      );
+      return;
+    }
+    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+    try {
+      final response = await torClient
+          .post(
+            Uri.parse('http://$targetMemberId:80/message'),
+            {'Content-Type': 'application/json'},
+            jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
+      await torClient.readUtf8Body(response);
     } finally {
       torClient.close();
     }
@@ -492,7 +548,7 @@ class MessageModifyService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
+    final pending = await PendingMessageDbHelper.getPendingGroupChatMessages(
       senderId: userId,
       limit: maxPerCycle,
     );

@@ -1,6 +1,7 @@
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -517,8 +518,8 @@ class MessagesDb {
         });
     }
 
-	/// Mark inbound direct messages as read locally. Returns wire IDs newly marked.
-	static Future<List<String>> markInboundConversationRead(
+	/// Mark inbound direct messages as read locally. Returns waterline if any marked.
+	static Future<ReadWaterlineMark?> markInboundConversationRead(
 		String localUserId,
 		String peerId,
 	) async {
@@ -527,12 +528,22 @@ class MessagesDb {
 			final now = DateTime.now().millisecondsSinceEpoch;
 			final rows = await db.query(
 				'messages',
-				columns: ['id'],
+				columns: ['id', 'timestamp'],
 				where:
 					'groupId IS NULL AND senderId = ? AND receiverId = ? AND status = ? AND readAt IS NULL',
 				whereArgs: [peerId, localUserId, 'received'],
 			);
-			if (rows.isEmpty) return <String>[];
+			if (rows.isEmpty) return null;
+
+			var readUpTo = 0;
+			Map<String, dynamic>? latestRow;
+			for (final row in rows) {
+				final ts = row['timestamp'] as int? ?? 0;
+				if (ts >= readUpTo) {
+					readUpTo = ts;
+					latestRow = row;
+				}
+			}
 
 			await db.update(
 				'messages',
@@ -542,14 +553,15 @@ class MessagesDb {
 				whereArgs: [peerId, localUserId, 'received'],
 			);
 
-			return rows
-				.map((r) => wireIdFromStorage(r['id'] as String))
-				.toList();
+			return ReadWaterlineMark(
+				latestMessageId: wireIdFromStorage(latestRow!['id'] as String),
+				readUpToTimestamp: readUpTo,
+			);
 		});
 	}
 
-	/// Mark inbound group messages as read locally. Returns wire IDs newly marked.
-	static Future<List<String>> markInboundGroupRead(
+	/// Mark inbound group messages as read locally. Returns waterline if any marked.
+	static Future<ReadWaterlineMark?> markInboundGroupRead(
 		String localUserId,
 		String groupId,
 	) async {
@@ -558,12 +570,22 @@ class MessagesDb {
 			final now = DateTime.now().millisecondsSinceEpoch;
 			final rows = await db.query(
 				'messages',
-				columns: ['id'],
+				columns: ['id', 'timestamp'],
 				where:
 					'groupId = ? AND senderId != ? AND status = ? AND readAt IS NULL',
 				whereArgs: [groupId, localUserId, 'received'],
 			);
-			if (rows.isEmpty) return <String>[];
+			if (rows.isEmpty) return null;
+
+			var readUpTo = 0;
+			Map<String, dynamic>? latestRow;
+			for (final row in rows) {
+				final ts = row['timestamp'] as int? ?? 0;
+				if (ts >= readUpTo) {
+					readUpTo = ts;
+					latestRow = row;
+				}
+			}
 
 			await db.update(
 				'messages',
@@ -573,9 +595,48 @@ class MessagesDb {
 				whereArgs: [groupId, localUserId, 'received'],
 			);
 
-			return rows
-				.map((r) => wireIdFromStorage(r['id'] as String))
-				.toList();
+			return ReadWaterlineMark(
+				latestMessageId: wireIdFromStorage(latestRow!['id'] as String),
+				readUpToTimestamp: readUpTo,
+				groupId: groupId,
+			);
+		});
+	}
+
+	/// Outbound direct messages from [senderId] to [receiverId] up to [readUpToTimestamp].
+	static Future<List<Map<String, dynamic>>> getOutboundDirectUpToTimestamp({
+		required String senderId,
+		required String receiverId,
+		required int readUpToTimestamp,
+	}) async {
+		return _dbMutex.protect(() async {
+			final db = await database;
+			return db.query(
+				'messages',
+				columns: ['id', 'timestamp'],
+				where:
+					'groupId IS NULL AND senderId = ? AND receiverId = ? AND timestamp <= ?',
+				whereArgs: [senderId, receiverId, readUpToTimestamp],
+				orderBy: 'timestamp ASC',
+			);
+		});
+	}
+
+	/// Outbound group messages from [senderId] in [groupId] up to [readUpToTimestamp].
+	static Future<List<Map<String, dynamic>>> getOutboundGroupUpToTimestamp({
+		required String senderId,
+		required String groupId,
+		required int readUpToTimestamp,
+	}) async {
+		return _dbMutex.protect(() async {
+			final db = await database;
+			return db.query(
+				'messages',
+				columns: ['id', 'timestamp'],
+				where: 'groupId = ? AND senderId = ? AND timestamp <= ?',
+				whereArgs: [groupId, senderId, readUpToTimestamp],
+				orderBy: 'timestamp ASC',
+			);
 		});
 	}
 

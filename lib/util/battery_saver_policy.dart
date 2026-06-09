@@ -42,6 +42,19 @@ class BatterySaverPolicy {
           ? const Duration(seconds: 300)
           : const Duration(seconds: 90);
 
+  static Duration presenceActivityTtl([bool? saving]) =>
+      (saving ?? active)
+          ? const Duration(seconds: 120)
+          : const Duration(seconds: 90);
+
+  static Duration presenceStaleCheckInterval([bool? saving]) =>
+      (saving ?? active)
+          ? const Duration(seconds: 60)
+          : const Duration(seconds: 30);
+
+  /// Grace period where profile probe failures are ignored during large uploads.
+  static const Duration mediaUploadPresenceGrace = Duration(minutes: 5);
+
   static Duration loadUsersDebounce([bool? saving]) =>
       (saving ?? active)
           ? const Duration(milliseconds: 800)

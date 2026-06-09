@@ -13,6 +13,7 @@ class MessageComposer extends StatefulWidget {
   final VoidCallback onSendImage;
   final VoidCallback onSendFile;
   final Function(Uint8List bytes, int durationMs)? onSendVoice;
+  final VoidCallback? onLayoutChanged;
 
   const MessageComposer({
     super.key,
@@ -20,6 +21,7 @@ class MessageComposer extends StatefulWidget {
     required this.onSendImage,
     required this.onSendFile,
     this.onSendVoice,
+    this.onLayoutChanged,
   });
 
   @override
@@ -46,6 +48,10 @@ class MessageComposerState extends State<MessageComposer> {
     super.dispose();
   }
 
+  void _notifyLayoutChanged() {
+    widget.onLayoutChanged?.call();
+  }
+
   void _handleSend() {
     final text = currentText.trim();
     if (text.isEmpty) return;
@@ -55,6 +61,7 @@ class MessageComposerState extends State<MessageComposer> {
       currentText = '';
       showEmojiPicker = false;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
   }
 
   void _onEmojiSelected(Category? category, Emoji emoji) {
@@ -104,6 +111,7 @@ class MessageComposerState extends State<MessageComposer> {
       _isRecording = true;
       _recordDuration = Duration.zero;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -118,6 +126,7 @@ class MessageComposerState extends State<MessageComposer> {
     final path = await _recorder.stop();
 
     setState(() => _isRecording = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
     if (path == null) {
       return;
@@ -141,6 +150,7 @@ class MessageComposerState extends State<MessageComposer> {
     _recordTimer?.cancel();
     final path = await _recorder.stop();
     setState(() => _isRecording = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
     if (path != null) {
       final file = File(path);
       if (await file.exists()) await file.delete();
@@ -156,6 +166,7 @@ class MessageComposerState extends State<MessageComposer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -280,6 +291,9 @@ class MessageComposerState extends State<MessageComposer> {
                 FocusScope.of(context).unfocus();
               }
             });
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _notifyLayoutChanged(),
+            );
           },
         ),
         AnimatedSwitcher(

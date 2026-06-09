@@ -17,7 +17,8 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
-import 'package:prysm/screens/message_composer.dart';
+import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
+import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
@@ -85,6 +86,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final _settings = SettingsService();
 
   var _messages = InMemoryChatController();
+  final ScrollController _listScrollController = ScrollController();
+  bool _stickToBottom = true;
   final Map<String, String> _senderNames = {};
   int _memberCount = 0;
 
@@ -111,7 +114,26 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    _listScrollController.addListener(_onListScroll);
     _bootstrapForGroup();
+  }
+
+  void _onListScroll() {
+    _stickToBottom = isChatScrolledToBottom(_listScrollController);
+  }
+
+  void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
+    if (!_stickToBottom) return;
+    scheduleScrollChatToBottom(
+      _messages,
+      animated: animated,
+      isMounted: () => mounted,
+    );
+  }
+
+  void _scheduleScrollToBottomAfterSend() {
+    _stickToBottom = true;
+    scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
   }
 
   void _bootstrapForGroup() {
@@ -229,6 +251,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     await _markInboundAsRead();
     _chatService.startPolling();
     _chatService.startSendQueue();
+
+    if (mounted && _messages.messages.isNotEmpty) {
+      _stickToBottom = true;
+      scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
+    }
 
     if (mounted) setState(() {});
   }
@@ -603,6 +630,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
       }
     });
+    _scheduleScrollToBottomIfNeeded();
     await _markInboundAsRead();
   }
 
@@ -941,6 +969,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
       _replyToMessage = null;
     });
+    _scheduleScrollToBottomAfterSend();
     final sentId = await _chatService.sendTextMessage(
       text,
       messageId: messageId,
@@ -988,6 +1017,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         );
       }
     });
+    _scheduleScrollToBottomAfterSend();
 
     final sentId = await _chatService.sendFileMessage(
       bytes,
@@ -1062,6 +1092,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         index: _messages.messages.length,
       );
     });
+    _scheduleScrollToBottomAfterSend();
 
     await _chatService.sendFileMessage(bytes, 'voice_message.wav', 'audio', messageId: messageId);
     widget.reloadConversations();
@@ -1119,6 +1150,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void dispose() {
     _teardown();
+    _listScrollController.removeListener(_onListScroll);
+    _listScrollController.dispose();
     super.dispose();
   }
 
@@ -1479,24 +1512,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: Chat(
-                currentUserId: _user.id,
-                resolveUser: (id) async => User(id: id),
-                chatController: _messages,
-                theme: ChatTheme.fromThemeData(Theme.of(context)),
-                onMessageSend: _handleSendText,
-                builders: Builders(
-                  chatAnimatedListBuilder: (context, itemBuilder) {
-                    return ChatAnimatedList(
-                      itemBuilder: itemBuilder,
-                      onEndReached: () async {
-                        await _loadMoreMessages();
-                      },
-                    );
-                  },
+        child: Chat(
+          currentUserId: _user.id,
+          resolveUser: (id) async => User(id: id),
+          chatController: _messages,
+          theme: ChatTheme.fromThemeData(Theme.of(context)),
+          onMessageSend: _handleSendText,
+          builders: Builders(
+            chatAnimatedListBuilder: (context, itemBuilder) {
+              return ChatAnimatedList(
+                scrollController: _listScrollController,
+                bottomPadding: 0,
+                handleSafeArea: false,
+                initialScrollToEndMode: InitialScrollToEndMode.none,
+                itemBuilder: itemBuilder,
+                onEndReached: () async {
+                  await _loadMoreMessages();
+                },
+              );
+            },
                   chatMessageBuilder: (
                     BuildContext context,
                     Message message,
@@ -1648,20 +1682,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   textMessageBuilder: _groupTextMessageBuilder,
                   imageMessageBuilder: _groupImageMessageBuilder,
                   fileMessageBuilder: _groupFileMessageBuilder,
-                  composerBuilder: (context) {
-                    return Padding(padding: EdgeInsetsGeometry.infinity);
-                  },
-                ),
-              ),
-            ),
-            _buildReplyPreview(),
-            MessageComposer(
-              onSendText: _handleSendText,
-              onSendImage: _handleSendImage,
-              onSendFile: _handleSendFile,
-              onSendVoice: _handleSendVoice,
-            ),
-          ],
+            composerBuilder: (context) {
+              return PrysmChatComposerOverlay(
+                replyPreview: _replyToMessage != null
+                    ? _buildReplyPreview()
+                    : null,
+                onSendText: _handleSendText,
+                onSendImage: _handleSendImage,
+                onSendFile: _handleSendFile,
+                onSendVoice: _handleSendVoice,
+              );
+            },
+          ),
         ),
       ),
     );

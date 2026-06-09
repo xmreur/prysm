@@ -18,7 +18,8 @@ import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
-import 'package:prysm/screens/message_composer.dart';
+import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
+import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
@@ -57,7 +58,6 @@ import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:prysm/models/contact.dart';
 
 import 'package:uuid/uuid.dart';
@@ -128,7 +128,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, double> _dragOffsets = {};
 
   Key _chatKey = UniqueKey();
-  final AutoScrollController _scrollController = AutoScrollController();
+  final ScrollController _listScrollController = ScrollController();
+  bool _stickToBottom = true;
   Timer? _debounceTimer;
 
   // ✅ ADD ChatService subscriptions
@@ -142,13 +143,22 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _readReceiptDebounce;
   late MessageModifyService _modifyService;
 
-  void _scrollListener() {
-    if (_scrollController.position.pixels <= 50 && !_loading && _hasMore) {
-      if (_debounceTimer?.isActive ?? false) return;
-      _debounceTimer = Timer(const Duration(milliseconds: 600), () async {
-        await _loadMoreMessages();
-      });
-    }
+  void _onListScroll() {
+    _stickToBottom = isChatScrolledToBottom(_listScrollController);
+  }
+
+  void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
+    if (!_stickToBottom) return;
+    scheduleScrollChatToBottom(
+      _messages,
+      animated: animated,
+      isMounted: () => mounted,
+    );
+  }
+
+  void _scheduleScrollToBottomAfterSend() {
+    _stickToBottom = true;
+    scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
   }
 
   @override
@@ -182,7 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     _presenceTracker = PeerPresenceTracker();
-    _scrollController.addListener(_scrollListener);
+    _listScrollController.addListener(_onListScroll);
     _initializeChat(); // ✅ NEW METHOD
     _checkPeerStatus(); // Check online status + fetch profile immediately
     _startPeerPingTimer();
@@ -256,11 +266,8 @@ class _ChatScreenState extends State<ChatScreen> {
     await _markInboundAsRead();
 
     if (mounted && _messages.messages.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-        }
-      });
+      _stickToBottom = true;
+      scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
     }
 
     // ✅ Start ChatService background tasks
@@ -296,6 +303,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
       });
+      _scheduleScrollToBottomIfNeeded();
       await _markInboundAsRead();
     } catch (e) {
       debugPrint('Error handling new messages: $e');
@@ -393,8 +401,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _batterySaverSub?.cancel();
 
     _debounceTimer?.cancel();
-    _scrollController.removeListener(_scrollListener);
-    _scrollController.dispose();
+    _listScrollController.removeListener(_onListScroll);
+    _listScrollController.dispose();
     super.dispose();
   }
 
@@ -967,6 +975,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       _replyToMessage = null;
     });
+    _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background (non-blocking)
     _chatService
@@ -1027,6 +1036,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _replyToMessage = null;
     });
+    _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background
     _suspendPresenceProbeDuringMediaUpload();
@@ -1133,6 +1143,7 @@ class _ChatScreenState extends State<ChatScreen> {
         index: _messages.messages.length,
       );
     });
+    _scheduleScrollToBottomAfterSend();
 
     _suspendPresenceProbeDuringMediaUpload();
     _chatService
@@ -1561,13 +1572,8 @@ class _ChatScreenState extends State<ChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            if (_replyToMessage != null) _buildReplyPreview(),
-
-            Expanded(
-              child: Chat(
-                key: _chatKey,
+        child: Chat(
+          key: _chatKey,
                 chatController: _messages,
                 currentUserId: widget.userId,
                 theme: ChatTheme.fromThemeData(Theme.of(context)),
@@ -1578,6 +1584,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 builders: Builders(
                   chatAnimatedListBuilder: (context, itemBuilder) {
                     return ChatAnimatedList(
+                      scrollController: _listScrollController,
+                      bottomPadding: 0,
+                      handleSafeArea: false,
+                      initialScrollToEndMode: InitialScrollToEndMode.none,
                       itemBuilder: itemBuilder,
                       onEndReached: () async {
                         await _loadMoreMessages();
@@ -1797,19 +1807,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   textMessageBuilder: textMessageBuilder,
 
                   composerBuilder: (context) {
-                    return (Padding(padding: EdgeInsetsGeometry.infinity));
+                    return PrysmChatComposerOverlay(
+                      replyPreview: _replyToMessage != null
+                          ? _buildReplyPreview()
+                          : null,
+                      onSendText: _handleSendText,
+                      onSendImage: _handleSendImage,
+                      onSendFile: _handleSendFile,
+                      onSendVoice: _handleSendVoice,
+                    );
                   },
                 ),
-              ),
-            ),
-
-            MessageComposer(
-              onSendText: _handleSend,
-              onSendImage: _handleSendImage,
-              onSendFile: _handleSendFile,
-              onSendVoice: _handleSendVoice,
-            ),
-          ],
         ),
       ),
     );

@@ -54,6 +54,7 @@ import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
+import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
 import 'package:flutter_background/flutter_background.dart';
@@ -736,6 +737,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         isTorStopped: () => _torStopped,
         showOnlineStatus: () => appSettings.showOnlineStatus,
         onFlushPeer: (peerId) =>
+            _syncCoordinator!.flushPendingForPeer(peerId),
+      );
+      ReadReceiptService.configure(
+        flushPendingForPeer: (peerId) =>
             _syncCoordinator!.flushPendingForPeer(peerId),
       );
     }

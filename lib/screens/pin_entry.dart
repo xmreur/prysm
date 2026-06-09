@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prysm/screens/widgets/pin_keypad.dart';
 
 class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
@@ -113,99 +114,17 @@ class _PinScreenState extends State<PinScreen> {
     }
   }
 
-  Widget _buildPinDots() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(6, (index) {
-        final filled = index < _pin.length;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          margin: const EdgeInsets.symmetric(horizontal: 10),
-          width: filled ? 22 : 20,
-          height: filled ? 22 : 20,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: filled
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.onSurface.withAlpha(40),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _buildKey(String value) {
-    return GestureDetector(
-      onTap: () => _onKeyPress(value),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.onSurface.withAlpha(15),
-          shape: BoxShape.circle,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          value,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontSize: 32,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeypad() {
-    const keys = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-      ['', '0', 'back'],
-    ];
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: keys.map((row) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: row.map((key) {
-              if (key.isEmpty) {
-                return const SizedBox(width: 80);
-              } else if (key == 'back') {
-                return GestureDetector(
-                  onTap: () => _onKeyPress('back'),
-                  behavior: HitTestBehavior.opaque,
-                  child: SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: Icon(
-                      Icons.backspace_outlined,
-                      size: 28,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                );
-              }
-              return SizedBox(width: 80, height: 80, child: _buildKey(key));
-            }).toList(),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+    return PinKeyboardListener(
+      onKeyPress: _onKeyPress,
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
               Text(
                 _title,
                 style: TextStyle(
@@ -215,7 +134,9 @@ class _PinScreenState extends State<PinScreen> {
                 ),
               ),
               const SizedBox(height: 30),
-              isLoading ? const CircularProgressIndicator() : _buildPinDots(),
+              isLoading
+                  ? const CircularProgressIndicator()
+                  : PinDots(filledCount: _pin.length),
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -229,13 +150,15 @@ class _PinScreenState extends State<PinScreen> {
                   'Tor: ${widget.torBootstrapProgress}%',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
+                    color:
+                        Theme.of(context).colorScheme.onSurface.withAlpha(160),
                   ),
                 ),
               ],
               const SizedBox(height: 50),
-              _buildKeypad(),
-            ],
+              PinKeypad(onKeyPress: _onKeyPress),
+              ],
+            ),
           ),
         ),
       ),

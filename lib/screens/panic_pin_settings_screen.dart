@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
-import 'package:prysm/screens/widgets/six_digit_pin_dialog.dart';
+import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/util/key_manager.dart';
 
 class PanicPinSettingsScreen extends StatefulWidget {
@@ -42,91 +42,68 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
     });
   }
 
-  Future<bool> _validateNewPin(String pin) async {
-    if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
-      _showSnack('PIN must be exactly 6 digits');
-      return false;
-    }
+  Future<String?> _validateNewPanicPin(String pin) async {
     if (await widget.keyManager.pinUnlocksStoredKeys(pin)) {
-      _showSnack('Panic PIN cannot match your main passcode');
-      return false;
+      return 'Panic PIN cannot match your main passcode';
     }
-    return true;
+    return null;
   }
 
   Future<void> _setPanicPin() async {
-    final first = await showSixDigitPinDialog(
+    final pin = await showPinSetupPad(
       context: context,
       title: 'Set panic PIN',
+      confirmTitle: 'Confirm panic PIN',
       subtitle: 'This is your secondary PIN for emergency use.',
+      validatePin: _validateNewPanicPin,
     );
-    if (first == null || !mounted) return;
-    if (!await _validateNewPin(first)) return;
-    if (!mounted) return;
+    if (pin == null || !mounted) return;
 
-    final confirm = await showSixDigitPinDialog(
-      context: context,
-      title: 'Confirm panic PIN',
-    );
-    if (confirm == null || !mounted) return;
-    if (confirm != first) {
-      _showSnack('PINs do not match');
-      return;
-    }
-
-    await PanicPinService.instance.setPin(first);
+    await PanicPinService.instance.setPin(pin);
     if (!mounted) return;
     _showSnack('Panic PIN saved');
     await _refresh();
   }
 
   Future<void> _changePanicPin() async {
-    final current = await showSixDigitPinDialog(
+    final current = await showPinPad(
       context: context,
       title: 'Current panic PIN',
+      validatePin: (pin) async {
+        if (!await PanicPinService.instance.verify(pin)) {
+          return 'Incorrect panic PIN';
+        }
+        return null;
+      },
     );
     if (current == null || !mounted) return;
-    if (!await PanicPinService.instance.verify(current)) {
-      if (!mounted) return;
-      _showSnack('Incorrect panic PIN');
-      return;
-    }
-    if (!mounted) return;
 
-    final first = await showSixDigitPinDialog(
+    final pin = await showPinSetupPad(
       context: context,
       title: 'New panic PIN',
+      confirmTitle: 'Confirm new panic PIN',
+      validatePin: _validateNewPanicPin,
     );
-    if (first == null || !mounted) return;
-    if (!await _validateNewPin(first)) return;
-    if (!mounted) return;
+    if (pin == null || !mounted) return;
 
-    final confirm = await showSixDigitPinDialog(
-      context: context,
-      title: 'Confirm new panic PIN',
-    );
-    if (confirm == null || !mounted) return;
-    if (confirm != first) {
-      _showSnack('PINs do not match');
-      return;
-    }
-
-    await PanicPinService.instance.setPin(first);
+    await PanicPinService.instance.setPin(pin);
     if (!mounted) return;
     _showSnack('Panic PIN updated');
     await _refresh();
   }
 
   Future<void> _removePanicPin() async {
-    final current = await showSixDigitPinDialog(
+    final current = await showPinPad(
       context: context,
       title: 'Enter panic PIN to remove',
+      validatePin: (pin) async {
+        if (!await PanicPinService.instance.verify(pin)) {
+          return 'Incorrect panic PIN';
+        }
+        return null;
+      },
     );
     if (current == null || !mounted) return;
-    if (!await PanicPinService.instance.verify(current)) {
-      _showSnack('Incorrect panic PIN');
-      return;
-    }
 
     await PanicPinService.instance.clear();
     if (!mounted) return;

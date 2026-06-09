@@ -182,6 +182,77 @@ class KeyManager {
     return result != null;
   }
 
+  static final RegExp _pinFormat = RegExp(r'^\d{6}$');
+
+  /// Re-wrap the stored RSA private key with a new PIN. Identity keys are unchanged.
+  Future<bool> changePin({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    if (!_pinFormat.hasMatch(newPin)) return false;
+
+    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
+    final saltB64 = await safeRead(_pinSaltStorageKey);
+    final publicPem = await safeRead(_publicKeyStorageKey);
+    if (encPrivate == null || saltB64 == null || publicPem == null) {
+      return false;
+    }
+
+    late final String privatePem;
+    if (_privateKey != null) {
+      if (!await pinUnlocksStoredKeys(currentPin)) return false;
+      privatePem = privateKeyPem;
+    } else {
+      final decrypted = await compute(_decryptPrivateKeyIsolate, {
+        'pin': currentPin,
+        'encPrivate': encPrivate,
+        'saltB64': saltB64,
+      });
+      if (decrypted == null) return false;
+      privatePem = decrypted;
+    }
+
+    final encMap = await compute(_encryptPrivateKeyIsolate, {
+      'pin': newPin,
+      'privatePem': privatePem,
+    });
+
+    await _secureStorage.write(
+      key: _encryptedPrivateKeyStorageKey,
+      value: encMap['encrypted']!,
+    );
+    await _secureStorage.write(
+      key: _pinSaltStorageKey,
+      value: encMap['saltB64']!,
+    );
+
+    if (_privateKey == null) {
+      _privateKey = RSAHelper.privateKeyFromPem(privatePem);
+      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
+    }
+
+    return true;
+  }
+
+  @visibleForTesting
+  static Map<String, String> testEncryptPrivateKey({
+    required String pin,
+    required String privatePem,
+  }) =>
+      _encryptPrivateKeyIsolate({'pin': pin, 'privatePem': privatePem});
+
+  @visibleForTesting
+  static String? testDecryptPrivateKey({
+    required String pin,
+    required String encrypted,
+    required String saltB64,
+  }) =>
+      _decryptPrivateKeyIsolate({
+        'pin': pin,
+        'encPrivate': encrypted,
+        'saltB64': saltB64,
+      });
+
   Future<void> loadEphemeralKeys() async {
     final pair = RSAHelper.generateKeyPair();
     _privateKey = pair.privateKey as RSAPrivateKey;

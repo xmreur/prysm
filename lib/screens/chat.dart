@@ -782,14 +782,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (!mounted) return;
     if (ok) {
+      final updated = message.copyWith(
+        text: newText,
+        metadata: {...?message.metadata, 'edited': true},
+      );
       setState(() {
-        _messages.updateMessage(
-          message,
-          message.copyWith(
-            text: newText,
-            metadata: {...?message.metadata, 'edited': true},
-          ),
-        );
+        _messages.updateMessage(message, updated);
+        _messageCache[message.id] = updated;
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

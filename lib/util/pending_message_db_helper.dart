@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -204,5 +206,57 @@ class PendingMessageDbHelper {
       whereArgs: messageIds,
     );
     PendingActivityNotifier.instance.notify();
+  }
+
+  /// Pending 1:1 chat outbound row for a wire message id (excludes side-channels).
+  static Future<Map<String, dynamic>?> getPendingOutboundForWireId(
+    String wireId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'pending_messages',
+      where: 'id = ? AND groupId IS NULL',
+      whereArgs: [wireId],
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    final type = row['type'] as String?;
+    if (!isPendingOutboundChatType(type ?? '')) return null;
+    return row;
+  }
+
+  /// Pending group chat outbound rows keyed as `{wireId}__{memberId}`.
+  static Future<List<Map<String, dynamic>>> getPendingGroupOutboundForWireId(
+    String wireId,
+    String groupId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'pending_messages',
+      where: 'groupId = ? AND id LIKE ?',
+      whereArgs: [groupId, '${wireId}__%'],
+    );
+    return rows
+        .where((row) => isPendingOutboundChatType(row['type'] as String? ?? ''))
+        .toList();
+  }
+
+  static Future<void> updatePendingCiphertext({
+    required String id,
+    required String encrypted,
+  }) async {
+    final db = await database;
+    await db.update(
+      'pending_messages',
+      {'message': encrypted},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    PendingActivityNotifier.instance.notify();
+  }
+
+  @visibleForTesting
+  static void setDatabaseForTest(Database? db) {
+    _database = db;
   }
 }

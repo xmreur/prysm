@@ -12,6 +12,7 @@ import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/rsa_helper.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pointycastle/asymmetric/api.dart';
@@ -46,6 +47,8 @@ class ChatService {
   DateTime? lastSuccessfulActivity;
 
   int? _newestTimestamp;
+  final Set<String> _seenMessageIds = {};
+  StreamSubscription<InboundMessageEvent>? _inboundSub;
 
   ChatService({
     required this.userId,
@@ -57,6 +60,8 @@ class ChatService {
     _disposed = true;
     _isPolling = false;
     _isSending = false;
+    _inboundSub?.cancel();
+    _inboundSub = null;
     _newMessagesController.close();
     _messageStatusController.close();
     _peerReachableController.close();
@@ -92,7 +97,26 @@ class ChatService {
   void startPolling() {
     if (_isPolling) return;
     _isPolling = true;
+    _subscribeInbound();
     _loopPoll();
+  }
+
+  @visibleForTesting
+  void startInboundPushListener() {
+    _subscribeInbound();
+  }
+
+  void _subscribeInbound() {
+    _inboundSub ??= InboundMessageNotifier.instance.onInboundMessage.listen(
+      _onInboundMessage,
+    );
+  }
+
+  void _onInboundMessage(InboundMessageEvent event) {
+    if (_disposed) return;
+    if (event.groupId != null) return;
+    if (event.senderId != peerId) return;
+    _deliverNewRows([event.row]);
   }
 
   void stopPolling() {
@@ -257,30 +281,41 @@ class ChatService {
     );
 
     if (batch.isEmpty) return false;
+    return _deliverNewRows(batch);
+  }
 
-    final newMessages = batch
-        .where(
-          (msg) =>
-              _newestTimestamp == null ||
-              (msg['timestamp'] as int) > _newestTimestamp!,
-        )
-        .toList();
+  bool _deliverNewRows(List<Map<String, dynamic>> rows) {
+    if (_disposed) return false;
+
+    final newMessages = rows.where((msg) {
+      final id = msg['id'] as String;
+      if (_seenMessageIds.contains(id)) return false;
+      if (_newestTimestamp != null &&
+          (msg['timestamp'] as int) <= _newestTimestamp!) {
+        return false;
+      }
+      return true;
+    }).toList();
 
     if (newMessages.isEmpty) return false;
+
+    for (final msg in newMessages) {
+      _seenMessageIds.add(msg['id'] as String);
+    }
 
     _newestTimestamp = newMessages
         .map((m) => m['timestamp'] as int)
         .reduce(max);
 
-    // seedNewestTimestamp() prevents historical messages from counting; any
-    // new peer-originated row here is live traffic.
     final hasNewPeerMessage =
         newMessages.any((msg) => msg['senderId'] == peerId);
     if (hasNewPeerMessage) {
       _notifyPeerReachable();
     }
 
-    _newMessagesController.add(newMessages);
+    if (!_disposed) {
+      _newMessagesController.add(newMessages);
+    }
     return true;
   }
 

@@ -260,11 +260,12 @@ class MessagesDb {
 	}
 
 	/// Insert an inbound delivery without clobbering our outbound encrypted-for-self copy.
-	static Future<void> insertInboundMessage(
+	/// Returns the stored row, or null when an existing outbound copy is kept.
+	static Future<Map<String, dynamic>?> insertInboundMessage(
 		Map<String, dynamic> message,
 		String localUserId,
 	) async {
-		await _dbMutex.protect(() async {
+		return await _dbMutex.protect(() async {
 			final db = await database;
 			final normalized = _withStorageId(message);
 			final id = normalized['id'] as String;
@@ -278,7 +279,7 @@ class MessagesDb {
 				final wasOutbound = row['senderId'] == localUserId &&
 					row['status'] != 'received';
 				if (wasOutbound) {
-					return;
+					return null;
 				}
 			}
 			await db.insert(
@@ -286,6 +287,7 @@ class MessagesDb {
 				normalized,
 				conflictAlgorithm: ConflictAlgorithm.replace,
 			);
+			return normalized;
 		});
 	}
 

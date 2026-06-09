@@ -20,6 +20,7 @@ import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
 
@@ -360,7 +361,7 @@ class PrysmServer {
       }
 
       final localId = localOnionAddress ?? receiverId;
-      await MessagesDb.insertInboundMessage({
+      final inserted = await MessagesDb.insertInboundMessage({
         'id': data['id'] as String,
         'senderId': senderId,
         'receiverId': receiverId,
@@ -374,6 +375,12 @@ class PrysmServer {
         if (data['replyTo'] != null) 'replyTo': data['replyTo'],
         'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
       }, localId);
+
+      if (inserted != null) {
+        InboundMessageNotifier.instance.notify(
+          InboundMessageEvent.fromRow(inserted),
+        );
+      }
 
       ConversationRefreshNotifier.instance.notifyInboundMessage();
 

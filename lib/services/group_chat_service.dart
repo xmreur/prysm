@@ -14,6 +14,7 @@ import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:uuid/uuid.dart';
 
 class GroupChatService {
@@ -32,6 +33,7 @@ class GroupChatService {
   int _consecutivePollErrors = 0;
   int? _newestTimestamp;
   final Set<String> _seenMessageIds = {};
+  StreamSubscription<InboundMessageEvent>? _inboundSub;
 
   final _newMessagesController =
       StreamController<List<Map<String, dynamic>>>.broadcast();
@@ -54,6 +56,8 @@ class GroupChatService {
     _disposed = true;
     _isPolling = false;
     _isSending = false;
+    _inboundSub?.cancel();
+    _inboundSub = null;
     _newMessagesController.close();
     _messageStatusController.close();
   }
@@ -77,7 +81,20 @@ class GroupChatService {
   void startPolling() {
     if (_isPolling) return;
     _isPolling = true;
+    _subscribeInbound();
     _loopPoll();
+  }
+
+  void _subscribeInbound() {
+    _inboundSub ??= InboundMessageNotifier.instance.onInboundMessage.listen(
+      _onInboundMessage,
+    );
+  }
+
+  void _onInboundMessage(InboundMessageEvent event) {
+    if (_disposed) return;
+    if (event.groupId != groupId) return;
+    _deliverNewRows([event.row]);
   }
 
   void stopPolling() {
@@ -258,11 +275,17 @@ class GroupChatService {
       afterTimestamp: joinedAt,
     );
     if (batch.isEmpty) return false;
+    return _deliverNewRows(batch);
+  }
 
-    final newMessages = batch.where((msg) {
+  bool _deliverNewRows(List<Map<String, dynamic>> rows) {
+    if (_disposed) return false;
+
+    final newMessages = rows.where((msg) {
       final msgId = msg['id'] as String;
       if (_seenMessageIds.contains(msgId)) return false;
-      if (_newestTimestamp != null && (msg['timestamp'] as int) <= _newestTimestamp!) {
+      if (_newestTimestamp != null &&
+          (msg['timestamp'] as int) <= _newestTimestamp!) {
         return false;
       }
       return true;
@@ -278,7 +301,9 @@ class GroupChatService {
         .map((m) => m['timestamp'] as int)
         .reduce(max);
 
-    _newMessagesController.add(newMessages);
+    if (!_disposed) {
+      _newMessagesController.add(newMessages);
+    }
     return true;
   }
 

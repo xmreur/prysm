@@ -60,6 +60,24 @@ bool isReactionType(String type) => reactionTypes.contains(type);
 bool isMessageModifyType(String type) => messageModifyTypes.contains(type);
 bool isReadReceiptType(String type) => readReceiptTypes.contains(type);
 
+const Set<String> directMessageTypes = {
+  'text',
+  'file',
+  'image',
+  'audio',
+};
+
+bool isDirectMessageType(String type) => directMessageTypes.contains(type);
+
+bool isSideChannelPendingType(String type) =>
+    isReadReceiptType(type) ||
+    isReactionType(type) ||
+    isMessageModifyType(type);
+
+bool isPendingOutboundChatType(String type) =>
+    !isSideChannelPendingType(type) &&
+    (isDirectMessageType(type) || isGroupMessageType(type));
+
 /// Deterministic wire id for a reaction event (dedupe / pending queue).
 String reactionEventId({
   required String targetMessageId,

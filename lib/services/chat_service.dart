@@ -309,6 +309,11 @@ class ChatService {
         for (final msg in pending) {
           if (_disposed) break;
 
+          final type = msg['type'] as String?;
+          if (type != null && isSideChannelPendingType(type)) {
+            continue;
+          }
+
           final msgId = msg['id'] as String;
           final retries = _retryCounts[msgId] ?? 0;
 
@@ -599,6 +604,10 @@ class ChatService {
       final sentIds = <String>[];
       for (final msg in pending.take(10)) {
         if (_disposed) break;
+        final type = msg['type'] as String?;
+        if (type != null && isSideChannelPendingType(type)) {
+          continue;
+        }
         final msgId = msg['id'] as String;
         final success = await _sendOverTor(
           msgId,

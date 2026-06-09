@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_outbound_gateway.dart';
@@ -21,6 +22,14 @@ class MessageModifyService {
   final String? peerId;
   final String? groupId;
   final GroupService? groupService;
+
+  @visibleForTesting
+  static Future<bool> Function({
+    required String id,
+    required String encrypted,
+    required int timestamp,
+    required String? peerId,
+  })? postDirectOverride;
 
   MessageModifyService.direct({
     required this.userId,
@@ -102,27 +111,21 @@ class MessageModifyService {
       editedAt: modifiedAt,
     );
 
+    _notifyEdit(targetMessageId, newText, modifiedAt);
+
     final payload = MessageModifyPayload(
       targetMessageId: targetMessageId,
       action: 'edit',
       encryptedBody: encryptedPeer,
       modifiedAt: modifiedAt,
     );
-    try {
-      await _sendDirectModify(payload);
-    } catch (e) {
-      print('Direct message edit send failed: $e');
-      return false;
-    }
 
-    MessageModifyRefreshNotifier.instance.notify(
-      MessageModifyUpdate(
-        targetMessageId: targetMessageId,
-        action: 'edit',
-        newText: newText,
-        modifiedAt: modifiedAt,
-      ),
+    await syncDirectEditOutbound(
+      targetMessageId: targetMessageId,
+      encryptedPeer: encryptedPeer,
+      payload: payload,
     );
+
     return true;
   }
 
@@ -145,14 +148,51 @@ class MessageModifyService {
       editedAt: modifiedAt,
     );
 
+    _notifyEdit(targetMessageId, newText, modifiedAt);
+
     final payload = MessageModifyPayload(
       targetMessageId: targetMessageId,
       action: 'edit',
       encryptedBody: encrypted,
       modifiedAt: modifiedAt,
     );
-    await _sendGroupModify(payload);
 
+    final pendingRows =
+        await PendingMessageDbHelper.getPendingGroupOutboundForWireId(
+      targetMessageId,
+      groupId!,
+    );
+    for (final row in pendingRows) {
+      await PendingMessageDbHelper.updatePendingCiphertext(
+        id: row['id'] as String,
+        encrypted: encrypted,
+      );
+    }
+
+    final members = await gs.getMembers(groupId!);
+    final allTargets =
+        members.map((m) => m.memberId).where((id) => id != userId).toSet();
+    final pendingMemberIds = pendingRows
+        .map(
+          (row) =>
+              row['receiverId'] as String? ?? row['targetMemberId'] as String?,
+        )
+        .whereType<String>()
+        .toSet();
+    final deliveredTargets = allTargets.difference(pendingMemberIds);
+
+    if (deliveredTargets.isNotEmpty) {
+      try {
+        await _sendGroupModify(payload, onlyTargets: deliveredTargets);
+      } catch (e) {
+        print('Group message edit send failed: $e');
+      }
+    }
+
+    return true;
+  }
+
+  void _notifyEdit(String targetMessageId, String newText, int modifiedAt) {
     MessageModifyRefreshNotifier.instance.notify(
       MessageModifyUpdate(
         targetMessageId: targetMessageId,
@@ -161,15 +201,43 @@ class MessageModifyService {
         modifiedAt: modifiedAt,
       ),
     );
+  }
+
+  /// Returns true when a modify side-channel send was attempted.
+  @visibleForTesting
+  Future<bool> syncDirectEditOutbound({
+    required String targetMessageId,
+    required String encryptedPeer,
+    required MessageModifyPayload payload,
+  }) async {
+    final pending = await PendingMessageDbHelper.getPendingOutboundForWireId(
+      targetMessageId,
+    );
+    if (pending != null) {
+      await PendingMessageDbHelper.updatePendingCiphertext(
+        id: targetMessageId,
+        encrypted: encryptedPeer,
+      );
+      return false;
+    }
+    try {
+      await _sendDirectModify(payload);
+    } catch (e) {
+      print('Direct message edit send failed: $e');
+    }
     return true;
   }
 
   Future<void> _sendDirectModify(MessageModifyPayload payload) async {
-    final peerKey = await _loadPeerPublicKey();
-    if (peerId == null || peerKey == null) return;
+    if (peerId == null) return;
 
-    final encrypted =
-        keyManager.encryptHybridForPeer(payload.encode(), peerKey);
+    final override = postDirectOverride;
+    final peerKey = await _loadPeerPublicKey();
+    if (peerKey == null && override == null) return;
+
+    final encrypted = peerKey != null
+        ? keyManager.encryptHybridForPeer(payload.encode(), peerKey)
+        : '';
     final eventId = modifyEventId(
       targetMessageId: payload.targetMessageId,
       actorId: userId,
@@ -195,7 +263,10 @@ class MessageModifyService {
     }
   }
 
-  Future<void> _sendGroupModify(MessageModifyPayload payload) async {
+  Future<void> _sendGroupModify(
+    MessageModifyPayload payload, {
+    Set<String>? onlyTargets,
+  }) async {
     final gs = groupService;
     if (gs == null || groupId == null) return;
 
@@ -204,7 +275,10 @@ class MessageModifyService {
 
     final encrypted = GroupCrypto.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
-    final targets = members.map((m) => m.memberId).where((id) => id != userId);
+    var targets = members.map((m) => m.memberId).where((id) => id != userId);
+    if (onlyTargets != null) {
+      targets = targets.where(onlyTargets.contains);
+    }
 
     final eventId = modifyEventId(
       targetMessageId: payload.targetMessageId,
@@ -242,6 +316,15 @@ class MessageModifyService {
     required int timestamp,
   }) async {
     if (peerId == null) return false;
+    final override = postDirectOverride;
+    if (override != null) {
+      return override(
+        id: id,
+        encrypted: encrypted,
+        timestamp: timestamp,
+        peerId: peerId,
+      );
+    }
     try {
       await TorDelivery.withTorRetry<void>(
         attempt: () => _postDirectOnce(

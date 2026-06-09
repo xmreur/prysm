@@ -393,20 +393,23 @@ class GroupChatService {
     final timeout =
         isLargeMedia ? const Duration(minutes: 5) : const Duration(seconds: 30);
     try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postRaw(
-          id,
-          targetMemberId,
-          encrypted,
-          type,
-          timestamp,
-          replyToId: replyToId,
-          fileName: fileName,
-          fileSize: fileSize,
-          viewOnce: viewOnce,
-          timeout: timeout,
-        ),
+      final send = () => _postRaw(
+        id,
+        targetMemberId,
+        encrypted,
+        type,
+        timestamp,
+        replyToId: replyToId,
+        fileName: fileName,
+        fileSize: fileSize,
+        viewOnce: viewOnce,
+        timeout: timeout,
       );
+      if (TorOutboundGateway.isConfigured) {
+        await send();
+      } else {
+        await TorDelivery.withTorRetry<void>(attempt: send);
+      }
       return true;
     } catch (e) {
       print('Group send failed: $e');

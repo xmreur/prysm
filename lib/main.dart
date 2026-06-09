@@ -1805,6 +1805,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       TorBootstrapNotifier.instance.reset();
       _torStopped = false;
       await widget.torManager.startTor();
+      TorOutboundGateway.configure(widget.torManager);
       final onion = await widget.torManager.getOnionAddress();
       if (onion != null && onion.isNotEmpty) {
         PrysmServer.instance?.localOnionAddress = onion;

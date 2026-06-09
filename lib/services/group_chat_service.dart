@@ -435,8 +435,8 @@ class GroupChatService {
       'type': type,
       'replyTo': replyToId,
       'timestamp': timestamp,
-      if (fileName != null) 'fileName': fileName,
-      if (fileSize != null) 'fileSize': fileSize,
+      'fileName': ?fileName,
+      'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
     };
     if (TorOutboundGateway.isConfigured) {

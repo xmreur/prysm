@@ -1,18 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
   setUp(() {
     TorOutboundGateway.resetForTest();
+    TorDelivery.resetForTest();
     TorOutboundGateway.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/gateway-test'),
     );
   });
 
-  tearDown(TorOutboundGateway.resetForTest);
+  tearDown(() {
+    TorOutboundGateway.resetForTest();
+    TorDelivery.resetForTest();
+  });
 
   group('TorOutboundGateway per-peer queue', () {
     test('serializes operations for the same peer', () async {

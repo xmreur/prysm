@@ -33,7 +33,6 @@ class TorOutboundGateway {
   static void resetForTest() {
     _instance?.dispose();
     _instance = null;
-    TorDelivery.resetForTest();
   }
 
   final TorManager _torManager;

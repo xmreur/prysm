@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:prysm/services/chat_service.dart';
@@ -33,7 +31,7 @@ void main() {
     InboundMessageNotifier.instance.resetForTest();
   });
 
-  Map<String, dynamic> _directRow({
+  Map<String, dynamic> directRow({
     required String storageId,
     required String wireId,
     int timestamp = 1000,
@@ -54,7 +52,7 @@ void main() {
     service.onNewMessages.listen(delivered.add);
     service.startInboundPushListener();
 
-    final row = _directRow(storageId: 'peer.onion::msg-1', wireId: 'msg-1');
+    final row = directRow(storageId: 'peer.onion::msg-1', wireId: 'msg-1');
     InboundMessageNotifier.instance.notify(InboundMessageEvent.fromRow(row));
 
     await Future<void>.delayed(Duration.zero);
@@ -88,7 +86,7 @@ void main() {
     service.onNewMessages.listen(delivered.add);
     service.startInboundPushListener();
 
-    final row = _directRow(storageId: 'peer.onion::msg-1', wireId: 'msg-1');
+    final row = directRow(storageId: 'peer.onion::msg-1', wireId: 'msg-1');
     final event = InboundMessageEvent.fromRow(row);
     InboundMessageNotifier.instance.notify(event);
     InboundMessageNotifier.instance.notify(event);

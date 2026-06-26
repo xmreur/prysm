@@ -122,7 +122,38 @@ class ChatService {
   }
 
   void startSendQueue() {
-    _processSendQueue();
+    unawaited(reconcilePendingQueue().whenComplete(_processSendQueue));
+  }
+
+  /// Re-queues outbound messages that show as pending in the UI but were
+  /// dropped from the pending_messages retry table (e.g. after a failed send
+  /// before the queue insert, or app restart during a long Tor timeout).
+  Future<void> reconcilePendingQueue() async {
+    if (_disposed || peerPublicKey == null) return;
+
+    final pendingRows = await MessagesDb.getPendingOutboundDirectMessages(
+      senderId: userId,
+      receiverId: peerId,
+    );
+    if (pendingRows.isEmpty) return;
+
+    for (final row in pendingRows) {
+      if (_disposed || peerPublicKey == null) return;
+
+      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
+      final type = row['type'] as String? ?? 'text';
+      if (isSideChannelPendingType(type)) continue;
+
+      final queued =
+          await PendingMessageDbHelper.getPendingOutboundForWireId(wireId);
+      if (queued != null) continue;
+
+      try {
+        await resendMessage(wireId, processQueue: false);
+      } catch (e) {
+        debugPrint('Failed to re-queue pending message $wireId: $e');
+      }
+    }
   }
 
   /// Avoid re-processing historical messages on the first poll after chat open.
@@ -335,13 +366,15 @@ class ChatService {
     int consecutiveFailures = 0;
 
     try {
+      await reconcilePendingQueue();
+
       while (!_disposed) {
         final pending =
             await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
         if (pending.isEmpty) break;
 
         final List<String> sentIds = [];
-        bool hadFailure = false;
+        var sentAny = false;
 
         for (final msg in pending) {
           if (_disposed) break;
@@ -363,10 +396,6 @@ class ChatService {
             continue;
           }
 
-          // If we already had a failure this batch, skip remaining
-          // (peer is likely unreachable right now)
-          if (hadFailure) break;
-
           final success = await _sendOverTor(
             msg['id'],
             msg['message'],
@@ -385,11 +414,11 @@ class ChatService {
               _messageStatusController.add(MessageStatusUpdate(msgId, 'sent'));
             }
             consecutiveFailures = 0;
+            sentAny = true;
             _notifyPeerReachable();
           } else {
             _retryCounts[msgId] = retries + 1;
             consecutiveFailures++;
-            hadFailure = true;
           }
         }
 
@@ -400,6 +429,10 @@ class ChatService {
         final remaining =
             await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
         if (remaining.isEmpty) break;
+
+        if (sentAny) {
+          continue;
+        }
 
         // Backoff: 2s, 4s, 8s, 16s, max 30s
         final backoff = min(30, 2 * (1 << min(consecutiveFailures, 4)));
@@ -567,6 +600,8 @@ class ChatService {
 
   Future<void> _processPendingOnce() async {
     if (_isSending || _disposed) return;
+    await reconcilePendingQueue();
+    if (_isSending || _disposed) return;
     _isSending = true;
     try {
       final pending =
@@ -632,7 +667,10 @@ class ChatService {
   }
 
   /// Re-queue a failed message for retry
-  Future<void> resendMessage(String messageId) async {
+  Future<void> resendMessage(
+    String messageId, {
+    bool processQueue = true,
+  }) async {
     final rows = await MessagesDb.getMessageById(messageId);
     if (rows.isEmpty) return;
     final msg = rows.first;
@@ -686,7 +724,9 @@ class ChatService {
     if (!_disposed) {
       _messageStatusController.add(MessageStatusUpdate(messageId, 'pending'));
     }
-    _processSendQueue();
+    if (processQueue) {
+      _processSendQueue();
+    }
   }
 
   void _notifyPeerReachable() {

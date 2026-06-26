@@ -63,6 +63,8 @@ class SettingsService {
   bool get onboardingCompleted => _settings.onboardingCompleted;
 
   static const String _legacyReadReceiptsKey = 'read_receipts';
+  static const String _wsTransportDefaultMigratedKey =
+      'ws_transport_default_migrated';
 
   // Initialize (call at app startup)
   Future<void> init() async {
@@ -70,6 +72,7 @@ class SettingsService {
     _settingsExistedAtLaunch = _prefs?.getString(_settingsKey) != null;
     await load();
     await _migrateLegacyPrefs();
+    await _migrateWebSocketDefault();
   }
 
   /// One-time migration from privacy screen SharedPreferences keys.
@@ -80,6 +83,18 @@ class SettingsService {
       await setSendReadReceipts(legacy);
       await _prefs!.remove(_legacyReadReceiptsKey);
     }
+  }
+
+  /// One-time migration: WebSocket transport is now on by default.
+  Future<void> _migrateWebSocketDefault() async {
+    if (_prefs == null) return;
+    if (_prefs!.getBool(_wsTransportDefaultMigratedKey) == true) return;
+
+    if (!_settings.enableWebSocketTransport) {
+      _settings = _settings.copyWith(enableWebSocketTransport: true);
+      await save();
+    }
+    await _prefs!.setBool(_wsTransportDefaultMigratedKey, true);
   }
 
   /// Skips onboarding for upgrades: settings existed before this launch and

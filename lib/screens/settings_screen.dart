@@ -48,7 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _minimizeToTray = true;
   bool _minimizeOnMinimizeButton = false;
   bool _enableRelay = false;
-  bool _enableWebSocketTransport = false;
+  bool _enableWebSocketTransport = true;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
   bool _enableVoiceTranscription = false;

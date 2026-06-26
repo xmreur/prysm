@@ -643,6 +643,25 @@ class MessagesDb {
 		});
 	}
 
+	/// Outbound direct chat rows still marked pending in the messages table.
+	static Future<List<Map<String, dynamic>>> getPendingOutboundDirectMessages({
+		required String senderId,
+		required String receiverId,
+	}) async {
+		return _dbMutex.protect(() async {
+			final db = await database;
+			return db.query(
+				'messages',
+				where:
+					'groupId IS NULL AND senderId = ? AND receiverId = ? '
+					"AND status = 'pending' AND deletedAt IS NULL AND "
+					'$_directChatTypeFilter',
+				whereArgs: [senderId, receiverId],
+				orderBy: 'timestamp ASC',
+			);
+		});
+	}
+
     static Future<void> updateMessageStatus(
 		String messageId,
 		String status, {

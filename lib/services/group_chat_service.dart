@@ -580,11 +580,30 @@ class GroupChatService {
         if (_disposed) break;
         final pendingId = msg['id'] as String;
         final messageId = _messageIdFromPendingId(pendingId);
+        final stored = await MessagesDb.getMessageById(
+          messageId,
+          groupId: groupId,
+        );
+        if (stored.isNotEmpty && stored.first['deletedAt'] != null) {
+          await PendingMessageDbHelper.removeOutboundPendingForWireId(
+            messageId,
+            groupId: groupId,
+          );
+          continue;
+        }
+        final encrypted = msg['message'] as String?;
+        if (encrypted == null || encrypted.isEmpty) {
+          await PendingMessageDbHelper.removeOutboundPendingForWireId(
+            messageId,
+            groupId: groupId,
+          );
+          continue;
+        }
         final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String;
         final success = await _sendOverTor(
           id: messageId,
           targetMemberId: target,
-          encrypted: msg['message'] as String,
+          encrypted: encrypted,
           type: msg['type'] as String,
           replyToId: msg['replyTo'] as String?,
           timestamp: msg['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,

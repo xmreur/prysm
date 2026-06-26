@@ -640,9 +640,19 @@ class ChatService {
           continue;
         }
         final msgId = msg['id'] as String;
+        final stored = await MessagesDb.getMessageById(msgId);
+        if (stored.isNotEmpty && stored.first['deletedAt'] != null) {
+          await PendingMessageDbHelper.removeOutboundPendingForWireId(msgId);
+          continue;
+        }
+        final encrypted = msg['message'] as String?;
+        if (encrypted == null || encrypted.isEmpty) {
+          await PendingMessageDbHelper.removeOutboundPendingForWireId(msgId);
+          continue;
+        }
         final success = await _sendOverTor(
           msgId,
-          msg['message'] as String,
+          encrypted,
           msg['type'] as String,
           replyToId: msg['replyTo'] as String?,
           fileName: msg['fileName'] as String?,
@@ -685,6 +695,10 @@ class ChatService {
     final rows = await MessagesDb.getMessageById(messageId);
     if (rows.isEmpty) return;
     final msg = rows.first;
+    if (msg['deletedAt'] != null) {
+      await PendingMessageDbHelper.removeOutboundPendingForWireId(messageId);
+      return;
+    }
 
     // Re-encrypt the stored self-payload for the peer
     // The message column has the self-encrypted payload, but we need

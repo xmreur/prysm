@@ -11,6 +11,7 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_payload.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -70,6 +71,10 @@ class MessageModifyService {
       targetMessageId,
       groupId: groupId,
       deletedAt: modifiedAt,
+    );
+    await MessageContentWiper.wipeLocalArtifacts(
+      wireId: targetMessageId,
+      groupId: groupId,
     );
 
     final payload = MessageModifyPayload(
@@ -480,6 +485,10 @@ class MessageModifyService {
         payload.targetMessageId,
         groupId: groupId,
         deletedAt: payload.modifiedAt,
+      );
+      await MessageContentWiper.wipeLocalArtifacts(
+        wireId: payload.targetMessageId,
+        groupId: groupId,
       );
     } else if (payload.isEdit && payload.encryptedBody != null) {
       await MessagesDb.updateMessageContent(

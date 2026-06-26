@@ -189,6 +189,28 @@ class PendingMessageDbHelper {
     PendingActivityNotifier.instance.notify();
   }
 
+  /// Drops queued outbound chat deliveries for a wire message id.
+  static Future<void> removeOutboundPendingForWireId(
+    String wireId, {
+    String? groupId,
+  }) async {
+    final db = await database;
+    if (groupId != null) {
+      await db.delete(
+        'pending_messages',
+        where: 'groupId = ? AND (id = ? OR id LIKE ?)',
+        whereArgs: [groupId, wireId, '${wireId}__%'],
+      );
+    } else {
+      await db.delete(
+        'pending_messages',
+        where: 'groupId IS NULL AND id = ?',
+        whereArgs: [wireId],
+      );
+    }
+    PendingActivityNotifier.instance.notify();
+  }
+
   static Future<void> closeForWipe() async {
     if (_database != null) {
       await _database!.close();

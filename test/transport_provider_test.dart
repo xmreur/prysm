@@ -1,0 +1,97 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/ws_connection_manager.dart';
+import 'package:prysm/transport/peer_transport_registry.dart';
+import 'package:prysm/transport/transport_preference.dart';
+import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_service.dart';
+
+void main() {
+  setUp(() {
+    TransportProvider.resetForTest();
+    TorDelivery.resetForTest();
+    PeerTransportRegistry.instance.resetForTest();
+  });
+
+  tearDown(() {
+    TransportProvider.resetForTest();
+    TorDelivery.resetForTest();
+  });
+
+  test('configure initializes and resets provider', () {
+    expect(TransportProvider.isConfigured, isFalse);
+    TransportProvider.configure(
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test'),
+    );
+    expect(TransportProvider.isConfigured, isTrue);
+
+    TransportProvider.resetForTest();
+    expect(TransportProvider.isConfigured, isFalse);
+  });
+
+  test('HTTP-only peers skip realtime connection checks', () {
+    TransportProvider.configure(
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-2'),
+    );
+    PeerTransportRegistry.instance.markHttpOnly('legacy.onion');
+    expect(
+      TransportProvider.instance.isRealtimeConnected('legacy.onion'),
+      isFalse,
+    );
+  });
+
+  test('onWebSocketSettingChanged clears httpOnly blacklist', () {
+    TransportProvider.configure(
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-3'),
+    );
+    PeerTransportRegistry.instance.markHttpOnly('peer.onion');
+    expect(PeerTransportRegistry.instance.isHttpOnly('peer.onion'), isTrue);
+
+    TransportProvider.instance.onWebSocketSettingChanged(true);
+    expect(PeerTransportRegistry.instance.isHttpOnly('peer.onion'), isFalse);
+  });
+
+  test('withPeer falls back to HTTP when WS connect fails', () async {
+    TransportProvider.configure(
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-4'),
+    );
+    await SettingsService().setEnableWebSocketTransport(true);
+
+    var usedHttp = false;
+    try {
+      await TransportProvider.instance.withPeer('missing.onion', (transport) async {
+        usedHttp = transport == TransportProvider.instance.httpTransport;
+        throw StateError('simulated HTTP path');
+      });
+    } catch (_) {}
+
+    expect(usedHttp, isTrue);
+    expect(
+      PeerTransportRegistry.instance.isHttpOnly('missing.onion'),
+      isFalse,
+    );
+  });
+
+  test('wsPreferred uses HTTP immediately when WS is not connected', () async {
+    TransportProvider.configure(
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-6'),
+    );
+    await SettingsService().setEnableWebSocketTransport(true);
+
+    var usedHttp = false;
+    final sw = Stopwatch()..start();
+    await TransportProvider.instance.withPeer(
+      'peer.onion',
+      (transport) async {
+        usedHttp = transport == TransportProvider.instance.httpTransport;
+        return 'ok';
+      },
+      preference: TransportPreference.wsPreferred,
+    );
+    sw.stop();
+
+    expect(usedHttp, isTrue);
+    expect(sw.elapsed.inSeconds, lessThan(3));
+  });
+}

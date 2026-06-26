@@ -41,14 +41,14 @@ class TorController(private val context: Context) {
     fun writeTorrc() {
         val torrcFile = File(dataDir, "torrc")
         val torrcContent = """
+            SocksPort 9050
             ControlPort $CONTROL_PORT
             DataDirectory ${dataDir.absolutePath}
             CookieAuthentication 1
             HiddenServiceDir ${hiddenServiceDir.absolutePath}
             HiddenServicePort 80 127.0.0.1:12345
-            Log notice stdout
-            Log debug stdout
-            Log info stdout
+            Log notice file ${dataDir.absolutePath}/tor.log
+            SafeLogging 1
         """.trimIndent()
 
         torrcFile.writeText(torrcContent)

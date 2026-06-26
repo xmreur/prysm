@@ -24,8 +24,16 @@ class TorManager {
   final String torPath;
   final String dataDir;
   final int controlPort;
-  final int socksPort;
+  int _socksPort;
   final String controlPassword;
+
+  int get socksPort => _socksPort;
+
+  void updateSocksPort(int port) {
+    if (port > 0 && port <= 65535) {
+      _socksPort = port;
+    }
+  }
 
   final stdoutController = StreamController<String>.broadcast();
   final stderrController = StreamController<String>.broadcast();
@@ -45,9 +53,9 @@ class TorManager {
     required this.torPath,
     required this.dataDir,
     this.controlPort = 9051,
-    this.socksPort = 9050,
+    int socksPort = 9050,
     this.controlPassword = 'my_password',
-  });
+  }) : _socksPort = socksPort;
 
   List<String> get recentStderrLines => List.unmodifiable(_recentStderrLines);
 
@@ -348,6 +356,7 @@ class TorManager {
     await _connectControlPort();
     await _authenticateWithCookieFile();
     await _waitForBootstrap(timeout: const Duration(minutes: 2));
+    await _discoverSocksPort();
   }
 
   Future<void> _authenticateWithCookieFile() async {
@@ -479,6 +488,7 @@ class TorManager {
     await _connectControlPort();
     await _authenticateDesktopPassword();
     await _waitForBootstrap(timeout: const Duration(minutes: 2));
+    await _discoverSocksPort();
   }
 
   void _recordStderrLine(String line) {
@@ -623,6 +633,26 @@ HiddenServicePort 80 127.0.0.1:12345
     }
 
     throw Exception('Tor bootstrap timeout');
+  }
+
+  Future<void> _discoverSocksPort() async {
+    try {
+      final resp = await _sendAndCollectImpl(
+        'GETINFO net/listeners/socks',
+        untilOk: true,
+        timeout: const Duration(seconds: 5),
+      );
+      for (final line in resp) {
+        if (!line.startsWith('250-net/listeners/socks=')) continue;
+        final match = RegExp(r'"[^"]*:(\d+)"').firstMatch(line);
+        if (match != null) {
+          updateSocksPort(int.parse(match.group(1)!));
+          return;
+        }
+      }
+    } catch (e) {
+      print('SOCKS port discovery failed, using $_socksPort: $e');
+    }
   }
 
   // =========================

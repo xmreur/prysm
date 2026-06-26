@@ -14,6 +14,7 @@ class Settings {
   final bool enableRelay;
   final String? personalRelayAddress;
   final bool aggressiveRetry;
+  final bool enableWebSocketTransport;
 
   // Privacy
   final int messageRetentionDays;
@@ -29,6 +30,7 @@ class Settings {
   // Files
   final bool enableFilePreview;
   final bool enableLinkUnfurling;
+  final bool enableVoiceTranscription;
   final String? customDownloadPath;
 
   // Onboarding
@@ -44,6 +46,7 @@ class Settings {
     this.enableRelay = false,
     this.personalRelayAddress,
     this.aggressiveRetry = true,
+    this.enableWebSocketTransport = false,
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.themeMode = 0,
@@ -51,6 +54,7 @@ class Settings {
     this.username,
     this.enableFilePreview = false,
     this.enableLinkUnfurling = false,
+    this.enableVoiceTranscription = false,
     this.customDownloadPath,
     this.onboardingCompleted = false,
   });
@@ -66,6 +70,7 @@ class Settings {
     'enableRelay': enableRelay,
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
+    'enableWebSocketTransport': enableWebSocketTransport,
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'themeMode': themeMode,
@@ -73,6 +78,7 @@ class Settings {
     'username': username,
     'enableFilePreview': enableFilePreview,
     'enableLinkUnfurling': enableLinkUnfurling,
+    'enableVoiceTranscription': enableVoiceTranscription,
     'customDownloadPath': customDownloadPath,
     'onboardingCompleted': onboardingCompleted,
   };
@@ -88,6 +94,7 @@ class Settings {
     enableRelay: json['enableRelay'] ?? false,
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
+    enableWebSocketTransport: json['enableWebSocketTransport'] ?? false,
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     themeMode: json['themeMode'] ?? 0,
@@ -95,6 +102,7 @@ class Settings {
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
     enableLinkUnfurling: json['enableLinkUnfurling'] ?? false,
+    enableVoiceTranscription: json['enableVoiceTranscription'] ?? false,
     customDownloadPath: json['customDownloadPath'],
     onboardingCompleted: json['onboardingCompleted'] ?? false,
   );
@@ -110,6 +118,7 @@ class Settings {
     bool? enableRelay,
     String? personalRelayAddress,
     bool? aggressiveRetry,
+    bool? enableWebSocketTransport,
     int? messageRetentionDays,
     PanicAction? panicAction,
     int? themeMode,
@@ -117,6 +126,7 @@ class Settings {
     String? username,
     bool? enableFilePreview,
     bool? enableLinkUnfurling,
+    bool? enableVoiceTranscription,
     String? customDownloadPath,
     bool? onboardingCompleted,
     bool clearCustomDownloadPath = false,
@@ -131,6 +141,8 @@ class Settings {
     enableRelay: enableRelay ?? this.enableRelay,
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
+    enableWebSocketTransport:
+        enableWebSocketTransport ?? this.enableWebSocketTransport,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     themeMode: themeMode ?? this.themeMode,
@@ -138,6 +150,8 @@ class Settings {
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
     enableLinkUnfurling: enableLinkUnfurling ?? this.enableLinkUnfurling,
+    enableVoiceTranscription:
+        enableVoiceTranscription ?? this.enableVoiceTranscription,
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
@@ -169,6 +183,7 @@ class Settings {
         other.enableRelay == enableRelay &&
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
+        other.enableWebSocketTransport == enableWebSocketTransport &&
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.themeMode == themeMode &&
@@ -176,6 +191,7 @@ class Settings {
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
         other.enableLinkUnfurling == enableLinkUnfurling &&
+        other.enableVoiceTranscription == enableVoiceTranscription &&
         other.customDownloadPath == customDownloadPath &&
         other.onboardingCompleted == onboardingCompleted;
   }
@@ -191,6 +207,7 @@ class Settings {
         enableRelay.hashCode ^
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^
+        enableWebSocketTransport.hashCode ^
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         themeMode.hashCode ^
@@ -198,6 +215,7 @@ class Settings {
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^
         enableLinkUnfurling.hashCode ^
+        enableVoiceTranscription.hashCode ^
         (customDownloadPath?.hashCode ?? 0) ^
         onboardingCompleted.hashCode;
   }

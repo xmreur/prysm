@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
-import 'package:prysm/client/TorHttpClient.dart';
+import 'package:flutter/foundation.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
 
 /// Lightweight delivery wake hints: notify recent peers to flush pending outbound
 /// traffic toward this node when it becomes reachable over Tor.
@@ -74,6 +73,7 @@ class WakeHintService {
     final userId = _userId;
     if (userId == null || _isTorStopped?.call() == true) return;
     if (_showOnlineStatus?.call() != true) return;
+    if (SettingsService().enableWebSocketTransport) return;
 
     final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
     final peers = timestamps.entries
@@ -112,41 +112,23 @@ class WakeHintService {
   }
 
   Future<void> _sendHintToPeer(String userId, String peerId) async {
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(peerId)) {
+      return;
+    }
     try {
-      if (TorOutboundGateway.isConfigured) {
-        await TorOutboundGateway.instance.postJson(
-          peerOnion: peerId,
-          path: 'sync-hint',
-          payload: {
-            'senderId': userId,
-            'timestamp': DateTime.now().millisecondsSinceEpoch,
-          },
-          timeout: _hintTimeout,
-        );
-      } else {
-        await TorDelivery.withTorRetry<void>(
-          attempt: () async {
-            final torClient =
-                TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-            try {
-              final uri = Uri.parse('http://$peerId:80/sync-hint');
-              final body = jsonEncode({
-                'senderId': userId,
-                'timestamp': DateTime.now().millisecondsSinceEpoch,
-              });
-              final response = await torClient
-                  .post(uri, {'Content-Type': 'application/json'}, body)
-                  .timeout(_hintTimeout);
-              await torClient.readUtf8Body(response);
-            } finally {
-              torClient.close();
-            }
-          },
-        );
-      }
+      await TransportProvider.postJsonOrFallback(
+        peerOnion: peerId,
+        path: 'sync-hint',
+        payload: {
+          'senderId': userId,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
+        timeout: _hintTimeout,
+      );
       _lastSentToPeer[peerId] = DateTime.now();
     } catch (e) {
-      print('Wake hint send to $peerId failed: $e');
+      debugPrint('Wake hint send to $peerId failed: $e');
     }
   }
 

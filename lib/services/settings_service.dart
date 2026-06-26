@@ -40,6 +40,7 @@ class SettingsService {
   bool get enableRelay => _settings.enableRelay;
   String? get personalRelayAddress => _settings.personalRelayAddress;
   bool get aggressiveRetry => _settings.aggressiveRetry;
+  bool get enableWebSocketTransport => _settings.enableWebSocketTransport;
 
   // Privacy
   int get messageRetentionDays => _settings.messageRetentionDays;
@@ -55,6 +56,7 @@ class SettingsService {
   // Files
   bool get enableFilePreview => _settings.enableFilePreview;
   bool get enableLinkUnfurling => _settings.enableLinkUnfurling;
+  bool get enableVoiceTranscription => _settings.enableVoiceTranscription;
   String? get customDownloadPath => _settings.customDownloadPath;
 
   // Onboarding
@@ -168,6 +170,11 @@ class SettingsService {
     await save();
   }
 
+  Future<void> setEnableWebSocketTransport(bool value) async {
+    _settings = _settings.copyWith(enableWebSocketTransport: value);
+    await save();
+  }
+
   // Privacy Settings
   Future<void> setMessageRetentionDays(int value) async {
     _settings = _settings.copyWith(messageRetentionDays: value);
@@ -206,6 +213,11 @@ class SettingsService {
     if (!value) {
       LinkUnfurlService.instance.clearCache();
     }
+    await save();
+  }
+
+  Future<void> setEnableVoiceTranscription(bool value) async {
+    _settings = _settings.copyWith(enableVoiceTranscription: value);
     await save();
   }
 

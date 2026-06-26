@@ -192,6 +192,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _membershipSub?.cancel();
     _readReceiptRefreshSub?.cancel();
     _readReceiptDebounce?.cancel();
+    _chatService.unpinMembersForWebSocket();
     _chatService.dispose();
     _reactionService.dispose();
   }
@@ -252,6 +253,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     await _markInboundAsRead();
     _chatService.startPolling();
     _chatService.startSendQueue();
+    _chatService.pinMembersForWebSocket();
 
     if (mounted && _messages.messages.isNotEmpty) {
       _stickToBottom = true;

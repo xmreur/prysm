@@ -2,13 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/constants/group_constants.dart';
-import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -256,9 +254,7 @@ class ChatService {
       try {
         final hadNew = await _fetchNewMessages();
         _consecutivePollErrors = 0;
-        _pollIntervalSeconds = hadNew
-            ? BatterySaverPolicy.chatPollActiveSeconds()
-            : BatterySaverPolicy.chatPollIdleSeconds();
+        _pollIntervalSeconds = _effectivePollIntervalSeconds(hadNew);
       } catch (e) {
         print('Polling error: $e');
         _consecutivePollErrors++;
@@ -270,6 +266,16 @@ class ChatService {
         await Future.delayed(Duration(seconds: _pollIntervalSeconds));
       }
     }
+  }
+
+  int _effectivePollIntervalSeconds(bool hadNew) {
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(peerId)) {
+      return BatterySaverPolicy.wsSafetyPollSeconds;
+    }
+    return hadNew
+        ? BatterySaverPolicy.chatPollActiveSeconds()
+        : BatterySaverPolicy.chatPollIdleSeconds();
   }
 
   Future<bool> _fetchNewMessages() async {
@@ -422,38 +428,23 @@ class ChatService {
         : const Duration(seconds: 30);
 
     try {
-      if (TorOutboundGateway.isConfigured) {
-        await TorOutboundGateway.instance.postMessage(
-          peerOnion: peerId,
-          payload: {
-            'id': id,
-            'senderId': userId,
-            'receiverId': peerId,
-            'message': encrypted,
-            'type': type,
-            'fileName': fileName,
-            'fileSize': fileSize,
-            'replyTo': replyToId,
-            'viewOnce': viewOnce,
-            'timestamp': DateTime.now().millisecondsSinceEpoch,
-          },
-          timeout: timeout,
-        );
-        return true;
-      }
-
-      return await TorDelivery.withTorRetry<bool>(
-        attempt: () => _postOverTorOnce(
-          id: id,
-          encrypted: encrypted,
-          type: type,
-          replyToId: replyToId,
-          fileName: fileName,
-          fileSize: fileSize,
-          viewOnce: viewOnce,
-          timeout: timeout,
-        ),
+      await TransportProvider.postMessageOrFallback(
+        peerOnion: peerId,
+        payload: {
+          'id': id,
+          'senderId': userId,
+          'receiverId': peerId,
+          'message': encrypted,
+          'type': type,
+          'fileName': fileName,
+          'fileSize': fileSize,
+          'replyTo': replyToId,
+          'viewOnce': viewOnce,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
+        timeout: timeout,
       );
+      return true;
     } on TimeoutException {
       print('Send timeout for $type message');
       return false;
@@ -463,61 +454,11 @@ class ChatService {
     }
   }
 
-  Future<bool> _postOverTorOnce({
-    required String id,
-    required String encrypted,
-    required String type,
-    String? replyToId,
-    String? fileName,
-    int? fileSize,
-    bool viewOnce = false,
-    required Duration timeout,
-  }) async {
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final uri = Uri.parse('http://$peerId:80/message');
-      final body = jsonEncode({
-        'id': id,
-        'senderId': userId,
-        'receiverId': peerId,
-        'message': encrypted,
-        'type': type,
-        'fileName': fileName,
-        'fileSize': fileSize,
-        'replyTo': replyToId,
-        'viewOnce': viewOnce,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-
-      final response = await torClient
-          .post(uri, {'Content-Type': 'application/json'}, body)
-          .timeout(timeout);
-
-      await torClient.readUtf8Body(response);
-      return true;
-    } finally {
-      torClient.close();
-    }
-  }
-
   Future<bool> _fetchPeerPublicKeyOverTor() async {
     if (TorRuntimeGate.blocked) return false;
     try {
-      final publicKeyPem = TorOutboundGateway.isConfigured
-          ? (await TorOutboundGateway.instance.getPublic(peerId)).trim()
-          : await TorDelivery.withTorRetry<String>(
-              attempt: () async {
-                final torClient =
-                    TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-                try {
-                  final uri = Uri.parse('http://$peerId:80/public');
-                  final response = await torClient.get(uri, {});
-                  return (await torClient.readUtf8Body(response)).trim();
-                } finally {
-                  torClient.close();
-                }
-              },
-            );
+      final publicKeyPem =
+          (await TransportProvider.getPublicOrFallback(peerId)).trim();
       peerPublicKey = keyManager.importPeerPublicKey(publicKeyPem);
       await _persistPeerPublicKey(publicKeyPem);
       return true;

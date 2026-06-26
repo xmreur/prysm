@@ -1,28 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
-import 'package:flutter/material.dart';
+
+import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/server/inbound_message_router.dart';
+import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/notification_service.dart';
+import 'package:prysm/util/peer_profile_cache.dart';
+import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
-import '../database/messages.dart';
-import 'package:prysm/constants/group_constants.dart';
-import 'package:prysm/services/group_service.dart';
-import 'package:prysm/services/message_modify_service.dart';
-import 'package:prysm/services/reaction_service.dart';
-import 'package:prysm/services/read_receipt_service.dart';
-import 'package:prysm/services/notification_mute_service.dart';
-import 'package:prysm/services/settings_service.dart';
-import 'package:prysm/util/conversation_refresh_notifier.dart';
-import 'package:prysm/util/inbound_message_notifier.dart';
-import 'package:prysm/services/wake_hint_service.dart';
-import 'package:prysm/util/peer_profile_cache.dart';
+import 'package:shelf_web_socket/shelf_web_socket.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class PrysmServer {
   static PrysmServer? instance;
@@ -32,18 +25,27 @@ class PrysmServer {
   HttpServer? _server;
 
   final settings = SettingsService();
+  late final InboundMessageRouter _router;
+
+  InboundMessageRouter get inboundRouter => _router;
 
   /// Set when Tor is ready so group control messages can be processed.
   String? localOnionAddress;
 
   PrysmServer({this.port = 8080, required this.keyManager}) {
     instance = this;
+    _router = InboundMessageRouter(
+      keyManager: keyManager,
+      settings: settings,
+      localOnionAddress: () => localOnionAddress,
+      fetchSenderProfile: _fetchSenderProfile,
+    );
   }
 
   Future<void> start() async {
     final handler = Pipeline()
-        .addMiddleware(logRequests()) // Auto logs requests
-        .addHandler(_requestHandler);
+        .addMiddleware(logRequests())
+        .addHandler(_rootHandler);
 
     _server = await io.serve(
       handler,
@@ -60,26 +62,29 @@ class PrysmServer {
     print('HTTP server stopped');
   }
 
+  FutureOr<Response> _rootHandler(Request request) {
+    if (request.method == 'GET' && request.url.path == 'ws') {
+      return webSocketHandler(_handleWebSocket)(request);
+    }
+    return _requestHandler(request);
+  }
+
   Future<Response> _requestHandler(Request request) async {
     print('${request.method} - ${request.url}');
 
     try {
-      // POST /message
       if (request.method == 'POST' && request.url.path == 'message') {
         return await _handlePostMessage(request);
       }
 
-      // GET /public (public key - backwards compat)
       if (request.method == 'GET' && request.url.path == 'public') {
-        return _handleGetPublicKey();
+        return _toResponse(_router.buildPublicKey());
       }
 
-      // GET /profile (public key + username + avatar)
       if (request.method == 'GET' && request.url.path == 'profile') {
-        return _handleGetProfile();
+        return _toResponse(_router.buildProfile());
       }
 
-      // POST /sync-hint — peer reachable; flush pending if any
       if (request.method == 'POST' && request.url.path == 'sync-hint') {
         return await _handlePostSyncHint(request);
       }
@@ -122,329 +127,8 @@ class PrysmServer {
   Future<Response> _handlePostMessage(Request request) async {
     try {
       final data = await _readJsonBody(request);
-
-      print('PrysmServer: Received ${data['type']} from ${data['senderId']}');
-
-      final type = data['type'] as String;
-
-      if (!_isValidMessageData(data)) {
-        return _badRequest(
-          'Missing required fields: id, senderId, receiverId, message, type, timestamp',
-        );
-      }
-
-      // Group control messages — decrypt and update local group state
-      if (isGroupControlType(type)) {
-        final receiverId = data['receiverId'] as String;
-        if (localOnionAddress != null && receiverId != localOnionAddress) {
-          return Response.forbidden(
-            jsonEncode({'error': 'Control message not addressed to this node'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-
-        await DBHelper.ensureUserExist(data['senderId'] as String);
-        _fetchSenderProfile(data['senderId'] as String);
-
-        final localId = localOnionAddress ?? receiverId;
-        final groupService = GroupService(userId: localId, keyManager: keyManager);
-        try {
-          await groupService.handleIncomingControlMessage(
-            type,
-            data['message'] as String,
-          );
-        } catch (e) {
-          print('PrysmServer: group control handling failed: $e');
-          return Response.internalServerError(
-            body: jsonEncode({'error': 'Group control processing failed'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-
-        return Response.ok(
-          jsonEncode({'status': 'received', 'id': data['id']}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      }
-
-      // Edit/delete side-channel — updates existing messages
-      if (isMessageModifyType(type)) {
-        final receiverId = data['receiverId'] as String;
-        final senderId = data['senderId'] as String;
-
-        if (localOnionAddress != null) {
-          if (senderId == localOnionAddress) {
-            return Response.ok(
-              jsonEncode({'status': 'received', 'id': data['id']}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-          if (receiverId != localOnionAddress) {
-            return Response.forbidden(
-              jsonEncode({'error': 'Message not addressed to this node'}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-        }
-
-        if (type == groupMessageModifyType && data['groupId'] == null) {
-          return _badRequest('groupId required for group message modifies');
-        }
-
-        await DBHelper.ensureUserExist(senderId);
-
-        final localId = localOnionAddress ?? receiverId;
-        final groupService =
-            GroupService(userId: localId, keyManager: keyManager);
-
-        try {
-          await MessageModifyService.applyInbound(
-            keyManager: keyManager,
-            encrypted: data['message'] as String,
-            senderId: senderId,
-            type: type,
-            groupId: data['groupId'] as String?,
-            groupService: groupService,
-          );
-        } catch (e) {
-          print('PrysmServer: message modify handling failed: $e');
-          return Response.internalServerError(
-            body: jsonEncode({'error': 'Message modify processing failed'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-
-        return Response.ok(
-          jsonEncode({'status': 'received', 'id': data['id']}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      }
-
-      // Read receipt side-channel — never stored in messages table
-      if (isReadReceiptType(type)) {
-        final receiverId = data['receiverId'] as String;
-        final senderId = data['senderId'] as String;
-
-        if (localOnionAddress != null) {
-          if (senderId == localOnionAddress) {
-            return Response.ok(
-              jsonEncode({'status': 'received', 'id': data['id']}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-          if (receiverId != localOnionAddress) {
-            return Response.forbidden(
-              jsonEncode({'error': 'Message not addressed to this node'}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-        }
-
-        if ((type == groupReadReceiptType || type == groupReadWaterlineType) &&
-            data['groupId'] == null) {
-          return _badRequest('groupId required for group read receipts');
-        }
-
-        await DBHelper.ensureUserExist(senderId);
-
-        final localId = localOnionAddress ?? receiverId;
-        final groupService =
-            GroupService(userId: localId, keyManager: keyManager);
-
-        try {
-          await ReadReceiptService.applyInbound(
-            keyManager: keyManager,
-            encrypted: data['message'] as String,
-            senderId: senderId,
-            localUserId: localId,
-            type: type,
-            groupId: data['groupId'] as String?,
-            groupService: groupService,
-          );
-        } catch (e) {
-          print('PrysmServer: read receipt handling failed: $e');
-          return Response.internalServerError(
-            body: jsonEncode({'error': 'Read receipt processing failed'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-
-        return Response.ok(
-          jsonEncode({'status': 'received', 'id': data['id']}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      }
-
-      // Reaction side-channel — never stored in messages table
-      if (isReactionType(type)) {
-        final receiverId = data['receiverId'] as String;
-        final senderId = data['senderId'] as String;
-
-        if (localOnionAddress != null) {
-          if (senderId == localOnionAddress) {
-            return Response.ok(
-              jsonEncode({'status': 'received', 'id': data['id']}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-          if (receiverId != localOnionAddress) {
-            return Response.forbidden(
-              jsonEncode({'error': 'Message not addressed to this node'}),
-              headers: {'Content-Type': 'application/json'},
-            );
-          }
-        }
-
-        if (type == groupReactionType && data['groupId'] == null) {
-          return _badRequest('groupId required for group reactions');
-        }
-
-        await DBHelper.ensureUserExist(senderId);
-
-        final localId = localOnionAddress ?? receiverId;
-        final groupService =
-            GroupService(userId: localId, keyManager: keyManager);
-
-        try {
-          await ReactionService.applyInbound(
-            keyManager: keyManager,
-            encrypted: data['message'] as String,
-            senderId: senderId,
-            type: type,
-            groupId: data['groupId'] as String?,
-            groupService: groupService,
-          );
-        } catch (e) {
-          print('PrysmServer: reaction handling failed: $e');
-          return Response.internalServerError(
-            body: jsonEncode({'error': 'Reaction processing failed'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-
-        return Response.ok(
-          jsonEncode({'status': 'received', 'id': data['id']}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      }
-
-      // File validation (direct + group media)
-      if (['file', 'image', 'audio', groupFileType, groupImageType, groupAudioType]
-              .contains(type) &&
-          !_hasValidFileMetadata(data)) {
-        return _badRequest('File metadata required: fileName, fileSize');
-      }
-
-      if (isGroupMessageType(type) && data['groupId'] == null) {
-        return _badRequest('groupId required for group messages');
-      }
-
-      final receiverId = data['receiverId'] as String;
-      final senderId = data['senderId'] as String;
-
-      if (localOnionAddress != null) {
-        if (senderId == localOnionAddress) {
-          return Response.ok(
-            jsonEncode({'status': 'received', 'id': data['id']}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-        if (receiverId != localOnionAddress) {
-          return Response.forbidden(
-            jsonEncode({'error': 'Message not addressed to this node'}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-      }
-
-      // Ensure sender exists
-      await DBHelper.ensureUserExist(senderId);
-
-      // Fetch/refresh profile in background (always, to keep data fresh)
-      _fetchSenderProfile(senderId);
-
-      final timeReceived = DateTime.now().millisecondsSinceEpoch;
-      final incomingTimestamp = data['timestamp'];
-      final messageTimestamp = incomingTimestamp is int && incomingTimestamp > 0
-          ? incomingTimestamp
-          : timeReceived;
-
-      final inboundGroupId = data['groupId'] as String?;
-      final localUserId = localOnionAddress;
-      if (inboundGroupId != null && localUserId != null) {
-        final joinedAt =
-            await DBHelper.getMemberJoinedAt(inboundGroupId, localUserId);
-        if (joinedAt != null && messageTimestamp < joinedAt) {
-          return Response.ok(
-            jsonEncode({'status': 'received', 'id': data['id']}),
-            headers: {'Content-Type': 'application/json'},
-          );
-        }
-      }
-
-      final localId = localOnionAddress ?? receiverId;
-      final inserted = await MessagesDb.insertInboundMessage({
-        'id': data['id'] as String,
-        'senderId': senderId,
-        'receiverId': receiverId,
-        'message': data['message'] as String,
-        'type': type,
-        if (data['groupId'] != null) 'groupId': data['groupId'] as String,
-        if (data['fileName'] != null) 'fileName': data['fileName'] as String,
-        if (data['fileSize'] != null) 'fileSize': data['fileSize'],
-        'timestamp': messageTimestamp,
-        'status': (data['status'] ?? 'received') as String,
-        if (data['replyTo'] != null) 'replyTo': data['replyTo'],
-        'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
-      }, localId);
-
-      if (inserted != null) {
-        InboundMessageNotifier.instance.notify(
-          InboundMessageEvent.fromRow(inserted),
-        );
-      }
-
-      ConversationRefreshNotifier.instance.notifyInboundMessage();
-
-      // Send local notification only if app is in background
-      if (settings.enableNotifications) {
-        final appState = WidgetsBinding.instance.lifecycleState;
-        if (appState == AppLifecycleState.paused ||
-            appState == AppLifecycleState.inactive ||
-            appState == AppLifecycleState.detached) {
-          final groupId = data['groupId'] as String?;
-          final muteService = NotificationMuteService.instance;
-          final muted = groupId != null
-              ? muteService.isMuted(MuteTarget.group, groupId)
-              : muteService.isMuted(MuteTarget.user, senderId);
-          if (!muted) {
-            final contact = await DBHelper.getUserById(
-              data['senderId'] as String,
-            );
-            final senderName = contact?['name'] ?? 'Unknown contact';
-            final body = isGroupMessageType(type)
-                ? 'New group message from $senderName'
-                : 'Open to view the message';
-            NotificationService().showNewMessageNotification(
-              senderName: isGroupMessageType(type) ? 'Group chat' : senderName,
-              message: body,
-              notificationId: Random().nextInt(99999999),
-              payload: jsonEncode({
-                'senderId': senderId,
-                'groupId': ?groupId,
-              }),
-            );
-          }
-        }
-      }
-
-      return Response.ok(
-        jsonEncode({
-          'status': 'received',
-          'id': data['id'],
-          'timestamp': timeReceived,
-        }),
-      );
+      final result = await _router.handleMessage(data);
+      return _toResponse(result);
     } on FormatException catch (e, stack) {
       print('PrysmServer POST /message invalid body: $e\n$stack');
       return _badRequest('Invalid message body');
@@ -460,30 +144,8 @@ class PrysmServer {
   Future<Response> _handlePostSyncHint(Request request) async {
     try {
       final data = await _readJsonBody(request);
-
-      final validationError = WakeHintService.validateSyncHintPayload(
-        data,
-        localOnionAddress,
-      );
-      if (validationError != null) {
-        return _badRequest(validationError);
-      }
-
-      final senderId = data['senderId'] as String;
-      final contact = await DBHelper.getUserById(senderId);
-      if (contact == null) {
-        return Response.forbidden(
-          jsonEncode({'error': 'Unknown sender'}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      }
-
-      unawaited(WakeHintService.instance.handleIncomingHint(senderId));
-
-      return Response.ok(
-        jsonEncode({'status': 'ok'}),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final result = await _router.handleSyncHint(data);
+      return _toResponse(result);
     } on FormatException catch (e, stack) {
       print('PrysmServer POST /sync-hint invalid body: $e\n$stack');
       return _badRequest('Invalid sync-hint body');
@@ -496,48 +158,166 @@ class PrysmServer {
     }
   }
 
-  Response _handleGetPublicKey() {
-    return Response.ok(
-      keyManager.publicKeyPem,
-      headers: {'Content-Type': 'text/plain'},
+  void _handleWebSocket(WebSocketChannel channel) {
+    var helloReceived = false;
+
+    channel.stream.listen(
+      (raw) async {
+        try {
+          await _handleWebSocketFrame(
+            channel,
+            raw,
+            helloReceived: helloReceived,
+            onHello: () => helloReceived = true,
+          );
+        } catch (e, stack) {
+          debugPrint('PrysmServer WS frame error: $e\n$stack');
+        }
+      },
+      onError: (Object e) => debugPrint('PrysmServer WS stream error: $e'),
+      onDone: () {
+        if (helloReceived) {
+          debugPrint('PrysmServer WS disconnected');
+        }
+      },
     );
   }
 
-  Response _handleGetProfile() {
-    final broadcastName = settings.username;
-    // Don't broadcast the default placeholder — only real user-set names
-    final username = (broadcastName != null && broadcastName.isNotEmpty && broadcastName != 'My Profile')
-        ? broadcastName
-        : '';
-    return Response.ok(
-      jsonEncode({
-        'publicKeyPem': keyManager.publicKeyPem,
-        'username': username,
-        'avatar': settings.avatar ?? '',
-      }),
+  Future<void> _handleWebSocketFrame(
+    WebSocketChannel channel,
+    dynamic raw, {
+    required bool helloReceived,
+    required void Function() onHello,
+  }) async {
+    if (raw is! String) return;
+
+    WsFrame frame;
+    try {
+      frame = WsFrame.decode(raw);
+    } catch (e) {
+      debugPrint('PrysmServer WS invalid frame: $e');
+      return;
+    }
+
+    if (frame.op == 'hello') {
+      onHello();
+      channel.sink.add(WsFrame.hello().encode());
+      return;
+    }
+
+    if (!helloReceived && frame.op != 'ping') {
+      channel.sink.add(
+        WsFrame.error(id: frame.id ?? 'handshake', message: 'hello required')
+            .encode(),
+      );
+      return;
+    }
+
+    if (frame.op == 'ping') {
+      channel.sink.add(WsFrame.pong().encode());
+      return;
+    }
+
+    if (frame.op == 'get_profile') {
+      final result = _router.buildProfile();
+      channel.sink.add(
+        WsFrame.response(
+          op: 'profile',
+          id: frame.id ?? '',
+          payload: result.jsonBody,
+        ).encode(),
+      );
+      return;
+    }
+
+    if (frame.op == 'get_public') {
+      final result = _router.buildPublicKey();
+      channel.sink.add(
+        WsFrame.response(
+          op: 'public',
+          id: frame.id ?? '',
+          payload: {'publicKeyPem': result.plainTextBody ?? ''},
+        ).encode(),
+      );
+      return;
+    }
+
+    if (frame.op == 'message' || WsFrame.isInboundSideChannelOp(frame.op)) {
+      final payload = frame.payload;
+      if (payload == null) return;
+      print(
+        'PrysmServer WS ${frame.op} from ${payload['senderId']} '
+        'type=${payload['type']}',
+      );
+      try {
+        final result = await _router.handleMessage(payload);
+        if (frame.id != null) {
+          final ackOp =
+              frame.op == 'message' ? 'message_ack' : '${frame.op}_ack';
+          channel.sink.add(
+            WsFrame.response(
+              op: ackOp,
+              id: frame.id!,
+              payload: result.jsonBody,
+            ).encode(),
+          );
+        }
+      } catch (e, stack) {
+        debugPrint('PrysmServer WS ${frame.op} error: $e\n$stack');
+        if (frame.id != null) {
+          channel.sink.add(
+            WsFrame.error(id: frame.id!, message: 'Processing failed')
+                .encode(),
+          );
+        }
+      }
+      return;
+    }
+
+    if (frame.op == 'sync-hint') {
+      final payload = frame.payload;
+      if (payload == null) return;
+      try {
+        final result = await _router.handleSyncHint(payload);
+        if (frame.id != null) {
+          channel.sink.add(
+            WsFrame.response(
+              op: 'sync-hint_ack',
+              id: frame.id!,
+              payload: result.jsonBody,
+            ).encode(),
+          );
+        }
+      } catch (e, stack) {
+        debugPrint('PrysmServer WS sync-hint error: $e\n$stack');
+        if (frame.id != null) {
+          channel.sink.add(
+            WsFrame.error(id: frame.id!, message: 'Processing failed')
+                .encode(),
+          );
+        }
+      }
+    }
+  }
+
+  Response _toResponse(InboundHandleResult result) {
+    if (result.plainTextBody != null) {
+      return Response(
+        result.statusCode,
+        body: result.plainTextBody,
+        headers: {'Content-Type': 'text/plain'},
+      );
+    }
+    return Response(
+      result.statusCode,
+      body: jsonEncode(result.jsonBody ?? {}),
       headers: {'Content-Type': 'application/json'},
     );
-  }
-
-  bool _isValidMessageData(dynamic data) {
-    return data is Map &&
-        data['id'] is String &&
-        data['senderId'] is String &&
-        data['receiverId'] is String &&
-        data['message'] is String &&
-        data['type'] is String &&
-        data['timestamp'] is int;
-  }
-
-  bool _hasValidFileMetadata(dynamic data) {
-    return data['fileName'] is String && data['fileSize'] is int;
   }
 
   void _fetchSenderProfile(String senderId) {
     if (!PeerProfileCache.instance.shouldFetch(senderId)) return;
 
-    // Wrap in runZonedGuarded to prevent unhandled exceptions from
-    // fire-and-forget async (Tor SOCKS errors like ttlExpired)
     Zone.current.fork(
       specification: ZoneSpecification(
         handleUncaughtError: (self, parent, zone, error, stackTrace) {
@@ -546,12 +326,14 @@ class PrysmServer {
       ),
     ).run(() async {
       try {
-        final body = TorOutboundGateway.isConfigured
-            ? await TorOutboundGateway.instance.getProfile(senderId)
+        final body = TransportProvider.isConfigured
+            ? await TransportProvider.instance.getProfile(senderId)
             : await TorDelivery.withTorRetry<String>(
                 attempt: () async {
-                  final torClient =
-                      TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
+                  final torClient = TorHttpClient(
+                    proxyHost: '127.0.0.1',
+                    proxyPort: 9050,
+                  );
                   try {
                     final uri = Uri.parse('http://$senderId:80/profile');
                     final response = await torClient
@@ -566,10 +348,12 @@ class PrysmServer {
         final data = jsonDecode(body) as Map<String, dynamic>;
 
         final updates = <String, dynamic>{};
-        if (data['publicKeyPem'] != null && (data['publicKeyPem'] as String).isNotEmpty) {
+        if (data['publicKeyPem'] != null &&
+            (data['publicKeyPem'] as String).isNotEmpty) {
           updates['publicKeyPem'] = data['publicKeyPem'];
         }
-        if (data['username'] != null && (data['username'] as String).isNotEmpty) {
+        if (data['username'] != null &&
+            (data['username'] as String).isNotEmpty) {
           updates['name'] = data['username'];
         }
         if (data['avatar'] != null && (data['avatar'] as String).isNotEmpty) {

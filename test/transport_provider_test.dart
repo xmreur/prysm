@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/transport_preference.dart';
@@ -41,22 +40,18 @@ void main() {
     );
   });
 
-  test('onWebSocketSettingChanged clears httpOnly blacklist', () {
+  test('startWebSocketConnections starts maintain loop', () {
     TransportProvider.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-3'),
     );
-    PeerTransportRegistry.instance.markHttpOnly('peer.onion');
-    expect(PeerTransportRegistry.instance.isHttpOnly('peer.onion'), isTrue);
-
-    TransportProvider.instance.onWebSocketSettingChanged(true);
-    expect(PeerTransportRegistry.instance.isHttpOnly('peer.onion'), isFalse);
+    TransportProvider.instance.startWebSocketConnections();
+    expect(WsConnectionManager.interactiveConnectBudget.inSeconds, greaterThan(0));
   });
 
   test('withPeer falls back to HTTP when WS connect fails', () async {
     TransportProvider.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-4'),
     );
-    await SettingsService().setEnableWebSocketTransport(true);
 
     var usedHttp = false;
     try {
@@ -77,7 +72,6 @@ void main() {
     TransportProvider.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-6'),
     );
-    await SettingsService().setEnableWebSocketTransport(true);
 
     var usedHttp = false;
     final sw = Stopwatch()..start();

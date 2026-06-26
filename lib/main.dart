@@ -387,9 +387,7 @@ class _MyAppState extends State<MyApp> {
       final result = await initializeTor();
       _globalTorManager = result.torManager;
       TransportProvider.configure(result.torManager);
-      if (SettingsService().enableWebSocketTransport) {
-        TransportProvider.instance.startWebSocketConnections();
-      }
+      TransportProvider.instance.startWebSocketConnections();
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
@@ -730,9 +728,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onPeerConnected: (peerId) =>
             _syncCoordinator!.flushPendingForPeer(peerId),
       );
-      if (appSettings.enableWebSocketTransport) {
-        TransportProvider.instance.startWebSocketConnections();
-      }
+      TransportProvider.instance.startWebSocketConnections();
       TorRuntimeGate.isTorStopped = () => _torStopped;
       if (!Platform.isAndroid && !Platform.isIOS) {
         _torSupervisor = TorSupervisor(
@@ -746,8 +742,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _syncCoordinator!.start();
       WakeHintService.instance.configure(
         userId: widget.onionAddress,
-        isTorStopped: () => _torStopped,
-        showOnlineStatus: () => appSettings.showOnlineStatus,
         onFlushPeer: (peerId) =>
             _syncCoordinator!.flushPendingForPeer(peerId),
       );

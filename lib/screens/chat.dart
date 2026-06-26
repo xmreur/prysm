@@ -13,7 +13,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
-import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
@@ -276,16 +275,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatService.startSendQueue();
     if (TransportProvider.isConfigured) {
       TransportProvider.instance.pinPeer(widget.peerId);
-      if (_settings.enableWebSocketTransport) {
-        unawaited(
-          TransportProvider.instance.wsManager
-              .ensureConnected(
-                widget.peerId,
-                connectBudget: WsConnectionManager.interactiveConnectBudget,
-              )
-              .catchError((_) {}),
-        );
-      }
     }
   }
 

@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
-import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/outbound_transport.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
@@ -54,20 +53,15 @@ class TransportProvider implements OutboundTransport {
   final WsConnectionManager _wsManager;
   late final TorWebSocketTransport _wsTransport;
 
-  bool get enableWebSocketTransport =>
-      SettingsService().enableWebSocketTransport;
-
   WsConnectionManager get wsManager => _wsManager;
 
   TorHttpTransport get httpTransport => _httpTransport;
 
   bool isRealtimeConnected(String peerOnion) =>
-      enableWebSocketTransport && _wsManager.isConnected(peerOnion);
+      _wsManager.isConnected(peerOnion);
 
   void startWebSocketConnections() {
-    if (enableWebSocketTransport) {
-      _wsManager.start();
-    }
+    _wsManager.start();
   }
 
   void stopWebSocketConnections() {
@@ -76,29 +70,17 @@ class TransportProvider implements OutboundTransport {
 
   void pinPeer(String peerOnion) {
     _wsManager.pinPeer(peerOnion);
-    if (enableWebSocketTransport) {
-      _wsManager.warmPeer(peerOnion);
-    }
+    _wsManager.warmPeer(peerOnion);
   }
 
   void unpinPeer(String peerOnion) => _wsManager.unpinPeer(peerOnion);
-
-  void onWebSocketSettingChanged(bool enabled) {
-    if (enabled) {
-      PeerTransportRegistry.instance.clearHttpOnlyAll();
-      _wsManager.start();
-    } else {
-      _wsManager.stop();
-    }
-  }
 
   Future<T> withPeer<T>(
     String peerOnion,
     Future<T> Function(OutboundTransport transport) operation, {
     TransportPreference preference = TransportPreference.wsPreferred,
   }) async {
-    if (!enableWebSocketTransport ||
-        preference == TransportPreference.httpOnly ||
+    if (preference == TransportPreference.httpOnly ||
         PeerTransportRegistry.instance.isHttpOnly(peerOnion)) {
       return operation(_httpTransport);
     }
@@ -316,8 +298,7 @@ class TransportProvider implements OutboundTransport {
   }) async {
     if (isConfigured) {
       final inst = instance;
-      if (inst.enableWebSocketTransport &&
-          inst.isRealtimeConnected(peerOnion)) {
+      if (inst.isRealtimeConnected(peerOnion)) {
         final wsTimeout =
             timeout <= _wsSendBudget ? timeout : _wsSendBudget;
         try {

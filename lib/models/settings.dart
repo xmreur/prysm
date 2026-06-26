@@ -14,7 +14,6 @@ class Settings {
   final bool enableRelay;
   final String? personalRelayAddress;
   final bool aggressiveRetry;
-  final bool enableWebSocketTransport;
 
   // Privacy
   final int messageRetentionDays;
@@ -46,7 +45,6 @@ class Settings {
     this.enableRelay = false,
     this.personalRelayAddress,
     this.aggressiveRetry = true,
-    this.enableWebSocketTransport = true,
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.themeMode = 0,
@@ -70,7 +68,6 @@ class Settings {
     'enableRelay': enableRelay,
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
-    'enableWebSocketTransport': enableWebSocketTransport,
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'themeMode': themeMode,
@@ -94,7 +91,6 @@ class Settings {
     enableRelay: json['enableRelay'] ?? false,
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
-    enableWebSocketTransport: json['enableWebSocketTransport'] ?? true,
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     themeMode: json['themeMode'] ?? 0,
@@ -118,7 +114,6 @@ class Settings {
     bool? enableRelay,
     String? personalRelayAddress,
     bool? aggressiveRetry,
-    bool? enableWebSocketTransport,
     int? messageRetentionDays,
     PanicAction? panicAction,
     int? themeMode,
@@ -141,8 +136,6 @@ class Settings {
     enableRelay: enableRelay ?? this.enableRelay,
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
-    enableWebSocketTransport:
-        enableWebSocketTransport ?? this.enableWebSocketTransport,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     themeMode: themeMode ?? this.themeMode,
@@ -183,7 +176,6 @@ class Settings {
         other.enableRelay == enableRelay &&
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
-        other.enableWebSocketTransport == enableWebSocketTransport &&
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.themeMode == themeMode &&
@@ -207,7 +199,6 @@ class Settings {
         enableRelay.hashCode ^
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^
-        enableWebSocketTransport.hashCode ^
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         themeMode.hashCode ^

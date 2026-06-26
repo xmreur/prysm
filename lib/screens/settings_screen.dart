@@ -8,7 +8,6 @@ import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
-import 'package:prysm/transport/transport_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -48,7 +47,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _minimizeToTray = true;
   bool _minimizeOnMinimizeButton = false;
   bool _enableRelay = false;
-  bool _enableWebSocketTransport = true;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
   bool _enableVoiceTranscription = false;
@@ -80,7 +78,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _minimizeToTray = settings.minimizeToTray;
       _minimizeOnMinimizeButton = settings.minimizeOnMinimizeButton;
       _enableRelay = settings.enableRelay;
-      _enableWebSocketTransport = settings.enableWebSocketTransport;
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
       _enableVoiceTranscription = settings.enableVoiceTranscription;
@@ -266,16 +263,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onBatterySavingToggle(bool value) async {
     await BatterySaverService.instance.setUserEnabled(value);
     if (mounted) setState(() {});
-  }
-
-  Future<void> _onWebSocketTransportToggle(bool value) async {
-    await settings.setEnableWebSocketTransport(value);
-    if (TransportProvider.isConfigured) {
-      TransportProvider.instance.onWebSocketSettingChanged(value);
-    }
-    if (mounted) {
-      setState(() => _enableWebSocketTransport = value);
-    }
   }
 
   void _showAboutDialog() {
@@ -547,14 +534,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                   },
                   subtitle: 'Request a new circuit when connections are stuck',
-                ),
-                const Divider(height: 1),
-                _buildSwitchTile(
-                  'Use WebSocket transport',
-                  'Persistent connections over Tor; falls back to HTTP for older peers',
-                  Icons.swap_horiz_outlined,
-                  _enableWebSocketTransport,
-                  _onWebSocketTransportToggle,
                 ),
                 if (kDebugMode) ...[
                   _buildSwitchTile(

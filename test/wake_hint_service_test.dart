@@ -53,8 +53,6 @@ void main() {
       var flushCount = 0;
       WakeHintService.instance.configure(
         userId: 'me.onion',
-        isTorStopped: () => false,
-        showOnlineStatus: () => true,
         onFlushPeer: (_) async {
           flushCount++;
           return true;
@@ -70,8 +68,6 @@ void main() {
       String? flushedPeer;
       WakeHintService.instance.configure(
         userId: 'me.onion',
-        isTorStopped: () => false,
-        showOnlineStatus: () => true,
         onFlushPeer: (peerId) async {
           flushedPeer = peerId;
           return true;
@@ -87,8 +83,6 @@ void main() {
       var flushCount = 0;
       WakeHintService.instance.configure(
         userId: 'me.onion',
-        isTorStopped: () => false,
-        showOnlineStatus: () => true,
         onFlushPeer: (_) async {
           flushCount++;
           return true;

@@ -28,10 +28,14 @@ class TorHttpClient {
     String body,
   ) async {
     final request = await _httpClient.postUrl(uri);
+    final bodyBytes = utf8.encode(body);
     headers.forEach((key, value) {
       request.headers.set(key, value);
     });
-    request.write(body);
+    // Explicit length avoids chunked encoding, which can truncate or corrupt
+    // large JSON bodies (e.g. file messages) through Tor/SOCKS.
+    request.contentLength = bodyBytes.length;
+    request.add(bodyBytes);
     return request.close();
   }
 

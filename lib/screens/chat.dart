@@ -43,6 +43,7 @@ import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
 import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
+import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
@@ -582,8 +583,12 @@ class _ChatScreenState extends State<ChatScreen> {
         continue;
       }
       final meta = metadataFromDbRow(msg);
-      if (meta['deleted'] == true) {
-        messages.add(_deletedMessageFromRow(msg, meta));
+      final wire = msg['message'];
+      if (meta['deleted'] == true || wire == null || (wire is String && wire.isEmpty)) {
+        messages.add(_deletedMessageFromRow(msg, {
+          ...meta,
+          'deleted': true,
+        }));
         continue;
       }
       try {
@@ -1346,6 +1351,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (canDeleteForEveryone(message, widget.userId)) {
       await _modifyService.deleteMessage(targetMessageId: message.id);
       await MessageReactionsDb.deleteReactionsForMessage(message.id);
+      _messageCache.remove(message.id);
       if (!mounted) return;
       setState(() {
         _messages.updateMessage(message, markMessageDeleted(message));
@@ -1354,8 +1360,10 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    await MessageContentWiper.wipeLocalArtifacts(wireId: message.id);
     await MessagesDb.deleteMessageById(message.id);
     await MessageReactionsDb.deleteReactionsForMessage(message.id);
+    _messageCache.remove(message.id);
     setState(() {
       _messages.removeMessage(message);
       selectedMessageIds.remove(message.id);
@@ -1403,14 +1411,17 @@ class _ChatScreenState extends State<ChatScreen> {
       if (canDeleteForEveryone(message, widget.userId)) {
         await _modifyService.deleteMessage(targetMessageId: id);
         await MessageReactionsDb.deleteReactionsForMessage(id);
+        _messageCache.remove(id);
         if (mounted) {
           setState(() {
             _messages.updateMessage(message, markMessageDeleted(message));
           });
         }
       } else {
+        await MessageContentWiper.wipeLocalArtifacts(wireId: id);
         await MessagesDb.deleteMessageById(id);
         await MessageReactionsDb.deleteReactionsForMessage(id);
+        _messageCache.remove(id);
         if (mounted) {
           setState(() {
             _messages.removeMessage(message);

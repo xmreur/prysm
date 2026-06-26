@@ -96,10 +96,32 @@ class PrysmServer {
     }
   }
 
+  Future<Map<String, dynamic>> _readJsonBody(Request request) async {
+    final bodyBytes = await request.read().expand((chunk) => chunk).toList();
+    if (bodyBytes.isEmpty) {
+      throw const FormatException('Empty request body');
+    }
+
+    late final String payload;
+    try {
+      payload = utf8.decode(bodyBytes);
+    } on FormatException catch (e) {
+      print(
+        'PrysmServer: invalid UTF-8 request body (${bodyBytes.length} bytes): $e',
+      );
+      rethrow;
+    }
+
+    final decoded = jsonDecode(payload);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('JSON body must be an object');
+    }
+    return decoded;
+  }
+
   Future<Response> _handlePostMessage(Request request) async {
     try {
-      final payload = await request.readAsString();
-      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final data = await _readJsonBody(request);
 
       print('PrysmServer: Received ${data['type']} from ${data['senderId']}');
 
@@ -423,6 +445,9 @@ class PrysmServer {
           'timestamp': timeReceived,
         }),
       );
+    } on FormatException catch (e, stack) {
+      print('PrysmServer POST /message invalid body: $e\n$stack');
+      return _badRequest('Invalid message body');
     } catch (e, stack) {
       print('PrysmServer POST /message Error $e\n$stack');
       return Response.internalServerError(
@@ -434,8 +459,7 @@ class PrysmServer {
 
   Future<Response> _handlePostSyncHint(Request request) async {
     try {
-      final payload = await request.readAsString();
-      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final data = await _readJsonBody(request);
 
       final validationError = WakeHintService.validateSyncHintPayload(
         data,
@@ -460,6 +484,9 @@ class PrysmServer {
         jsonEncode({'status': 'ok'}),
         headers: {'Content-Type': 'application/json'},
       );
+    } on FormatException catch (e, stack) {
+      print('PrysmServer POST /sync-hint invalid body: $e\n$stack');
+      return _badRequest('Invalid sync-hint body');
     } catch (e, stack) {
       print('PrysmServer POST /sync-hint Error $e\n$stack');
       return Response.internalServerError(

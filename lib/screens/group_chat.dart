@@ -41,6 +41,7 @@ import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
 import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
+import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
@@ -379,6 +380,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
 
     final storageId = MessagesDb.scopedId(
+      wireId: message.id,
+      groupId: widget.group.id,
+    );
+    await MessageContentWiper.wipeLocalArtifacts(
       wireId: message.id,
       groupId: widget.group.id,
     );
@@ -759,20 +764,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         final replyTo = msg['replyTo'] as String?;
         final meta = metadataFromDbRow(msg);
 
-        if (meta['deleted'] == true) {
+        final wire = msg['message'];
+        if (meta['deleted'] == true || wire == null || (wire is String && wire.isEmpty)) {
           result.add(TextMessage(
             authorId: authorId,
             createdAt: createdAt,
             id: id,
             replyToMessageId: replyTo,
             text: '',
-            metadata: meta,
+            metadata: {...meta, 'deleted': true},
           ));
           continue;
         }
 
         if (type == groupTextType) {
-          final text = GroupCrypto.decryptText(groupKey, msg['message'] as String);
+          final text = GroupCrypto.decryptText(groupKey, wire as String);
           result.add(TextMessage(
             authorId: authorId,
             createdAt: createdAt,

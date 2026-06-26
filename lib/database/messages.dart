@@ -463,6 +463,7 @@ class MessagesDb {
 					'message': null,
 					'fileName': null,
 					'fileSize': null,
+					'viewOnce': 0,
 				},
 				where: 'id = ?',
 				whereArgs: [storageId],

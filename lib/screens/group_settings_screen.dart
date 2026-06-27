@@ -396,10 +396,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   title: const Text('Shared Media'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
-                    final joinedAt =
-                        await _groupService.joinedAtForCurrentUser(widget.group.id);
-                    if (!mounted) return;
                     final navigator = Navigator.of(context);
+                    final joinedAt = await _groupService
+                        .joinedAtForCurrentUser(widget.group.id);
+                    if (!mounted) return;
                     final messageId = await navigator.push<String>(
                       MaterialPageRoute(
                         builder: (_) => ChatMediaGalleryScreen.group(

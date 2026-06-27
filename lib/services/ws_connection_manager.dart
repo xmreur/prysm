@@ -78,7 +78,15 @@ class WsConnectionManager {
   void start() {
     if (_disposed || _running) return;
     _running = true;
-    _scheduleMaintain();
+    unawaited(_maintainOnceAndReschedule());
+  }
+
+  Future<void> _maintainOnceAndReschedule() async {
+    if (!_running || _disposed) return;
+    await _maintainConnections();
+    if (_running && !_disposed) {
+      _scheduleMaintain();
+    }
   }
 
   void stop() {
@@ -176,6 +184,12 @@ class WsConnectionManager {
           .map((e) => e.key)
           .toSet();
       targets.addAll(_pinnedPeers);
+
+      final localOnion = await _resolveLocalOnion();
+      if (localOnion != null && localOnion.isNotEmpty) {
+        targets.remove(localOnion);
+      }
+
       return targets;
     } catch (e) {
       if (kDebugMode) {
@@ -224,6 +238,7 @@ class WsConnectionManager {
     required bool useTorRetry,
   }) async {
     if (_clients[peerOnion]?.isConnected == true) return;
+    if (isConnectInFlight(peerOnion)) return;
 
     final existing = _clients[peerOnion];
     if (existing != null) {
@@ -263,7 +278,9 @@ class WsConnectionManager {
     } catch (e, stack) {
       if (kDebugMode) {
         debugPrint('WsConnectionManager: connect to $peerOnion failed: $e');
-        debugPrint('$stack');
+        if (!useTorRetry) {
+          debugPrint('$stack');
+        }
       }
       rethrow;
     } finally {

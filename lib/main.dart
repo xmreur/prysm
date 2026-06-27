@@ -389,7 +389,6 @@ class _MyAppState extends State<MyApp> {
       final result = await initializeTor();
       _globalTorManager = result.torManager;
       TransportProvider.configure(result.torManager);
-      TransportProvider.instance.startWebSocketConnections();
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));

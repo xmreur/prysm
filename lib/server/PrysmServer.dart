@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/server/inbound_message_router.dart';
+import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -327,7 +328,10 @@ class PrysmServer {
     ).run(() async {
       try {
         final body = TransportProvider.isConfigured
-            ? await TransportProvider.instance.getProfile(senderId)
+            ? await TransportProvider.instance.getProfileWithPreference(
+                senderId,
+                preference: TransportPreference.wsIfConnected,
+              )
             : await TorDelivery.withTorRetry<String>(
                 attempt: () async {
                   final torClient = TorHttpClient(
@@ -341,7 +345,7 @@ class PrysmServer {
                         .timeout(const Duration(seconds: 20));
                     return torClient.readUtf8Body(response);
                   } finally {
-                    torClient.close();
+                    await torClient.close();
                   }
                 },
               );

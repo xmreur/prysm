@@ -261,7 +261,7 @@ class TransportProvider implements OutboundTransport {
           final response = await torClient.get(uri, {}).timeout(timeout);
           return torClient.readUtf8Body(response);
         } finally {
-          torClient.close();
+          await torClient.close();
         }
       },
     );
@@ -291,7 +291,7 @@ class TransportProvider implements OutboundTransport {
           final response = await torClient.get(uri, {}).timeout(timeout);
           return torClient.readUtf8Body(response);
         } finally {
-          torClient.close();
+          await torClient.close();
         }
       },
     );
@@ -358,7 +358,7 @@ class TransportProvider implements OutboundTransport {
               .timeout(timeout);
           await torClient.readUtf8Body(response);
         } finally {
-          torClient.close();
+          await torClient.close();
         }
       },
     );
@@ -398,7 +398,7 @@ class TransportProvider implements OutboundTransport {
               .timeout(timeout);
           await torClient.readUtf8Body(response);
         } finally {
-          torClient.close();
+          await torClient.close();
         }
       },
     );

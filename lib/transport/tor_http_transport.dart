@@ -68,7 +68,7 @@ class TorHttpTransport implements OutboundTransport {
             .timeout(timeout);
         return client.readUtf8Body(response);
       } finally {
-        client.close();
+        await client.close();
       }
     });
   }
@@ -86,7 +86,7 @@ class TorHttpTransport implements OutboundTransport {
             .timeout(timeout);
         return client.readUtf8Body(response);
       } finally {
-        client.close();
+        await client.close();
       }
     });
   }
@@ -124,7 +124,7 @@ class TorHttpTransport implements OutboundTransport {
             .timeout(timeout);
         await client.readUtf8Body(response);
       } finally {
-        client.close();
+        await client.close();
       }
     });
   }

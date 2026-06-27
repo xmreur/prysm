@@ -93,7 +93,7 @@ class LinkUnfurlService {
     } catch (_) {
       return null;
     } finally {
-      torClient.close();
+      await torClient.close();
     }
   }
 
@@ -116,7 +116,7 @@ class LinkUnfurlService {
     } catch (_) {
       return null;
     } finally {
-      torClient.close();
+      await torClient.close();
     }
   }
 

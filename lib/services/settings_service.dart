@@ -55,6 +55,7 @@ class SettingsService {
   // Files
   bool get enableFilePreview => _settings.enableFilePreview;
   bool get enableLinkUnfurling => _settings.enableLinkUnfurling;
+  bool get enableVoiceTranscription => _settings.enableVoiceTranscription;
   String? get customDownloadPath => _settings.customDownloadPath;
 
   // Onboarding
@@ -206,6 +207,11 @@ class SettingsService {
     if (!value) {
       LinkUnfurlService.instance.clearCache();
     }
+    await save();
+  }
+
+  Future<void> setEnableVoiceTranscription(bool value) async {
+    _settings = _settings.copyWith(enableVoiceTranscription: value);
     await save();
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/voice_transcripts_db.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -14,12 +15,18 @@ class PanicWipeService {
 
   static Future<void> wipeAll() async {
     await MessagesDb.closeForWipe();
+    await VoiceTranscriptsDb.closeForWipe();
     await PendingMessageDbHelper.closeForWipe();
     await DBHelper.closeForWipe();
 
     final docDir = await getApplicationDocumentsDirectory();
     final prysmDir = Directory(p.join(docDir.path, 'prysm'));
-    for (final name in ['chat_app.db', 'messages.db', 'pending_messages.db']) {
+    for (final name in [
+      'chat_app.db',
+      'messages.db',
+      'pending_messages.db',
+      'voice_transcripts.db',
+    ]) {
       final file = File(p.join(prysmDir.path, name));
       if (await file.exists()) {
         await file.delete();

@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
@@ -992,26 +991,10 @@ class GroupService {
       'type': type,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
-    if (TorOutboundGateway.isConfigured) {
-      await TorOutboundGateway.instance.postMessage(
-        peerOnion: targetMemberId,
-        payload: payload,
-      );
-      return;
-    }
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final response = await torClient
-          .post(
-            Uri.parse('http://$targetMemberId:80/message'),
-            {'Content-Type': 'application/json'},
-            jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 30));
-      await torClient.readUtf8Body(response);
-    } finally {
-      torClient.close();
-    }
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+    );
   }
 
   Future<RSAPublicKey?> _fetchPeerPublicKey(String peerId) async {
@@ -1026,23 +1009,8 @@ class GroupService {
     }
 
     try {
-      final publicKeyPem = TorOutboundGateway.isConfigured
-          ? (await TorOutboundGateway.instance.getPublic(peerId)).trim()
-          : await TorDelivery.withTorRetry<String>(
-              attempt: () async {
-                final torClient =
-                    TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-                try {
-                  final uri = Uri.parse('http://$peerId:80/public');
-                  final response = await torClient
-                      .get(uri, {})
-                      .timeout(const Duration(seconds: 20));
-                  return (await torClient.readUtf8Body(response)).trim();
-                } finally {
-                  torClient.close();
-                }
-              },
-            );
+      final publicKeyPem =
+          (await TransportProvider.getPublicOrFallback(peerId)).trim();
       if (publicKeyPem.isNotEmpty) {
         final key = keyManager.importPeerPublicKey(publicKeyPem);
         await DBHelper.updateUserFields(peerId, {'publicKeyPem': publicKeyPem});

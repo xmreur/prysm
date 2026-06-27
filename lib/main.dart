@@ -32,9 +32,11 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/sqflite_platform.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/peer_transport_registry.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_supervisor.dart';
 import 'package:prysm/screens/profile_screen.dart';
@@ -95,6 +97,7 @@ Future<bool> _isProcessRunning(int pid) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ensureSqflitePlatformInitialized();
 
   // Prevent multiple instances on desktop
   if (!Platform.isAndroid && !Platform.isIOS) {
@@ -127,6 +130,7 @@ void main() async {
   }
 
   await SettingsService().init();
+  await PeerTransportRegistry.instance.load();
   await BatterySaverService.instance.init();
   await NotificationMuteService.instance.init();
 
@@ -384,7 +388,7 @@ class _MyAppState extends State<MyApp> {
       setState(() => _torStatus = 'Starting Tor...');
       final result = await initializeTor();
       _globalTorManager = result.torManager;
-      TorOutboundGateway.configure(result.torManager);
+      TransportProvider.configure(result.torManager);
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
@@ -720,7 +724,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       isTorStopped: () => _torStopped,
     );
     if (!widget.decoyMode) {
-      TorOutboundGateway.configure(widget.torManager);
+      TransportProvider.configure(
+        widget.torManager,
+        onPeerConnected: (peerId) =>
+            _syncCoordinator!.flushPendingForPeer(peerId),
+      );
+      TransportProvider.instance.startWebSocketConnections();
       TorRuntimeGate.isTorStopped = () => _torStopped;
       if (!Platform.isAndroid && !Platform.isIOS) {
         _torSupervisor = TorSupervisor(
@@ -734,8 +743,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _syncCoordinator!.start();
       WakeHintService.instance.configure(
         userId: widget.onionAddress,
-        isTorStopped: () => _torStopped,
-        showOnlineStatus: () => appSettings.showOnlineStatus,
         onFlushPeer: (peerId) =>
             _syncCoordinator!.flushPendingForPeer(peerId),
       );
@@ -1890,11 +1897,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               ],
-              if (TorOutboundGateway.isConfigured) ...[
+              if (TransportProvider.isConfigured) ...[
                 const SizedBox(height: 8),
                 Text(
                   'Outbound queue depth: '
-                  '${TorOutboundGateway.instance.outboundQueueDepth}',
+                  '${TransportProvider.instance.outboundQueueDepth}',
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               ],

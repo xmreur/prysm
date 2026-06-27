@@ -13,6 +13,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'package:flutter/foundation.dart';
@@ -48,6 +49,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableRelay = false;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
+  bool _enableVoiceTranscription = false;
+  bool _isDownloadingSttModel = false;
+  double _sttModelDownloadProgress = 0;
   String _downloadLocationDisplay = 'Loading...';
   StreamSubscription<void>? _batterySaverSub;
 
@@ -76,6 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableRelay = settings.enableRelay;
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
+      _enableVoiceTranscription = settings.enableVoiceTranscription;
     });
   }
 
@@ -190,6 +195,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onLinkUnfurlingToggle(bool value) async {
     await settings.setEnableLinkUnfurling(value);
     setState(() => _enableLinkUnfurling = value);
+  }
+
+  Future<void> _onVoiceTranscriptionToggle(bool value) async {
+    if (value) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Enable voice transcription?'),
+          content: const Text(
+            'Prysm will download an on-device English speech model (~110 MB). '
+            'Only English voice messages can be transcribed for now. '
+            'Transcripts stay on this device and are never sent to contacts.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Enable'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+
+      setState(() {
+        _enableVoiceTranscription = true;
+        _isDownloadingSttModel = true;
+        _sttModelDownloadProgress = 0;
+      });
+      try {
+        await SttModelManager.instance.ensureModelReady(
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _sttModelDownloadProgress = progress);
+            }
+          },
+        );
+        await settings.setEnableVoiceTranscription(true);
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _enableVoiceTranscription = false;
+            _isDownloadingSttModel = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to download speech model: $e')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _isDownloadingSttModel = false;
+        _sttModelDownloadProgress = 1;
+      });
+      return;
+    }
+
+    await settings.setEnableVoiceTranscription(false);
+    setState(() => _enableVoiceTranscription = false);
   }
 
   void _onBatterySavingToggle(bool value) async {
@@ -467,7 +535,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                   subtitle: 'Request a new circuit when connections are stuck',
                 ),
-                const Divider(height: 1),
                 if (kDebugMode) ...[
                   _buildSwitchTile(
                     'Enable Relay Server',
@@ -591,6 +658,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _enableLinkUnfurling,
                   _onLinkUnfurlingToggle,
                 ),
+                const Divider(height: 1),
+                _buildSwitchTile(
+                  'Voice transcription',
+                  'Transcribe English voice messages on this device. Text stays local and is never sent to contacts.',
+                  Icons.subtitles_outlined,
+                  _enableVoiceTranscription,
+                  _onVoiceTranscriptionToggle,
+                ),
+                if (_isDownloadingSttModel) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Downloading speech model…',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(
+                          value: _sttModelDownloadProgress > 0
+                              ? _sttModelDownloadProgress
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const Divider(height: 1),
                 _buildNavigationTile(
                   'Download Location',

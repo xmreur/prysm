@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/database/voice_transcripts_db.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 
@@ -17,6 +18,7 @@ class MessageContentWiper {
       groupId: groupId,
     );
     await ImageAttachmentCache.invalidate(wireId);
+    await VoiceTranscriptsDb.delete(wireId);
     await _deleteVoiceCaches(wireId);
   }
 

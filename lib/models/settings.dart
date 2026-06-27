@@ -29,6 +29,7 @@ class Settings {
   // Files
   final bool enableFilePreview;
   final bool enableLinkUnfurling;
+  final bool enableVoiceTranscription;
   final String? customDownloadPath;
 
   // Onboarding
@@ -51,6 +52,7 @@ class Settings {
     this.username,
     this.enableFilePreview = false,
     this.enableLinkUnfurling = false,
+    this.enableVoiceTranscription = false,
     this.customDownloadPath,
     this.onboardingCompleted = false,
   });
@@ -73,6 +75,7 @@ class Settings {
     'username': username,
     'enableFilePreview': enableFilePreview,
     'enableLinkUnfurling': enableLinkUnfurling,
+    'enableVoiceTranscription': enableVoiceTranscription,
     'customDownloadPath': customDownloadPath,
     'onboardingCompleted': onboardingCompleted,
   };
@@ -95,6 +98,7 @@ class Settings {
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
     enableLinkUnfurling: json['enableLinkUnfurling'] ?? false,
+    enableVoiceTranscription: json['enableVoiceTranscription'] ?? false,
     customDownloadPath: json['customDownloadPath'],
     onboardingCompleted: json['onboardingCompleted'] ?? false,
   );
@@ -117,6 +121,7 @@ class Settings {
     String? username,
     bool? enableFilePreview,
     bool? enableLinkUnfurling,
+    bool? enableVoiceTranscription,
     String? customDownloadPath,
     bool? onboardingCompleted,
     bool clearCustomDownloadPath = false,
@@ -138,6 +143,8 @@ class Settings {
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
     enableLinkUnfurling: enableLinkUnfurling ?? this.enableLinkUnfurling,
+    enableVoiceTranscription:
+        enableVoiceTranscription ?? this.enableVoiceTranscription,
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
@@ -176,6 +183,7 @@ class Settings {
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
         other.enableLinkUnfurling == enableLinkUnfurling &&
+        other.enableVoiceTranscription == enableVoiceTranscription &&
         other.customDownloadPath == customDownloadPath &&
         other.onboardingCompleted == onboardingCompleted;
   }
@@ -198,6 +206,7 @@ class Settings {
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^
         enableLinkUnfurling.hashCode ^
+        enableVoiceTranscription.hashCode ^
         (customDownloadPath?.hashCode ?? 0) ^
         onboardingCompleted.hashCode;
   }

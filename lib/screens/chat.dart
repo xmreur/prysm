@@ -11,9 +11,8 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:prysm/client/TorHttpClient.dart';
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/transport_preference.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
@@ -195,7 +194,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceTracker = PeerPresenceTracker();
     _listScrollController.addListener(_onListScroll);
     _initializeChat(); // ✅ NEW METHOD
-    _checkPeerStatus(); // Check online status + fetch profile immediately
+    _checkPeerStatus(preference: TransportPreference.wsIfConnected);
     _startPeerPingTimer();
     _startPresenceStaleTimer();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
@@ -231,7 +230,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(
       BatterySaverPolicy.peerStatusInterval(),
-      (_) => _checkPeerStatus(),
+      (_) => _checkPeerStatus(preference: TransportPreference.wsIfConnected),
     );
   }
 
@@ -274,6 +273,9 @@ class _ChatScreenState extends State<ChatScreen> {
     // ✅ Start ChatService background tasks
     _chatService.startPolling();
     _chatService.startSendQueue();
+    if (TransportProvider.isConfigured) {
+      TransportProvider.instance.pinPeer(widget.peerId);
+    }
   }
 
   void _suspendPresenceProbeDuringMediaUpload() {
@@ -404,32 +406,23 @@ class _ChatScreenState extends State<ChatScreen> {
     _debounceTimer?.cancel();
     _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
+    if (TransportProvider.isConfigured) {
+      TransportProvider.instance.unpinPeer(widget.peerId);
+    }
     super.dispose();
   }
 
   /// Check peer status by calling /profile — determines online/offline
   /// AND fetches fresh name/avatar in one round-trip.
-  Future<void> _checkPeerStatus() async {
+  Future<void> _checkPeerStatus({
+    TransportPreference preference = TransportPreference.wsPreferred,
+  }) async {
     if (TorRuntimeGate.blocked) return;
     try {
-      final body = TorOutboundGateway.isConfigured
-          ? await TorOutboundGateway.instance.getProfile(widget.peerId)
-          : await TorDelivery.withTorRetry<String>(
-              attempt: () async {
-                final client =
-                    TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-                try {
-                  final uri =
-                      Uri.parse('http://${widget.peerId}:80/profile');
-                  final response = await client
-                      .get(uri, {})
-                      .timeout(const Duration(seconds: 20));
-                  return client.readUtf8Body(response);
-                } finally {
-                  client.close();
-                }
-              },
-            );
+      final body = await TransportProvider.getProfileOrFallback(
+        widget.peerId,
+        preference: preference,
+      );
       final data = jsonDecode(body) as Map<String, dynamic>;
 
       if (!mounted) return;
@@ -467,13 +460,16 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.reloadUsers(); // Refresh sidebar with updated name/avatar
         }
       }
+
+      if (mounted) _syncPeerPresence();
     } catch (e) {
       debugPrint('Profile check failed: $e');
       if (!mounted) return;
       final errStr = e.toString();
       final isHardFailure = errStr.contains('hostUnreachable') ||
           errStr.contains('connectionRefused') ||
-          errStr.contains('ttlExpired');
+          errStr.contains('ttlExpired') ||
+          e is TimeoutException;
       _presenceTracker.considerProfileFailure(isHardFailure: isHardFailure);
       _syncPeerPresence();
     }

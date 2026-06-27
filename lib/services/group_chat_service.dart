@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
@@ -11,7 +9,7 @@ import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
@@ -99,6 +97,24 @@ class GroupChatService {
 
   void stopPolling() {
     _isPolling = false;
+  }
+
+  void pinMembersForWebSocket() {
+    if (!TransportProvider.isConfigured) return;
+    final transport = TransportProvider.instance;
+    for (final member in _memberIds) {
+      if (member == userId) continue;
+      transport.pinPeer(member);
+    }
+  }
+
+  void unpinMembersForWebSocket() {
+    if (!TransportProvider.isConfigured) return;
+    final transport = TransportProvider.instance;
+    for (final member in _memberIds) {
+      if (member == userId) continue;
+      transport.unpinPeer(member);
+    }
   }
 
   void startSendQueue() {
@@ -250,9 +266,7 @@ class GroupChatService {
       try {
         final hadNew = await _fetchNewMessages();
         _consecutivePollErrors = 0;
-        _pollIntervalSeconds = hadNew
-            ? BatterySaverPolicy.chatPollActiveSeconds()
-            : BatterySaverPolicy.chatPollIdleSeconds();
+        _pollIntervalSeconds = _effectivePollIntervalSeconds(hadNew);
       } catch (e) {
         print('Group polling error: $e');
         _consecutivePollErrors++;
@@ -264,6 +278,23 @@ class GroupChatService {
         await Future.delayed(Duration(seconds: _pollIntervalSeconds));
       }
     }
+  }
+
+  int _effectivePollIntervalSeconds(bool hadNew) {
+    if (_anyMemberRealtimeConnected) {
+      return BatterySaverPolicy.wsSafetyPollSeconds;
+    }
+    return hadNew
+        ? BatterySaverPolicy.chatPollActiveSeconds()
+        : BatterySaverPolicy.chatPollIdleSeconds();
+  }
+
+  bool get _anyMemberRealtimeConnected {
+    if (!TransportProvider.isConfigured) return false;
+    final transport = TransportProvider.instance;
+    return _memberIds.any(
+      (member) => member != userId && transport.isRealtimeConnected(member),
+    );
   }
 
   Future<bool> _fetchNewMessages() async {
@@ -464,27 +495,11 @@ class GroupChatService {
       'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
     };
-    if (TorOutboundGateway.isConfigured) {
-      await TorOutboundGateway.instance.postMessage(
-        peerOnion: targetMemberId,
-        payload: payload,
-        timeout: timeout,
-      );
-      return;
-    }
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final response = await torClient
-          .post(
-            Uri.parse('http://$targetMemberId:80/message'),
-            {'Content-Type': 'application/json'},
-            jsonEncode(payload),
-          )
-          .timeout(timeout);
-      await torClient.readUtf8Body(response);
-    } finally {
-      torClient.close();
-    }
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+      timeout: timeout,
+    );
   }
 
   String _pendingId(String messageId, String targetMemberId) =>

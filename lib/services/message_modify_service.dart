@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
@@ -358,26 +356,10 @@ class MessageModifyService {
       'type': messageModifyType,
       'timestamp': timestamp,
     };
-    if (TorOutboundGateway.isConfigured) {
-      await TorOutboundGateway.instance.postMessage(
-        peerOnion: peerId!,
-        payload: payload,
-      );
-      return;
-    }
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final response = await torClient
-          .post(
-            Uri.parse('http://$peerId:80/message'),
-            {'Content-Type': 'application/json'},
-            jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 30));
-      await torClient.readUtf8Body(response);
-    } finally {
-      torClient.close();
-    }
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId!,
+      payload: payload,
+    );
   }
 
   Future<bool> _postGroup({
@@ -418,26 +400,10 @@ class MessageModifyService {
       'type': groupMessageModifyType,
       'timestamp': timestamp,
     };
-    if (TorOutboundGateway.isConfigured) {
-      await TorOutboundGateway.instance.postMessage(
-        peerOnion: targetMemberId,
-        payload: payload,
-      );
-      return;
-    }
-    final torClient = TorHttpClient(proxyHost: '127.0.0.1', proxyPort: 9050);
-    try {
-      final response = await torClient
-          .post(
-            Uri.parse('http://$targetMemberId:80/message'),
-            {'Content-Type': 'application/json'},
-            jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 30));
-      await torClient.readUtf8Body(response);
-    } finally {
-      torClient.close();
-    }
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+    );
   }
 
   Future<RSAPublicKey?> _loadPeerPublicKey() async {

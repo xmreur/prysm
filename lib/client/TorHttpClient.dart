@@ -7,6 +7,7 @@ class TorHttpClient {
   String proxyHost;
   final int proxyPort;
   late HttpClient _httpClient;
+  bool _closed = false;
 
   TorHttpClient({this.proxyHost = '127.0.0.1', this.proxyPort = 9050}) {
     _httpClient = HttpClient();
@@ -47,20 +48,21 @@ class TorHttpClient {
     return request.close();
   }
 
-  /// Reads the full UTF-8 body and drains the socket before [close].
+  /// Reads the full UTF-8 body. Call [close] after the body is consumed.
   Future<String> readUtf8Body(HttpClientResponse response) async {
-    try {
-      return await response.transform(utf8.decoder).join();
-    } finally {
-      try {
-        await response.drain();
-      } catch (_) {}
-    }
+    return response.transform(utf8.decoder).join();
   }
 
-  void close() {
-    // Do not use force: true — it tears down active response streams and
-    // causes unhandled HttpException errors on Tor/SOCKS connections.
-    _httpClient.close();
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    // Let the response stream finish detaching from the SOCKS socket before
+    // HttpClient cancels the connection task.
+    await Future<void>.value();
+    try {
+      _httpClient.close(force: false);
+    } catch (_) {
+      // socks5_proxy may throw when canceling a socket still bound to a stream
+    }
   }
 }

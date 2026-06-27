@@ -49,6 +49,7 @@ import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
+import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/battery_saver_service.dart';
@@ -84,6 +85,7 @@ class ChatScreen extends StatefulWidget {
   final Function() reloadUsers;
 
   final Function()? onCloseChat;
+  final Widget? torStatusAction;
 
   const ChatScreen({
     required this.userId,
@@ -98,6 +100,7 @@ class ChatScreen extends StatefulWidget {
     required this.clearChat,
     required this.reloadUsers,
     this.onCloseChat,
+    this.torStatusAction,
     super.key,
   });
 
@@ -388,6 +391,12 @@ class _ChatScreenState extends State<ChatScreen> {
       widget.peerId,
     );
     if (waterline == null) return;
+
+    unawaited(
+      NotificationService().cancelConversationNotificationIfForeground(
+        senderId: widget.peerId,
+      ),
+    );
 
     _readReceiptDebounce?.cancel();
     _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
@@ -1676,6 +1685,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: selectedMessageIds.isNotEmpty
             ? [
+                if (widget.torStatusAction != null) widget.torStatusAction!,
                 IconButton(
                   icon: Icon(Icons.delete),
                   onPressed: deleteSelectedMessages,
@@ -1686,6 +1696,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ]
             : [
+                if (widget.torStatusAction != null) widget.torStatusAction!,
                 IconButton(
                   icon: const Icon(Icons.more_vert),
                   onPressed: _openChatProfile,

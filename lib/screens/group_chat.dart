@@ -48,6 +48,7 @@ import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
+import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
@@ -69,6 +70,7 @@ class GroupChatScreen extends StatefulWidget {
   final KeyManager keyManager;
   final VoidCallback reloadConversations;
   final VoidCallback? onCloseChat;
+  final Widget? torStatusAction;
 
   const GroupChatScreen({
     required this.userId,
@@ -77,6 +79,7 @@ class GroupChatScreen extends StatefulWidget {
     required this.keyManager,
     required this.reloadConversations,
     this.onCloseChat,
+    this.torStatusAction,
     super.key,
   });
 
@@ -682,6 +685,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       widget.group.id,
     );
     if (waterline == null) return;
+
+    unawaited(
+      NotificationService().cancelConversationNotificationIfForeground(
+        groupId: widget.group.id,
+        senderId: widget.group.id,
+      ),
+    );
 
     _readReceiptDebounce?.cancel();
     _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
@@ -1590,6 +1600,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ],
         ),
         actions: [
+          if (widget.torStatusAction != null) widget.torStatusAction!,
           if (selectedMessageIds.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_outline),

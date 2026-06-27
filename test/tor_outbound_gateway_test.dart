@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prysm/transport/tor_http_transport.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_outbound_gateway.dart';
 import 'package:prysm/util/tor_service.dart';

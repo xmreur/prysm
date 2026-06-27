@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -8,6 +6,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
+import 'package:prysm/services/pending_notification_route.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -16,6 +15,7 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/notification_preview.dart';
 import 'package:prysm/util/notification_service.dart';
 
 class InboundHandleResult {
@@ -377,25 +377,52 @@ class InboundMessageRouter {
 
     if (settings.enableNotifications) {
       final appState = WidgetsBinding.instance.lifecycleState;
-      if (appState == AppLifecycleState.paused ||
+      final isBackground = appState == AppLifecycleState.paused ||
           appState == AppLifecycleState.inactive ||
-          appState == AppLifecycleState.detached) {
+          appState == AppLifecycleState.detached;
+      if (isBackground) {
         final groupId = data['groupId'] as String?;
+        final isGroup = isGroupMessageType(type);
         final muteService = NotificationMuteService.instance;
         final muted = groupId != null
             ? muteService.isMuted(MuteTarget.group, groupId)
             : muteService.isMuted(MuteTarget.user, senderId);
         if (!muted) {
           final contact = await DBHelper.getUserById(senderId);
-          final senderName = contact?['name'] ?? 'Unknown contact';
-          final body = isGroupMessageType(type)
-              ? 'New group message from $senderName'
-              : 'Open to view the message';
-          NotificationService().showNewMessageNotification(
-            senderName: isGroupMessageType(type) ? 'Group chat' : senderName,
+          final senderName = contact?['customName'] as String? ??
+              contact?['name'] as String? ??
+              'Unknown contact';
+          final groupRow =
+              groupId != null ? await DBHelper.getGroupById(groupId) : null;
+          final groupName = groupRow?['name'] as String?;
+          final viewOnce = data['viewOnce'] == true || data['viewOnce'] == 1;
+          final title = notificationTitleForInbound(
+            isGroup: isGroup,
+            senderName: senderName,
+            groupName: groupName,
+          );
+          final body = truncateNotificationBody(
+            notificationBodyForInbound(
+              type: type,
+              isGroup: isGroup,
+              senderName: senderName,
+              viewOnce: viewOnce,
+            ),
+          );
+          final route = PendingNotificationRoute(
+            senderId: senderId,
+            groupId: groupId,
+            conversationType: isGroup ? 'group' : 'direct',
+          );
+          await NotificationService().showNewMessageNotification(
+            title: title,
             message: body,
-            notificationId: Random().nextInt(99999999),
-            payload: jsonEncode({'senderId': senderId, 'groupId': ?groupId}),
+            notificationId: NotificationService.notificationIdFor(
+              groupId: groupId,
+              senderId: senderId,
+            ),
+            payload: route.toPayload(),
+            androidGroupKey: groupId ?? senderId,
           );
         }
       }

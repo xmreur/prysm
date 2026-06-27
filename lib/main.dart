@@ -17,6 +17,9 @@ import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
+import 'package:prysm/services/active_conversation_tracker.dart';
+import 'package:prysm/services/notification_open_chat_resolver.dart';
+import 'package:prysm/services/pending_notification_route.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
@@ -156,11 +159,18 @@ void main() async {
     unawaited(NotificationService().init());
   });
 
-  // Request Android permissions and start background service AFTER runApp
-  // so the Flutter UI is rendered before any permission dialogs appear.
+  // Request notification permissions after runApp so dialogs appear over UI.
+  if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+    Future.microtask(() async {
+      if (SettingsService().enableNotifications) {
+        await NotificationService().requestPermission();
+      }
+    });
+  }
+
+  // Start Android background service AFTER runApp
   if (Platform.isAndroid) {
     Future.microtask(() async {
-      await NotificationService().requestPermission();
       final settings = SettingsService();
       final androidConfig = FlutterBackgroundAndroidConfig(
         notificationTitle: "${settings.name} Chat is running",
@@ -812,32 +822,88 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _handleNotificationTap(String? payload) {
-    if (payload == null || !mounted) return;
-    try {
-      final data = jsonDecode(payload) as Map<String, dynamic>;
-      final groupId = data['groupId'] as String?;
-      if (groupId != null) {
-        final group = groups.cast<Group?>().firstWhere(
-              (g) => g?.id == groupId,
-              orElse: () => null,
-            );
-        if (group != null) {
-          onSelectGroup(group);
-        }
-        return;
-      }
-      final senderId = data['senderId'] as String?;
-      if (senderId == null) return;
-      final contact = contacts.cast<Contact?>().firstWhere(
-            (c) => c?.id == senderId,
-            orElse: () => null,
-          );
-      if (contact != null) {
-        onSelectContact(contact);
-      }
-    } catch (e) {
-      print('Notification tap handler failed: $e');
+    unawaited(_openChatFromNotificationPayload(payload));
+  }
+
+  Future<void> _openChatFromNotificationPayload(String? payload) async {
+    if (widget.decoyMode || !mounted) return;
+
+    final route = payload != null
+        ? PendingNotificationRoute.fromPayload(payload)
+        : PendingNotificationRouteStore.instance.take();
+    if (payload != null) {
+      PendingNotificationRouteStore.instance.clear();
     }
+    if (route == null) return;
+
+    if (route.isGroup) {
+      final group = await NotificationOpenChatResolver.resolveGroup(
+        groups: groups,
+        groupId: route.groupId!,
+      );
+      if (!mounted || group == null) return;
+      onSelectGroup(group);
+      await NotificationService().cancelConversationNotification(
+        groupId: route.groupId,
+        senderId: route.senderId,
+      );
+      _closeMobileDrawerIfOpen();
+      return;
+    }
+
+    final contact = await NotificationOpenChatResolver.resolveContact(
+      contacts: contacts,
+      senderId: route.senderId,
+    );
+    if (!mounted || contact == null) return;
+    onSelectContact(contact);
+    await NotificationService().cancelConversationNotification(
+      senderId: route.senderId,
+    );
+    _closeMobileDrawerIfOpen();
+  }
+
+  Future<void> _consumePendingNotificationRoute() async {
+    if (PendingNotificationRouteStore.instance.peek() == null) return;
+    await _openChatFromNotificationPayload(null);
+  }
+
+  void _closeMobileDrawerIfOpen() {
+    if (!mounted) return;
+    if (MediaQuery.of(context).size.width >= 600) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
+  }
+
+  void _dismissConversationNotification({
+    String? groupId,
+    required String senderId,
+  }) {
+    unawaited(
+      NotificationService().cancelConversationNotification(
+        groupId: groupId,
+        senderId: senderId,
+      ),
+    );
+  }
+
+  void _syncActiveConversationTracker() {
+    if (widget.decoyMode) {
+      ActiveConversationTracker.instance.clear();
+      return;
+    }
+    final selected = selectedConversation;
+    if (selected is DirectConversation) {
+      ActiveConversationTracker.instance.setDirect(selected.contact.id);
+      return;
+    }
+    if (selected is GroupConversation) {
+      ActiveConversationTracker.instance.setGroup(selected.group.id);
+      return;
+    }
+    ActiveConversationTracker.instance.clear();
   }
 
   @override
@@ -1069,6 +1135,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else if (isLoading) {
       setState(() => isLoading = false);
     }
+
+    _syncActiveConversationTracker();
+    unawaited(_consumePendingNotificationRoute());
   }
 
   bool _mapsEqual<K, V>(Map<K, V> a, Map<K, V> b) {
@@ -1135,6 +1204,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showProfile = false;
       showSettings = false;
     });
+    _syncActiveConversationTracker();
+    _dismissConversationNotification(senderId: contact.id);
   }
 
   void onSelectGroup(Group group) {
@@ -1144,6 +1215,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showProfile = false;
       showSettings = false;
     });
+    _syncActiveConversationTracker();
+    _dismissConversationNotification(
+      groupId: group.id,
+      senderId: group.id,
+    );
   }
 
   void _showCreateGroup() {
@@ -1684,6 +1760,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Never stop Tor on `inactive` — that fires on focus loss, dialogs, and
     // notifications, which was causing random shutdowns during normal use.
     // Desktop exit is handled by MyWindowListener; mobile uses `detached`.
+    if (state == AppLifecycleState.resumed) {
+      _syncActiveConversationTracker();
+    } else {
+      ActiveConversationTracker.instance.clear();
+    }
     if (state == AppLifecycleState.detached) {
       _shutdownTor();
     }
@@ -2345,6 +2426,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       selectedContact = null;
       selectedConversation = null;
     });
+    _syncActiveConversationTracker();
   }
 
   Widget _buildChatBody() {
@@ -2387,6 +2469,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         keyManager: widget.keyManager,
         reloadConversations: () => loadUsers(),
         onCloseChat: () => clearChat(),
+        torStatusAction:
+            widget.decoyMode ? null : _buildTorAppBarAction(),
       );
     }
     if (selectedContact != null) {
@@ -2414,6 +2498,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         clearChat: () => clearChat(),
         reloadUsers: () => loadUsers(),
         onCloseChat: () => clearChat(),
+        torStatusAction:
+            widget.decoyMode ? null : _buildTorAppBarAction(),
       );
     }
     return _buildEmptyHomeState();
@@ -2430,7 +2516,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     
     if (isMobile) {
        return Scaffold(
-        appBar: AppBar(
+        appBar: selectedConversation == null && !showProfile && !showSettings
+            ? AppBar(
           toolbarHeight: 70,
           title: Row(
             children: [
@@ -2473,7 +2560,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
           elevation: 2,
           shadowColor: Colors.black.withValues(alpha: 0.1),
-        ),
+        )
+            : null,
         drawer: Drawer(
           child: buildSidebar(),
         ),

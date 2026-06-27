@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 
 /// Routes inbound WebSocket frames received on outbound peer connections.
@@ -47,11 +48,20 @@ class WsInboundDispatcher {
       _handleFrame(frame);
 
   Future<void> _handleFrame(Map<String, dynamic> frame) async {
+    final op = frame['op'];
+    if (op is! String) return;
+
+    if (WsFrame.isTypingOp(op)) {
+      final payload = frame['payload'];
+      if (payload is Map<String, dynamic>) {
+        TypingIndicatorNotifier.instance.applyInbound(payload);
+      }
+      return;
+    }
+
     final router = _router;
     if (router == null) return;
 
-    final op = frame['op'];
-    if (op is! String) return;
     if (op == 'message' || WsFrame.isInboundSideChannelOp(op)) {
       final payload = frame['payload'];
       if (payload is! Map<String, dynamic>) return;

@@ -7,6 +7,7 @@ import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -240,6 +241,14 @@ class PrysmServer {
           payload: {'publicKeyPem': result.plainTextBody ?? ''},
         ).encode(),
       );
+      return;
+    }
+
+    if (frame.op == 'typing_update') {
+      final payload = frame.payload;
+      if (payload != null) {
+        TypingIndicatorNotifier.instance.applyInbound(payload);
+      }
       return;
     }
 

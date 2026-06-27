@@ -54,6 +54,9 @@ import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/services/typing_indicator_service.dart';
+import 'package:prysm/services/typing_state_tracker.dart';
+import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_encrypt.dart';
@@ -148,6 +151,10 @@ class _ChatScreenState extends State<ChatScreen> {
   late MessageModifyService _modifyService;
   String? _highlightedMessageId;
   Timer? _highlightTimer;
+  late TypingIndicatorService _typingService;
+  final _typingTracker = TypingStateTracker();
+  StreamSubscription<TypingIndicatorEvent>? _typingSub;
+  StreamSubscription<void>? _typingTrackerSub;
 
   void _onListScroll() {
     _stickToBottom = isChatScrolledToBottom(_listScrollController);
@@ -196,6 +203,15 @@ class _ChatScreenState extends State<ChatScreen> {
       keyManager: widget.keyManager,
       peerId: widget.peerId,
     );
+    _typingService = TypingIndicatorService.direct(
+      userId: widget.userId,
+      peerId: widget.peerId,
+      settings: _settings,
+    );
+    _typingSub = TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
+    _typingTrackerSub = _typingTracker.onChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
 
     _presenceTracker = PeerPresenceTracker();
     _listScrollController.addListener(_onListScroll);
@@ -288,6 +304,30 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceTracker.suspendProbeFailuresFor(
       BatterySaverPolicy.mediaUploadPresenceGrace,
     );
+  }
+
+  void _onTypingEvent(TypingIndicatorEvent event) {
+    if (event.groupId != null) return;
+    if (event.senderId != widget.peerId) return;
+
+    _typingTracker.applyEvent(
+      conversationKey: widget.peerId,
+      senderId: event.senderId,
+      typing: event.typing,
+      timestamp: event.timestamp,
+    );
+  }
+
+  List<String> _typingTypistNames() {
+    if (!_settings.enableTypingIndicators) return const [];
+    return _typingTracker
+        .activeTypists(widget.peerId)
+        .map((id) => _peerName.isNotEmpty ? _peerName : id)
+        .toList(growable: false);
+  }
+
+  void _onComposerTypingChanged(bool isTyping) {
+    _typingService.onComposerTypingChanged(isTyping);
   }
 
   // ✅ NEW: Handle incoming messages from ChatService
@@ -394,6 +434,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _typingService.dispose();
+    _typingSub?.cancel();
+    _typingTrackerSub?.cancel();
+    _typingTracker.dispose();
     // ✅ DISPOSE ChatService
     _chatService.dispose();
     _reactionService.dispose();
@@ -531,6 +575,13 @@ class _ChatScreenState extends State<ChatScreen> {
         userId: widget.userId,
         keyManager: widget.keyManager,
         peerId: widget.peerId,
+      );
+      _typingService.dispose();
+      _typingTracker.clearConversation(oldWidget.peerId);
+      _typingService = TypingIndicatorService.direct(
+        userId: widget.userId,
+        peerId: widget.peerId,
+        settings: _settings,
       );
 
       _initializeChat();
@@ -1843,10 +1894,12 @@ class _ChatScreenState extends State<ChatScreen> {
                       replyPreview: _replyToMessage != null
                           ? _buildReplyPreview()
                           : null,
+                      typingTypistNames: _typingTypistNames(),
                       onSendText: _handleSendText,
                       onSendImage: _handleSendImage,
                       onSendFile: _handleSendFile,
                       onSendVoice: _handleSendVoice,
+                      onTypingChanged: _onComposerTypingChanged,
                     );
                   },
                 ),

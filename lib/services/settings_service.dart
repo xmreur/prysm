@@ -32,6 +32,7 @@ class SettingsService {
   bool get enableNotifications => _settings.enableNotifications;
   bool get showOnlineStatus => _settings.showOnlineStatus;
   bool get sendReadReceipts => _settings.sendReadReceipts;
+  bool get enableTypingIndicators => _settings.enableTypingIndicators;
   bool get minimizeToTray => _settings.minimizeToTray;
   bool get minimizeOnMinimizeButton => _settings.minimizeOnMinimizeButton;
   bool get enableBatterySaving => _settings.enableBatterySaving;
@@ -135,6 +136,11 @@ class SettingsService {
 
   Future<void> setSendReadReceipts(bool value) async {
     _settings = _settings.copyWith(sendReadReceipts: value);
+    await save();
+  }
+
+  Future<void> setEnableTypingIndicators(bool value) async {
+    _settings = _settings.copyWith(enableTypingIndicators: value);
     await save();
   }
 

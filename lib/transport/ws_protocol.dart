@@ -9,6 +9,7 @@ const List<String> wsSupportedOps = [
   'read_update',
   'reaction_update',
   'message_modify',
+  'typing_update',
   'sync-hint',
   'profile',
   'public',
@@ -96,6 +97,8 @@ class WsFrame {
       op == 'read_update' ||
       op == 'reaction_update' ||
       op == 'message_modify';
+
+  static bool isTypingOp(String op) => op == 'typing_update';
 
   static bool routesToMessageHandler(String op) =>
       op == 'message' || isInboundSideChannelOp(op);

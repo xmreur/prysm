@@ -15,9 +15,9 @@ import 'package:prysm/util/tor_service.dart';
 /// Selects HTTP or WebSocket transport per peer with automatic fallback.
 class TransportProvider implements OutboundTransport {
   TransportProvider._(TorManager torManager)
-      : _torManager = torManager,
-        _httpTransport = TorHttpTransport(torManager),
-        _wsManager = WsConnectionManager(torManager) {
+    : _torManager = torManager,
+      _httpTransport = TorHttpTransport(torManager),
+      _wsManager = WsConnectionManager(torManager) {
     _wsTransport = TorWebSocketTransport(_wsManager);
   }
 
@@ -144,65 +144,59 @@ class TransportProvider implements OutboundTransport {
   Future<String> getProfile(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
-  }) =>
-      getProfileWithPreference(peerOnion, timeout: timeout);
+  }) => getProfileWithPreference(peerOnion, timeout: timeout);
 
   Future<String> getProfileWithPreference(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
     TransportPreference preference = TransportPreference.wsPreferred,
-  }) =>
-      withPeer(
-        peerOnion,
-        (transport) => transport.getProfile(peerOnion, timeout: timeout),
-        preference: preference,
-      );
+  }) => withPeer(
+    peerOnion,
+    (transport) => transport.getProfile(peerOnion, timeout: timeout),
+    preference: preference,
+  );
 
   @override
   Future<String> getPublic(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
-  }) =>
-      getPublicWithPreference(peerOnion, timeout: timeout);
+  }) => getPublicWithPreference(peerOnion, timeout: timeout);
 
   Future<String> getPublicWithPreference(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
     TransportPreference preference = TransportPreference.wsPreferred,
-  }) =>
-      withPeer(
-        peerOnion,
-        (transport) => transport.getPublic(peerOnion, timeout: timeout),
-        preference: preference,
-      );
+  }) => withPeer(
+    peerOnion,
+    (transport) => transport.getPublic(peerOnion, timeout: timeout),
+    preference: preference,
+  );
 
   @override
   Future<void> postMessage({
     required String peerOnion,
     required Map<String, dynamic> payload,
     Duration timeout = const Duration(seconds: 30),
-  }) =>
-      postMessageWithPreference(
-        peerOnion: peerOnion,
-        payload: payload,
-        timeout: timeout,
-      );
+  }) => postMessageWithPreference(
+    peerOnion: peerOnion,
+    payload: payload,
+    timeout: timeout,
+  );
 
   Future<void> postMessageWithPreference({
     required String peerOnion,
     required Map<String, dynamic> payload,
     Duration timeout = const Duration(seconds: 30),
     TransportPreference preference = TransportPreference.wsPreferred,
-  }) =>
-      withPeer(
-        peerOnion,
-        (transport) => transport.postMessage(
-          peerOnion: peerOnion,
-          payload: payload,
-          timeout: timeout,
-        ),
-        preference: preference,
-      );
+  }) => withPeer(
+    peerOnion,
+    (transport) => transport.postMessage(
+      peerOnion: peerOnion,
+      payload: payload,
+      timeout: timeout,
+    ),
+    preference: preference,
+  );
 
   @override
   Future<void> postJson({
@@ -210,13 +204,12 @@ class TransportProvider implements OutboundTransport {
     required String path,
     required Map<String, dynamic> payload,
     Duration timeout = const Duration(seconds: 30),
-  }) =>
-      postJsonWithPreference(
-        peerOnion: peerOnion,
-        path: path,
-        payload: payload,
-        timeout: timeout,
-      );
+  }) => postJsonWithPreference(
+    peerOnion: peerOnion,
+    path: path,
+    payload: payload,
+    timeout: timeout,
+  );
 
   Future<void> postJsonWithPreference({
     required String peerOnion,
@@ -224,17 +217,16 @@ class TransportProvider implements OutboundTransport {
     required Map<String, dynamic> payload,
     Duration timeout = const Duration(seconds: 30),
     TransportPreference preference = TransportPreference.wsPreferred,
-  }) =>
-      withPeer(
-        peerOnion,
-        (transport) => transport.postJson(
-          peerOnion: peerOnion,
-          path: path,
-          payload: payload,
-          timeout: timeout,
-        ),
-        preference: preference,
-      );
+  }) => withPeer(
+    peerOnion,
+    (transport) => transport.postJson(
+      peerOnion: peerOnion,
+      path: path,
+      payload: payload,
+      timeout: timeout,
+    ),
+    preference: preference,
+  );
 
   /// Unified outbound helper used when Tor may not yet be configured.
   static Future<String> getProfileOrFallback(
@@ -308,8 +300,7 @@ class TransportProvider implements OutboundTransport {
     if (isConfigured) {
       final inst = instance;
       if (inst.isRealtimeConnected(peerOnion)) {
-        final wsTimeout =
-            timeout <= _wsSendBudget ? timeout : _wsSendBudget;
+        final wsTimeout = timeout <= _wsSendBudget ? timeout : _wsSendBudget;
         try {
           await inst.postMessageWithPreference(
             peerOnion: peerOnion,
@@ -350,11 +341,9 @@ class TransportProvider implements OutboundTransport {
         try {
           final uri = Uri.parse('http://$peerOnion:80/message');
           final response = await torClient
-              .post(
-                uri,
-                {'Content-Type': 'application/json'},
-                jsonEncode(payload),
-              )
+              .post(uri, {
+                'Content-Type': 'application/json',
+              }, jsonEncode(payload))
               .timeout(timeout);
           await torClient.readUtf8Body(response);
         } finally {
@@ -390,11 +379,9 @@ class TransportProvider implements OutboundTransport {
         try {
           final uri = Uri.parse('http://$peerOnion:80/$path');
           final response = await torClient
-              .post(
-                uri,
-                {'Content-Type': 'application/json'},
-                jsonEncode(payload),
-              )
+              .post(uri, {
+                'Content-Type': 'application/json',
+              }, jsonEncode(payload))
               .timeout(timeout);
           await torClient.readUtf8Body(response);
         } finally {

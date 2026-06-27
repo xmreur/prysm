@@ -28,6 +28,9 @@ import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
+import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
+import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
@@ -268,42 +271,39 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Widget _buildReplyPreview() {
     if (_replyToMessage == null) return const SizedBox.shrink();
-    final previewText = isMessageDeleted(_replyToMessage!)
-        ? 'Deleted'
-        : _replyToMessage is TextMessage
-            ? (_replyToMessage as TextMessage).text
-            : _replyToMessage is ImageMessage
-                ? '📷 Image'
-                : _replyToMessage is FileMessage
-                    ? '📎 File: ${(_replyToMessage as FileMessage).name}'
-                    : 'Message';
-    return Container(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? Theme.of(context).colorScheme.secondary
-          : Theme.of(context).colorScheme.primary,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              previewText,
-              style: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black
-                    : Colors.white,
-                fontStyle: FontStyle.italic,
+    final data = replyPreviewFromMessage(_replyToMessage!);
+    final authorName = _replyToMessage!.authorId == widget.userId
+        ? 'You'
+        : _senderNames[_replyToMessage!.authorId];
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        border: Border(
+          left: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 3,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: QuotedReplyPreview(
+                data: data,
+                isSentByMe: true,
+                compact: true,
+                authorName: authorName,
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.black
-                : Colors.white,
-            onPressed: () => setState(() => _replyToMessage = null),
-          ),
-        ],
+            IconButton(
+              icon: const Icon(Icons.close),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() => _replyToMessage = null),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -549,49 +549,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
 
-  Widget _replyPreviewWidget(Message message, bool isSentByMe) {
-    final replyId = message.replyToMessageId;
-    if (replyId == null) return const SizedBox.shrink();
-    Message? repliedMessage;
-    for (final m in _messages.messages) {
-      if (m.id == replyId) {
-        repliedMessage = m;
-        break;
-      }
-    }
-    if (repliedMessage == null) return const SizedBox.shrink();
-
-    String previewText;
-    if (isMessageDeleted(repliedMessage)) {
-      previewText = 'Deleted';
-    } else if (repliedMessage is TextMessage) {
-      previewText = repliedMessage.text;
-    } else if (repliedMessage is ImageMessage) {
-      previewText = '📷 Image';
-    } else if (repliedMessage is FileMessage) {
-      previewText = '📎 File: ${repliedMessage.name}';
-    } else {
-      previewText = 'Message';
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        previewText,
-        style: TextStyle(
-          fontStyle: FontStyle.italic,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontSize: 12,
-        ),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        textAlign: isSentByMe ? TextAlign.right : TextAlign.left,
-      ),
+  Widget _replyQuoteFor(Message message, bool isSentByMe) {
+    return QuotedReplyPreviewLoader(
+      replyToMessageId: message.replyToMessageId,
+      messages: _messages.messages,
+      isSentByMe: isSentByMe,
+      groupId: widget.group.id,
+      authorNameFor: (authorId) => _senderNames[authorId],
+      onTap: (id) => unawaited(_scrollToMessage(id)),
     );
   }
 
@@ -996,6 +961,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   void _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
     final messageId = const Uuid().v4();
+    final replyToId = _replyToMessage?.id;
     setState(() {
       if (type == 'file') {
         _messages.insertMessage(
@@ -1004,6 +970,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               authorId: _user.id,
               createdAt: DateTime.now(),
               id: messageId,
+              replyToMessageId: replyToId,
               name: fileName,
               size: bytes.length,
               source: base64Encode(bytes),
@@ -1018,6 +985,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               authorId: _user.id,
               createdAt: DateTime.now(),
               id: messageId,
+              replyToMessageId: replyToId,
               size: bytes.length,
               source:
                   'data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}',
@@ -1027,6 +995,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           index: _messages.messages.length,
         );
       }
+      _replyToMessage = null;
     });
     _scheduleScrollToBottomAfterSend();
 
@@ -1036,6 +1005,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       type,
       messageId: messageId,
       viewOnce: viewOnce,
+      replyToId: replyToId,
     );
     if (sentId == null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1080,6 +1050,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
     final messageId = const Uuid().v4();
+    final replyToId = _replyToMessage?.id;
     final cacheDir = await getTemporaryDirectory();
     final cachePath = '${cacheDir.path}/group_voice_cache_$messageId.wav';
     await File(cachePath).writeAsBytes(bytes);
@@ -1094,6 +1065,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             authorId: _user.id,
             createdAt: DateTime.now(),
             id: messageId,
+            replyToMessageId: replyToId,
             name: 'voice_message.wav',
             size: bytes.length,
             source: 'audio:$durationMs:$cachePath',
@@ -1102,10 +1074,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
         index: _messages.messages.length,
       );
+      _replyToMessage = null;
     });
     _scheduleScrollToBottomAfterSend();
 
-    await _chatService.sendFileMessage(bytes, 'voice_message.wav', 'audio', messageId: messageId);
+    await _chatService.sendFileMessage(
+      bytes,
+      'voice_message.wav',
+      'audio',
+      messageId: messageId,
+      replyToId: replyToId,
+    );
     widget.reloadConversations();
   }
 
@@ -1264,7 +1243,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _replyPreviewWidget(message, isSentByMe),
+                _replyQuoteFor(message, isSentByMe),
                 LinkedMessageText(
                   text: message.text,
                   textColor: isSentByMe
@@ -1337,6 +1316,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           _senderLabel(message.authorId, isSentByMe),
+          _replyQuoteFor(message, isSentByMe),
           Container(
             width: 200,
             height: 60,
@@ -1358,6 +1338,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           _senderLabel(message.authorId, isSentByMe),
+          _replyQuoteFor(message, isSentByMe),
           GestureDetector(
             onTap: isSentByMe
                 ? null
@@ -1437,13 +1418,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
 
-    return ImageMessageBubble(
-      message: message,
-      isSentByMe: isSentByMe,
-      timeString: timeString,
-      tickWidget: tickWidget,
-      decryptFromDb: () => _decryptGroupImageFromDb(message.id),
-      senderLabel: _senderLabel(message.authorId, isSentByMe),
+    return Column(
+      crossAxisAlignment:
+          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        _senderLabel(message.authorId, isSentByMe),
+        _replyQuoteFor(message, isSentByMe),
+        ImageMessageBubble(
+          message: message,
+          isSentByMe: isSentByMe,
+          timeString: timeString,
+          tickWidget: tickWidget,
+          decryptFromDb: () => _decryptGroupImageFromDb(message.id),
+        ),
+      ],
     );
   }
 
@@ -1470,6 +1458,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           _senderLabel(message.authorId, isSentByMe),
+          _replyQuoteFor(message, isSentByMe),
           VoiceMessageBubble(
             message: message,
             isSentByMe: isSentByMe,
@@ -1480,14 +1469,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
 
-    return FileAttachmentBubble(
-      fileName: message.name,
-      fileSize: message.size,
-      timeString: timeString,
-      isSentByMe: isSentByMe,
-      tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
-      header: _senderLabel(message.authorId, isSentByMe),
-      resolveBytes: () => FileAttachmentResolver.resolve(message),
+    return Column(
+      crossAxisAlignment:
+          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        _replyQuoteFor(message, isSentByMe),
+        FileAttachmentBubble(
+          fileName: message.name,
+          fileSize: message.size,
+          timeString: timeString,
+          isSentByMe: isSentByMe,
+          tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+          header: _senderLabel(message.authorId, isSentByMe),
+          resolveBytes: () => FileAttachmentResolver.resolve(message),
+        ),
+      ],
     );
   }
 

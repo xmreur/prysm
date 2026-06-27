@@ -28,6 +28,9 @@ import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
+import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
+import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
@@ -847,12 +850,29 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  String _replyPreviewText(Message message) {
-    if (isMessageDeleted(message)) return 'Deleted';
-    if (message is TextMessage) return message.text;
-    if (message is ImageMessage) return '📷 Image';
-    if (message is FileMessage) return '📎 File: ${message.name}';
-    return 'Message';
+  Widget _replyQuoteFor(Message message, bool isSentByMe) {
+    return QuotedReplyPreviewLoader(
+      replyToMessageId: message.replyToMessageId,
+      messages: _messages.messages,
+      isSentByMe: isSentByMe,
+      onTap: (id) => unawaited(_scrollToMessage(id)),
+    );
+  }
+
+  Widget _wrapWithReplyQuote(
+    Message message,
+    bool isSentByMe,
+    Widget child,
+  ) {
+    return Column(
+      crossAxisAlignment:
+          isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _replyQuoteFor(message, isSentByMe),
+        child,
+      ],
+    );
   }
 
   Future<void> _onReactionSelected(Message message, String emoji) async {
@@ -1122,6 +1142,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
 
     final messageId = const Uuid().v4();
+    final replyToId = _replyToMessage?.id;
 
     // Save to cache so we can play back our own sent voice messages
     final cacheDir = await getTemporaryDirectory();
@@ -1139,6 +1160,7 @@ class _ChatScreenState extends State<ChatScreen> {
             authorId: _user.id,
             createdAt: DateTime.now(),
             id: messageId,
+            replyToMessageId: replyToId,
             name: 'voice_message.wav',
             size: bytes.length,
             source: 'audio:$durationMs:$cachePath',
@@ -1147,12 +1169,19 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         index: _messages.messages.length,
       );
+      _replyToMessage = null;
     });
     _scheduleScrollToBottomAfterSend();
 
     _suspendPresenceProbeDuringMediaUpload();
     _chatService
-        .sendFileMessage(bytes, 'voice_message.wav', 'audio', messageId: messageId)
+        .sendFileMessage(
+          bytes,
+          'voice_message.wav',
+          'audio',
+          messageId: messageId,
+          replyToId: replyToId,
+        )
         .then((sentId) {
           if (sentId == null && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1257,35 +1286,36 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildReplyPreview() {
-    if (_replyToMessage == null) return SizedBox.shrink();
-    final previewText = _replyPreviewText(_replyToMessage!);
-    return Container(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? Theme.of(context).colorScheme.secondary
-          : Theme.of(context).colorScheme.primary,
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              previewText,
-              style: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black
-                    : Colors.white,
-                fontStyle: FontStyle.italic,
+    if (_replyToMessage == null) return const SizedBox.shrink();
+    final data = replyPreviewFromMessage(_replyToMessage!);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        border: Border(
+          left: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 3,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: QuotedReplyPreview(
+                data: data,
+                isSentByMe: true,
+                compact: true,
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          IconButton(
-            icon: Icon(Icons.close),
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.black
-                : Colors.white,
-            onPressed: () => setState(() => _replyToMessage = null),
-          ),
-        ],
+            IconButton(
+              icon: const Icon(Icons.close),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() => _replyToMessage = null),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1675,47 +1705,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             prevDay == null ||
                             !currentDay.isAtSameMomentAs(prevDay);
 
-                        Widget replyPreviewWidget = const SizedBox.shrink();
-                        final replyId = message.replyToMessageId;
-                        if (replyId != null) {
-                          Message? repliedMessage;
-                          try {
-                            repliedMessage = _messages.messages.firstWhere(
-                              (m) => m.id == replyId,
-                            );
-                          } catch (_) {
-                            repliedMessage = null;
-                          }
-
-                          if (repliedMessage != null) {
-                            final previewText = _replyPreviewText(repliedMessage);
-
-                            replyPreviewWidget = Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.7,
-                              ),
-                              child: Text(
-                                previewText,
-                                style: TextStyle(
-                                  fontStyle: FontStyle.italic,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: isSentByMe
-                                    ? TextAlign.right
-                                    : TextAlign.left,
-                              ),
-                            );
-                          }
-                        }
-
                         bool isSelected = selectedMessageIds.contains(
                           message.id,
                         );
@@ -1822,7 +1811,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                                   ? CrossAxisAlignment.end
                                                   : CrossAxisAlignment.start,
                                               children: [
-                                                replyPreviewWidget,
                                                 _displayChildForMessage(
                                                   message,
                                                   child,
@@ -1893,7 +1881,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // View-once: already viewed → show "Opened" placeholder
     if (isViewOnce && isViewed) {
-      return Column(
+      return _wrapWithReplyQuote(
+        message,
+        isSentByMe,
+        Column(
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Container(
@@ -1928,12 +1919,16 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ],
+        ),
       );
     }
 
     // View-once: not yet viewed → show blurred placeholder with eye icon
     if (isViewOnce && !isViewed) {
-      return Column(
+      return _wrapWithReplyQuote(
+        message,
+        isSentByMe,
+        Column(
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           GestureDetector(
@@ -2018,15 +2013,20 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ],
+        ),
       );
     }
 
-    return ImageMessageBubble(
+    return _wrapWithReplyQuote(
+      message,
+      isSentByMe,
+      ImageMessageBubble(
       message: message,
       isSentByMe: isSentByMe,
       timeString: timeString,
       tickWidget: tickWidget,
       decryptFromDb: () => _decryptImageFromDb(message.id),
+      ),
     );
   }
 
@@ -2060,7 +2060,10 @@ class _ChatScreenState extends State<ChatScreen> {
           _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
     }
 
-    return FileAttachmentBubble(
+    return _wrapWithReplyQuote(
+      message,
+      isSentByMe,
+      FileAttachmentBubble(
       fileName: message.name,
       fileSize: message.size,
       timeString: timeString,
@@ -2069,6 +2072,7 @@ class _ChatScreenState extends State<ChatScreen> {
       resolveBytes: () => FileAttachmentResolver.resolve(
         message,
         keyManager: widget.keyManager,
+      ),
       ),
     );
   }
@@ -2108,6 +2112,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            _replyQuoteFor(message, isSentByMe),
             LinkedMessageText(
               text: message.text,
               textColor: isSentByMe
@@ -2175,7 +2180,10 @@ class _ChatScreenState extends State<ChatScreen> {
         : Theme.of(context).colorScheme.onSecondary;
     Widget tickWidget = _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
 
-    return VoiceMessageBubble(
+    return _wrapWithReplyQuote(
+      message,
+      isSentByMe,
+      VoiceMessageBubble(
       message: message,
       isSentByMe: isSentByMe,
       timeString: timeString,
@@ -2192,6 +2200,7 @@ class _ChatScreenState extends State<ChatScreen> {
               final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
               return AESHelper.decryptBytes(encryptedData, aesKey, iv);
             },
+      ),
     );
   }
 }

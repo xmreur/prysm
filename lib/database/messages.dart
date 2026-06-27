@@ -2,6 +2,7 @@ import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
+import 'package:prysm/util/sqflite_platform.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -10,7 +11,7 @@ import 'dart:async';
 
 class MessagesDb {
 	static Database? _database;
-	static final _openCompleter = Completer<Database>();
+	static Future<Database>? _opening;
 	static final _dbMutex = Mutex();
 
     static const _dbVersion = 9;
@@ -26,49 +27,60 @@ class MessagesDb {
 	/// Return singleton database instance
 	static Future<Database> get database async {
 		if (_database != null) return _database!;
-		if (!_openCompleter.isCompleted) {
-			final databasesPath = await getApplicationDocumentsDirectory();
-			final path = join(databasesPath.path, 'prysm', 'messages.db');
-
-			_database = await openDatabase(
-				path,
-				version: _dbVersion,
-				singleInstance: false,
-				onConfigure: (db) async {
-					await db.execute('PRAGMA foreign_keys = ON');
-					await db.execute('PRAGMA busy_timeout = 5000');
-
-					await db.execute('PRAGMA journal_mode = WAL');
-					await db.execute('PRAGMA synchronous = NORMAL');
-				},
-				onCreate: (db, version) async {
-					await _createV2(db);
-				},
-				onUpgrade: (db, oldVersion, newVersion) async {
-					if (oldVersion < 2) await _upgradeToV2(db);
-					if (oldVersion < 3) await _upgradeToV3(db);
-					if (oldVersion < 4) await _upgradeToV4(db);
-					if (oldVersion < 5) await _upgradeToV5(db);
-					if (oldVersion < 6) await _upgradeToV6(db);
-					if (oldVersion < 7) await _upgradeToV7(db);
-					if (oldVersion < 8) await _upgradeToV8(db);
-					if (oldVersion < 9) await _upgradeToV9(db);
-				},
-				onDowngrade: (db, oldVersion, newVersion) async {
-					throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
-				}
-			);
-
-			_openCompleter.complete(_database);
+		_opening ??= _openDatabase();
+		try {
+			return await _opening!;
+		} catch (e) {
+			_opening = null;
+			rethrow;
 		}
+	}
 
-		return _openCompleter.future;
+	static Future<Database> _openDatabase() async {
+		ensureSqflitePlatformInitialized();
+		final databasesPath = await getApplicationDocumentsDirectory();
+		final path = join(databasesPath.path, 'prysm', 'messages.db');
+
+		final db = await openDatabase(
+			path,
+			version: _dbVersion,
+			singleInstance: true,
+			onConfigure: _onConfigure,
+			onCreate: (db, version) async {
+				await _createV2(db);
+			},
+			onUpgrade: (db, oldVersion, newVersion) async {
+				if (oldVersion < 2) await _upgradeToV2(db);
+				if (oldVersion < 3) await _upgradeToV3(db);
+				if (oldVersion < 4) await _upgradeToV4(db);
+				if (oldVersion < 5) await _upgradeToV5(db);
+				if (oldVersion < 6) await _upgradeToV6(db);
+				if (oldVersion < 7) await _upgradeToV7(db);
+				if (oldVersion < 8) await _upgradeToV8(db);
+				if (oldVersion < 9) await _upgradeToV9(db);
+			},
+			onDowngrade: (db, oldVersion, newVersion) async {
+				throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
+			}
+		);
+		_database = db;
+		return db;
+	}
+
+	static Future<void> _onConfigure(Database db) async {
+		await db.execute('PRAGMA foreign_keys = ON');
+		// Android rejects some PRAGMA via execute() during onConfigure.
+		await db.rawQuery('PRAGMA busy_timeout = 5000');
+		await db.rawQuery('PRAGMA journal_mode = WAL');
+		await db.rawQuery('PRAGMA synchronous = NORMAL');
 	}
 
 	static Future<void> closeForWipe() async {
-		if (_database != null) {
-			await _database!.close();
+		final db = _database;
+		if (db != null) {
+			await db.close();
 			_database = null;
+			_opening = null;
 		}
 	}
 

@@ -15,12 +15,15 @@ import 'package:prysm/util/tor_service.dart';
 /// Selects HTTP or WebSocket transport per peer with automatic fallback.
 class TransportProvider implements OutboundTransport {
   TransportProvider._(TorManager torManager)
-      : _httpTransport = TorHttpTransport(torManager),
+      : _torManager = torManager,
+        _httpTransport = TorHttpTransport(torManager),
         _wsManager = WsConnectionManager(torManager) {
     _wsTransport = TorWebSocketTransport(_wsManager);
   }
 
   static TransportProvider? _instance;
+
+  final TorManager _torManager;
 
   static TransportProvider get instance {
     final i = _instance;
@@ -36,6 +39,12 @@ class TransportProvider implements OutboundTransport {
     TorManager torManager, {
     Future<bool> Function(String peerId)? onPeerConnected,
   }) {
+    final existing = _instance;
+    if (existing != null && identical(existing._torManager, torManager)) {
+      existing._wsManager.onPeerConnected = onPeerConnected;
+      TorDelivery.configure(torManager);
+      return;
+    }
     _instance?.dispose();
     final provider = TransportProvider._(torManager);
     provider._wsManager.onPeerConnected = onPeerConnected;

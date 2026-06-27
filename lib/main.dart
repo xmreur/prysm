@@ -32,6 +32,7 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/sqflite_platform.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
@@ -96,6 +97,7 @@ Future<bool> _isProcessRunning(int pid) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ensureSqflitePlatformInitialized();
 
   // Prevent multiple instances on desktop
   if (!Platform.isAndroid && !Platform.isIOS) {

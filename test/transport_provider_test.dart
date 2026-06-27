@@ -48,6 +48,23 @@ void main() {
     expect(WsConnectionManager.interactiveConnectBudget.inSeconds, greaterThan(0));
   });
 
+  test('configure reuses provider when tor manager is unchanged', () {
+    final torManager = TorManager(
+      torPath: '/bin/false',
+      dataDir: '/tmp/transport-provider-test-reuse',
+    );
+    TransportProvider.configure(torManager);
+    final first = TransportProvider.instance;
+    TransportProvider.instance.startWebSocketConnections();
+
+    TransportProvider.configure(
+      torManager,
+      onPeerConnected: (_) async => true,
+    );
+
+    expect(identical(TransportProvider.instance, first), isTrue);
+  });
+
   test('withPeer falls back to HTTP when WS connect fails', () async {
     TransportProvider.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-4'),

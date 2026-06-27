@@ -167,15 +167,22 @@ class WsConnectionManager {
   }
 
   Future<Set<String>> _connectionTargets() async {
-    final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
-    final recent = timestamps.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final targets = recent
-        .take(BatterySaverPolicy.wakeHintMaxPeers)
-        .map((e) => e.key)
-        .toSet();
-    targets.addAll(_pinnedPeers);
-    return targets;
+    try {
+      final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
+      final recent = timestamps.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final targets = recent
+          .take(BatterySaverPolicy.wakeHintMaxPeers)
+          .map((e) => e.key)
+          .toSet();
+      targets.addAll(_pinnedPeers);
+      return targets;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('WsConnectionManager: DB not ready for peer targets: $e');
+      }
+      return Set<String>.from(_pinnedPeers);
+    }
   }
 
   /// Connects to [peerOnion]. When [connectBudget] is set, uses a single fast

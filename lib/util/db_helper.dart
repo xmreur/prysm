@@ -1,5 +1,6 @@
 
 import 'package:prysm/database/conversation_preferences_db.dart';
+import 'package:prysm/util/sqflite_platform.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,11 +23,7 @@ class DBHelper {
     }
   }
 
-  static void _initializeFfi() {
-    // This initializes ffi for desktop platforms
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
+  static void _initializeFfi() => ensureSqflitePlatformInitialized();
 
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();

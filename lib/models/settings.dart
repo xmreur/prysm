@@ -6,6 +6,7 @@ class Settings {
   final bool enableNotifications;
   final bool showOnlineStatus;
   final bool sendReadReceipts;
+  final bool enableTypingIndicators;
   final bool minimizeToTray;
   final bool minimizeOnMinimizeButton;
   final bool enableBatterySaving;
@@ -39,6 +40,7 @@ class Settings {
     this.enableNotifications = true,
     this.showOnlineStatus = true,
     this.sendReadReceipts = true,
+    this.enableTypingIndicators = true,
     this.minimizeToTray = true,
     this.minimizeOnMinimizeButton = false,
     this.enableBatterySaving = false,
@@ -62,6 +64,7 @@ class Settings {
     'enableNotifications': enableNotifications,
     'showOnlineStatus': showOnlineStatus,
     'sendReadReceipts': sendReadReceipts,
+    'enableTypingIndicators': enableTypingIndicators,
     'minimizeToTray': minimizeToTray,
     'minimizeOnMinimizeButton': minimizeOnMinimizeButton,
     'enableBatterySaving': enableBatterySaving,
@@ -85,6 +88,7 @@ class Settings {
     enableNotifications: json['enableNotifications'] ?? true,
     showOnlineStatus: json['showOnlineStatus'] ?? true,
     sendReadReceipts: json['sendReadReceipts'] ?? true,
+    enableTypingIndicators: json['enableTypingIndicators'] ?? true,
     minimizeToTray: json['minimizeToTray'] ?? true,
     minimizeOnMinimizeButton: json['minimizeOnMinimizeButton'] ?? false,
     enableBatterySaving: json['enableBatterySaving'] ?? false,
@@ -108,6 +112,7 @@ class Settings {
     bool? enableNotifications,
     bool? showOnlineStatus,
     bool? sendReadReceipts,
+    bool? enableTypingIndicators,
     bool? minimizeToTray,
     bool? minimizeOnMinimizeButton,
     bool? enableBatterySaving,
@@ -129,6 +134,8 @@ class Settings {
     enableNotifications: enableNotifications ?? this.enableNotifications,
     showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
     sendReadReceipts: sendReadReceipts ?? this.sendReadReceipts,
+    enableTypingIndicators:
+        enableTypingIndicators ?? this.enableTypingIndicators,
     minimizeToTray: minimizeToTray ?? this.minimizeToTray,
     minimizeOnMinimizeButton:
         minimizeOnMinimizeButton ?? this.minimizeOnMinimizeButton,
@@ -170,6 +177,7 @@ class Settings {
         other.enableNotifications == enableNotifications &&
         other.showOnlineStatus == showOnlineStatus &&
         other.sendReadReceipts == sendReadReceipts &&
+        other.enableTypingIndicators == enableTypingIndicators &&
         other.minimizeToTray == minimizeToTray &&
         other.minimizeOnMinimizeButton == minimizeOnMinimizeButton &&
         other.enableBatterySaving == enableBatterySaving &&
@@ -193,6 +201,7 @@ class Settings {
     return enableNotifications.hashCode ^
         showOnlineStatus.hashCode ^
         sendReadReceipts.hashCode ^
+        enableTypingIndicators.hashCode ^
         minimizeToTray.hashCode ^
         minimizeOnMinimizeButton.hashCode ^
         enableBatterySaving.hashCode ^

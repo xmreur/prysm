@@ -24,6 +24,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 
   bool _showOnlineStatus = true;
   bool _readReceipts = true;
+  bool _typingIndicators = true;
   bool _lastSeen = true;
   bool _profilePhoto = true;
 
@@ -38,6 +39,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     setState(() {
       _showOnlineStatus = prefs.getBool('show_online_status') ?? true;
       _readReceipts = settings.sendReadReceipts;
+      _typingIndicators = settings.enableTypingIndicators;
       _lastSeen = prefs.getBool('last_seen') ?? true;
       _profilePhoto = prefs.getBool('profile_photo') ?? true;
     });
@@ -61,6 +63,13 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       _readReceipts = value;
     });
     await settings.setSendReadReceipts(value);
+  }
+
+  Future<void> _onTypingIndicatorsToggle(bool value) async {
+    setState(() {
+      _typingIndicators = value;
+    });
+    await settings.setEnableTypingIndicators(value);
   }
 
   void _onLastSeenToggle(bool value) {
@@ -148,6 +157,35 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                       Icons.check_circle_outline_outlined,
                       _readReceipts,
                       _onReadReceiptsToggle,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.edit_outlined),
+                      title: const Text('Typing Indicators'),
+                      subtitle: const Text(
+                        "When disabled, you won't send or see typing activity in chats.",
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.black.withValues(alpha: 0.05),
+                        ),
+                        child: Switch(
+                          value: _typingIndicators,
+                          onChanged: _onTypingIndicatorsToggle,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: Theme.of(context).primaryColor,
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor:
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.grey[700]
+                                  : Colors.grey[400],
+                        ),
+                      ),
+                      onTap: () => _onTypingIndicatorsToggle(!_typingIndicators),
                     ),
                     const Divider(height: 1),
                     _buildPrivacyOption(

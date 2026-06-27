@@ -28,6 +28,12 @@ void main() {
       expect(wsOpForPayloadType('text'), 'message');
     });
 
+    test('typing_update is a supported op and typing side channel', () {
+      expect(wsSupportedOps, contains('typing_update'));
+      expect(WsFrame.isTypingOp('typing_update'), isTrue);
+      expect(WsFrame.isTypingOp('message'), isFalse);
+    });
+
     test('response frame preserves correlation id', () {
       final frame = WsFrame.response(
         op: 'profile',

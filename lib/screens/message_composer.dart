@@ -13,6 +13,7 @@ class MessageComposer extends StatefulWidget {
   final VoidCallback onSendImage;
   final VoidCallback onSendFile;
   final Function(Uint8List bytes, int durationMs)? onSendVoice;
+  final ValueChanged<bool>? onTypingChanged;
   final VoidCallback? onLayoutChanged;
 
   const MessageComposer({
@@ -21,6 +22,7 @@ class MessageComposer extends StatefulWidget {
     required this.onSendImage,
     required this.onSendFile,
     this.onSendVoice,
+    this.onTypingChanged,
     this.onLayoutChanged,
   });
 
@@ -42,6 +44,7 @@ class MessageComposerState extends State<MessageComposer> {
 
   @override
   void dispose() {
+    widget.onTypingChanged?.call(false);
     _textController.dispose();
     _recordTimer?.cancel();
     _recorder.dispose();
@@ -52,10 +55,15 @@ class MessageComposerState extends State<MessageComposer> {
     widget.onLayoutChanged?.call();
   }
 
+  void _notifyTypingFromText(String text) {
+    widget.onTypingChanged?.call(text.trim().isNotEmpty);
+  }
+
   void _handleSend() {
     final text = currentText.trim();
     if (text.isEmpty) return;
     widget.onSendText(text);
+    widget.onTypingChanged?.call(false);
     _textController.clear();
     setState(() {
       currentText = '';
@@ -79,6 +87,7 @@ class MessageComposerState extends State<MessageComposer> {
     setState(() {
       currentText = newText;
     });
+    _notifyTypingFromText(newText);
   }
 
   Future<void> _startRecording() async {
@@ -111,6 +120,7 @@ class MessageComposerState extends State<MessageComposer> {
       _isRecording = true;
       _recordDuration = Duration.zero;
     });
+    widget.onTypingChanged?.call(false);
     WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -262,7 +272,10 @@ class MessageComposerState extends State<MessageComposer> {
         Expanded(
           child: TextField(
             controller: _textController,
-            onChanged: (text) => setState(() => currentText = text),
+            onChanged: (text) {
+              setState(() => currentText = text);
+              _notifyTypingFromText(text);
+            },
             onSubmitted: (_) => _handleSend(),
             decoration: InputDecoration(
               hintText: 'Type a message',

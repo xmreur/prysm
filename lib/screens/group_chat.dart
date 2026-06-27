@@ -52,6 +52,9 @@ import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/typing_indicator_service.dart';
+import 'package:prysm/services/typing_state_tracker.dart';
+import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
@@ -117,6 +120,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
   final Map<String, double> _dragOffsets = {};
+  late TypingIndicatorService _typingService;
+  final _typingTracker = TypingStateTracker();
+  StreamSubscription<TypingIndicatorEvent>? _typingSub;
+  StreamSubscription<void>? _typingTrackerSub;
 
   @override
   void initState() {
@@ -170,6 +177,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       groupId: widget.group.id,
       groupService: _groupService,
     );
+    _typingService = TypingIndicatorService.group(
+      userId: widget.userId,
+      groupId: widget.group.id,
+      memberIds: const [],
+      settings: _settings,
+    );
+    _typingSub = TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
+    _typingTrackerSub = _typingTracker.onChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
     _init();
   }
 
@@ -190,6 +207,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _teardown() {
+    _typingService.dispose();
+    _typingSub?.cancel();
+    _typingTrackerSub?.cancel();
+    _typingTracker.clearConversation(widget.group.id);
     _newMessagesSub?.cancel();
     _statusSub?.cancel();
     _reactionSub?.cancel();
@@ -235,6 +256,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _memberCount = members.length;
     _groupMemberIds = members.map((m) => m.memberId).toList();
     await _resolveSenderNames(_groupMemberIds);
+    _typingService.dispose();
+    _typingService = TypingIndicatorService.group(
+      userId: widget.userId,
+      groupId: widget.group.id,
+      memberIds: _groupMemberIds,
+      settings: _settings,
+    );
 
     final ok = await _chatService.initialize();
     if (!ok && mounted) {
@@ -267,6 +295,30 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
 
     if (mounted) setState(() {});
+  }
+
+  void _onTypingEvent(TypingIndicatorEvent event) {
+    if (event.groupId != widget.group.id) return;
+    if (event.senderId == widget.userId) return;
+
+    _typingTracker.applyEvent(
+      conversationKey: widget.group.id,
+      senderId: event.senderId,
+      typing: event.typing,
+      timestamp: event.timestamp,
+    );
+  }
+
+  List<String> _typingTypistNames() {
+    if (!_settings.enableTypingIndicators) return const [];
+    return _typingTracker
+        .activeTypists(widget.group.id)
+        .map((id) => _senderNames[id] ?? id)
+        .toList(growable: false);
+  }
+
+  void _onComposerTypingChanged(bool isTyping) {
+    _typingService.onComposerTypingChanged(isTyping);
   }
 
   Widget _buildReplyPreview() {
@@ -1171,6 +1223,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void dispose() {
     _teardown();
+    _typingTracker.dispose();
     _highlightTimer?.cancel();
     _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
@@ -1733,10 +1786,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 replyPreview: _replyToMessage != null
                     ? _buildReplyPreview()
                     : null,
+                typingTypistNames: _typingTypistNames(),
                 onSendText: _handleSendText,
                 onSendImage: _handleSendImage,
                 onSendFile: _handleSendFile,
                 onSendVoice: _handleSendVoice,
+                onTypingChanged: _onComposerTypingChanged,
               );
             },
           ),

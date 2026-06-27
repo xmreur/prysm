@@ -45,7 +45,6 @@ class TypingIndicatorNotifier {
 
     final timestamp = payload['timestamp'];
     final groupId = payload['groupId'];
-    final receiverId = payload['receiverId'];
 
     _controller.add(
       TypingIndicatorEvent(

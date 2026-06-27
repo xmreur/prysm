@@ -30,23 +30,21 @@ class TypingIndicatorService {
 
   TypingIndicatorService.direct({
     required this.userId,
-    required String peerId,
+    required this.peerId,
     SettingsService? settings,
     TypingSendFn? sendOverride,
-  })  : peerId = peerId,
-        groupId = null,
+  })  : groupId = null,
         memberIds = null,
         _settings = settings ?? SettingsService(),
         _sendOverride = sendOverride;
 
   TypingIndicatorService.group({
     required this.userId,
-    required String groupId,
+    required this.groupId,
     required List<String> memberIds,
     SettingsService? settings,
     TypingSendFn? sendOverride,
   })  : peerId = null,
-        groupId = groupId,
         memberIds = List<String>.from(memberIds),
         _settings = settings ?? SettingsService(),
         _sendOverride = sendOverride;

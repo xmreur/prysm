@@ -19,6 +19,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
 import 'package:prysm/util/chat_scroll.dart';
+import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
@@ -142,6 +143,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _readReceiptRefreshSub;
   Timer? _readReceiptDebounce;
   late MessageModifyService _modifyService;
+  String? _highlightedMessageId;
+  Timer? _highlightTimer;
 
   void _onListScroll() {
     _stickToBottom = isChatScrolledToBottom(_listScrollController);
@@ -399,6 +402,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _modifyRefreshSub?.cancel();
     _readReceiptRefreshSub?.cancel();
     _readReceiptDebounce?.cancel();
+    _highlightTimer?.cancel();
     _pingTimer?.cancel();
     _presenceStaleTimer?.cancel();
     _batterySaverSub?.cancel();
@@ -1160,6 +1164,33 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ==================== UI HELPERS (KEEP AS-IS) ====================
 
+  Future<void> _scrollToMessage(String messageId) async {
+    final found = await scrollToChatMessage(
+      controller: _messages,
+      messageId: messageId,
+      loadMore: () async {
+        if (!_hasMore || _loading) return false;
+        final countBefore = _messages.messages.length;
+        await _loadMoreMessages();
+        return _messages.messages.length > countBefore;
+      },
+    );
+    if (!mounted) return;
+    if (found) {
+      setState(() => _highlightedMessageId = messageId);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() => _highlightedMessageId = null);
+        }
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message not found in loaded history')),
+      );
+    }
+  }
+
   void _openChatProfile() async {
     final peerContact = Contact(
       id: widget.peerId,
@@ -1176,6 +1207,8 @@ class _ChatScreenState extends State<ChatScreen> {
           peer: peerContact,
           currentUserName: widget.userName,
           isOnline: _peerOnline,
+          userId: widget.userId,
+          keyManager: widget.keyManager,
           onClose: () => Navigator.of(context).pop(),
           onUpdateName: (Contact updatedContact) async {
             // Save custom name to the customName column (not name)
@@ -1216,8 +1249,10 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
 
-    if (result != null && result is Contact) {
+    if (result is Contact) {
       setState(() => _peerName = result.displayName);
+    } else if (result is String) {
+      await _scrollToMessage(result);
     }
   }
 
@@ -1763,6 +1798,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     color:
                                         selectedMessageIds.contains(message.id)
                                         ? Theme.of(context).colorScheme.primary.withAlpha(40)
+                                        : _highlightedMessageId == message.id
+                                            ? Theme.of(context).colorScheme.tertiary.withAlpha(60)
                                         : Colors.transparent,
                                   ),
                                   child: Padding(

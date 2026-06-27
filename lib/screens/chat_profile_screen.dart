@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
+import '../util/key_manager.dart';
+import 'chat_media_gallery_screen.dart';
 import 'widgets/contact_avatar.dart';
 import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
@@ -19,6 +21,8 @@ class ChatProfileScreen extends StatefulWidget {
   final Function() onDeleteContact;
   final VoidCallback onPreferencesChanged;
   final VoidCallback? onArchived;
+  final String userId;
+  final KeyManager keyManager;
 
   const ChatProfileScreen({
     required this.peer,
@@ -30,6 +34,8 @@ class ChatProfileScreen extends StatefulWidget {
     required this.onDeleteContact,
     required this.onPreferencesChanged,
     this.onArchived,
+    required this.userId,
+    required this.keyManager,
     super.key,
   });
 
@@ -290,6 +296,40 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       },
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Shared Media'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final messageId = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChatMediaGalleryScreen.direct(
+                          peer: widget.peer,
+                          userId: widget.userId,
+                          keyManager: widget.keyManager,
+                        ),
+                      ),
+                    );
+                    if (messageId != null && context.mounted) {
+                      Navigator.of(context).pop(messageId);
+                    }
+                  },
                 ),
               ),
               const SizedBox(height: 20),

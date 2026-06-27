@@ -19,6 +19,7 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
 import 'package:prysm/util/chat_scroll.dart';
+import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
@@ -107,6 +108,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _readReceiptRefreshSub;
   Timer? _readReceiptDebounce;
   List<String> _groupMemberIds = [];
+  String? _highlightedMessageId;
+  Timer? _highlightTimer;
 
   Message? _replyToMessage;
   final Set<String> selectedMessageIds = {};
@@ -1123,7 +1126,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _openSettings() async {
-    await Navigator.of(context).push(
+    final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GroupSettingsScreen(
           group: widget.group,
@@ -1153,11 +1156,43 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
       ),
     );
+
+    if (result is String) {
+      await _scrollToMessage(result);
+    }
+  }
+
+  Future<void> _scrollToMessage(String messageId) async {
+    final found = await scrollToChatMessage(
+      controller: _messages,
+      messageId: messageId,
+      loadMore: () async {
+        if (!_hasMore || _loading) return false;
+        final countBefore = _messages.messages.length;
+        await _loadMoreMessages();
+        return _messages.messages.length > countBefore;
+      },
+    );
+    if (!mounted) return;
+    if (found) {
+      setState(() => _highlightedMessageId = messageId);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() => _highlightedMessageId = null);
+        }
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message not found in loaded history')),
+      );
+    }
   }
 
   @override
   void dispose() {
     _teardown();
+    _highlightTimer?.cancel();
     _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
     super.dispose();
@@ -1644,6 +1679,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                             .primary
                                             .withAlpha(40),
                                       )
+                                    : _highlightedMessageId == message.id
+                                        ? BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .tertiary
+                                                .withAlpha(60),
+                                          )
                                     : null,
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(

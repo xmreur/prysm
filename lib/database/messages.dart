@@ -908,6 +908,84 @@ class MessagesDb {
 		});
 	}
 
+	static const String _directMediaTypeFilter =
+		"type IN ('image', 'file', 'audio')";
+
+	static const String _groupMediaTypeFilter =
+		"type IN ('group_image', 'group_file', 'group_audio')";
+
+	static const String _mediaContentFilter =
+		"deletedAt IS NULL AND message IS NOT NULL AND message != ''";
+
+	/// Media messages in a direct chat, newest first.
+	static Future<List<Map<String, dynamic>>> getMediaMessagesForDirect(
+		String userId,
+		String peerId, {
+		String? typeFilter,
+		int limit = 50,
+		int? beforeTimestamp,
+	}) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			var where =
+				'groupId IS NULL AND $_directMediaTypeFilter AND $_mediaContentFilter AND $_directConversationFilter';
+			final whereArgs = <dynamic>[userId, peerId, peerId, userId];
+
+			if (typeFilter != null) {
+				where += ' AND type = ?';
+				whereArgs.add(typeFilter);
+			}
+			if (beforeTimestamp != null) {
+				where += ' AND timestamp < ?';
+				whereArgs.add(beforeTimestamp);
+			}
+
+			return db.query(
+				'messages',
+				where: where,
+				whereArgs: whereArgs,
+				orderBy: 'timestamp DESC',
+				limit: limit,
+			);
+		});
+	}
+
+	/// Media messages in a group chat, newest first.
+	static Future<List<Map<String, dynamic>>> getMediaMessagesForGroup(
+		String groupId, {
+		String? typeFilter,
+		int limit = 50,
+		int? beforeTimestamp,
+		int? afterTimestamp,
+	}) async {
+		return await _dbMutex.protect(() async {
+			final db = await database;
+			var where = 'groupId = ? AND $_groupMediaTypeFilter AND $_mediaContentFilter';
+			final whereArgs = <dynamic>[groupId];
+
+			if (typeFilter != null) {
+				where += ' AND type = ?';
+				whereArgs.add(typeFilter);
+			}
+			if (afterTimestamp != null) {
+				where += ' AND timestamp >= ?';
+				whereArgs.add(afterTimestamp);
+			}
+			if (beforeTimestamp != null) {
+				where += ' AND timestamp < ?';
+				whereArgs.add(beforeTimestamp);
+			}
+
+			return db.query(
+				'messages',
+				where: where,
+				whereArgs: whereArgs,
+				orderBy: 'timestamp DESC',
+				limit: limit,
+			);
+		});
+	}
+
 	/// Close the db
 	static Future<void> close() async {
 		if (_database != null) {

@@ -8,6 +8,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/screens/chat_media_gallery_screen.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
@@ -389,6 +390,33 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         : null,
                   );
                 }),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Shared Media'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final navigator = Navigator.of(context);
+                    final joinedAt = await _groupService
+                        .joinedAtForCurrentUser(widget.group.id);
+                    if (!mounted) return;
+                    final messageId = await navigator.push<String>(
+                      MaterialPageRoute(
+                        builder: (_) => ChatMediaGalleryScreen.group(
+                          group: widget.group,
+                          userId: widget.userId,
+                          keyManager: widget.keyManager,
+                          groupService: _groupService,
+                          contacts: widget.contacts,
+                          joinedAt: joinedAt,
+                        ),
+                      ),
+                    );
+                    if (messageId != null && mounted) {
+                      navigator.pop(messageId);
+                    }
+                  },
+                ),
                 const Divider(),
                 ConversationPrefsTiles(
                   conversationId: widget.group.id,

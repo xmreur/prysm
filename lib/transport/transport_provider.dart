@@ -89,9 +89,20 @@ class TransportProvider implements OutboundTransport {
     Future<T> Function(OutboundTransport transport) operation, {
     TransportPreference preference = TransportPreference.wsPreferred,
   }) async {
-    if (preference == TransportPreference.httpOnly ||
-        PeerTransportRegistry.instance.isHttpOnly(peerOnion)) {
+    if (preference == TransportPreference.httpOnly) {
       return operation(_httpTransport);
+    }
+
+    if (preference == TransportPreference.wsPreferred &&
+        !_wsManager.isConnected(peerOnion)) {
+      try {
+        await _wsManager.ensureConnected(
+          peerOnion,
+          connectBudget: WsConnectionManager.interactiveConnectBudget,
+        );
+      } catch (_) {
+        // Fall through to HTTP below.
+      }
     }
 
     if (preference == TransportPreference.wsIfConnected &&
@@ -113,7 +124,9 @@ class TransportProvider implements OutboundTransport {
             'TransportProvider: WS failed for $peerOnion (${preference.name}): $e',
           );
         }
-        await _wsManager.disconnectPeer(peerOnion);
+        if (_shouldDisconnectWsAfterFailure(e)) {
+          await _wsManager.disconnectPeer(peerOnion);
+        }
       }
     }
 
@@ -289,7 +302,22 @@ class TransportProvider implements OutboundTransport {
     );
   }
 
-  static const Duration _wsSendBudget = Duration(seconds: 10);
+  static const Duration _wsSendBudget = Duration(seconds: 30);
+
+  static bool _shouldDisconnectWsAfterFailure(Object error) {
+    if (error is TimeoutException) return false;
+    if (error is StateError) {
+      final message = error.message.toLowerCase();
+      return message.contains('not connected') ||
+          message.contains('disconnected');
+    }
+    return true;
+  }
+
+  static Duration _wsSendTimeoutFor(Duration requested) {
+    if (requested > _wsSendBudget) return requested;
+    return requested < _wsSendBudget ? requested : _wsSendBudget;
+  }
 
   static Future<void> postMessageOrFallback({
     required String peerOnion,
@@ -299,8 +327,18 @@ class TransportProvider implements OutboundTransport {
   }) async {
     if (isConfigured) {
       final inst = instance;
+      if (!inst.isRealtimeConnected(peerOnion)) {
+        try {
+          await inst.wsManager.ensureConnected(
+            peerOnion,
+            connectBudget: WsConnectionManager.interactiveConnectBudget,
+          );
+        } catch (_) {
+          // Fall through to HTTP below.
+        }
+      }
       if (inst.isRealtimeConnected(peerOnion)) {
-        final wsTimeout = timeout <= _wsSendBudget ? timeout : _wsSendBudget;
+        final wsTimeout = _wsSendTimeoutFor(timeout);
         try {
           await inst.postMessageWithPreference(
             peerOnion: peerOnion,
@@ -318,7 +356,9 @@ class TransportProvider implements OutboundTransport {
               'TransportProvider: WS send failed ($peerOnion): $e → HTTP',
             );
           }
-          await inst.wsManager.disconnectPeer(peerOnion);
+          if (_shouldDisconnectWsAfterFailure(e)) {
+            await inst.wsManager.disconnectPeer(peerOnion);
+          }
         }
       }
       await inst.postMessageWithPreference(

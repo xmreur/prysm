@@ -2,13 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/server/inbound_message_router.dart';
+import 'package:prysm/transport/inbound_ws_peer_link.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
-import 'package:prysm/util/typing_indicator_notifier.dart';
-import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
@@ -28,6 +27,7 @@ class PrysmServer {
 
   final settings = SettingsService();
   late final InboundMessageRouter _router;
+  final WsFrameRouter _frameRouter = WsFrameRouter();
 
   InboundMessageRouter get inboundRouter => _router;
 
@@ -161,153 +161,14 @@ class PrysmServer {
   }
 
   void _handleWebSocket(WebSocketChannel channel) {
-    var helloReceived = false;
-
-    channel.stream.listen(
-      (raw) async {
-        try {
-          await _handleWebSocketFrame(
-            channel,
-            raw,
-            helloReceived: helloReceived,
-            onHello: () => helloReceived = true,
-          );
-        } catch (e, stack) {
-          debugPrint('PrysmServer WS frame error: $e\n$stack');
-        }
-      },
-      onError: (Object e) => debugPrint('PrysmServer WS stream error: $e'),
-      onDone: () {
-        if (helloReceived) {
-          debugPrint('PrysmServer WS disconnected');
-        }
-      },
+    InboundWsPeerLink.acceptIncoming(
+      channel: channel,
+      frameRouter: _frameRouter,
+      localOnion: () => localOnionAddress,
+      manager: TransportProvider.isConfigured
+          ? TransportProvider.instance.wsManager
+          : null,
     );
-  }
-
-  Future<void> _handleWebSocketFrame(
-    WebSocketChannel channel,
-    dynamic raw, {
-    required bool helloReceived,
-    required void Function() onHello,
-  }) async {
-    if (raw is! String) return;
-
-    WsFrame frame;
-    try {
-      frame = WsFrame.decode(raw);
-    } catch (e) {
-      debugPrint('PrysmServer WS invalid frame: $e');
-      return;
-    }
-
-    if (frame.op == 'hello') {
-      onHello();
-      channel.sink.add(WsFrame.hello().encode());
-      return;
-    }
-
-    if (!helloReceived && frame.op != 'ping') {
-      channel.sink.add(
-        WsFrame.error(id: frame.id ?? 'handshake', message: 'hello required')
-            .encode(),
-      );
-      return;
-    }
-
-    if (frame.op == 'ping') {
-      channel.sink.add(WsFrame.pong().encode());
-      return;
-    }
-
-    if (frame.op == 'get_profile') {
-      final result = _router.buildProfile();
-      channel.sink.add(
-        WsFrame.response(
-          op: 'profile',
-          id: frame.id ?? '',
-          payload: result.jsonBody,
-        ).encode(),
-      );
-      return;
-    }
-
-    if (frame.op == 'get_public') {
-      final result = _router.buildPublicKey();
-      channel.sink.add(
-        WsFrame.response(
-          op: 'public',
-          id: frame.id ?? '',
-          payload: {'publicKeyPem': result.plainTextBody ?? ''},
-        ).encode(),
-      );
-      return;
-    }
-
-    if (frame.op == 'typing_update') {
-      final payload = frame.payload;
-      if (payload != null) {
-        TypingIndicatorNotifier.instance.applyInbound(payload);
-      }
-      return;
-    }
-
-    if (frame.op == 'message' || WsFrame.isInboundSideChannelOp(frame.op)) {
-      final payload = frame.payload;
-      if (payload == null) return;
-      print(
-        'PrysmServer WS ${frame.op} from ${payload['senderId']} '
-        'type=${payload['type']}',
-      );
-      try {
-        final result = await _router.handleMessage(payload);
-        if (frame.id != null) {
-          final ackOp =
-              frame.op == 'message' ? 'message_ack' : '${frame.op}_ack';
-          channel.sink.add(
-            WsFrame.response(
-              op: ackOp,
-              id: frame.id!,
-              payload: result.jsonBody,
-            ).encode(),
-          );
-        }
-      } catch (e, stack) {
-        debugPrint('PrysmServer WS ${frame.op} error: $e\n$stack');
-        if (frame.id != null) {
-          channel.sink.add(
-            WsFrame.error(id: frame.id!, message: 'Processing failed')
-                .encode(),
-          );
-        }
-      }
-      return;
-    }
-
-    if (frame.op == 'sync-hint') {
-      final payload = frame.payload;
-      if (payload == null) return;
-      try {
-        final result = await _router.handleSyncHint(payload);
-        if (frame.id != null) {
-          channel.sink.add(
-            WsFrame.response(
-              op: 'sync-hint_ack',
-              id: frame.id!,
-              payload: result.jsonBody,
-            ).encode(),
-          );
-        }
-      } catch (e, stack) {
-        debugPrint('PrysmServer WS sync-hint error: $e\n$stack');
-        if (frame.id != null) {
-          channel.sink.add(
-            WsFrame.error(id: frame.id!, message: 'Processing failed')
-                .encode(),
-          );
-        }
-      }
-    }
   }
 
   Response _toResponse(InboundHandleResult result) {
@@ -339,7 +200,7 @@ class PrysmServer {
         final body = TransportProvider.isConfigured
             ? await TransportProvider.instance.getProfileWithPreference(
                 senderId,
-                preference: TransportPreference.wsIfConnected,
+                preference: TransportPreference.wsPreferred,
               )
             : await TorDelivery.withTorRetry<String>(
                 attempt: () async {

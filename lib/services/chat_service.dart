@@ -46,6 +46,7 @@ class ChatService {
 
   int? _newestTimestamp;
   final Set<String> _seenMessageIds = {};
+  final Set<String> _inFlightSends = {};
   StreamSubscription<InboundMessageEvent>? _inboundSub;
 
   ChatService({
@@ -143,6 +144,7 @@ class ChatService {
       final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
       final type = row['type'] as String? ?? 'text';
       if (isSideChannelPendingType(type)) continue;
+      if (_inFlightSends.contains(wireId)) continue;
 
       final queued =
           await PendingMessageDbHelper.getPendingOutboundForWireId(wireId);
@@ -461,6 +463,7 @@ class ChatService {
         : const Duration(seconds: 30);
 
     try {
+      _inFlightSends.add(id);
       await TransportProvider.postMessageOrFallback(
         peerOnion: peerId,
         payload: {
@@ -484,6 +487,8 @@ class ChatService {
     } catch (e) {
       debugPrint('Send deferred (queued for retry): $e');
       return false;
+    } finally {
+      _inFlightSends.remove(id);
     }
   }
 
@@ -679,6 +684,8 @@ class ChatService {
       return;
     }
 
+    if (_inFlightSends.contains(messageId)) return;
+
     // Re-encrypt the stored self-payload for the peer
     // The message column has the self-encrypted payload, but we need
     // the peer-encrypted version. For text messages, re-encrypt from scratch.
@@ -708,6 +715,7 @@ class ChatService {
     }
 
     // Update status back to pending
+    final wasPending = (msg['status'] as String?) == 'pending';
     await MessagesDb.updateMessageStatus(messageId, 'pending');
 
     // Add to pending queue and process
@@ -721,7 +729,7 @@ class ChatService {
       viewOnce: (msg['viewOnce'] ?? 0) == 1,
     );
 
-    if (!_disposed) {
+    if (!_disposed && !wasPending) {
       _messageStatusController.add(MessageStatusUpdate(messageId, 'pending'));
     }
     if (processQueue) {

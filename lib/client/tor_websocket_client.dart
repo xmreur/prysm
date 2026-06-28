@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:prysm/client/tor_socks_websocket.dart';
-import 'package:uuid/uuid.dart';
+import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:uuid/uuid.dart';
 
 /// Persistent WebSocket connection to a single peer over Tor SOCKS.
 class TorWebSocketClient {
@@ -12,11 +13,13 @@ class TorWebSocketClient {
     required this.peerOnion,
     required this.socksPort,
     this.localOnion,
-  });
+    WsFrameRouter? frameRouter,
+  }) : _frameRouter = frameRouter ?? WsFrameRouter();
 
   final String peerOnion;
   final int socksPort;
   final String? localOnion;
+  final WsFrameRouter _frameRouter;
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -104,16 +107,26 @@ class TorWebSocketClient {
   Future<void> sendPing() => send('ping');
 
   void _onMessage(dynamic raw) {
-    if (raw is! String) return;
+    if (raw is! String) {
+      if (raw is List<int>) {
+        try {
+          _handleTextFrame(utf8.decode(raw));
+        } catch (_) {}
+      }
+      return;
+    }
+    _handleTextFrame(raw);
+  }
 
-    Map<String, dynamic> frame;
+  void _handleTextFrame(String raw) {
+    Map<String, dynamic> frameMap;
     try {
-      frame = jsonDecode(raw) as Map<String, dynamic>;
+      frameMap = jsonDecode(raw) as Map<String, dynamic>;
     } catch (_) {
       return;
     }
 
-    final op = frame['op'];
+    final op = frameMap['op'];
     if (op == 'pong') return;
 
     if (op == 'hello') {
@@ -124,16 +137,16 @@ class TorWebSocketClient {
       return;
     }
 
-    final id = frame['id'];
+    final id = frameMap['id'];
     if (id is String && _pendingRequests.containsKey(id)) {
       if (op == 'error') {
-        final payload = frame['payload'];
+        final payload = frameMap['payload'];
         final message = payload is Map ? payload['error'] : 'WebSocket error';
         _pendingRequests[id]!.completeError(
           StateError(message?.toString() ?? 'WebSocket error'),
         );
       } else {
-        final payload = frame['payload'];
+        final payload = frameMap['payload'];
         _pendingRequests[id]!.complete(
           payload is Map<String, dynamic> ? payload : <String, dynamic>{},
         );
@@ -141,12 +154,29 @@ class TorWebSocketClient {
       return;
     }
 
-    if (op == 'ping') {
-      _socket?.add(WsFrame.pong().encode());
+    WsFrame frame;
+    try {
+      frame = WsFrame.decode(raw);
+    } catch (_) {
+      _incomingController.add(frameMap);
       return;
     }
 
-    _incomingController.add(frame);
+    if (_frameRouter.isPeerRequest(frame)) {
+      unawaited(_respondToLocalRequest(frame));
+      return;
+    }
+
+    _incomingController.add(frameMap);
+  }
+
+  Future<void> _respondToLocalRequest(WsFrame frame) async {
+    final responses = await _frameRouter.handleInboundFrame(frame);
+    final socket = _socket;
+    if (socket == null) return;
+    for (final encoded in responses) {
+      socket.add(encoded);
+    }
   }
 
   void _onDone() {

@@ -100,11 +100,11 @@ Future<WebSocket> connectTorWebSocket({
       serverSide: false,
     );
   } catch (e) {
-    if (socksSocket != null) {
-      try {
-        await socksSocket.close();
-      } catch (_) {}
-    }
+      if (socksSocket != null) {
+        try {
+          socksSocket.destroy();
+        } catch (_) {}
+      }
     rethrow;
   }
 }

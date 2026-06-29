@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_linux
   flutter_secure_storage_linux
   open_file_linux
+  prysm_linux_audio
   record_linux
   screen_retriever_linux
   sqlite3_flutter_libs

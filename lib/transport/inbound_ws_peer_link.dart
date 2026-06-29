@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
@@ -52,6 +53,7 @@ class InboundWsPeerLink implements WsPeerLink {
 
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
   final _pushController = StreamController<Map<String, dynamic>>.broadcast();
+  final _binaryController = StreamController<List<int>>.broadcast();
   StreamSubscription<dynamic>? _subscription;
   bool _handshakeComplete = false;
   bool _closed = false;
@@ -61,6 +63,9 @@ class InboundWsPeerLink implements WsPeerLink {
 
   @override
   Stream<Map<String, dynamic>> get onPushFrames => _pushController.stream;
+
+  @override
+  Stream<List<int>> get onBinaryFrames => _binaryController.stream;
 
   @override
   Future<void> send(String op, {Map<String, dynamic>? payload}) async {
@@ -98,12 +103,41 @@ class InboundWsPeerLink implements WsPeerLink {
   @override
   Future<void> sendPing() => send('ping');
 
+  @override
+  Future<void> sendBytes(List<int> bytes) async {
+    if (!isConnected) {
+      throw StateError('WebSocket not connected to $peerOnion');
+    }
+    _channel.sink.add(bytes);
+  }
+
   Future<void> _onRaw(dynamic raw) async {
     if (_closed) return;
 
-    final text = _decodeRaw(raw);
-    if (text == null) return;
+    if (raw is List<int>) {
+      if (raw.isNotEmpty && raw[0] == callAudioFrameMagic) {
+        if (_handshakeComplete) {
+          _binaryController.add(raw);
+        }
+        return;
+      }
+      final text = _decodeBytes(raw);
+      if (text == null) {
+        if (_handshakeComplete) {
+          _binaryController.add(raw);
+        }
+        return;
+      }
+      await _handleText(text);
+      return;
+    }
 
+    if (raw is String) {
+      await _handleText(raw);
+    }
+  }
+
+  Future<void> _handleText(String text) async {
     if (!_handshakeComplete) {
       await _handleHelloHandshake(text);
       return;
@@ -193,6 +227,14 @@ class InboundWsPeerLink implements WsPeerLink {
     final op = frameMap['op'];
     if (op == 'pong') return;
 
+    if (op is String && WsFrame.isCallOp(op)) {
+      final payload = frameMap['payload'];
+      if (payload is Map<String, dynamic> && peerOnion.isNotEmpty) {
+        CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
+      }
+      return;
+    }
+
     final id = frameMap['id'];
     if (id is String && _pendingRequests.containsKey(id)) {
       _completePendingRequest(id, frameMap);
@@ -236,7 +278,8 @@ class InboundWsPeerLink implements WsPeerLink {
 
   Future<void> _handleInboundPeerRequest(WsFrame frame) async {
     try {
-      final responses = await _frameRouter.handleInboundFrame(frame);
+      final responses =
+          await _frameRouter.handleInboundFrame(frame, peerOnion: peerOnion);
       if (_closed) return;
       for (final encoded in responses) {
         _channel.sink.add(encoded);
@@ -252,16 +295,12 @@ class InboundWsPeerLink implements WsPeerLink {
     }
   }
 
-  String? _decodeRaw(dynamic raw) {
-    if (raw is String) return raw;
-    if (raw is List<int>) {
-      try {
-        return utf8.decode(raw);
-      } catch (_) {
-        return null;
-      }
+  String? _decodeBytes(List<int> raw) {
+    try {
+      return utf8.decode(raw);
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 
   void _handleDone() {
@@ -299,6 +338,9 @@ class InboundWsPeerLink implements WsPeerLink {
 
     if (!_pushController.isClosed) {
       await _pushController.close();
+    }
+    if (!_binaryController.isClosed) {
+      await _binaryController.close();
     }
   }
 }

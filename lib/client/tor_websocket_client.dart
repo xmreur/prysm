@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:prysm/client/tor_socks_websocket.dart';
+import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:uuid/uuid.dart';
@@ -25,12 +27,15 @@ class TorWebSocketClient {
   StreamSubscription<dynamic>? _subscription;
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
   final _incomingController = StreamController<Map<String, dynamic>>.broadcast();
+  final _binaryController = StreamController<List<int>>.broadcast();
   bool _handshakeComplete = false;
   bool _disposed = false;
   bool _disconnecting = false;
   Completer<void>? _helloCompleter;
 
   Stream<Map<String, dynamic>> get onIncoming => _incomingController.stream;
+
+  Stream<List<int>> get onBinary => _binaryController.stream;
 
   bool get isConnected =>
       !_disposed && _socket != null && _handshakeComplete;
@@ -104,18 +109,41 @@ class TorWebSocketClient {
     socket.add(WsFrame(op: op, payload: payload).encode());
   }
 
+  Future<void> sendBytes(List<int> bytes) async {
+    final socket = _socket;
+    if (socket == null || !_handshakeComplete) {
+      throw StateError('WebSocket not connected to $peerOnion');
+    }
+    socket.add(bytes);
+  }
+
   Future<void> sendPing() => send('ping');
 
   void _onMessage(dynamic raw) {
-    if (raw is! String) {
-      if (raw is List<int>) {
-        try {
-          _handleTextFrame(utf8.decode(raw));
-        } catch (_) {}
-      }
+    if (raw is String) {
+      _handleTextFrame(raw);
       return;
     }
-    _handleTextFrame(raw);
+    if (raw is List<int>) {
+      if (raw.isNotEmpty && raw[0] == callAudioFrameMagic) {
+        _binaryController.add(raw);
+        return;
+      }
+      final text = _tryDecodeUtf8(raw);
+      if (text != null) {
+        _handleTextFrame(text);
+      } else {
+        _binaryController.add(raw);
+      }
+    }
+  }
+
+  String? _tryDecodeUtf8(List<int> raw) {
+    try {
+      return utf8.decode(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _handleTextFrame(String raw) {
@@ -128,6 +156,14 @@ class TorWebSocketClient {
 
     final op = frameMap['op'];
     if (op == 'pong') return;
+
+    if (op is String && WsFrame.isCallOp(op)) {
+      final payload = frameMap['payload'];
+      if (payload is Map<String, dynamic>) {
+        CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
+      }
+      return;
+    }
 
     if (op == 'hello') {
       final completer = _helloCompleter;
@@ -220,7 +256,11 @@ class TorWebSocketClient {
       if (socket != null) {
         try {
           await socket.close();
-        } catch (_) {}
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('TorWebSocketClient: socket close failed: $e');
+          }
+        }
       }
     } finally {
       _disconnecting = false;
@@ -231,5 +271,6 @@ class TorWebSocketClient {
     _disposed = true;
     await disconnect();
     await _incomingController.close();
+    await _binaryController.close();
   }
 }

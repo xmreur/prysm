@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 
@@ -17,9 +18,26 @@ class WsFrameRouter {
   set routerOverride(InboundMessageRouter? router) => _routerOverride = router;
 
   /// Returns encoded response frame(s) to write on the link, if any.
-  Future<List<String>> handleInboundFrame(WsFrame frame) async {
+  Future<List<String>> handleInboundFrame(
+    WsFrame frame, {
+    String? peerOnion,
+  }) async {
     if (frame.op == 'ping') {
       return [WsFrame.pong().encode()];
+    }
+
+    if (WsFrame.isCallOp(frame.op)) {
+      final payload = frame.payload;
+      if (payload != null &&
+          peerOnion != null &&
+          peerOnion.isNotEmpty) {
+        CallSignalingNotifier.active.applyInbound(
+          peerOnion,
+          frame.op,
+          payload,
+        );
+      }
+      return [];
     }
 
     if (frame.op == 'get_profile') {

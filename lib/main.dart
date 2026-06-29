@@ -25,6 +25,8 @@ import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
+import 'package:prysm/screens/call/call_overlay.dart';
+import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/screens/chat.dart';
 import 'package:prysm/screens/create_group_screen.dart';
 import 'package:prysm/screens/group_chat.dart';
@@ -399,6 +401,8 @@ class _MyAppState extends State<MyApp> {
       final result = await initializeTor();
       _globalTorManager = result.torManager;
       TransportProvider.configure(result.torManager);
+      CallManager.configure(keyManager: widget.keyManager);
+      CallManager.instance.start();
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
@@ -533,13 +537,15 @@ class _MyAppState extends State<MyApp> {
                 if (mounted) setState(() {});
               },
             )
-          : HomeScreen(
-              torManager: _torManager!,
-              onionAddress: onionAddress,
-              keyManager: widget.keyManager,
-              onThemeChanged: updateTheme,
-              currentTheme: _currentTheme,
-              decoyMode: _panicDecoySession,
+          : CallOverlay(
+              child: HomeScreen(
+                torManager: _torManager!,
+                onionAddress: onionAddress,
+                keyManager: widget.keyManager,
+                onThemeChanged: updateTheme,
+                currentTheme: _currentTheme,
+                decoyMode: _panicDecoySession,
+              ),
             ),
     );
   }

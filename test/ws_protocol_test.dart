@@ -44,5 +44,32 @@ void main() {
       expect(decoded.id, 'req-1');
       expect(decoded.op, 'profile');
     });
+
+    test('call ops are supported and detected', () {
+      expect(wsSupportedOps, contains('call_offer'));
+      expect(WsFrame.isCallOp('call_answer'), isTrue);
+      expect(WsFrame.isCallOp('message'), isFalse);
+    });
+  });
+
+  group('CallAudioFrame', () {
+    test('round-trips binary payload', () {
+      const frame = CallAudioFrame(
+        sessionId: 42,
+        seq: 7,
+        payload: [1, 2, 3],
+      );
+      final decoded = CallAudioFrame.decode(frame.encode());
+      expect(decoded.sessionId, 42);
+      expect(decoded.seq, 7);
+      expect(decoded.payload, [1, 2, 3]);
+    });
+
+    test('rejects invalid magic', () {
+      expect(
+        () => CallAudioFrame.decode([0x00, 0, 0, 0, 0, 0, 0, 0, 0]),
+        throwsFormatException,
+      );
+    });
   });
 }

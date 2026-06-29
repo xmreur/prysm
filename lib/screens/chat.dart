@@ -11,6 +11,7 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
@@ -1280,6 +1281,30 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  bool get _canStartCall {
+    if (TorRuntimeGate.blocked) return false;
+    if (!TransportProvider.isConfigured) return false;
+    if (!TransportProvider.instance.isRealtimeConnected(widget.peerId)) {
+      return false;
+    }
+    try {
+      return !CallManager.instance.snapshot.isInCall;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _startAudioCall() async {
+    try {
+      await CallManager.instance.startCall(widget.peerId);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start call: $e')),
+      );
+    }
+  }
+
   void _openChatProfile() async {
     final peerContact = Contact(
       id: widget.peerId,
@@ -1697,6 +1722,11 @@ class _ChatScreenState extends State<ChatScreen> {
               ]
             : [
                 if (widget.torStatusAction != null) widget.torStatusAction!,
+                IconButton(
+                  icon: const Icon(Icons.phone),
+                  tooltip: 'Audio call',
+                  onPressed: _canStartCall ? _startAudioCall : null,
+                ),
                 IconButton(
                   icon: const Icon(Icons.more_vert),
                   onPressed: _openChatProfile,

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -27,10 +26,10 @@ class CallForegroundSession implements CallForegroundSessionPort {
 
   static void Function(bool inCall)? onActiveChanged;
 
-  @visibleForTesting
-  static void resetForTest() {
+  static void resetState() {
     testOverride = null;
     _defaultInstance._active = false;
+    _defaultInstance._lastSnapshot = null;
   }
 
   bool _active = false;

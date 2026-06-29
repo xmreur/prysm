@@ -1,9 +1,10 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 
 void main() {
-  tearDown(CallForegroundSession.resetForTest);
+  tearDown(CallForegroundSession.resetState);
 
   test('ws heartbeat stays fast while call foreground session is active', () {
     CallForegroundSession.testOverride = _ActiveForegroundSession();

@@ -132,7 +132,7 @@ class _CallOverlayState extends State<CallOverlay> {
 
         return Stack(
           children: [
-            if (child != null) child,
+            ?child,
             if (showOverlay)
               Positioned.fill(
                 child: Material(

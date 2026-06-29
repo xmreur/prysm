@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
@@ -259,6 +258,7 @@ class _LinuxPipePcmPlayback implements CallPcmPlayback {
   }
 }
 
+// ignore: experimental_member_use
 class _LivePcmSource extends StreamAudioSource {
   _LivePcmSource({
     required this.sampleRate,
@@ -283,6 +283,7 @@ class _LivePcmSource extends StreamAudioSource {
   }
 
   @override
+  // ignore: experimental_member_use
   Future<StreamAudioResponse> request([int? start, int? end]) async {
     final header = _wavHeader(
       dataSize: _bytesWritten > 0 ? _bytesWritten : 0x7fffffff,
@@ -297,6 +298,7 @@ class _LivePcmSource extends StreamAudioSource {
       );
       controller.onCancel = () => sub.cancel();
     });
+    // ignore: experimental_member_use
     return StreamAudioResponse(
       rangeRequestsSupported: false,
       sourceLength: null,

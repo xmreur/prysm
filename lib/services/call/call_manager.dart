@@ -95,7 +95,7 @@ class CallManager extends ChangeNotifier {
   static void resetForTest() {
     _instance?._shutdown();
     _instance = null;
-    CallForegroundSession.resetForTest();
+    CallForegroundSession.resetState();
   }
 
   final KeyManager _keyManager;

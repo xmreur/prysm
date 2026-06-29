@@ -254,6 +254,7 @@ class NotificationService {
         AndroidNotificationAction(
           'decline',
           'Decline',
+          showsUserInterface: true,
           cancelNotification: true,
         ),
       ],

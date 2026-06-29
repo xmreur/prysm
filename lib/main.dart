@@ -884,7 +884,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _processCallNotificationAction(PendingCallAction action) async {
-    if (widget.decoyMode || !mounted) return;
+    if (widget.decoyMode) return;
+    if (!mounted) {
+      PendingCallActionStore.instance.set(action);
+      return;
+    }
 
     try {
       CallManager.instance;
@@ -900,9 +904,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await NotificationService().cancelCallNotifications();
           await CallManager.instance.acceptIncoming();
         case CallNotificationAction.decline:
-          if (CallManager.instance.snapshot.state != CallState.incoming) break;
           await NotificationService().cancelCallNotifications();
-          await CallManager.instance.rejectIncoming();
+          await CallManager.instance.declineFromNotification(
+            callId: action.callId,
+            peerOnion: action.peerOnion,
+          );
         case CallNotificationAction.hangup:
           if (!CallManager.instance.snapshot.isInCall) break;
           await NotificationService().cancelCallNotifications();

@@ -150,7 +150,7 @@ class WsConnectionManager {
         } catch (_) {
           final failures = (_pingFailures[peer] ?? 0) + 1;
           _pingFailures[peer] = failures;
-          if (failures >= _maxPingFailures) {
+          if (failures >= _maxPingFailures && !_pinnedPeers.contains(peer)) {
             _pingFailures.remove(peer);
             await _removeLink(peer);
           }

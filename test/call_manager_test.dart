@@ -165,6 +165,32 @@ void main() {
     expect(manager.snapshot.state, CallState.active);
   });
 
+  test('endCall sends call_end to peer', () async {
+    final caller = CallSession.createOutbound(
+      callId: 'hangup-test',
+      sessionId: 11,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
+        keyManager,
+      ),
+    });
+    await Future<void>.delayed(Duration.zero);
+    await manager.acceptIncoming();
+    expect(manager.snapshot.state, CallState.active);
+
+    await manager.endCall();
+    expect(manager.snapshot.state, CallState.idle);
+    expect(
+      transport.sentFrames.where((f) => f.op == 'call_end'),
+      isNotEmpty,
+    );
+  });
+
   test('foreground session syncs on call state transitions', () async {
     final caller = CallSession.createOutbound(
       callId: 'fg-1',
@@ -186,6 +212,34 @@ void main() {
     await manager.rejectIncoming();
     await Future<void>.delayed(Duration.zero);
     expect(foreground.lastActive, isFalse);
+  });
+
+  test('declineFromNotification rejects incoming call', () async {
+    final caller = CallSession.createOutbound(
+      callId: 'decline-notif',
+      sessionId: 7,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
+        keyManager,
+      ),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.snapshot.state, CallState.incoming);
+
+    await manager.declineFromNotification(
+      callId: caller.callId,
+      peerOnion: 'peer.onion',
+    );
+    expect(manager.snapshot.state, CallState.idle);
+    expect(
+      transport.sentFrames.where((f) => f.op == 'call_end'),
+      isNotEmpty,
+    );
   });
 }
 

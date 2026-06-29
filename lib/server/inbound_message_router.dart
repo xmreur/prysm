@@ -105,30 +105,22 @@ class InboundMessageRouter {
   }
 
   Future<InboundHandleResult> handleMessage(Map<String, dynamic> data) async {
-    print('InboundMessageRouter: Received ${data['type']} from ${data['senderId']}');
+    final validation = validateMessage(data);
+    if (validation != null) return validation;
+    return processMessage(data);
+  }
 
-    final type = data['type'] as String;
+  /// Sync validation only. Non-null means no async processing is required.
+  InboundHandleResult? validateMessage(Map<String, dynamic> data) {
+    final type = data['type'];
+    if (type is! String) {
+      return InboundHandleResult.badRequest('type required');
+    }
 
     if (!_isValidMessageData(data)) {
       return InboundHandleResult.badRequest(
         'Missing required fields: id, senderId, receiverId, message, type, timestamp',
       );
-    }
-
-    if (isGroupControlType(type)) {
-      return _handleGroupControl(data, type);
-    }
-
-    if (isMessageModifyType(type)) {
-      return _handleMessageModify(data, type);
-    }
-
-    if (isReadReceiptType(type)) {
-      return _handleReadReceipt(data, type);
-    }
-
-    if (isReactionType(type)) {
-      return _handleReaction(data, type);
     }
 
     if ([
@@ -149,8 +141,99 @@ class InboundMessageRouter {
       return InboundHandleResult.badRequest('groupId required for group messages');
     }
 
+    if (isGroupControlType(type)) {
+      return _validateAddressedToLocal(
+        data,
+        controlMessage: true,
+      );
+    }
+
+    if (isMessageModifyType(type)) {
+      if (type == groupMessageModifyType && data['groupId'] == null) {
+        return InboundHandleResult.badRequest(
+          'groupId required for group message modifies',
+        );
+      }
+      return _validateAddressedToLocal(data);
+    }
+
+    if (isReadReceiptType(type)) {
+      if ((type == groupReadReceiptType || type == groupReadWaterlineType) &&
+          data['groupId'] == null) {
+        return InboundHandleResult.badRequest(
+          'groupId required for group read receipts',
+        );
+      }
+      return _validateAddressedToLocal(data);
+    }
+
+    if (isReactionType(type)) {
+      if (type == groupReactionType && data['groupId'] == null) {
+        return InboundHandleResult.badRequest(
+          'groupId required for group reactions',
+        );
+      }
+      return _validateAddressedToLocal(data);
+    }
+
+    return _validateAddressedToLocal(data);
+  }
+
+  /// Async processing after [validateMessage] returns null.
+  Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
+    print('InboundMessageRouter: Received ${data['type']} from ${data['senderId']}');
+
+    final type = data['type'] as String;
+
+    if (isGroupControlType(type)) {
+      return _handleGroupControl(data, type);
+    }
+
+    if (isMessageModifyType(type)) {
+      return _handleMessageModify(data, type);
+    }
+
+    if (isReadReceiptType(type)) {
+      return _handleReadReceipt(data, type);
+    }
+
+    if (isReactionType(type)) {
+      return _handleReaction(data, type);
+    }
+
     return _handleChatMessage(data, type);
   }
+
+  InboundHandleResult? _validateAddressedToLocal(
+    Map<String, dynamic> data, {
+    bool controlMessage = false,
+  }) {
+    final receiverId = data['receiverId'] as String;
+    final senderId = data['senderId'] as String;
+    final local = localOnionAddress();
+    final id = data['id'];
+
+    if (local != null) {
+      if (senderId == local) {
+        return InboundHandleResult.ok({'status': 'received', 'id': id});
+      }
+      if (receiverId != local) {
+        return InboundHandleResult.forbidden(
+          controlMessage
+              ? 'Control message not addressed to this node'
+              : 'Message not addressed to this node',
+        );
+      }
+    }
+
+    return null;
+  }
+
+  /// Optimistic ack body for fast WebSocket ack before async processing.
+  Map<String, dynamic> optimisticAckBody(Map<String, dynamic> data) => {
+        'status': 'received',
+        'id': data['id'],
+      };
 
   Future<InboundHandleResult> _handleGroupControl(
     Map<String, dynamic> data,
@@ -158,11 +241,6 @@ class InboundMessageRouter {
   ) async {
     final receiverId = data['receiverId'] as String;
     final local = localOnionAddress();
-    if (local != null && receiverId != local) {
-      return InboundHandleResult.forbidden(
-        'Control message not addressed to this node',
-      );
-    }
 
     await DBHelper.ensureUserExist(data['senderId'] as String);
     fetchSenderProfile?.call(data['senderId'] as String);
@@ -189,19 +267,6 @@ class InboundMessageRouter {
     final receiverId = data['receiverId'] as String;
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
-
-    if (local != null) {
-      if (senderId == local) {
-        return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
-      }
-      if (receiverId != local) {
-        return InboundHandleResult.forbidden('Message not addressed to this node');
-      }
-    }
-
-    if (type == groupMessageModifyType && data['groupId'] == null) {
-      return InboundHandleResult.badRequest('groupId required for group message modifies');
-    }
 
     await DBHelper.ensureUserExist(senderId);
 
@@ -232,20 +297,6 @@ class InboundMessageRouter {
     final receiverId = data['receiverId'] as String;
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
-
-    if (local != null) {
-      if (senderId == local) {
-        return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
-      }
-      if (receiverId != local) {
-        return InboundHandleResult.forbidden('Message not addressed to this node');
-      }
-    }
-
-    if ((type == groupReadReceiptType || type == groupReadWaterlineType) &&
-        data['groupId'] == null) {
-      return InboundHandleResult.badRequest('groupId required for group read receipts');
-    }
 
     await DBHelper.ensureUserExist(senderId);
 
@@ -278,19 +329,6 @@ class InboundMessageRouter {
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
 
-    if (local != null) {
-      if (senderId == local) {
-        return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
-      }
-      if (receiverId != local) {
-        return InboundHandleResult.forbidden('Message not addressed to this node');
-      }
-    }
-
-    if (type == groupReactionType && data['groupId'] == null) {
-      return InboundHandleResult.badRequest('groupId required for group reactions');
-    }
-
     await DBHelper.ensureUserExist(senderId);
 
     final localId = local ?? receiverId;
@@ -320,15 +358,6 @@ class InboundMessageRouter {
     final receiverId = data['receiverId'] as String;
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
-
-    if (local != null) {
-      if (senderId == local) {
-        return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
-      }
-      if (receiverId != local) {
-        return InboundHandleResult.forbidden('Message not addressed to this node');
-      }
-    }
 
     await DBHelper.ensureUserExist(senderId);
     fetchSenderProfile?.call(senderId);

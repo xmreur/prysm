@@ -69,25 +69,37 @@ class WsFrameRouter {
         );
       }
 
-      try {
-        final result = await router.handleMessage(payload);
+      final validation = router.validateMessage(payload);
+      if (validation != null) {
         if (frame.id == null) return [];
-        final ackOp =
-            frame.op == 'message' ? 'message_ack' : '${frame.op}_ack';
+        if (validation.statusCode >= 400) {
+          final error = validation.jsonBody?['error']?.toString() ??
+              'Processing failed';
+          return [WsFrame.error(id: frame.id!, message: error).encode()];
+        }
         return [
           WsFrame.response(
-            op: ackOp,
+            op: frame.op == 'message' ? 'message_ack' : '${frame.op}_ack',
             id: frame.id!,
-            payload: result.jsonBody,
+            payload: validation.jsonBody,
           ).encode(),
         ];
-      } catch (e, stack) {
-        debugPrint('WsFrameRouter ${frame.op} error: $e\n$stack');
-        if (frame.id == null) return [];
-        return [
-          WsFrame.error(id: frame.id!, message: 'Processing failed').encode(),
-        ];
       }
+
+      if (frame.id == null) {
+        unawaited(_processMessageAsync(router, frame.op, payload));
+        return [];
+      }
+
+      final ackOp = frame.op == 'message' ? 'message_ack' : '${frame.op}_ack';
+      final ack = WsFrame.response(
+        op: ackOp,
+        id: frame.id!,
+        payload: router.optimisticAckBody(payload),
+      ).encode();
+
+      unawaited(_processMessageAsync(router, frame.op, payload));
+      return [ack];
     }
 
     if (frame.op == 'sync-hint') {
@@ -129,6 +141,24 @@ class WsFrameRouter {
     }
     if (frame.id == null) return false;
     return WsFrame.routesToMessageHandler(frame.op) || frame.op == 'sync-hint';
+  }
+
+  Future<void> _processMessageAsync(
+    InboundMessageRouter router,
+    String op,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final result = await router.processMessage(payload);
+      if (result.statusCode >= 400) {
+        debugPrint(
+          'WsFrameRouter $op async process failed after ack: '
+          '${result.jsonBody?['error'] ?? result.statusCode}',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('WsFrameRouter $op async process error: $e\n$stack');
+    }
   }
 
   @visibleForTesting

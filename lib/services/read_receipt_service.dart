@@ -245,8 +245,18 @@ class ReadReceiptService {
       'type': messageType,
       'timestamp': timestamp,
     };
+    final target = peerId!;
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(target)) {
+      await TransportProvider.instance.wsManager.send(
+        target,
+        'read_update',
+        payload: payload,
+      );
+      return;
+    }
     await TransportProvider.postMessageOrFallback(
-      peerOnion: peerId!,
+      peerOnion: target,
       payload: payload,
     );
   }
@@ -297,6 +307,15 @@ class ReadReceiptService {
       'type': messageType,
       'timestamp': timestamp,
     };
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(targetMemberId)) {
+      await TransportProvider.instance.wsManager.send(
+        targetMemberId,
+        'read_update',
+        payload: payload,
+      );
+      return;
+    }
     await TransportProvider.postMessageOrFallback(
       peerOnion: targetMemberId,
       payload: payload,

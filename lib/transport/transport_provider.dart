@@ -42,12 +42,14 @@ class TransportProvider implements OutboundTransport {
     final existing = _instance;
     if (existing != null && identical(existing._torManager, torManager)) {
       existing._wsManager.onPeerConnected = onPeerConnected;
+      existing._wsManager.nudgePeerForInbound = existing._nudgePeerForInbound;
       TorDelivery.configure(torManager);
       return;
     }
     _instance?.dispose();
     final provider = TransportProvider._(torManager);
     provider._wsManager.onPeerConnected = onPeerConnected;
+    provider._wsManager.nudgePeerForInbound = provider._nudgePeerForInbound;
     _instance = provider;
     TorDelivery.configure(torManager);
   }
@@ -63,6 +65,9 @@ class TransportProvider implements OutboundTransport {
   late final TorWebSocketTransport _wsTransport;
 
   WsConnectionManager get wsManager => _wsManager;
+
+  Future<void> _nudgePeerForInbound(String peerOnion) =>
+      postSyncHint(peerOnion: peerOnion);
 
   TorHttpTransport get httpTransport => _httpTransport;
 
@@ -339,26 +344,38 @@ class TransportProvider implements OutboundTransport {
       }
       if (inst.isRealtimeConnected(peerOnion)) {
         final wsTimeout = _wsSendTimeoutFor(timeout);
-        try {
-          await inst.postMessageWithPreference(
-            peerOnion: peerOnion,
-            payload: payload,
-            timeout: wsTimeout,
-            preference: TransportPreference.wsIfConnected,
-          );
-          if (kDebugMode) {
-            debugPrint('TransportProvider: WS send ok $peerOnion');
-          }
-          return;
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint(
-              'TransportProvider: WS send failed ($peerOnion): $e → HTTP',
+        Object? lastWsError;
+        for (var attempt = 0; attempt < 2; attempt++) {
+          try {
+            await inst.postMessageWithPreference(
+              peerOnion: peerOnion,
+              payload: payload,
+              timeout: wsTimeout,
+              preference: TransportPreference.wsIfConnected,
             );
+            if (kDebugMode) {
+              debugPrint('TransportProvider: WS send ok $peerOnion');
+            }
+            return;
+          } catch (e) {
+            lastWsError = e;
+            final retryTimeout = e is TimeoutException && attempt == 0;
+            if (!retryTimeout) break;
+            if (kDebugMode) {
+              debugPrint(
+                'TransportProvider: WS send timeout ($peerOnion), retrying once',
+              );
+            }
           }
-          if (_shouldDisconnectWsAfterFailure(e)) {
-            await inst.wsManager.disconnectPeer(peerOnion);
-          }
+        }
+        if (kDebugMode) {
+          debugPrint(
+            'TransportProvider: WS send failed ($peerOnion): $lastWsError → HTTP',
+          );
+        }
+        if (lastWsError != null &&
+            _shouldDisconnectWsAfterFailure(lastWsError)) {
+          await inst.wsManager.disconnectPeer(peerOnion);
         }
       }
       await inst.postMessageWithPreference(
@@ -390,6 +407,34 @@ class TransportProvider implements OutboundTransport {
           await torClient.close();
         }
       },
+    );
+  }
+
+  static Future<void> postSyncHint({
+    required String peerOnion,
+    String? senderId,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final localSender = senderId;
+    if (localSender == null || localSender.isEmpty) {
+      if (!isConfigured) return;
+      final onion = await instance._torManager.getOnionAddress();
+      if (onion == null || onion.isEmpty) return;
+      return postSyncHint(
+        peerOnion: peerOnion,
+        senderId: onion,
+        timeout: timeout,
+      );
+    }
+
+    await postJsonOrFallback(
+      peerOnion: peerOnion,
+      path: 'sync-hint',
+      payload: {
+        'senderId': localSender,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      },
+      timeout: timeout,
     );
   }
 

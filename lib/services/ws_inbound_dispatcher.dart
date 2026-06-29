@@ -65,11 +65,21 @@ class WsInboundDispatcher {
     if (op == 'message' || WsFrame.isInboundSideChannelOp(op)) {
       final payload = frame['payload'];
       if (payload is! Map<String, dynamic>) return;
-      try {
-        await router.handleMessage(payload);
-      } catch (e, stack) {
-        debugPrint('WsInboundDispatcher message error: $e\n$stack');
-      }
+      final validation = router.validateMessage(payload);
+      if (validation != null) return;
+      unawaited(() async {
+        try {
+          final result = await router.processMessage(payload);
+          if (result.statusCode >= 400) {
+            debugPrint(
+              'WsInboundDispatcher $op failed after push: '
+              '${result.jsonBody?['error'] ?? result.statusCode}',
+            );
+          }
+        } catch (e, stack) {
+          debugPrint('WsInboundDispatcher message error: $e\n$stack');
+        }
+      }());
       return;
     }
 

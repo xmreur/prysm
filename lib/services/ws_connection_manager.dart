@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:prysm/client/tor_websocket_client.dart';
@@ -19,17 +18,19 @@ import 'package:prysm/util/tor_service.dart';
 class WsConnectionManager {
   WsConnectionManager(this._torManager);
 
-  static Duration get interactiveConnectBudget => Platform.isAndroid
-      ? const Duration(seconds: 25)
-      : const Duration(seconds: 12);
+  static const Duration interactiveConnectBudget = Duration(seconds: 25);
 
   static const Duration backgroundConnectTimeout = Duration(seconds: 30);
   static const Duration _maxReconnectBackoff = Duration(minutes: 2);
+  static const int _maxPingFailures = 3;
 
   final TorManager _torManager;
   final Map<String, WsPeerLink> _links = {};
   final Map<String, Future<void>> _connectChains = {};
+  final Map<String, Future<void>> _requestChains = {};
+  final Map<String, int> _requestQueueDepthByPeer = {};
   final Map<String, int> _connectFailures = {};
+  final Map<String, int> _pingFailures = {};
   final Map<String, DateTime> _lastSuccessByPeer = {};
   final Map<String, DateTime> _nextRetryAfter = {};
   final Map<String, List<Completer<void>>> _inboundWaiters = {};
@@ -43,6 +44,7 @@ class WsConnectionManager {
   int outboundQueueDepth = 0;
 
   Future<bool> Function(String peerId)? onPeerConnected;
+  Future<void> Function(String peerOnion)? nudgePeerForInbound;
 
   DateTime? lastSuccessForPeer(String peerOnion) =>
       _lastSuccessByPeer[peerOnion];
@@ -66,7 +68,9 @@ class WsConnectionManager {
     if (isConnected(peerOnion) || isConnectInFlight(peerOnion)) return;
 
     final last = _lastWarmAttempt[peerOnion];
-    if (last != null && DateTime.now().difference(last) < _warmDebounce) {
+    if (!_pinnedPeers.contains(peerOnion) &&
+        last != null &&
+        DateTime.now().difference(last) < _warmDebounce) {
       return;
     }
     _lastWarmAttempt[peerOnion] = DateTime.now();
@@ -141,8 +145,14 @@ class WsConnectionManager {
         if (isConnectInFlight(peer)) continue;
         try {
           await _links[peer]!.sendPing();
+          _pingFailures.remove(peer);
         } catch (_) {
-          await _removeLink(peer);
+          final failures = (_pingFailures[peer] ?? 0) + 1;
+          _pingFailures[peer] = failures;
+          if (failures >= _maxPingFailures) {
+            _pingFailures.remove(peer);
+            await _removeLink(peer);
+          }
         }
         continue;
       }
@@ -279,6 +289,14 @@ class WsConnectionManager {
     await _waitForInboundLink(peerOnion, timeout: connectTimeout);
   }
 
+  Future<void> _nudgeInboundDialer(String peerOnion) async {
+    final nudge = nudgePeerForInbound;
+    if (nudge == null) return;
+    try {
+      await nudge(peerOnion);
+    } catch (_) {}
+  }
+
   Future<void> _ensureOutboundLink(
     String peerOnion, {
     required Duration connectTimeout,
@@ -330,6 +348,8 @@ class WsConnectionManager {
   }) async {
     if (_links[peerOnion]?.isConnected == true) return;
 
+    unawaited(_nudgeInboundDialer(peerOnion));
+
     final completer = Completer<void>();
     _inboundWaiters.putIfAbsent(peerOnion, () => []).add(completer);
 
@@ -374,6 +394,7 @@ class WsConnectionManager {
     PeerTransportRegistry.instance.markWebSocket(peerOnion);
     _connectFailures.remove(peerOnion);
     _nextRetryAfter.remove(peerOnion);
+    _pingFailures.remove(peerOnion);
     _lastSuccessByPeer[peerOnion] = DateTime.now();
 
     final waiters = _inboundWaiters.remove(peerOnion);
@@ -410,20 +431,21 @@ class WsConnectionManager {
     String op, {
     Map<String, dynamic>? payload,
     Duration timeout = const Duration(seconds: 30),
-  }) async {
-    if (TorRuntimeGate.blocked) {
-      throw StateError('Tor is stopped');
-    }
-    outboundQueueDepth++;
-    try {
+  }) {
+    return _enqueueRequest(peerOnion, () async {
+      if (TorRuntimeGate.blocked) {
+        throw StateError('Tor is stopped');
+      }
       final link = _links[peerOnion];
       if (link == null || !link.isConnected) {
         throw StateError('WebSocket not connected to $peerOnion');
       }
-      return await link.request(op, payload: payload, timeout: timeout);
-    } finally {
-      outboundQueueDepth--;
-    }
+      final result =
+          await link.request(op, payload: payload, timeout: timeout);
+      _lastSuccessByPeer[peerOnion] = DateTime.now();
+      _pingFailures.remove(peerOnion);
+      return result;
+    });
   }
 
   Future<void> send(
@@ -442,9 +464,33 @@ class WsConnectionManager {
       }
       await link.send(op, payload: payload);
       _lastSuccessByPeer[peerOnion] = DateTime.now();
+      _pingFailures.remove(peerOnion);
     } finally {
       outboundQueueDepth--;
     }
+  }
+
+  Future<T> _enqueueRequest<T>(
+    String peerOnion,
+    Future<T> Function() operation,
+  ) {
+    final prev = _requestChains[peerOnion] ?? Future<void>.value();
+    late final Future<T> chained;
+    chained = prev.then((_) => operation());
+    _requestChains[peerOnion] =
+        chained.then((_) {}, onError: (_) {});
+    _requestQueueDepthByPeer[peerOnion] =
+        (_requestQueueDepthByPeer[peerOnion] ?? 0) + 1;
+    outboundQueueDepth++;
+    return chained.whenComplete(() {
+      outboundQueueDepth--;
+      final remaining = (_requestQueueDepthByPeer[peerOnion] ?? 1) - 1;
+      if (remaining <= 0) {
+        _requestQueueDepthByPeer.remove(peerOnion);
+      } else {
+        _requestQueueDepthByPeer[peerOnion] = remaining;
+      }
+    });
   }
 
   Future<T> runForPeer<T>(String peerOnion, Future<T> Function() operation) =>

@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:math';
 
+import 'package:prysm/database/messages.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 
@@ -16,6 +19,8 @@ class WakeHintService {
   Future<bool> Function(String senderId)? _hasOutboundPendingForSender;
 
   final Map<String, DateTime> _lastReceivedFromPeer = {};
+  final Map<String, DateTime> _lastBroadcastToPeer = {};
+  DateTime? _lastBroadcastAt;
 
   void configure({
     required String userId,
@@ -30,6 +35,8 @@ class WakeHintService {
   /// Clears in-memory dedupe state (for tests).
   void resetForTest() {
     _lastReceivedFromPeer.clear();
+    _lastBroadcastToPeer.clear();
+    _lastBroadcastAt = null;
   }
 
   /// Validates sync-hint payload. Returns null when valid, or an error message.
@@ -56,7 +63,58 @@ class WakeHintService {
   }
 
   Future<void> broadcastRecentPeerHints() async {
-    // Persistent WebSocket connections replace HTTP wake hints.
+    final userId = _userId;
+    if (userId == null || userId.isEmpty) return;
+    if (!TransportProvider.isConfigured) return;
+
+    final now = DateTime.now();
+    if (_lastBroadcastAt != null &&
+        now.difference(_lastBroadcastAt!) <
+            BatterySaverPolicy.wakeHintSendCooldown) {
+      return;
+    }
+    _lastBroadcastAt = now;
+
+    Set<String> peers;
+    try {
+      final timestamps = await MessagesDb.getLastMessageTimestampsForAllUsers();
+      final recent = timestamps.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      peers = recent
+          .take(BatterySaverPolicy.wakeHintMaxPeers)
+          .map((e) => e.key)
+          .where((id) => id != userId)
+          .toSet();
+    } catch (_) {
+      return;
+    }
+
+    if (peers.isEmpty) return;
+
+    final rng = Random();
+    final staggerMin = BatterySaverPolicy.wakeHintStaggerMin().inMilliseconds;
+    final staggerMax = BatterySaverPolicy.wakeHintStaggerMax().inMilliseconds;
+
+    for (final peer in peers) {
+      final last = _lastBroadcastToPeer[peer];
+      if (last != null &&
+          now.difference(last) < BatterySaverPolicy.wakeHintSendCooldown) {
+        continue;
+      }
+      _lastBroadcastToPeer[peer] = now;
+
+      unawaited(
+        TransportProvider.postSyncHint(peerOnion: peer, senderId: userId),
+      );
+
+      if (staggerMax > 0) {
+        final delayMs = staggerMin +
+            (staggerMax > staggerMin
+                ? rng.nextInt(staggerMax - staggerMin)
+                : 0);
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+    }
   }
 
   Future<void> handleIncomingHint(String senderId) async {
@@ -70,6 +128,14 @@ class WakeHintService {
       return;
     }
     _lastReceivedFromPeer[senderId] = DateTime.now();
+
+    if (TransportProvider.isConfigured) {
+      unawaited(
+        TransportProvider.instance.wsManager
+            .ensureConnected(senderId)
+            .catchError((_) {}),
+      );
+    }
 
     final hasPending = await _hasPendingForSender(senderId);
     if (!hasPending) return;

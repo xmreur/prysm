@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:encrypt/encrypt.dart' as e;
+import 'package:prysm/crypto/wire.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/media_constants.dart';
@@ -10,7 +10,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/group_service.dart';
-import 'package:prysm/util/file_encrypt.dart';
+import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/waveform_extractor.dart';
@@ -175,13 +175,7 @@ class ChatMediaService {
   Future<Uint8List?> Function(String encryptedSource)? voiceDecryptCallback() {
     if (isGroup) return null;
     return (encryptedSource) async {
-      final hybrid = jsonDecode(encryptedSource) as Map<String, dynamic>;
-      final rsaEncryptedAesKey = hybrid['aes_key'] as String;
-      final iv = e.IV.fromBase64(hybrid['iv'] as String);
-      final encryptedData = base64Decode(hybrid['data'] as String);
-      final aesKeyBytes = keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
-      final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
-      return AESHelper.decryptBytes(encryptedData, aesKey, iv);
+      return CryptoWire.decryptFile(encryptedSource, keyManager.identity);
     };
   }
 

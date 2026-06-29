@@ -123,7 +123,9 @@ class AudioEngine implements CallAudio {
                 applyGain: _captureProcessor.gateOpen,
               );
               final opus = codec.encodeFrame(normalized);
-              onSendFrame(session.encryptAudioFrame(opus));
+              unawaited(
+                session.encryptAudioFrame(opus).then(onSendFrame),
+              );
             } catch (e) {
               if (kDebugMode) {
                 debugPrint('AudioEngine: encode failed: $e');
@@ -159,21 +161,23 @@ class AudioEngine implements CallAudio {
     final codec = _codec;
     if (codec == null) return;
 
-    final opus = session.decryptAudioFrame(encryptedFrame);
-    if (opus == null) return;
-    try {
-      final pcm = codec.decodeFrame(opus);
-      final normalized = _playbackGain.normalize(pcm);
-      final bytes = normalized.buffer.asUint8List(
-        normalized.offsetInBytes,
-        normalized.lengthInBytes,
-      );
-      _playback.playPcm(bytes);
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('AudioEngine: decode failed: $e');
+    unawaited(() async {
+      final opus = await session.decryptAudioFrame(encryptedFrame);
+      if (opus == null || !_running) return;
+      try {
+        final pcm = codec.decodeFrame(opus);
+        final normalized = _playbackGain.normalize(pcm);
+        final bytes = normalized.buffer.asUint8List(
+          normalized.offsetInBytes,
+          normalized.lengthInBytes,
+        );
+        _playback.playPcm(bytes);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('AudioEngine: decode failed: $e');
+        }
       }
-    }
+    }());
   }
 
   RecordConfig _captureConfig() {

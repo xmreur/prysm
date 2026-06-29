@@ -14,6 +14,7 @@ import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
+import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/notification_preview.dart';
 import 'package:prysm/util/notification_service.dart';
@@ -63,14 +64,15 @@ class InboundMessageRouter {
   final String? Function() localOnionAddress;
   final void Function(String senderId)? fetchSenderProfile;
 
-  InboundHandleResult buildPublicKey() {
+  Future<InboundHandleResult> buildPublicKey() async {
+    final body = await _publicIdentityBody();
     return InboundHandleResult(
       statusCode: 200,
-      plainTextBody: keyManager.publicKeyPem,
+      plainTextBody: body,
     );
   }
 
-  InboundHandleResult buildProfile() {
+  Future<InboundHandleResult> buildProfile() async {
     final broadcastName = settings.username;
     final username =
         (broadcastName != null &&
@@ -78,11 +80,27 @@ class InboundMessageRouter {
             broadcastName != 'My Profile')
         ? broadcastName
         : '';
-    return InboundHandleResult.ok({
-      'publicKeyPem': keyManager.publicKeyPem,
+    final identityJson = await _publicIdentityBody();
+    final body = <String, dynamic>{
+      'identityJson': identityJson,
+      'publicKeyPem': identityJson,
       'username': username,
       'avatar': settings.avatar ?? '',
-    });
+    };
+    if (keyManager.isUnlocked) {
+      final bundle = await PrekeyBundle.loadStored(keyManager.identity);
+      if (bundle != null) {
+        body['prekeyBundle'] = bundle.toJson();
+      }
+    }
+    return InboundHandleResult.ok(body);
+  }
+
+  Future<String> _publicIdentityBody() async {
+    if (keyManager.isUnlocked) {
+      return keyManager.publicKeyJson;
+    }
+    return await keyManager.storedPublicIdentityJson() ?? '';
   }
 
   Future<InboundHandleResult> handleSyncHint(Map<String, dynamic> data) async {

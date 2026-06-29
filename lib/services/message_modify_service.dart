@@ -13,7 +13,7 @@ import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_payload.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
-import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/crypto/identity.dart';
 
 class MessageModifyService {
   final String userId;
@@ -105,8 +105,12 @@ class MessageModifyService {
     final peerKey = await _loadPeerPublicKey();
     if (peerKey == null) return false;
 
-    final encryptedSelf = keyManager.encryptForSelf(newText);
-    final encryptedPeer = keyManager.encryptForPeer(newText, peerKey);
+    final encryptedSelf = await keyManager.encryptForSelf(newText);
+    final encryptedPeer = await keyManager.encryptForPeer(
+      newText,
+      peerKey,
+      peerId: peerId!,
+    );
 
     await MessagesDb.updateMessageContent(
       wireId: targetMessageId,
@@ -143,7 +147,7 @@ class MessageModifyService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return false;
 
-    final encrypted = GroupCrypto.encryptText(groupKey, newText);
+    final encrypted = await GroupCrypto.encryptText(groupKey, newText);
     await MessagesDb.updateMessageContent(
       wireId: targetMessageId,
       groupId: groupId,
@@ -239,7 +243,11 @@ class MessageModifyService {
     if (peerKey == null && override == null) return;
 
     final encrypted = peerKey != null
-        ? keyManager.encryptHybridForPeer(payload.encode(), peerKey)
+        ? await keyManager.encryptHybridForPeer(
+            payload.encode(),
+            peerKey,
+            peerId: peerId!,
+          )
         : '';
     final eventId = modifyEventId(
       targetMessageId: payload.targetMessageId,
@@ -276,7 +284,7 @@ class MessageModifyService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return;
 
-    final encrypted = GroupCrypto.encryptText(groupKey, payload.encode());
+    final encrypted = await GroupCrypto.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     var targets = members.map((m) => m.memberId).where((id) => id != userId);
     if (onlyTargets != null) {
@@ -406,13 +414,13 @@ class MessageModifyService {
     );
   }
 
-  Future<RSAPublicKey?> _loadPeerPublicKey() async {
+  Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
     if (peerId == null) return null;
     try {
       final user = await DBHelper.getUserById(peerId!);
       final pem = user?['publicKeyPem'] as String?;
       if (pem == null || pem.isEmpty) return null;
-      return keyManager.importPeerPublicKey(pem);
+      return keyManager.importPeerIdentity(pem);
     } catch (e) {
       print('Failed to load peer public key for $peerId: $e');
       return null;
@@ -431,6 +439,7 @@ class MessageModifyService {
       keyManager: keyManager,
       encrypted: encrypted,
       type: type,
+      senderId: senderId,
       groupId: groupId,
       groupService: groupService,
     );
@@ -467,6 +476,7 @@ class MessageModifyService {
         keyManager: keyManager,
         encryptedBody: payload.encryptedBody!,
         type: type,
+        senderId: senderId,
         groupId: groupId,
         groupService: groupService,
       );
@@ -486,19 +496,35 @@ class MessageModifyService {
     required KeyManager keyManager,
     required String encryptedBody,
     required String type,
+    required String senderId,
     String? groupId,
     GroupService? groupService,
   }) async {
     try {
       if (type == messageModifyType) {
-        return keyManager.decryptMessage(encryptedBody);
+        final user = await DBHelper.getUserById(senderId);
+        final identityJson = (user?['identityJson'] as String?) ??
+            (user?['publicKeyPem'] as String?);
+        if (identityJson == null || identityJson.isEmpty) return null;
+        final peerKey = keyManager.importPeerIdentity(identityJson);
+        return keyManager.decryptPeerMessage(
+          peerId: senderId,
+          wire: encryptedBody,
+          peer: peerKey,
+        );
       }
       if (type == groupMessageModifyType &&
           groupId != null &&
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        return GroupCrypto.decryptText(groupKey, encryptedBody);
+        if (GroupCrypto.isSenderKeyEnvelope(encryptedBody)) {
+          return GroupCrypto.decryptWithSenderKey(
+            epochKey: groupKey,
+            wire: encryptedBody,
+          );
+        }
+        return await GroupCrypto.decryptText(groupKey, encryptedBody);
       }
     } catch (e) {
       print('Edited body decrypt failed: $e');
@@ -510,22 +536,35 @@ class MessageModifyService {
     required KeyManager keyManager,
     required String encrypted,
     required String type,
+    required String senderId,
     String? groupId,
     GroupService? groupService,
   }) async {
     try {
       if (type == messageModifyType) {
-        if (KeyManager.isHybridEnvelope(encrypted)) {
-          return keyManager.decryptHybridEnvelope(encrypted);
-        }
-        return keyManager.decryptMessage(encrypted);
+        final user = await DBHelper.getUserById(senderId);
+        final identityJson = (user?['identityJson'] as String?) ??
+            (user?['publicKeyPem'] as String?);
+        if (identityJson == null || identityJson.isEmpty) return null;
+        final peerKey = keyManager.importPeerIdentity(identityJson);
+        return keyManager.decryptPeerMessage(
+          peerId: senderId,
+          wire: encrypted,
+          peer: peerKey,
+        );
       }
       if (type == groupMessageModifyType &&
           groupId != null &&
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        return GroupCrypto.decryptText(groupKey, encrypted);
+        if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
+          return GroupCrypto.decryptWithSenderKey(
+            epochKey: groupKey,
+            wire: encrypted,
+          );
+        }
+        return await GroupCrypto.decryptText(groupKey, encrypted);
       }
     } catch (e) {
       print('Message modify decrypt failed: $e');

@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_modify_payload.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
-import 'package:prysm/util/rsa_helper.dart';
-import 'package:pointycastle/asymmetric/api.dart' show RSAPrivateKey, RSAPublicKey;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<Database> _openPendingTestDb() async {
@@ -163,18 +162,11 @@ void main() {
   group('MessageModifyService.syncDirectEditOutbound', () {
     late Database db;
     late KeyManager keyManager;
-    late RSAPublicKey peerPublicKey;
 
     setUp(() async {
       db = await _openPendingTestDb();
       PendingMessageDbHelper.setDatabaseForTest(db);
-
-      final pair = RSAHelper.generateKeyPair();
-      keyManager = KeyManager.fromKeys(
-        pair.privateKey as RSAPrivateKey,
-        pair.publicKey as RSAPublicKey,
-      );
-      peerPublicKey = pair.publicKey as RSAPublicKey;
+      keyManager = KeyManager.fromIdentity(await IdentityKeyPair.generate());
     });
 
     tearDown(() async {
@@ -208,7 +200,7 @@ void main() {
         keyManager: keyManager,
         peerId: 'peer.onion',
       );
-      final encryptedPeer = keyManager.encryptForPeer('edited', peerPublicKey);
+      const encryptedPeer = 'test-edited-ciphertext';
       final payload = MessageModifyPayload(
         targetMessageId: wireId,
         action: 'edit',
@@ -248,7 +240,7 @@ void main() {
         keyManager: keyManager,
         peerId: 'peer.onion',
       );
-      final encryptedPeer = keyManager.encryptForPeer('edited', peerPublicKey);
+      const encryptedPeer = 'test-edited-ciphertext';
       final payload = MessageModifyPayload(
         targetMessageId: wireId,
         action: 'edit',

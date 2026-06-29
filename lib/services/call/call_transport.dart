@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:pointycastle/export.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -17,7 +17,7 @@ abstract class CallTransport {
 }
 
 abstract class CallKeyResolver {
-  Future<RSAPublicKey?> resolve(String peerOnion);
+  Future<IdentityPublicKeys?> resolve(String peerOnion);
 }
 
 class WsCallTransport implements CallTransport {
@@ -60,19 +60,20 @@ class DbCallKeyResolver implements CallKeyResolver {
   final KeyManager _keyManager;
 
   @override
-  Future<RSAPublicKey?> resolve(String peerOnion) async {
+  Future<IdentityPublicKeys?> resolve(String peerOnion) async {
     final user = await DBHelper.getUserById(peerOnion);
-    final cached = user?['publicKeyPem'] as String?;
+    final cached = (user?['identityJson'] as String?) ??
+        (user?['publicKeyPem'] as String?);
     if (cached != null && cached.isNotEmpty && cached != 'NONE') {
       try {
-        return _keyManager.importPeerPublicKey(cached);
+        return _keyManager.importPeerIdentity(cached);
       } catch (_) {}
     }
 
     try {
-      final pem = await TransportProvider.getPublicOrFallback(peerOnion);
-      if (pem.isEmpty) return null;
-      return _keyManager.importPeerPublicKey(pem);
+      final json = await TransportProvider.getPublicOrFallback(peerOnion);
+      if (json.isEmpty) return null;
+      return _keyManager.importPeerIdentity(json);
     } catch (_) {
       return null;
     }

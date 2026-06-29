@@ -36,12 +36,8 @@ class DecoySessionData {
   static const identityOnion =
       'marwkxqyh2g7pz5n3c8vfr4j6t9b2d7l0s5h8k1m4q6w9x3z7a2e5g8j.onion';
 
-  static const _fakePublicKeyPem = '''-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu3Vz8pQx7nK2mR4vFw9s
-L0hJ6tY3cX1bN8qP5wZ2aE7uI4oM9kC6jH3fG0dS1vB8xA5yT2rU6nQ4pW7eR9sL0
-hJ6tY3cX1bN8qP5wZ2aE7uI4oM9kC6jH3fG0dS1vB8xA5yT2rU6nQ4pW7eR9sL0h
-QIDAQAB
------END PUBLIC KEY-----''';
+  static const _fakeIdentityJson =
+      '{"crypto":"v2","signPublic":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","agreePublic":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=","fingerprint":"decoy"}';
 
   final Contact appUser;
   final List<Contact> contacts;
@@ -77,21 +73,21 @@ QIDAQAB
       id: identityOnion,
       name: 'My Account',
       avatarUrl: '',
-      publicKeyPem: _fakePublicKeyPem,
+      identityJson: _fakeIdentityJson,
     );
 
     final alex = Contact(
       id: alexOnion,
       name: 'Alex Chen',
       avatarUrl: '',
-      publicKeyPem: _fakePublicKeyPem,
+      identityJson: _fakeIdentityJson,
       lastMessageTimestamp: _minutesAgo(12),
     );
     final sam = Contact(
       id: samOnion,
       name: 'Sam Rivera',
       avatarUrl: '',
-      publicKeyPem: _fakePublicKeyPem,
+      identityJson: _fakeIdentityJson,
       lastMessageTimestamp: _minutesAgo(47),
     );
     final mom = Contact(
@@ -99,14 +95,14 @@ QIDAQAB
       name: 'Margaret K.',
       customName: 'OF',
       avatarUrl: '',
-      publicKeyPem: _fakePublicKeyPem,
+      identityJson: _fakeIdentityJson,
       lastMessageTimestamp: _hoursAgo(3),
     );
     final chris = Contact(
       id: chrisOnion,
       name: 'Chris',
       avatarUrl: '',
-      publicKeyPem: _fakePublicKeyPem,
+      identityJson: _fakeIdentityJson,
       lastMessageTimestamp: _daysAgo(12),
     );
 

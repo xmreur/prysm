@@ -1,7 +1,14 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
-import 'package:pointycastle/export.dart';
+import 'package:prysm/crypto/aead.dart';
+import 'package:prysm/crypto/constants.dart';
+import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/crypto/kdf.dart';
+import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/key_manager.dart';
 
@@ -19,14 +26,14 @@ class CallCodecParams {
   final int frameDurationMs;
 }
 
-/// Per-call symmetric encryption for audio frames.
+/// Per-call symmetric encryption for audio frames (ChaCha20-Poly1305).
 class CallSession {
   CallSession._({
     required this.callId,
     required this.sessionId,
     required this.peerOnion,
     required this.role,
-    required Uint8List key,
+    required SecretKey key,
     required Uint8List salt,
     required this.codec,
   })  : _key = key,
@@ -38,7 +45,7 @@ class CallSession {
   final CallRole role;
   final CallCodecParams codec;
 
-  final Uint8List _key;
+  final SecretKey _key;
   final Uint8List _salt;
   int _sendSeq = 0;
   int _recvSeq = -1;
@@ -49,37 +56,32 @@ class CallSession {
     required String peerOnion,
     CallCodecParams codec = const CallCodecParams(),
   }) {
-    final rnd = Random.secure();
-    final key = Uint8List.fromList(
-      List.generate(32, (_) => rnd.nextInt(256)),
-    );
-    final salt = Uint8List.fromList(
-      List.generate(4, (_) => rnd.nextInt(256)),
-    );
+    final keyBytes = CryptoKdf.randomBytes(32);
+    final salt = CryptoKdf.randomBytes(4);
     return CallSession._(
       callId: callId,
       sessionId: sessionId,
       peerOnion: peerOnion,
       role: CallRole.caller,
-      key: key,
+      key: SecretKey(keyBytes),
       salt: salt,
       codec: codec,
     );
   }
 
-  static CallSession fromInbound({
+  static Future<CallSession> fromInbound({
     required String callId,
     required int sessionId,
     required String peerOnion,
     required String wrappedKey,
     required KeyManager keyManager,
     CallCodecParams codec = const CallCodecParams(),
-  }) {
-    final material = keyManager.decryptBytes(wrappedKey);
+  }) async {
+    final material = await keyManager.decryptBytes(wrappedKey);
     if (material.length < 36) {
       throw const FormatException('Invalid wrapped call key');
     }
-    final key = Uint8List.fromList(material.sublist(0, 32));
+    final key = SecretKey(material.sublist(0, 32));
     final salt = Uint8List.fromList(material.sublist(32, 36));
     return CallSession._(
       callId: callId,
@@ -92,25 +94,35 @@ class CallSession {
     );
   }
 
-  String wrapKeyForPeer(RSAPublicKey peerKey, KeyManager keyManager) {
+  Future<String> wrapKeyForPeer(
+    IdentityPublicKeys peer,
+    KeyManager keyManager,
+  ) async {
+    final keyBytes = await _key.extractBytes();
     final material = Uint8List(36)
-      ..setRange(0, 32, _key)
+      ..setRange(0, 32, keyBytes)
       ..setRange(32, 36, _salt);
-    return keyManager.encryptBytesForPeer(material, peerKey);
+    return keyManager.encryptBytesForPeer(material, peer);
   }
 
-  Uint8List encryptAudioFrame(Uint8List opusPayload) {
+  Future<Uint8List> encryptAudioFrame(Uint8List opusPayload) async {
     final seq = _sendSeq++;
-    final cipher = _cipherForSeq(seq, encrypt: true);
-    final encrypted = cipher.process(opusPayload);
-    return CallAudioFrame(
+    final aad = utf8.encode('$seq');
+    final enc = await CryptoAead.encryptChaCha(
+      opusPayload,
+      key: _key,
+      nonce: _nonceForSeq(seq),
+      associatedData: aad,
+    );
+    final encrypted = CallAudioFrame(
       sessionId: sessionId,
       seq: seq,
-      payload: encrypted,
+      payload: enc.ciphertext,
     ).encode();
+    return encrypted;
   }
 
-  Uint8List? decryptAudioFrame(List<int> raw) {
+  Future<Uint8List?> decryptAudioFrame(List<int> raw) async {
     CallAudioFrame frame;
     try {
       frame = CallAudioFrame.decode(raw);
@@ -120,28 +132,21 @@ class CallSession {
     if (frame.sessionId != sessionId) return null;
     if (frame.seq <= _recvSeq) return null;
     _recvSeq = frame.seq;
-    final cipher = _cipherForSeq(frame.seq, encrypt: false);
+    final aad = utf8.encode('${frame.seq}');
     try {
-      return cipher.process(Uint8List.fromList(frame.payload));
+      return await CryptoAead.decryptChaCha(
+        ciphertextWithTag: Uint8List.fromList(frame.payload),
+        key: _key,
+        nonce: _nonceForSeq(frame.seq),
+        associatedData: aad,
+      );
     } catch (_) {
       return null;
     }
   }
 
-  StreamCipher _cipherForSeq(int seq, {required bool encrypt}) {
-    final engine = ChaCha20Engine();
-    engine.init(
-      encrypt,
-      ParametersWithIV<KeyParameter>(
-        KeyParameter(_key),
-        _nonceForSeq(seq),
-      ),
-    );
-    return engine;
-  }
-
   Uint8List _nonceForSeq(int seq) {
-    final nonce = Uint8List(8);
+    final nonce = Uint8List(12);
     nonce.setRange(0, 4, _salt);
     final view = ByteData.sublistView(nonce);
     view.setUint32(4, seq, Endian.big);
@@ -149,7 +154,10 @@ class CallSession {
   }
 
   @visibleForTesting
-  Uint8List secretKeyBytes() => Uint8List.fromList(_key);
+  Future<Uint8List> secretKeyBytes() async {
+    final bytes = await _key.extractBytes();
+    return Uint8List.fromList(bytes);
+  }
 }
 
 int asInt(dynamic value, [int defaultValue = 0]) {

@@ -759,7 +759,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Future<Uint8List> _decryptGroupFileBytes(Map<String, dynamic> msg) async {
     final groupKey = await _groupService.getDecryptedGroupKey(widget.group.id);
     if (groupKey == null) throw Exception('No group key');
-    return GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
+    return await GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
   }
 
   Future<Uint8List> _decryptGroupImageFromDb(String messageId) async {
@@ -810,7 +810,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
 
         if (type == groupTextType) {
-          final text = GroupCrypto.decryptText(groupKey, wire as String);
+          final wireStr = wire as String;
+          final text = GroupCrypto.isSenderKeyEnvelope(wireStr)
+              ? await GroupCrypto.decryptWithSenderKey(
+                  epochKey: groupKey,
+                  wire: wireStr,
+                )
+              : await GroupCrypto.decryptText(groupKey, wireStr);
           result.add(TextMessage(
             authorId: authorId,
             createdAt: createdAt,
@@ -854,7 +860,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             ));
           }
         } else if (type == groupFileType || type == groupAudioType) {
-          final bytes = GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
+          final bytes = await GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
           if (type == groupAudioType) {
             final cacheDir = await getTemporaryDirectory();
             final cachePath = '${cacheDir.path}/group_voice_$id.wav';

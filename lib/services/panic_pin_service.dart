@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pointycastle/export.dart';
+import 'package:prysm/crypto/kdf.dart';
 
 class PanicPinService {
   PanicPinService._();
@@ -11,7 +12,9 @@ class PanicPinService {
 
   static const _hashKey = 'PANIC_PIN_HASH';
   static const _saltKey = 'PANIC_PIN_SALT';
-  static const _secureStorage = FlutterSecureStorage();
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
 
   Future<bool> isConfigured() async {
     final hash = await _secureStorage.read(key: _hashKey);
@@ -29,13 +32,16 @@ class PanicPinService {
       'pin': pin,
       'saltB64': saltB64,
     });
-    return _constantTimeEquals(
+    return CryptoKdf.constantTimeEquals(
       base64Decode(storedHash),
       base64Decode(computed),
     );
   }
 
   Future<void> setPin(String pin) async {
+    if (pin.length != 6) {
+      throw ArgumentError('Panic PIN must be 6 digits');
+    }
     final salt = _randomBytes(16);
     final hash = await compute(_hashPinIsolate, {
       'pin': pin,
@@ -55,21 +61,10 @@ class PanicPinService {
     return Uint8List.fromList(List.generate(length, (_) => rnd.nextInt(256)));
   }
 
-  static bool _constantTimeEquals(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    var diff = 0;
-    for (var i = 0; i < a.length; i++) {
-      diff |= a[i] ^ b[i];
-    }
-    return diff == 0;
-  }
-
   static String _hashPinIsolate(Map<String, String> params) {
     final pin = params['pin']!;
     final salt = base64Decode(params['saltB64']!);
-    final pbkdf2 = PBKDF2KeyDerivator(HMac(SHA256Digest(), 64));
-    pbkdf2.init(Pbkdf2Parameters(salt, 100_000, 32));
-    final hash = pbkdf2.process(utf8.encode(pin));
+    final hash = CryptoKdf.hashPassphrase(pin, salt);
     return base64Encode(hash);
   }
 }

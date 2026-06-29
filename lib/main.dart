@@ -10,7 +10,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/panic_action.dart';
-import 'package:prysm/screens/pin_entry.dart';
+import 'package:prysm/screens/passphrase_entry.dart';
+import 'package:prysm/screens/crypto_migration_screen.dart';
+import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/screens/settings_screen.dart';
@@ -55,6 +57,7 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
+import 'package:prysm/crypto/qr_payload.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/decoy_session_data.dart';
@@ -143,8 +146,7 @@ void main() async {
 
   final keyManager = KeyManager();
 
-  // Start the message server early so incoming messages are received
-  // even while Tor is still bootstrapping or the user is on the PIN screen.
+  // Start early so Tor peers can connect during bootstrap / unlock screen.
   final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
   messageServer.start();
 
@@ -339,6 +341,8 @@ class _MyAppState extends State<MyApp> {
     static final settings = SettingsService();
     
   bool unlocked = false;
+  bool _needsMigration = false;
+  bool _migrationChecked = false;
   bool _panicDecoySession = false;
   int _currentTheme = 0;
 
@@ -357,11 +361,11 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  Future<bool> onVerifyPin(String pin) async {
+  Future<bool> onVerifyPassphrase(String passphrase) async {
     final keyManager = widget.keyManager;
-    if (await keyManager.unlockWithPin(pin)) {
+    if (await keyManager.unlockWithPassphrase(passphrase)) {
       await settings.migrateOnboardingIfExisting(
-        readPublicKey: () => keyManager.safeRead('PUBLIC_KEY'),
+        readPublicKey: () => keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
         contactCount: (await DBHelper.getUsers()).length,
       );
       setState(() {
@@ -371,8 +375,9 @@ class _MyAppState extends State<MyApp> {
       return true;
     }
 
-    if (await PanicPinService.instance.isConfigured() &&
-        await PanicPinService.instance.verify(pin)) {
+    if (passphrase.length == 6 &&
+        await PanicPinService.instance.isConfigured() &&
+        await PanicPinService.instance.verify(passphrase)) {
       if (settings.panicAction == PanicAction.wipe) {
         await PanicWipeService.wipeAll();
         await keyManager.wipeSecureStorage();
@@ -391,14 +396,27 @@ class _MyAppState extends State<MyApp> {
     return false;
   }
 
+  Future<bool> onVerifyPin(String pin) => onVerifyPassphrase(pin);
+
   @override
   void initState() {
     super.initState();
     _loadSavedTheme();
+    _checkMigration();
     _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
       if (mounted) setState(() => _torBootstrapProgress = p);
     });
     _initTorInBackground();
+  }
+
+  Future<void> _checkMigration() async {
+    final needs = await CryptoKeyStore.needsCryptoMigration();
+    if (mounted) {
+      setState(() {
+        _needsMigration = needs;
+        _migrationChecked = true;
+      });
+    }
   }
 
   Future<void> _initTorInBackground() async {
@@ -460,14 +478,37 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_migrationChecked) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (_needsMigration) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: CryptoMigrationScreen(
+          keyManager: widget.keyManager,
+          onComplete: () => setState(() {
+            _needsMigration = false;
+          }),
+        ),
+      );
+    }
+
     if (!unlocked) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: "Unlock ${settings.name} Chat",
         theme: ThemeManager.getTheme(_currentTheme),
-        home: PinScreen(
-          onVerifyPin: onVerifyPin,
-          isPinSet: widget.keyManager.isPinSet(),
+        home: PassphraseScreen(
+          onVerifyPassphrase: onVerifyPassphrase,
+          isPassphraseSet: widget.keyManager.isPassphraseSet(),
           torBootstrapProgress: _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
         ),
       );
@@ -736,7 +777,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         id: widget.onionAddress,
         name: appSettings.username ?? '',
         avatarUrl: '',
-        publicKeyPem: 'NONE',
+        identityJson: 'NONE',
       );
     }
     _syncCoordinator = SyncCoordinator(
@@ -1106,7 +1147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         avatarUrl: '',
         avatarBase64: map['avatarBase64'] as String?,
         customName: map['customName'] as String?,
-        publicKeyPem: (map['publicKeyPem'] as String?) ?? '',
+        identityJson: (map['identityJson'] as String?) ?? (map['publicKeyPem'] as String?) ?? '',
         lastMessageTimestamp: timestamps[id],
       ));
     }
@@ -1326,7 +1367,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showAddUserDialog({String? prefilledId}) async {
-    final idController = TextEditingController(text: prefilledId ?? '');
+    String? onionPrefill = prefilledId;
+    String? expectedFingerprint;
+    if (prefilledId != null) {
+      final payload = QrPayload.tryParse(prefilledId);
+      if (payload != null) {
+        onionPrefill = payload.onion;
+        expectedFingerprint = payload.fingerprint;
+      }
+    }
+
+    final idController = TextEditingController(text: onionPrefill ?? '');
     final nameController = TextEditingController();
     final hostContext = context;
 
@@ -1354,7 +1405,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         return;
       }
-      final added = await _addNewUser(newId, newName);
+      final added = await _addNewUser(
+        newId,
+        newName,
+        expectedFingerprint: expectedFingerprint,
+      );
       if (!dialogContext.mounted) return;
       if (!added) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
@@ -1441,10 +1496,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<bool> _addNewUser(String id, String name) async {
+  Future<bool> _addNewUser(
+    String id,
+    String name, {
+    String? expectedFingerprint,
+  }) async {
     return ContactAddService.instance.addContact(
       onionId: id,
       displayName: name,
+      expectedFingerprint: expectedFingerprint,
     );
   }
 
@@ -1522,10 +1582,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 IconButton(
                   icon: const Icon(Icons.qr_code, size: 20),
                   tooltip: 'Show my QR code',
-                  onPressed: () => showPrysmIdQrDialog(
-                    context,
-                    encodeOnionToBase58(appUser.id),
-                  ),
+                  onPressed: () {
+                    String? fingerprint;
+                    try {
+                      final parsed = jsonDecode(widget.keyManager.publicKeyJson)
+                          as Map<String, dynamic>;
+                      fingerprint = parsed['fingerprint'] as String?;
+                    } catch (_) {}
+                    showPrysmIdQrDialog(
+                      context,
+                      encodeOnionToBase58(appUser.id),
+                      fingerprint: fingerprint,
+                    );
+                  },
                 ),
                 if (QrPlatform.isScanSupported)
                   IconButton(

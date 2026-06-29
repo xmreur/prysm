@@ -1,5 +1,7 @@
 
+import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
@@ -8,9 +10,15 @@ import 'package:path_provider/path_provider.dart';
 
 class DBHelper {
   static Database? _db;
+  static Database? _testDb;
+
+  /// Override the app database in unit tests (in-memory).
+  static void setDatabaseForTest(Database? db) {
+    _testDb = db;
+  }
 
   static Future<Database> get database async {
-    if (_db != null) return _db!;
+    if (_testDb != null) return _testDb!;
     _initializeFfi();
     _db = await _initDB();
     return _db!;
@@ -28,7 +36,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 5, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 7, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -39,12 +47,19 @@ class DBHelper {
         avatarUrl TEXT,
         avatarBase64 TEXT,
         customName TEXT,
-        publicKeyPem TEXT
+        publicKeyPem TEXT,
+        identityJson TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
     await _createGroupTables(db);
     await ConversationPreferencesDb.createTable(db);
+    await _createCryptoTables(db);
+  }
+
+  static Future<void> _createCryptoTables(Database db) async {
+    await RatchetSessionStore.ensureTable(db);
+    await GroupSenderIndexStore.ensureTable(db);
   }
 
   static Future<void> _createGroupTables(Database db) async {
@@ -97,6 +112,16 @@ class DBHelper {
     }
     if (oldVersion < 5) {
       await ConversationPreferencesDb.createTable(db);
+    }
+    if (oldVersion < 6) {
+      final cols = await db.rawQuery('PRAGMA table_info(users)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (!colNames.contains('identityJson')) {
+        await db.execute('ALTER TABLE users ADD COLUMN identityJson TEXT');
+      }
+    }
+    if (oldVersion < 7) {
+      await _createCryptoTables(db);
     }
   }
 

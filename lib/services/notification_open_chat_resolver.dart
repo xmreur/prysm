@@ -37,7 +37,7 @@ class NotificationOpenChatResolver {
       avatarUrl: '',
       avatarBase64: row['avatarBase64'] as String?,
       customName: row['customName'] as String?,
-      publicKeyPem: (row['publicKeyPem'] as String?) ?? '',
+      identityJson: (row['identityJson'] as String?) ?? (row['publicKeyPem'] as String?) ?? '',
     );
   }
 

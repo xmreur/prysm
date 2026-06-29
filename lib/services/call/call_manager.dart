@@ -183,7 +183,7 @@ class CallManager extends ChangeNotifier {
       await transport.send(peerOnion, 'call_offer', {
         'callId': callId,
         'sessionId': sessionId,
-        'wrappedKey': session.wrapKeyForPeer(peerKey, _keyManager),
+        'wrappedKey': await session.wrapKeyForPeer(peerKey, _keyManager),
         'codec': {
           'sampleRate': session.codec.sampleRate,
           'channels': session.codec.channels,
@@ -314,7 +314,7 @@ class CallManager extends ChangeNotifier {
     if (callId == null || sessionId == 0 || wrappedKey == null) return;
 
     try {
-      final session = CallSession.fromInbound(
+      final session = await CallSession.fromInbound(
         callId: callId,
         sessionId: sessionId,
         peerOnion: event.peerOnion,

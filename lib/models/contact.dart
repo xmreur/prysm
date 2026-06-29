@@ -4,11 +4,14 @@ class Contact {
   final String avatarUrl;
   final String? avatarBase64;
   final String? customName;
-  final String publicKeyPem;
+  final String identityJson;
   final int? lastMessageTimestamp;
 
-  /// Shows customName if set, otherwise the remote name
-  String get displayName => (customName != null && customName!.isNotEmpty) ? customName! : name;
+  String get displayName =>
+      (customName != null && customName!.isNotEmpty) ? customName! : name;
+
+  /// Legacy field name; stores v2 identity JSON.
+  String get publicKeyPem => identityJson;
 
   Contact({
     required this.id,
@@ -16,7 +19,7 @@ class Contact {
     required this.avatarUrl,
     this.avatarBase64,
     this.customName,
-    required this.publicKeyPem,
+    required this.identityJson,
     this.lastMessageTimestamp,
   });
 }

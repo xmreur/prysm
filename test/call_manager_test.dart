@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
@@ -11,7 +11,6 @@ import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/rsa_helper.dart';
 
 // Manual verification (not automated):
 // 1. Android active call: start call, press Home, verify bidirectional audio ~60s.
@@ -28,14 +27,25 @@ void main() {
   late CallManager manager;
   late _RecordingForegroundSession foreground;
 
-  setUp(() {
-    final keys = RSAHelper.generateKeyPair(bitLength: 2048);
-    keyManager = KeyManager.fromKeys(
-      keys.privateKey as RSAPrivateKey,
-      keys.publicKey as RSAPublicKey,
+  late IdentityPublicKeys peerKeys;
+  late IdentityPublicKeys localKeys;
+
+  setUp(() async {
+    final local = await IdentityKeyPair.generate();
+    final peer = await IdentityKeyPair.generate();
+    keyManager = KeyManager.fromIdentity(local);
+    localKeys = IdentityPublicKeys(
+      signPublic: await local.signPublicKey,
+      agreePublic: await local.agreePublicKey,
+      fingerprint: 'local',
+    );
+    peerKeys = IdentityPublicKeys(
+      signPublic: await peer.signPublicKey,
+      agreePublic: await peer.agreePublicKey,
+      fingerprint: 'test',
     );
     transport = _FakeTransport();
-    keyResolver = _FakeKeyResolver(keys.publicKey as RSAPublicKey);
+    keyResolver = _FakeKeyResolver(peerKeys);
     notifier = CallSignalingNotifier();
     CallSignalingNotifier.testInstance = notifier;
     CallManager.resetForTest();
@@ -117,8 +127,8 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': caller.wrapKeyForPeer(
-        keyManager.publicKey,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
         keyManager,
       ),
     });
@@ -143,8 +153,8 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': caller.wrapKeyForPeer(
-        keyManager.publicKey,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
         keyManager,
       ),
     });
@@ -164,8 +174,8 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': caller.wrapKeyForPeer(
-        keyManager.publicKey,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
         keyManager,
       ),
     });
@@ -241,10 +251,10 @@ class _SentFrame {
 
 class _FakeKeyResolver implements CallKeyResolver {
   _FakeKeyResolver(this.key);
-  final RSAPublicKey key;
+  final IdentityPublicKeys key;
 
   @override
-  Future<RSAPublicKey?> resolve(String peerOnion) async => key;
+  Future<IdentityPublicKeys?> resolve(String peerOnion) async => key;
 }
 
 class _FakeCallAudio implements CallAudio {

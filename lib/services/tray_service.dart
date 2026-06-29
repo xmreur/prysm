@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/battery_saver_service.dart';
+import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
@@ -22,15 +23,20 @@ class TrayStatus {
   final String torLabel;
   final int pendingCount;
   final int unreadTotal;
+  final bool inCall;
 
   const TrayStatus({
     required this.torLabel,
     required this.pendingCount,
     required this.unreadTotal,
+    this.inCall = false,
   });
 
   String formatTooltip() {
     final parts = <String>['Prysm', 'Tor $torLabel'];
+    if (inCall) {
+      parts.add('In call');
+    }
     if (pendingCount > 0) {
       parts.add('$pendingCount pending');
     }
@@ -117,6 +123,10 @@ class TrayService with TrayListener {
       _restartPollTimer();
     });
 
+    CallForegroundSession.onActiveChanged = (_) {
+      unawaited(refreshStatus());
+    };
+
     _restartPollTimer();
     await refreshStatus();
   }
@@ -155,6 +165,7 @@ class TrayService with TrayListener {
       torLabel: torLabel,
       pendingCount: pending,
       unreadTotal: unreadTotal,
+      inCall: CallForegroundSession.isActive,
     );
 
     await _applyTooltip(status.formatTooltip());
@@ -314,10 +325,15 @@ class TrayService with TrayListener {
           label: 'Tor: ${_formatTorMenu(status.torLabel)}',
           disabled: true,
         ),
+        if (status.inCall)
+          MenuItem(label: 'In call', disabled: true),
         MenuItem(label: pendingLine, disabled: true),
         MenuItem(label: unreadLine, disabled: true),
         MenuItem.separator(),
       ]);
+    } else if (status.inCall) {
+      items.add(MenuItem(label: 'In call', disabled: true));
+      items.add(MenuItem.separator());
     }
 
     items.add(
@@ -367,6 +383,9 @@ class TrayService with TrayListener {
     await _torSub?.cancel();
     await _pendingSub?.cancel();
     await _refreshSub?.cancel();
+    if (CallForegroundSession.onActiveChanged != null) {
+      CallForegroundSession.onActiveChanged = null;
+    }
     trayManager.removeListener(this);
     try {
       await trayManager.destroy();

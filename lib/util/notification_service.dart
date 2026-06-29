@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:prysm/services/pending_call_action.dart';
 import 'package:prysm/services/pending_notification_route.dart';
 
 typedef NotificationTapHandler = void Function(String? payload);
+typedef CallNotificationTapHandler = void Function(PendingCallAction action);
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -12,6 +14,14 @@ class NotificationService {
   NotificationService._internal();
 
   static NotificationTapHandler? onNotificationTap;
+  static CallNotificationTapHandler? onCallNotificationTap;
+
+  // Must fit in signed 32-bit (Linux notification plugin validates this).
+  static const int incomingCallNotificationId = 0x0CA11001;
+  static const int activeCallNotificationId = 0x0CA11002;
+
+  static const String incomingCallChannelId = 'prysm_incoming_call_channel';
+  static const String activeCallChannelId = 'prysm_active_call_channel';
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
@@ -62,7 +72,39 @@ class NotificationService {
       onDidReceiveNotificationResponse: onDidReceiveNotificationResponse,
     );
 
+    await _ensureAndroidCallChannels();
+
     await _captureNotificationLaunchDetails();
+  }
+
+  Future<void> _ensureAndroidCallChannels() async {
+    if (!Platform.isAndroid) return;
+    final androidImpl = _notificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl == null) return;
+
+    await androidImpl.createNotificationChannel(
+      const AndroidNotificationChannel(
+        incomingCallChannelId,
+        'Incoming Calls',
+        description: 'Ringing incoming voice calls',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+      ),
+    );
+    await androidImpl.createNotificationChannel(
+      const AndroidNotificationChannel(
+        activeCallChannelId,
+        'Active Calls',
+        description: 'Ongoing voice calls',
+        importance: Importance.low,
+        playSound: false,
+        enableVibration: false,
+      ),
+    );
   }
 
   Future<void> _captureNotificationLaunchDetails() async {
@@ -72,9 +114,17 @@ class NotificationService {
       final launchDetails =
           await _notificationsPlugin.getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp == true) {
-        PendingNotificationRouteStore.instance.setFromPayload(
-          launchDetails?.notificationResponse?.payload,
-        );
+        final response = launchDetails?.notificationResponse;
+        final call = response != null
+            ? PendingCallAction.fromResponse(response)
+            : PendingCallAction.fromPayload(response?.payload);
+        if (call != null) {
+          PendingCallActionStore.instance.set(call);
+        } else {
+          PendingNotificationRouteStore.instance.setFromPayload(
+            response?.payload,
+          );
+        }
       }
     } catch (_) {
       // Some platform implementations may not support launch details.
@@ -82,6 +132,12 @@ class NotificationService {
   }
 
   void onDidReceiveNotificationResponse(NotificationResponse details) {
+    final call = PendingCallAction.fromResponse(details);
+    if (call != null) {
+      PendingCallActionStore.instance.set(call);
+      onCallNotificationTap?.call(call);
+      return;
+    }
     PendingNotificationRouteStore.instance.setFromPayload(details.payload);
     onNotificationTap?.call(details.payload);
   }
@@ -161,6 +217,138 @@ class NotificationService {
     await _notificationsPlugin.cancelAll();
   }
 
+  Future<void> showIncomingCall({
+    required String peerOnion,
+    required String callId,
+    required String displayName,
+  }) async {
+    if (!_initialized) await init();
+
+    final payload = PendingCallAction(
+      action: CallNotificationAction.open,
+      callId: callId,
+      peerOnion: peerOnion,
+    ).toPayload();
+
+    final androidDetails = AndroidNotificationDetails(
+      incomingCallChannelId,
+      'Incoming Calls',
+      channelDescription: 'Ringing incoming voice calls',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.call,
+      fullScreenIntent: true,
+      playSound: true,
+      enableVibration: true,
+      ticker: 'Incoming call',
+      visibility: NotificationVisibility.public,
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+      styleInformation: BigTextStyleInformation(displayName),
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'accept',
+          'Accept',
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          'decline',
+          'Decline',
+          cancelNotification: true,
+        ),
+      ],
+    );
+
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentSound: true,
+      presentBanner: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    );
+
+    const linuxDetails = LinuxNotificationDetails();
+
+    const windowsDetails = WindowsNotificationDetails();
+
+    await _notificationsPlugin.show(
+      incomingCallNotificationId,
+      'Incoming call',
+      displayName,
+      NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+        macOS: darwinDetails,
+        linux: linuxDetails,
+        windows: windowsDetails,
+      ),
+      payload: payload,
+    );
+  }
+
+  Future<void> showActiveCall({
+    required String peerOnion,
+    required String callId,
+    required String displayName,
+  }) async {
+    if (!_initialized) await init();
+
+    final payload = PendingCallAction(
+      action: CallNotificationAction.open,
+      callId: callId,
+      peerOnion: peerOnion,
+    ).toPayload();
+
+    final androidDetails = AndroidNotificationDetails(
+      activeCallChannelId,
+      'Active Calls',
+      channelDescription: 'Ongoing voice calls',
+      importance: Importance.low,
+      priority: Priority.low,
+      category: AndroidNotificationCategory.call,
+      ongoing: true,
+      playSound: false,
+      enableVibration: false,
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'hangup',
+          'Hang up',
+          cancelNotification: true,
+        ),
+      ],
+    );
+
+    const darwinDetails = DarwinNotificationDetails();
+    const linuxDetails = LinuxNotificationDetails();
+    const windowsDetails = WindowsNotificationDetails();
+
+    await _notificationsPlugin.show(
+      activeCallNotificationId,
+      'In call',
+      displayName,
+      NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+        macOS: darwinDetails,
+        linux: linuxDetails,
+        windows: windowsDetails,
+      ),
+      payload: payload,
+    );
+  }
+
+  Future<void> cancelIncomingCallNotification() async {
+    await cancelNotification(incomingCallNotificationId);
+  }
+
+  Future<void> cancelActiveCallNotification() async {
+    await cancelNotification(activeCallNotificationId);
+  }
+
+  Future<void> cancelCallNotifications() async {
+    await cancelIncomingCallNotification();
+    await cancelActiveCallNotification();
+  }
+
   Future<bool?> requestPermission() async {
     if (!_initialized) await init();
 
@@ -169,6 +357,7 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     granted = await androidImpl?.requestNotificationsPermission();
+    await androidImpl?.requestFullScreenIntentPermission();
 
     final iosImpl = notificationsPlugin
         .resolvePlatformSpecificImplementation<

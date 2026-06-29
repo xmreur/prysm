@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/asymmetric/api.dart';
 import 'package:prysm/services/call/audio_engine.dart';
+import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
@@ -11,12 +13,20 @@ import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/rsa_helper.dart';
 
+// Manual verification (not automated):
+// 1. Android active call: start call, press Home, verify bidirectional audio ~60s.
+// 2. Android incoming: background app, call from desktop, Accept on notification.
+// 3. Android decline: incoming notification Decline ends call for caller.
+// 4. Linux: start call, minimize to tray; close window during call keeps tray + audio.
+// 5. Battery saver on mid-call: WS peer should stay connected ~60s.
+
 void main() {
   late _FakeTransport transport;
   late _FakeKeyResolver keyResolver;
   late KeyManager keyManager;
   late CallSignalingNotifier notifier;
   late CallManager manager;
+  late _RecordingForegroundSession foreground;
 
   setUp(() {
     final keys = RSAHelper.generateKeyPair(bitLength: 2048);
@@ -29,6 +39,8 @@ void main() {
     notifier = CallSignalingNotifier();
     CallSignalingNotifier.testInstance = notifier;
     CallManager.resetForTest();
+    foreground = _RecordingForegroundSession();
+    CallForegroundSession.testOverride = foreground;
     manager = CallManager(
       keyManager: keyManager,
       transport: transport,
@@ -142,6 +154,46 @@ void main() {
     await manager.acceptIncoming();
     expect(manager.snapshot.state, CallState.active);
   });
+
+  test('foreground session syncs on call state transitions', () async {
+    final caller = CallSession.createOutbound(
+      callId: 'fg-1',
+      sessionId: 3,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': caller.wrapKeyForPeer(
+        keyManager.publicKey,
+        keyManager,
+      ),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(foreground.syncCalls, isNotEmpty);
+    expect(foreground.lastActive, isTrue);
+
+    await manager.rejectIncoming();
+    await Future<void>.delayed(Duration.zero);
+    expect(foreground.lastActive, isFalse);
+  });
+}
+
+class _RecordingForegroundSession implements CallForegroundSessionPort {
+  final syncCalls = <CallSnapshot>[];
+  bool lastActive = false;
+
+  @override
+  bool get inCall => lastActive;
+
+  @override
+  Future<void> sync(CallSnapshot snapshot, {CallSnapshot? previous}) async {
+    syncCalls.add(snapshot);
+    lastActive = snapshot.isInCall;
+  }
+
+  @override
+  Future<void> onAppLifecycleChanged(AppLifecycleState state) async {}
 }
 
 class _FakeTransport implements CallTransport {

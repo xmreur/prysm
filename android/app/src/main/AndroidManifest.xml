@@ -6,9 +6,11 @@
         tools:ignore="ForegroundServicesPolicy" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -24,7 +26,7 @@
         <service
             android:name="de.julianassmann.flutter_background.IsolateHolderService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|specialUse" />
+            android:foregroundServiceType="dataSync|specialUse|microphone" />
         <service android:name="org.torproject.jni.TorService" android:exported="false" />
         <activity
             android:name="com.xmreur.prysm.MainActivity"

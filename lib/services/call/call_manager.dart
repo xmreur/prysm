@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/opus_codec.dart';
+import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -94,6 +95,7 @@ class CallManager extends ChangeNotifier {
   static void resetForTest() {
     _instance?._shutdown();
     _instance = null;
+    CallForegroundSession.resetForTest();
   }
 
   final KeyManager _keyManager;
@@ -497,8 +499,12 @@ class CallManager extends ChangeNotifier {
   }
 
   void _setSnapshot(CallSnapshot snapshot) {
+    final previous = _snapshot;
     _snapshot = snapshot;
     if (_shuttingDown) return;
+    unawaited(
+      CallForegroundSession.instance.sync(snapshot, previous: previous),
+    );
     notifyListeners();
   }
 

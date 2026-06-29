@@ -19,12 +19,16 @@ import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
 import 'package:prysm/services/notification_open_chat_resolver.dart';
+import 'package:prysm/services/pending_call_action.dart';
 import 'package:prysm/services/pending_notification_route.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/updater_downloader.dart';
+import 'package:prysm/screens/call/call_overlay.dart';
+import 'package:prysm/services/call/call_foreground_session.dart';
+import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/screens/chat.dart';
 import 'package:prysm/screens/create_group_screen.dart';
 import 'package:prysm/screens/group_chat.dart';
@@ -298,6 +302,10 @@ class MyWindowListener extends WindowListener {
 
   @override
   void onWindowClose() async {
+    if (CallForegroundSession.isActive) {
+      await windowManager.hide();
+      return;
+    }
     if (TrayService.instance.isEnabled) {
       await windowManager.hide();
       return;
@@ -399,6 +407,8 @@ class _MyAppState extends State<MyApp> {
       final result = await initializeTor();
       _globalTorManager = result.torManager;
       TransportProvider.configure(result.torManager);
+      CallManager.configure(keyManager: widget.keyManager);
+      CallManager.instance.start();
 
       if (!Platform.isAndroid) {
         windowManager.addListener(MyWindowListener(result.torManager));
@@ -533,13 +543,15 @@ class _MyAppState extends State<MyApp> {
                 if (mounted) setState(() {});
               },
             )
-          : HomeScreen(
-              torManager: _torManager!,
-              onionAddress: onionAddress,
-              keyManager: widget.keyManager,
-              onThemeChanged: updateTheme,
-              currentTheme: _currentTheme,
-              decoyMode: _panicDecoySession,
+          : CallOverlay(
+              child: HomeScreen(
+                torManager: _torManager!,
+                onionAddress: onionAddress,
+                keyManager: widget.keyManager,
+                onThemeChanged: updateTheme,
+                currentTheme: _currentTheme,
+                decoyMode: _panicDecoySession,
+              ),
             ),
     );
   }
@@ -802,6 +814,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       scheduleLoadUsers(light: true);
     });
     NotificationService.onNotificationTap = _handleNotificationTap;
+    NotificationService.onCallNotificationTap = _handleCallNotificationAction;
 
     if (!Platform.isAndroid && !Platform.isIOS) {
       unawaited(TrayService.instance.start(
@@ -823,6 +836,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _handleNotificationTap(String? payload) {
     unawaited(_openChatFromNotificationPayload(payload));
+  }
+
+  void _handleCallNotificationAction(PendingCallAction action) {
+    unawaited(_processCallNotificationAction(action));
+  }
+
+  Future<void> _processCallNotificationAction(PendingCallAction action) async {
+    if (widget.decoyMode || !mounted) return;
+
+    try {
+      CallManager.instance;
+    } catch (_) {
+      PendingCallActionStore.instance.set(action);
+      return;
+    }
+
+    try {
+      switch (action.action) {
+        case CallNotificationAction.accept:
+          if (CallManager.instance.snapshot.state != CallState.incoming) break;
+          await NotificationService().cancelCallNotifications();
+          await CallManager.instance.acceptIncoming();
+        case CallNotificationAction.decline:
+          if (CallManager.instance.snapshot.state != CallState.incoming) break;
+          await NotificationService().cancelCallNotifications();
+          await CallManager.instance.rejectIncoming();
+        case CallNotificationAction.hangup:
+          if (!CallManager.instance.snapshot.isInCall) break;
+          await NotificationService().cancelCallNotifications();
+          await CallManager.instance.endCall();
+        case CallNotificationAction.open:
+          break;
+      }
+    } finally {
+      PendingCallActionStore.instance.clear();
+    }
+  }
+
+  Future<void> _consumePendingCallAction() async {
+    final action = PendingCallActionStore.instance.take();
+    if (action == null) return;
+    await _processCallNotificationAction(action);
   }
 
   Future<void> _openChatFromNotificationPayload(String? payload) async {
@@ -1138,6 +1193,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _syncActiveConversationTracker();
     unawaited(_consumePendingNotificationRoute());
+    unawaited(_consumePendingCallAction());
   }
 
   bool _mapsEqual<K, V>(Map<K, V> a, Map<K, V> b) {
@@ -1750,6 +1806,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (NotificationService.onNotificationTap == _handleNotificationTap) {
       NotificationService.onNotificationTap = null;
     }
+    if (NotificationService.onCallNotificationTap ==
+        _handleCallNotificationAction) {
+      NotificationService.onCallNotificationTap = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _shutdownTor();
     super.dispose();
@@ -1762,9 +1822,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Desktop exit is handled by MyWindowListener; mobile uses `detached`.
     if (state == AppLifecycleState.resumed) {
       _syncActiveConversationTracker();
+      unawaited(_consumePendingCallAction());
     } else {
       ActiveConversationTracker.instance.clear();
     }
+    unawaited(CallForegroundSession.instance.onAppLifecycleChanged(state));
     if (state == AppLifecycleState.detached) {
       _shutdownTor();
     }

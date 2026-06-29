@@ -1,4 +1,5 @@
 import 'package:prysm/services/battery_saver_service.dart';
+import 'package:prysm/services/call/call_foreground_session.dart';
 
 /// Central intervals used when [BatterySaverService.isActive] is true.
 class BatterySaverPolicy {
@@ -49,9 +50,14 @@ class BatterySaverPolicy {
 
   static const int wsSafetyPollSeconds = 60;
 
-  static Duration wsHeartbeatInterval([bool? saving]) => (saving ?? active)
-      ? const Duration(seconds: 60)
-      : const Duration(seconds: 30);
+  static Duration wsHeartbeatInterval([bool? saving]) {
+    if (CallForegroundSession.isActive) {
+      return const Duration(seconds: 30);
+    }
+    return (saving ?? active)
+        ? const Duration(seconds: 60)
+        : const Duration(seconds: 30);
+  }
 
   static Duration loadUsersDebounce([bool? saving]) => (saving ?? active)
       ? const Duration(milliseconds: 800)

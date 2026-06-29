@@ -8,6 +8,8 @@ import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/call/linux_audio_settings.dart';
+import 'package:prysm_linux_audio/prysm_linux_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -53,6 +55,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDownloadingSttModel = false;
   double _sttModelDownloadProgress = 0;
   String _downloadLocationDisplay = 'Loading...';
+  List<LinuxAudioDevice> _linuxInputDevices = const [];
+  String? _linuxSelectedDeviceId;
+  String _linuxSelectedDeviceLabel = 'System default';
   StreamSubscription<void>? _batterySaverSub;
 
   @override
@@ -60,6 +65,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadDownloadLocationDisplay();
+    if (!kIsWeb && Platform.isLinux) {
+      unawaited(_loadLinuxInputDevices());
+    }
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
       if (mounted) setState(() {});
     });
@@ -89,6 +97,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       setState(() => _downloadLocationDisplay = path);
     }
+  }
+
+  Future<void> _loadLinuxInputDevices() async {
+    try {
+      final devices = await PrysmLinuxAudio.listInputDevices();
+      final selectedId = await LinuxAudioSettings.getSelectedDeviceId();
+      if (!mounted) return;
+      setState(() {
+        _linuxInputDevices = devices;
+        _linuxSelectedDeviceId = selectedId;
+        _linuxSelectedDeviceLabel = _labelForLinuxDevice(devices, selectedId);
+      });
+    } catch (_) {}
+  }
+
+  String _labelForLinuxDevice(
+    List<LinuxAudioDevice> devices,
+    String? selectedId,
+  ) {
+    if (selectedId == null || selectedId.isEmpty) {
+      final defaultDevice = devices.where((d) => d.isDefault).firstOrNull;
+      return defaultDevice?.name ?? 'System default';
+    }
+    for (final device in devices) {
+      if (device.id == selectedId) {
+        return device.name;
+      }
+    }
+    return selectedId;
+  }
+
+  void _showLinuxInputDeviceSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.settings_input_component_outlined),
+              title: const Text('System default'),
+              trailing: _linuxSelectedDeviceId == null
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () async {
+                await LinuxAudioSettings.setSelectedDeviceId(null);
+                if (!mounted) return;
+                setState(() {
+                  _linuxSelectedDeviceId = null;
+                  _linuxSelectedDeviceLabel =
+                      _labelForLinuxDevice(_linuxInputDevices, null);
+                });
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+            ),
+            for (final device in _linuxInputDevices)
+              ListTile(
+                leading: const Icon(Icons.mic_outlined),
+                title: Text(device.name),
+                subtitle: device.isDefault
+                    ? const Text('Default input')
+                    : null,
+                trailing: _linuxSelectedDeviceId == device.id
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () async {
+                  await LinuxAudioSettings.setSelectedDeviceId(device.id);
+                  if (!mounted) return;
+                  setState(() {
+                    _linuxSelectedDeviceId = device.id;
+                    _linuxSelectedDeviceLabel = device.name;
+                  });
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showDownloadLocationSheet() {
@@ -611,6 +698,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Icons.keyboard_arrow_down_outlined,
                     _minimizeOnMinimizeButton,
                     _onMinimizeOnMinimizeButtonToggle,
+                  ),
+                ],
+                if (!kIsWeb && Platform.isLinux) ...[
+                  const Divider(height: 1),
+                  _buildNavigationTile(
+                    'Call microphone',
+                    Icons.mic_outlined,
+                    _showLinuxInputDeviceSheet,
+                    subtitle: _linuxSelectedDeviceLabel,
                   ),
                 ],
                 // const Divider(height: 1),

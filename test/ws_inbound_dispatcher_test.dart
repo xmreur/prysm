@@ -8,14 +8,14 @@ void main() {
 
   test('ignores frames when router is unavailable', () async {
     WsInboundDispatcher.instance.routerOverride = null;
-    await WsInboundDispatcher.instance.handleFrameForTest({
+    await WsInboundDispatcher.instance.handleFrameForTest('peer.onion', {
       'op': 'message',
       'payload': {'id': '1'},
     });
   });
 
   test('ignores message frames without map payload', () async {
-    await WsInboundDispatcher.instance.handleFrameForTest({
+    await WsInboundDispatcher.instance.handleFrameForTest('peer.onion', {
       'op': 'message',
       'payload': 'not-a-map',
     });

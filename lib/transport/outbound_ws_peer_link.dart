@@ -16,11 +16,17 @@ class OutboundWsPeerLink implements WsPeerLink {
   @override
   Stream<Map<String, dynamic>> get onPushFrames => _client.onIncoming;
 
+  @override
+  Stream<List<int>> get onBinaryFrames => _client.onBinary;
+
   TorWebSocketClient get client => _client;
 
   @override
   Future<void> send(String op, {Map<String, dynamic>? payload}) =>
       _client.send(op, payload: payload);
+
+  @override
+  Future<void> sendBytes(List<int> bytes) => _client.sendBytes(bytes);
 
   @override
   Future<Map<String, dynamic>> request(

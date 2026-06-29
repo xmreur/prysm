@@ -44,6 +44,7 @@ class WsConnectionManager {
   int outboundQueueDepth = 0;
 
   Future<bool> Function(String peerId)? onPeerConnected;
+  void Function(String peerOnion)? onPeerDisconnected;
   Future<void> Function(String peerOnion)? nudgePeerForInbound;
 
   DateTime? lastSuccessForPeer(String peerOnion) =>
@@ -470,6 +471,32 @@ class WsConnectionManager {
     }
   }
 
+  Future<void> sendBytes(String peerOnion, List<int> bytes) async {
+    if (TorRuntimeGate.blocked) {
+      throw StateError('Tor is stopped');
+    }
+    outboundQueueDepth++;
+    try {
+      final link = _links[peerOnion];
+      if (link == null || !link.isConnected) {
+        throw StateError('WebSocket not connected to $peerOnion');
+      }
+      await link.sendBytes(bytes);
+      _lastSuccessByPeer[peerOnion] = DateTime.now();
+      _pingFailures.remove(peerOnion);
+    } finally {
+      outboundQueueDepth--;
+    }
+  }
+
+  Stream<List<int>> binaryFramesFor(String peerOnion) {
+    final link = _links[peerOnion];
+    if (link == null) {
+      return const Stream<List<int>>.empty();
+    }
+    return link.onBinaryFrames;
+  }
+
   Future<T> _enqueueRequest<T>(
     String peerOnion,
     Future<T> Function() operation,
@@ -506,6 +533,7 @@ class WsConnectionManager {
       WsInboundDispatcher.instance.detach(peerOnion);
     }
     await link.close();
+    onPeerDisconnected?.call(peerOnion);
   }
 
   @visibleForTesting

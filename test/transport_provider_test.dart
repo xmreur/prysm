@@ -121,6 +121,9 @@ class _FakeWsPeerLink implements WsPeerLink {
       const Stream<Map<String, dynamic>>.empty();
 
   @override
+  Stream<List<int>> get onBinaryFrames => const Stream<List<int>>.empty();
+
+  @override
   Future<void> close() async {
     isConnected = false;
   }
@@ -135,6 +138,9 @@ class _FakeWsPeerLink implements WsPeerLink {
 
   @override
   Future<void> send(String op, {Map<String, dynamic>? payload}) async {}
+
+  @override
+  Future<void> sendBytes(List<int> bytes) async {}
 
   @override
   Future<void> sendPing() async {}

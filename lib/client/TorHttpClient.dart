@@ -3,6 +3,40 @@ import 'dart:io';
 
 import 'package:socks5_proxy/socks_client.dart';
 
+/// Binds [httpClient] to Tor SOCKS without the unsafe [SocksTCPClient.assignToHttpClient]
+/// cancel path, which can throw when a socket is already attached to a stream.
+void assignTorSocksToHttpClient(
+  HttpClient httpClient,
+  List<ProxySettings> proxies,
+) {
+  httpClient.connectionFactory = (uri, proxyHost, proxyPort) async {
+    final Future<Socket> client = SocksTCPClient.connect(
+      proxies,
+      InternetAddress(uri.host, type: InternetAddressType.unix),
+      uri.port,
+    ).then<Socket>((socket) => socket);
+
+    Future<void> tearDownSocket(Socket socket) async {
+      try {
+        socket.destroy();
+      } catch (_) {
+        try {
+          await socket.close();
+        } catch (_) {}
+      }
+    }
+
+    return ConnectionTask.fromSocket(
+      client,
+      () async {
+        try {
+          await tearDownSocket(await client);
+        } catch (_) {}
+      },
+    );
+  };
+}
+
 class TorHttpClient {
   String proxyHost;
   final int proxyPort;
@@ -12,7 +46,7 @@ class TorHttpClient {
   TorHttpClient({this.proxyHost = '127.0.0.1', this.proxyPort = 9050}) {
     _httpClient = HttpClient();
 
-    SocksTCPClient.assignToHttpClient(
+    assignTorSocksToHttpClient(
       _httpClient,
       [
         ProxySettings(

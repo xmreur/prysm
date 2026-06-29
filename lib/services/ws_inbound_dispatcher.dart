@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 
@@ -26,7 +27,7 @@ class WsInboundDispatcher {
   void attach(String peerOnion, Stream<Map<String, dynamic>> stream) {
     detach(peerOnion);
     _subscriptions[peerOnion] = stream.listen(
-      (frame) => unawaited(_handleFrame(frame)),
+      (frame) => unawaited(_handleFrame(peerOnion, frame)),
       onError: (Object e) => debugPrint('WsInboundDispatcher $peerOnion: $e'),
     );
   }
@@ -44,12 +45,26 @@ class WsInboundDispatcher {
   }
 
   @visibleForTesting
-  Future<void> handleFrameForTest(Map<String, dynamic> frame) =>
-      _handleFrame(frame);
+  Future<void> handleFrameForTest(
+    String peerOnion,
+    Map<String, dynamic> frame,
+  ) =>
+      _handleFrame(peerOnion, frame);
 
-  Future<void> _handleFrame(Map<String, dynamic> frame) async {
+  Future<void> _handleFrame(
+    String peerOnion,
+    Map<String, dynamic> frame,
+  ) async {
     final op = frame['op'];
     if (op is! String) return;
+
+    if (WsFrame.isCallOp(op)) {
+      final payload = frame['payload'];
+      if (payload is Map<String, dynamic>) {
+        CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
+      }
+      return;
+    }
 
     if (WsFrame.isTypingOp(op)) {
       final payload = frame['payload'];

@@ -9,7 +9,12 @@ abstract class WsPeerLink {
   /// Unsolicited frames from the peer (messages, typing, etc.).
   Stream<Map<String, dynamic>> get onPushFrames;
 
+  /// Binary frames (encrypted call audio) from the peer.
+  Stream<List<int>> get onBinaryFrames;
+
   Future<void> send(String op, {Map<String, dynamic>? payload});
+
+  Future<void> sendBytes(List<int> bytes);
 
   Future<Map<String, dynamic>> request(
     String op, {

@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
+import 'package:prysm/transport/tor_websocket_transport.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -29,11 +31,10 @@ void main() {
     expect(TransportProvider.isConfigured, isFalse);
   });
 
-  test('HTTP-only peers skip realtime connection checks', () {
+  test('HTTP-only preference skips realtime connection', () {
     TransportProvider.configure(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-2'),
     );
-    PeerTransportRegistry.instance.markHttpOnly('legacy.onion');
     expect(
       TransportProvider.instance.isRealtimeConnected('legacy.onion'),
       isFalse,
@@ -79,30 +80,62 @@ void main() {
     } catch (_) {}
 
     expect(usedHttp, isTrue);
-    expect(
-      PeerTransportRegistry.instance.isHttpOnly('missing.onion'),
-      isFalse,
-    );
   });
 
-  test('wsPreferred uses HTTP immediately when WS is not connected', () async {
+  test('withPeer uses registered inbound link without outbound dial', () async {
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-6'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-inbound'),
     );
 
-    var usedHttp = false;
-    final sw = Stopwatch()..start();
-    await TransportProvider.instance.withPeer(
+    TransportProvider.instance.wsManager.registerLinkForTest(
+      'peer.onion',
+      _FakeWsPeerLink('peer.onion'),
+    );
+
+    var usedWs = false;
+    final result = await TransportProvider.instance.withPeer(
       'peer.onion',
       (transport) async {
-        usedHttp = transport == TransportProvider.instance.httpTransport;
+        usedWs = transport is TorWebSocketTransport;
         return 'ok';
       },
       preference: TransportPreference.wsPreferred,
     );
-    sw.stop();
 
-    expect(usedHttp, isTrue);
-    expect(sw.elapsed.inSeconds, lessThan(3));
+    expect(usedWs, isTrue);
+    expect(result, 'ok');
   });
+}
+
+class _FakeWsPeerLink implements WsPeerLink {
+  _FakeWsPeerLink(this.peerOnion);
+
+  @override
+  final String peerOnion;
+
+  @override
+  bool isConnected = true;
+
+  @override
+  Stream<Map<String, dynamic>> get onPushFrames =>
+      const Stream<Map<String, dynamic>>.empty();
+
+  @override
+  Future<void> close() async {
+    isConnected = false;
+  }
+
+  @override
+  Future<Map<String, dynamic>> request(
+    String op, {
+    Map<String, dynamic>? payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async =>
+      <String, dynamic>{};
+
+  @override
+  Future<void> send(String op, {Map<String, dynamic>? payload}) async {}
+
+  @override
+  Future<void> sendPing() async {}
 }

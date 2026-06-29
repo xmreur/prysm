@@ -114,8 +114,9 @@ class TorDelivery {
           Error.throwWithStackTrace(e, stack);
         }
         final circuit = isCircuitError(e);
-        // One forced NEWNYM per operation; further retries wait for interval.
-        await _maybeRefreshCircuit(circuitError: circuit, force: circuit && i == 0);
+        if (circuit) {
+          await _maybeRefreshCircuit(circuitError: true, force: i == 0);
+        }
         final delay = _retryDelays[min(i, _retryDelays.length - 1)];
         await Future.delayed(delay);
       }

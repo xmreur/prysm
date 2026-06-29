@@ -1857,6 +1857,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onTorReconnected() async {
+    if (!widget.decoyMode && TransportProvider.isConfigured) {
+      TransportProvider.instance.wsManager.prepareForTorReconnect();
+    }
     final flushed = await _syncCoordinator?.onTorReconnected() ?? false;
     if (mounted) {
       scheduleLoadUsers(light: true);

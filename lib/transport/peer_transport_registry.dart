@@ -1,140 +1,52 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum PeerTransportMode { unknown, websocket, httpOnly }
+enum PeerTransportMode { unknown, websocket }
 
-/// Tracks which peers support WebSocket vs HTTP-only fallback.
+/// Tracks peers that have successfully used WebSocket transport.
 class PeerTransportRegistry {
   PeerTransportRegistry._();
 
   static final PeerTransportRegistry instance = PeerTransportRegistry._();
 
-  static const String _prefsKey = 'peer_transport_http_only';
-  static const String _prefsTimestampsKey = 'peer_transport_http_only_at';
-
-  /// After this duration, httpOnly peers are re-probed for WebSocket support.
-  static const Duration httpOnlyTtl = Duration(hours: 6);
+  static const String _legacyPrefsKey = 'peer_transport_http_only';
+  static const String _legacyTimestampsKey = 'peer_transport_http_only_at';
 
   final Map<String, PeerTransportMode> _modes = {};
-  final Map<String, DateTime> _httpOnlyAt = {};
   bool _loaded = false;
 
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_prefsKey);
-    if (raw != null) {
-      for (final peer in raw) {
-        _modes[peer] = PeerTransportMode.httpOnly;
-      }
-    }
-
-    final timestampsRaw = prefs.getString(_prefsTimestampsKey);
-    if (timestampsRaw != null) {
-      try {
-        final decoded = jsonDecode(timestampsRaw) as Map<String, dynamic>;
-        for (final entry in decoded.entries) {
-          final millis = entry.value;
-          if (millis is int) {
-            _httpOnlyAt[entry.key] =
-                DateTime.fromMillisecondsSinceEpoch(millis);
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Legacy entries without timestamps: treat as eligible for immediate re-probe.
-    for (final peer in _modes.entries) {
-      if (peer.value == PeerTransportMode.httpOnly &&
-          !_httpOnlyAt.containsKey(peer.key)) {
-        _httpOnlyAt[peer.key] = DateTime.fromMillisecondsSinceEpoch(0);
-      }
-    }
+    await prefs.remove(_legacyPrefsKey);
+    await prefs.remove(_legacyTimestampsKey);
   }
 
-  PeerTransportMode modeFor(String peerOnion) {
-    if (_modes[peerOnion] == PeerTransportMode.httpOnly && !isHttpOnly(peerOnion)) {
-      return PeerTransportMode.unknown;
-    }
-    return _modes[peerOnion] ?? PeerTransportMode.unknown;
-  }
+  PeerTransportMode modeFor(String peerOnion) =>
+      _modes[peerOnion] ?? PeerTransportMode.unknown;
 
-  bool isHttpOnly(String peerOnion) {
-    if (_modes[peerOnion] != PeerTransportMode.httpOnly) return false;
-
-    final markedAt = _httpOnlyAt[peerOnion];
-    if (markedAt == null) return false;
-
-    if (DateTime.now().difference(markedAt) > httpOnlyTtl) {
-      clearPeer(peerOnion);
-      return false;
-    }
-    return true;
-  }
+  /// WebSocket is always attempted; this is kept for API compatibility.
+  bool isHttpOnly(String peerOnion) => false;
 
   bool supportsWebSocket(String peerOnion) =>
       _modes[peerOnion] == PeerTransportMode.websocket;
 
   void markWebSocket(String peerOnion) {
     _modes[peerOnion] = PeerTransportMode.websocket;
-    _httpOnlyAt.remove(peerOnion);
-    if (_loaded) unawaited(_persistHttpOnlyPeers());
   }
 
-  void markHttpOnly(String peerOnion) {
-    _modes[peerOnion] = PeerTransportMode.httpOnly;
-    _httpOnlyAt[peerOnion] = DateTime.now();
-    if (_loaded) unawaited(_persistHttpOnlyPeers());
-  }
+  /// No-op — WS is always retried; HTTP is only a per-request fallback.
+  void markHttpOnly(String peerOnion) {}
 
   void clearPeer(String peerOnion) {
     _modes.remove(peerOnion);
-    _httpOnlyAt.remove(peerOnion);
-    if (_loaded) unawaited(_persistHttpOnlyPeers());
   }
 
-  void clearHttpOnlyAll() {
-    final httpOnlyPeers = _modes.entries
-        .where((e) => e.value == PeerTransportMode.httpOnly)
-        .map((e) => e.key)
-        .toList();
-    for (final peer in httpOnlyPeers) {
-      _modes.remove(peer);
-      _httpOnlyAt.remove(peer);
-    }
-    if (_loaded) unawaited(_persistHttpOnlyPeers());
-  }
+  void clearHttpOnlyAll() {}
 
   void resetForTest() {
     _modes.clear();
-    _httpOnlyAt.clear();
     _loaded = false;
-  }
-
-  /// Backdates an httpOnly mark for unit tests of [httpOnlyTtl].
-  @visibleForTesting
-  void setHttpOnlyAtForTest(String peerOnion, DateTime markedAt) {
-    _modes[peerOnion] = PeerTransportMode.httpOnly;
-    _httpOnlyAt[peerOnion] = markedAt;
-  }
-
-  Future<void> _persistHttpOnlyPeers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final httpOnly = _modes.entries
-        .where((e) => e.value == PeerTransportMode.httpOnly)
-        .map((e) => e.key)
-        .toList();
-    await prefs.setStringList(_prefsKey, httpOnly);
-
-    final timestamps = {
-      for (final peer in httpOnly)
-        peer: _httpOnlyAt[peer]?.millisecondsSinceEpoch ?? 0,
-    };
-    await prefs.setString(_prefsTimestampsKey, jsonEncode(timestamps));
   }
 
   Map<String, String> snapshotForDebug() => {

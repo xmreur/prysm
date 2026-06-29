@@ -219,7 +219,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceTracker = PeerPresenceTracker();
     _listScrollController.addListener(_onListScroll);
     _initializeChat(); // ✅ NEW METHOD
-    _checkPeerStatus(preference: TransportPreference.wsIfConnected);
+    _checkPeerStatus();
     _startPeerPingTimer();
     _startPresenceStaleTimer();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
@@ -255,7 +255,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(
       BatterySaverPolicy.peerStatusInterval(),
-      (_) => _checkPeerStatus(preference: TransportPreference.wsIfConnected),
+      (_) => _checkPeerStatus(),
     );
   }
 

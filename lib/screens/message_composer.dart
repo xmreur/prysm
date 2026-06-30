@@ -6,6 +6,7 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 
 class MessageComposer extends StatefulWidget {
@@ -15,6 +16,7 @@ class MessageComposer extends StatefulWidget {
   final Function(Uint8List bytes, int durationMs)? onSendVoice;
   final ValueChanged<bool>? onTypingChanged;
   final VoidCallback? onLayoutChanged;
+  final String? draftKey;
 
   const MessageComposer({
     super.key,
@@ -24,6 +26,7 @@ class MessageComposer extends StatefulWidget {
     this.onSendVoice,
     this.onTypingChanged,
     this.onLayoutChanged,
+    this.draftKey,
   });
 
   @override
@@ -43,8 +46,39 @@ class MessageComposerState extends State<MessageComposer> {
   String? _recordPath;
 
   @override
+  void initState() {
+    super.initState();
+    _loadDraft();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.draftKey != widget.draftKey) {
+      _persistDraft(oldWidget.draftKey);
+      _loadDraft();
+    }
+  }
+
+  void _loadDraft() {
+    final key = widget.draftKey;
+    if (key == null || key.isEmpty) return;
+    final text = MessageDraftStore.instance.get(key).text;
+    if (text.isEmpty) return;
+    _textController.text = text;
+    currentText = text;
+  }
+
+  void _persistDraft([String? keyOverride]) {
+    final key = keyOverride ?? widget.draftKey;
+    if (key == null || key.isEmpty) return;
+    MessageDraftStore.instance.setText(key, _textController.text);
+  }
+
+  @override
   void dispose() {
     widget.onTypingChanged?.call(false);
+    _persistDraft();
     _textController.dispose();
     _recordTimer?.cancel();
     _recorder.dispose();
@@ -69,6 +103,7 @@ class MessageComposerState extends State<MessageComposer> {
       currentText = '';
       showEmojiPicker = false;
     });
+    _persistDraft();
     WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
   }
 
@@ -87,6 +122,7 @@ class MessageComposerState extends State<MessageComposer> {
     setState(() {
       currentText = newText;
     });
+    _persistDraft();
     _notifyTypingFromText(newText);
   }
 
@@ -274,6 +310,7 @@ class MessageComposerState extends State<MessageComposer> {
             controller: _textController,
             onChanged: (text) {
               setState(() => currentText = text);
+              _persistDraft();
               _notifyTypingFromText(text);
             },
             onSubmitted: (_) => _handleSend(),

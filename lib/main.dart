@@ -2958,6 +2958,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (widget.decoyMode) {
         return DecoyChatScreen(
           key: ValueKey('decoy_group_${group.id}'),
+          conversationId: group.id,
           title: group.name,
           avatarName: group.name,
           avatarBase64: group.avatarBase64,
@@ -2983,6 +2984,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final contact = selectedContact!;
         return DecoyChatScreen(
           key: ValueKey('decoy_dm_${contact.id}'),
+          conversationId: contact.id,
           title: contact.displayName,
           avatarName: contact.displayName,
           avatarBase64: contact.avatarBase64,

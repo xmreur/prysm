@@ -682,6 +682,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
             textMessageBuilder: _textMessageBuilder,
             composerBuilder: (context) {
               return PrysmChatComposerOverlay(
+                draftKey: 'self:${widget.userId}',
                 onSendText: _handleSendText,
                 onSendImage: _handleSendImage,
                 onSendFile: _handleSendFile,

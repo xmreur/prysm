@@ -11,7 +11,9 @@ import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
+import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
@@ -86,7 +88,12 @@ class PrysmServer {
       }
 
       if (request.method == 'GET' && request.url.path == 'profile') {
-        return _toResponse(await _router.buildProfile());
+        return _toResponse(
+          await _router.buildProfile(
+            requesterOnion: request.url.queryParameters['requester'],
+            requireRequester: true,
+          ),
+        );
       }
 
       if (request.method == 'POST' && request.url.path == 'sync-hint') {
@@ -189,6 +196,7 @@ class PrysmServer {
   }
 
   void _fetchSenderProfile(String senderId) {
+    if (BlockService.instance.isBlocked(senderId)) return;
     if (!PeerProfileCache.instance.shouldFetch(senderId)) return;
 
     Zone.current.fork(
@@ -211,7 +219,11 @@ class PrysmServer {
                     proxyPort: 9050,
                   );
                   try {
-                    final uri = Uri.parse('http://$senderId:80/profile');
+                    final requester = localOnionAddress;
+                    final uri = ProfileHttpUri.build(
+                      senderId,
+                      requesterOnion: requester,
+                    );
                     final response = await torClient
                         .get(uri, {})
                         .timeout(const Duration(seconds: 20));

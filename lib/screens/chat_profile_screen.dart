@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import '../models/contact.dart';
 import '../util/db_helper.dart';
 import '../util/key_manager.dart';
 import 'chat_media_gallery_screen.dart';
+import 'widgets/block_user_tile.dart';
 import 'widgets/contact_avatar.dart';
 import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
@@ -21,6 +23,8 @@ class ChatProfileScreen extends StatefulWidget {
   final Function() onDeleteContact;
   final VoidCallback onPreferencesChanged;
   final VoidCallback? onArchived;
+  final VoidCallback? onBlocked;
+  final VoidCallback? onUnblocked;
   final String userId;
   final KeyManager keyManager;
 
@@ -34,6 +38,8 @@ class ChatProfileScreen extends StatefulWidget {
     required this.onDeleteContact,
     required this.onPreferencesChanged,
     this.onArchived,
+    this.onBlocked,
+    this.onUnblocked,
     required this.userId,
     required this.keyManager,
     super.key,
@@ -45,6 +51,8 @@ class ChatProfileScreen extends StatefulWidget {
 
 class _ChatProfileScreenState extends State<ChatProfileScreen> {
   late TextEditingController _nameController;
+
+  bool get _isBlocked => BlockService.instance.isBlocked(widget.peer.id);
 
   @override
   void initState() {
@@ -164,11 +172,12 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
           onPressed: widget.onClose,
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.save_outlined),
-            onPressed: _saveName,
-            tooltip: 'Save',
-          ),
+          if (!_isBlocked)
+            IconButton(
+              icon: const Icon(Icons.save_outlined),
+              onPressed: _saveName,
+              tooltip: 'Save',
+            ),
         ],
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
@@ -194,72 +203,100 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    Stack(
-                      children: [
-                        ContactAvatar(
-                          name: widget.peer.displayName,
-                          radius: 50,
-                          avatarBase64: widget.peer.avatarBase64,
-                        ),
-                      ],
+                    ContactAvatar(
+                      name: widget.peer.displayName,
+                      radius: 50,
+                      avatarBase64: widget.peer.avatarBase64,
                     ),
                     const SizedBox(height: 20),
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Display Name',
-                        border: OutlineInputBorder(),
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (widget.isOnline == null)
+                    if (_isBlocked) ...[
                       Text(
-                        'Checking...',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).hintColor,
+                        widget.peer.displayName,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
                         ),
-                      )
-                    else
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: widget.isOnline!
-                                  ? Colors.green
-                                  : Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withAlpha(100),
-                            ),
+                          Icon(
+                            Icons.block,
+                            size: 16,
+                            color: Theme.of(context).hintColor,
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Text(
-                            widget.isOnline! ? 'Online' : 'Offline',
+                            'Blocked',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
-                              color: widget.isOnline!
-                                  ? Colors.green
-                                  : Theme.of(context).hintColor,
+                              color: Theme.of(context).hintColor,
                             ),
                           ),
                         ],
                       ),
+                    ] else ...[
+                      TextField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Display Name',
+                          border: OutlineInputBorder(),
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (widget.isOnline == null)
+                        Text(
+                          'Checking...',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).hintColor,
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: widget.isOnline!
+                                    ? Colors.green
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withAlpha(100),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              widget.isOnline! ? 'Online' : 'Offline',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: widget.isOnline!
+                                    ? Colors.green
+                                    : Theme.of(context).hintColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 20),
+              if (!_isBlocked) ...[
               // Profile details
               Container(
                 decoration: BoxDecoration(
@@ -368,6 +405,32 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                   target: MuteTarget.user,
                   id: widget.peer.id,
                   label: widget.peer.displayName,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ],
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: BlockUserTile(
+                  peerId: widget.peer.id,
+                  onBlocked: () {
+                    widget.onBlocked?.call();
+                    setState(() {});
+                  },
+                  onUnblocked: () {
+                    widget.onUnblocked?.call();
+                    setState(() {});
+                  },
                 ),
               ),
               const SizedBox(height: 20),

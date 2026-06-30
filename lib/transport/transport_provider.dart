@@ -9,6 +9,8 @@ import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/tor_http_transport.dart';
 import 'package:prysm/transport/tor_websocket_transport.dart';
 import 'package:prysm/transport/transport_preference.dart';
+import 'package:prysm/util/local_onion_address.dart';
+import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -267,7 +269,11 @@ class TransportProvider implements OutboundTransport {
           proxyPort: socksPort,
         );
         try {
-          final uri = Uri.parse('http://$peerOnion:80/profile');
+          final requester = LocalOnionAddress.value;
+          final uri = ProfileHttpUri.build(
+            peerOnion,
+            requesterOnion: requester,
+          );
           final response = await torClient.get(uri, {}).timeout(timeout);
           return torClient.readUtf8Body(response);
         } finally {

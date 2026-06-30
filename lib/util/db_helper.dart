@@ -1,5 +1,6 @@
 
 import 'package:prysm/crypto/ratchet/session_store.dart';
+import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/sqflite_platform.dart';
@@ -36,7 +37,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 7, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 8, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -54,6 +55,7 @@ class DBHelper {
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
     await _createGroupTables(db);
     await ConversationPreferencesDb.createTable(db);
+    await BlockedUsersDb.createTable(db);
     await _createCryptoTables(db);
   }
 
@@ -122,6 +124,9 @@ class DBHelper {
     }
     if (oldVersion < 7) {
       await _createCryptoTables(db);
+    }
+    if (oldVersion < 8) {
+      await BlockedUsersDb.createTable(db);
     }
   }
 

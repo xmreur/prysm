@@ -20,6 +20,7 @@ import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
+import 'blocked_contacts_screen.dart';
 import 'package:flutter/foundation.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -711,6 +712,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Divider(height: 1),
                   ],
                 ],
+                _buildNavigationTile(
+                  'Blocked contacts',
+                  Icons.block_outlined,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BlockedContactsScreen(
+                          onClose: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 1),
                 _buildNavigationTile(
                   'Advanced Privacy',
                   Icons.privacy_tip_outlined,

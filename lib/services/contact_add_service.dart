@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/db_helper.dart';
 
 class ContactAddService {
@@ -15,6 +16,10 @@ class ContactAddService {
     required String displayName,
     String? expectedFingerprint,
   }) async {
+    if (BlockService.instance.isBlocked(onionId)) {
+      print('Cannot add blocked contact $onionId');
+      return false;
+    }
     String? identityJson;
     String? avatarBase64;
     String fetchedName = displayName;

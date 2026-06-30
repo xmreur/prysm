@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/opus_codec.dart';
@@ -98,6 +99,24 @@ class CallManager extends ChangeNotifier {
     CallForegroundSession.resetState();
   }
 
+  /// Ends an active call with [peerOnion] if one is in progress.
+  static Future<void> endCallWithPeer(
+    String peerOnion, {
+    String reason = 'declined',
+  }) async {
+    final mgr = _instance;
+    if (mgr == null || mgr._shuttingDown) return;
+    if (!mgr._snapshot.isInCall || mgr._snapshot.peerOnion != peerOnion) {
+      return;
+    }
+    final callId = mgr._snapshot.callId;
+    if (callId != null) {
+      await mgr._sendEnd(peerOnion, callId, reason: reason);
+    }
+    await mgr._teardown();
+    mgr._setSnapshot(const CallSnapshot(state: CallState.idle));
+  }
+
   final KeyManager _keyManager;
   CallTransport? _transport;
   CallKeyResolver? _keyResolver;
@@ -141,6 +160,7 @@ class CallManager extends ChangeNotifier {
 
   Future<void> startCall(String peerOnion) async {
     if (_shuttingDown || _snapshot.isInCall) return;
+    if (BlockService.instance.isBlocked(peerOnion)) return;
 
     _setSnapshot(
       CallSnapshot(
@@ -338,6 +358,14 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> _handleOffer(CallSignalEvent event) async {
+    if (BlockService.instance.isBlocked(event.peerOnion)) {
+      final callId = event.callId;
+      if (callId != null) {
+        await _sendEnd(event.peerOnion, callId, reason: 'declined');
+      }
+      return;
+    }
+
     if (_snapshot.isInCall) {
       final callId = event.callId;
       if (callId != null) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
@@ -27,6 +28,11 @@ class WsFrameRouter {
     }
 
     if (WsFrame.isCallOp(frame.op)) {
+      if (peerOnion != null &&
+          peerOnion.isNotEmpty &&
+          BlockService.instance.isBlocked(peerOnion)) {
+        return [];
+      }
       final payload = frame.payload;
       if (payload != null &&
           peerOnion != null &&
@@ -43,7 +49,7 @@ class WsFrameRouter {
     if (frame.op == 'get_profile') {
       final router = _router;
       if (router == null) return [];
-      final result = await router.buildProfile();
+      final result = await router.buildProfile(requesterOnion: peerOnion);
       return [
         WsFrame.response(
           op: 'profile',
@@ -71,6 +77,11 @@ class WsFrameRouter {
     }
 
     if (frame.op == 'typing_update') {
+      if (peerOnion != null &&
+          peerOnion.isNotEmpty &&
+          BlockService.instance.isBlocked(peerOnion)) {
+        return [];
+      }
       final payload = frame.payload;
       if (payload != null) {
         TypingIndicatorNotifier.instance.applyInbound(payload);

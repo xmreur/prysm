@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
@@ -59,6 +60,7 @@ class WsInboundDispatcher {
     if (op is! String) return;
 
     if (WsFrame.isCallOp(op)) {
+      if (BlockService.instance.isBlocked(peerOnion)) return;
       final payload = frame['payload'];
       if (payload is Map<String, dynamic>) {
         CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
@@ -67,6 +69,7 @@ class WsInboundDispatcher {
     }
 
     if (WsFrame.isTypingOp(op)) {
+      if (BlockService.instance.isBlocked(peerOnion)) return;
       final payload = frame['payload'];
       if (payload is Map<String, dynamic>) {
         TypingIndicatorNotifier.instance.applyInbound(payload);

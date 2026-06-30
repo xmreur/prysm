@@ -7,6 +7,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
@@ -169,6 +170,7 @@ class ChatService {
     String? replyToId,
     String? messageId,
   }) async {
+    if (BlockService.instance.isBlocked(peerId)) return null;
     if (peerIdentity == null) return null;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -227,6 +229,7 @@ class ChatService {
     String? messageId,
     bool viewOnce = false,
   }) async {
+    if (BlockService.instance.isBlocked(peerId)) return null;
     if (peerIdentity == null) return null;
 
     final payload = await _encryptFilePayload(bytes);
@@ -363,6 +366,7 @@ class ChatService {
 
   Future<void> _processSendQueue() async {
     if (_isSending || _disposed || TorRuntimeGate.blocked) return;
+    if (BlockService.instance.isBlocked(peerId)) return;
     _isSending = true;
 
     int consecutiveFailures = 0;
@@ -455,6 +459,7 @@ class ChatService {
     int? fileSize,
     bool viewOnce = false,
   }) async {
+    if (BlockService.instance.isBlocked(peerId)) return false;
     if (TorRuntimeGate.blocked) return false;
 
     final isLargeMedia = type == 'file' || type == 'image' || type == 'audio';

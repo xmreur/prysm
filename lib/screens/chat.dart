@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/services/message_draft_store.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -296,6 +297,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _initPeerPresence() {
+    if (_isPeerBlocked) return;
     if (!_isNetworkAvailable) {
       _applyOfflinePresence();
     } else {
@@ -576,6 +578,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _refreshPeerProfile({
     TransportPreference preference = TransportPreference.wsPreferred,
   }) async {
+    if (_isPeerBlocked) return;
     if (!_isNetworkAvailable) return;
     try {
       final body = await TransportProvider.getProfileOrFallback(
@@ -1389,7 +1392,10 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  bool get _isPeerBlocked => BlockService.instance.isBlocked(widget.peerId);
+
   bool get _canStartCall {
+    if (_isPeerBlocked) return false;
     if (TorRuntimeGate.blocked) return false;
     if (!TransportProvider.isConfigured) return false;
     if (!TransportProvider.instance.isRealtimeConnected(widget.peerId)) {
@@ -1467,6 +1473,16 @@ class _ChatScreenState extends State<ChatScreen> {
           onArchived: () {
             Navigator.of(context).pop();
             widget.clearChat();
+          },
+          onBlocked: () {
+            widget.reloadUsers();
+            Navigator.of(context).pop();
+            widget.clearChat();
+          },
+          onUnblocked: () {
+            widget.reloadUsers();
+            unawaited(_refreshPeerProfile());
+            _initPeerPresence();
           },
         ),
       ),
@@ -1748,7 +1764,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        subtitle: const Text('View profile'),
+                        subtitle: Text(
+                          _isPeerBlocked ? 'Blocked · View profile' : 'View profile',
+                        ),
                         onTap: () {
                           Navigator.pop(context);
                           _openChatProfile();
@@ -1781,7 +1799,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  if (_peerOnline == null)
+                  if (_isPeerBlocked)
+                    Text(
+                      'Blocked',
+                      style: TextStyle(
+                        color: Theme.of(context).hintColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    )
+                  else if (_peerOnline == null)
                     Text(
                       'Checking...',
                       style: TextStyle(
@@ -2055,6 +2082,32 @@ class _ChatScreenState extends State<ChatScreen> {
                   textMessageBuilder: textMessageBuilder,
 
                   composerBuilder: (context) {
+                    if (_isPeerBlocked) {
+                      return Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            border: Border(
+                              top: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            'Unblock to send messages',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Theme.of(context).hintColor),
+                          ),
+                        ),
+                      );
+                    }
                     return PrysmChatComposerOverlay(
                       draftKey: _draftKey,
                       replyPreview: _replyToMessage != null || _replyDraft != null

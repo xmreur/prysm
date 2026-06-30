@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
@@ -72,7 +73,22 @@ class InboundMessageRouter {
     );
   }
 
-  Future<InboundHandleResult> buildProfile() async {
+  Future<InboundHandleResult> buildProfile({
+    String? requesterOnion,
+    bool requireRequester = false,
+  }) async {
+    if (_shouldRedactProfileForRequester(
+      requesterOnion,
+      requireRequester: requireRequester,
+    )) {
+      return InboundHandleResult.ok({
+        'identityJson': '',
+        'publicKeyPem': '',
+        'username': '',
+        'avatar': '',
+      });
+    }
+
     final broadcastName = settings.username;
     final username =
         (broadcastName != null &&
@@ -113,6 +129,10 @@ class InboundMessageRouter {
     }
 
     final senderId = data['senderId'] as String;
+    if (BlockService.instance.isBlocked(senderId)) {
+      return InboundHandleResult.forbidden('Unknown sender');
+    }
+
     final contact = await DBHelper.getUserById(senderId);
     if (contact == null) {
       return InboundHandleResult.forbidden('Unknown sender');
@@ -200,6 +220,10 @@ class InboundMessageRouter {
   /// Async processing after [validateMessage] returns null.
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
     print('InboundMessageRouter: Received ${data['type']} from ${data['senderId']}');
+
+    if (_isBlockedDm(data)) {
+      return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+    }
 
     final type = data['type'] as String;
 
@@ -494,5 +518,26 @@ class InboundMessageRouter {
 
   bool _hasValidFileMetadata(dynamic data) {
     return data['fileName'] is String && data['fileSize'] is int;
+  }
+
+  bool _isBlockedDm(Map<String, dynamic> data) {
+    if (data['groupId'] != null) return false;
+    return BlockService.instance.isBlocked(data['senderId'] as String);
+  }
+
+  bool _shouldRedactProfileForRequester(
+    String? requesterOnion, {
+    bool requireRequester = false,
+  }) {
+    if (requireRequester &&
+        (requesterOnion == null || requesterOnion.isEmpty)) {
+      return true;
+    }
+    if (requesterOnion != null &&
+        requesterOnion.isNotEmpty &&
+        BlockService.instance.isBlocked(requesterOnion)) {
+      return true;
+    }
+    return false;
   }
 }

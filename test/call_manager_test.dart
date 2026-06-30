@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/database/blocked_users_db.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
@@ -11,6 +13,8 @@ import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/db_helper.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 // Manual verification (not automated):
 // 1. Android active call: start call, press Home, verify bidirectional audio ~60s.
@@ -30,7 +34,24 @@ void main() {
   late IdentityPublicKeys peerKeys;
   late IdentityPublicKeys localKeys;
 
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
   setUp(() async {
+    final db = await databaseFactory.openDatabase(
+      '${inMemoryDatabasePath}_call_manager_${DateTime.now().microsecondsSinceEpoch}',
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, _) async {
+          await BlockedUsersDb.createTable(db);
+        },
+      ),
+    );
+    DBHelper.setDatabaseForTest(db);
+    await BlockService.instance.init();
+
     final local = await IdentityKeyPair.generate();
     final peer = await IdentityKeyPair.generate();
     keyManager = KeyManager.fromIdentity(local);
@@ -65,6 +86,7 @@ void main() {
   tearDown(() {
     CallSignalingNotifier.testInstance = null;
     CallManager.resetForTest();
+    DBHelper.setDatabaseForTest(null);
   });
 
   test('answer received while offer send is pending activates call', () async {
@@ -240,6 +262,29 @@ void main() {
       transport.sentFrames.where((f) => f.op == 'call_end'),
       isNotEmpty,
     );
+  });
+
+  test('incoming offer from blocked peer is declined without ringing', () async {
+    await BlockService.instance.block('blocked.onion');
+
+    final caller = CallSession.createOutbound(
+      callId: 'blocked-offer',
+      sessionId: 3,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('blocked.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(
+        localKeys,
+        keyManager,
+      ),
+    });
+
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.snapshot.state, CallState.idle);
+    final endFrame = transport.sentFrames.firstWhere((f) => f.op == 'call_end');
+    expect(endFrame.payload['reason'], 'declined');
   });
 }
 

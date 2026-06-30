@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/transport/outbound_transport.dart';
+import 'package:prysm/util/local_onion_address.dart';
+import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -63,9 +65,12 @@ class TorHttpTransport implements OutboundTransport {
     return runForPeer(peerOnion, () async {
       final client = _client();
       try {
-        final response = await client
-            .get(Uri.parse('http://$peerOnion:80/profile'), {})
-            .timeout(timeout);
+        final requester = LocalOnionAddress.value;
+        final uri = ProfileHttpUri.build(
+          peerOnion,
+          requesterOnion: requester,
+        );
+        final response = await client.get(uri, {}).timeout(timeout);
         return client.readUtf8Body(response);
       } finally {
         await client.close();

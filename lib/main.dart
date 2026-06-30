@@ -21,6 +21,7 @@ import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
+import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
 import 'package:prysm/services/notification_open_chat_resolver.dart';
@@ -70,6 +71,7 @@ import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
+import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/util/network_reachability.dart';
 import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
@@ -148,12 +150,15 @@ void main() async {
   await PeerTransportRegistry.instance.load();
   await BatterySaverService.instance.init();
   await NotificationMuteService.instance.init();
+  await BlockService.instance.init();
 
   final keyManager = KeyManager();
 
   // Start early so Tor peers can connect during bootstrap / unlock screen.
   final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
   messageServer.start();
+  LocalOnionAddress.provider =
+      () => PrysmServer.instance?.localOnionAddress;
 
   runApp(MyApp(keyManager: keyManager));
 
@@ -850,6 +855,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Map<String, ConversationPreferences> _conversationPrefs = {};
   Map<String, List<DecoyMessage>> _decoyMessages = {};
   bool _viewingArchived = false;
+  bool _viewingBlocked = false;
 
   Timer? _refreshTimer;
   Timer? _loadUsersDebounce;
@@ -873,9 +879,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       )
       .length;
 
+  int get _blockedCount => conversations
+      .where(
+        (c) =>
+            c is DirectConversation &&
+            BlockService.instance.isBlocked(c.id),
+      )
+      .length;
+
+  int get _sidebarFooterCount {
+    if (_viewingArchived || _viewingBlocked || _searchQuery.isNotEmpty) {
+      return 0;
+    }
+    var count = 0;
+    if (_archivedCount > 0) count++;
+    if (_blockedCount > 0) count++;
+    return count;
+  }
+
   List<Conversation> get _filteredConversations {
     return conversations.where((c) {
+      final blocked =
+          c is DirectConversation && BlockService.instance.isBlocked(c.id);
       final archived = _conversationPrefs[c.id]?.isArchived ?? false;
+
+      if (_viewingBlocked) {
+        if (!blocked) return false;
+        if (_searchQuery.isNotEmpty) {
+          final name = c.contact.displayName.toLowerCase();
+          return name.contains(_searchQuery) ||
+              c.id.toLowerCase().contains(_searchQuery);
+        }
+        return true;
+      }
+
+      if (blocked) return false;
+
       if (_searchQuery.isNotEmpty) {
         if (!c.displayName.toLowerCase().contains(_searchQuery)) return false;
         return _viewingArchived ? archived : true;
@@ -1780,7 +1819,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   bool get _showSelfChatInSidebar {
-    if (widget.decoyMode || _viewingArchived) return false;
+    if (widget.decoyMode || _viewingArchived || _viewingBlocked) return false;
     if (_searchQuery.isEmpty) return true;
     return 'chat with myself'.contains(_searchQuery);
   }
@@ -1938,6 +1977,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
+          if (_viewingBlocked)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: 'Back to chats',
+                    onPressed: () => setState(() {
+                      _viewingBlocked = false;
+                      _searchQuery = '';
+                    }),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Blocked',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 8),
           // Search bar
           Padding(
@@ -1960,7 +2024,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 decoration: InputDecoration(
                   hintText: _viewingArchived
                       ? 'Search archived...'
-                      : 'Search chats...',
+                      : _viewingBlocked
+                          ? 'Search blocked...'
+                          : 'Search chats...',
                   hintStyle: const TextStyle(fontSize: 14),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   border: InputBorder.none,
@@ -1978,44 +2044,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _filteredConversations.length +
-                  (!_viewingArchived && _searchQuery.isEmpty && _archivedCount > 0
-                      ? 1
-                      : 0),
+              itemCount: _filteredConversations.length + _sidebarFooterCount,
               itemBuilder: (_, index) {
-                final showArchivedEntry = !_viewingArchived &&
-                    _searchQuery.isEmpty &&
-                    _archivedCount > 0;
-                if (showArchivedEntry && index == _filteredConversations.length) {
+                if (index >= _filteredConversations.length) {
+                  final footerIndex = index - _filteredConversations.length;
+                  final showArchivedFooter = _archivedCount > 0;
+                  if (showArchivedFooter && footerIndex == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.archive_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        title: const Text('Archived'),
+                        subtitle: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('$_archivedCount'),
+                            if (_archivedUnreadCount > 0) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        onTap: () => setState(() {
+                          _viewingArchived = true;
+                          _viewingBlocked = false;
+                        }),
+                      ),
+                    );
+                  }
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     child: ListTile(
                       leading: Icon(
-                        Icons.archive_outlined,
+                        Icons.block_outlined,
                         color: Theme.of(context).colorScheme.primary,
                       ),
-                      title: const Text('Archived'),
-                      subtitle: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('$_archivedCount'),
-                          if (_archivedUnreadCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ],
+                      title: const Text('Blocked'),
+                      subtitle: Text(
+                        '$_blockedCount contact${_blockedCount == 1 ? '' : 's'}',
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      onTap: () => setState(() => _viewingArchived = true),
+                      onTap: () => setState(() {
+                        _viewingBlocked = true;
+                        _viewingArchived = false;
+                      }),
                     ),
                   );
                 }
@@ -2034,8 +2121,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                 if (conv is DirectConversation) {
                   final contact = conv.contact;
-                  leading = ContactAvatar(name: contact.displayName, avatarBase64: contact.avatarBase64);
-                  subtitle = preview != null ? '$preview · $timeLabel' : timeLabel;
+                  final isBlockedContact =
+                      BlockService.instance.isBlocked(conv.id);
+                  leading = ContactAvatar(
+                    name: contact.displayName,
+                    avatarBase64: contact.avatarBase64,
+                  );
+                  if (isBlockedContact) {
+                    subtitle = timeLabel;
+                  } else {
+                    subtitle =
+                        preview != null ? '$preview · $timeLabel' : timeLabel;
+                  }
                 } else {
                   final group = (conv as GroupConversation).group;
                   leading = ContactAvatar(
@@ -2048,7 +2145,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 }
 
                 Widget? trailing;
-                if (unreadCount > 0) {
+                final isBlockedContact = conv is DirectConversation &&
+                    BlockService.instance.isBlocked(conv.id);
+                if (unreadCount > 0 && !isBlockedContact) {
                   trailing = CircleAvatar(
                     radius: 11,
                     backgroundColor: Theme.of(context).colorScheme.primary,
@@ -2060,7 +2159,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                   );
-                } else if (isPinned && !_viewingArchived) {
+                } else if (isBlockedContact && _viewingBlocked) {
+                  trailing = Icon(
+                    Icons.block,
+                    size: 18,
+                    color: Theme.of(context).hintColor,
+                  );
+                } else if (isPinned && !_viewingArchived && !_viewingBlocked) {
                   trailing = Icon(
                     Icons.push_pin,
                     size: 18,
@@ -2086,7 +2191,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (isArchived && !_viewingArchived && _searchQuery.isNotEmpty)
+                        if (isArchived &&
+                            !_viewingArchived &&
+                            !_viewingBlocked &&
+                            _searchQuery.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(left: 4),
                             child: Icon(

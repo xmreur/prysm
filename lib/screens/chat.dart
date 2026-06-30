@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:encrypt/encrypt.dart' as e;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -61,7 +60,7 @@ import 'package:prysm/services/typing_state_tracker.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/file_encrypt.dart';
+import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -613,7 +612,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ==================== DECRYPTION (KEEP AS-IS) ====================
 
-  String _decryptDirectTextMessage(Map<String, dynamic> msg, KeyManager keyManager) {
+  Future<String> _decryptDirectTextMessage(
+    Map<String, dynamic> msg,
+    KeyManager keyManager,
+  ) async {
+    final senderId = msg['senderId'] as String;
     final wire = msg['message'] as String?;
     if (wire == null || wire.isEmpty) {
       throw const FormatException('Empty message payload');
@@ -632,7 +635,22 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    return keyManager.decryptMessage(wire);
+    if (senderId == widget.userId) {
+      return await keyManager.decryptMessage(wire);
+    }
+
+    final user = await DBHelper.getUserById(senderId);
+    final identityJson = (user?['identityJson'] as String?) ??
+        (user?['publicKeyPem'] as String?);
+    if (identityJson == null || identityJson.isEmpty) {
+      throw const FormatException('Missing peer identity');
+    }
+    final peerKey = keyManager.importPeerIdentity(identityJson);
+    return keyManager.decryptPeerMessage(
+      peerId: senderId,
+      wire: wire,
+      peer: peerKey,
+    );
   }
 
   Future<List<Message>> decryptMessagesDeferred(
@@ -663,7 +681,7 @@ class _ChatScreenState extends State<ChatScreen> {
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               id: msg['id'],
               replyToMessageId: msg['replyTo'],
-              text: _decryptDirectTextMessage(msg, keyManager),
+              text: await _decryptDirectTextMessage(msg, keyManager),
               metadata: meta.isEmpty ? null : meta,
             ),
           );
@@ -1311,7 +1329,7 @@ class _ChatScreenState extends State<ChatScreen> {
       name: _peerName,
       avatarUrl: '',
       avatarBase64: _peerAvatarBase64,
-      publicKeyPem: widget.peerPublicKeyPem ?? '',
+      identityJson: widget.peerPublicKeyPem ?? '',
     );
 
     final result = await Navigator.push(
@@ -2285,14 +2303,10 @@ class _ChatScreenState extends State<ChatScreen> {
       decryptAudio: message.source.startsWith('audio:')
           ? null
           : (encryptedSource) async {
-              final hybrid = jsonDecode(encryptedSource);
-              final rsaEncryptedAesKey = hybrid['aes_key'];
-              final iv = e.IV.fromBase64(hybrid['iv']);
-              final encryptedData = base64Decode(hybrid['data']);
-              final aesKeyBytes =
-                  widget.keyManager.decryptMyMessageBytes(rsaEncryptedAesKey);
-              final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
-              return AESHelper.decryptBytes(encryptedData, aesKey, iv);
+              return CryptoWire.decryptFile(
+                encryptedSource,
+                widget.keyManager.identity,
+              );
             },
       ),
     );

@@ -26,27 +26,37 @@ If the destination is offline or unreachable, Prysm stores the message locally i
 
 ## Encryption
 
+Prysm 0.4.0 uses **Crypto v2**: Curve25519 identity keys, AEAD-only wire formats, Argon2id passphrase protection, and Double Ratchet sessions for 1:1 forward secrecy. Upgrading from 0.2.x requires a clean-break migration (export if needed, wipe, re-onboard). See `docs/THREAT_MODEL.md`.
+
 ### Identity
 
-- RSA-4096 keypair, generated locally.
-- Private key encrypted at rest with AES-256-GCM.
-- Key encryption key derived from the user's PIN with PBKDF2-HMAC-SHA256 using 100k iterations.
+- **Ed25519** signing key + **X25519** agreement key, generated locally.
+- Private identity encrypted at rest with **AES-256-GCM**.
+- Key encryption key derived from a **passphrase** (minimum 12 characters) with **Argon2id** (64 MiB, 3 iterations).
+- Public keys published on `/profile` as versioned JSON (`crypto: v2`). QR codes include an identity **fingerprint** for out-of-band verification.
 
-Tor onion addresses are separate from Prysm identity keys. Tor generates the `.onion` service identity from its own key material. Prysm's RSA keys are only used for application-level encryption.
+Tor onion addresses are separate from Prysm identity keys.
 
-### Direct messages
+### Direct messages (1:1)
 
-- Text messages use RSA PKCS#1 v1.5.
-- Files, images, and audio use a hybrid envelope:
-  - random AES-256-CBC key per attachment
-  - attachment encrypted with AES
-  - AES key encrypted with RSA for both sender and recipient
+- **Double Ratchet** (`ratchet-1`) with X3DH-style prekey bundles for session bootstrap.
+- Per-message **AES-256-GCM** with chain-derived keys (forward secrecy).
+- Files use ephemeral X25519 + HKDF + AES-GCM (`dh-aead-1` / `file-aead-1`).
 
 ### Group messages
 
-- Group content uses AES-256-GCM with a shared group key.
-- On invite, the group key is RSA-encrypted for each member.
-- On member removal, the group key is rotated.
+- **Sender-key** encryption (`group-sender-1`): per-sender message keys derived from the group epoch key.
+- Group epoch key distributed via X25519-wrapped control payloads.
+- Epoch rotates when members are removed.
+
+### Transport
+
+- Local message server binds to **all IPv4 interfaces** (`InternetAddress.anyIPv4`) so Tor can reach the hidden service port.
+- Server starts at app launch.
+
+### Backups
+
+- Backup format **v2**: Argon2id + AES-GCM. v1 backups cannot restore into v2.
 
 ## Implemented
 

@@ -81,7 +81,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
       avatarUrl: widget.peer.avatarUrl,
       avatarBase64: widget.peer.avatarBase64,
       customName: newCustomName.isNotEmpty ? newCustomName : null,
-      publicKeyPem: widget.peer.publicKeyPem,
+      identityJson: widget.peer.identityJson,
     );
 
     // Only update customName column — don't overwrite remote name/avatar/key

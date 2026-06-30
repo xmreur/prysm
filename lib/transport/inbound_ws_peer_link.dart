@@ -208,6 +208,18 @@ class InboundWsPeerLink implements WsPeerLink {
     await _rejectHandshake();
   }
 
+  Future<void> rejectDuplicateConnection() async {
+    if (_closed) return;
+    try {
+      final local = _localOnion() ?? '';
+      _channel.sink.add(WsFrame.hello(onion: local.isNotEmpty ? local : null).encode());
+      _channel.sink.add(
+        WsFrame.error(id: 'duplicate', message: 'duplicate connection').encode(),
+      );
+    } catch (_) {}
+    await close();
+  }
+
   Future<void> _rejectHandshake() async {
     try {
       await _channel.sink.close();
@@ -253,7 +265,12 @@ class InboundWsPeerLink implements WsPeerLink {
       return;
     }
 
-    unawaited(_handleInboundPeerRequest(frame));
+    if (_frameRouter.isPeerRequest(frame)) {
+      unawaited(_handleInboundPeerRequest(frame));
+      return;
+    }
+
+    _pushController.add(frameMap);
   }
 
   void _completePendingRequest(String id, Map<String, dynamic> frameMap) {

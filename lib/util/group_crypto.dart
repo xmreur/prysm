@@ -1,157 +1,126 @@
-import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:encrypt/encrypt.dart' as e;
-import 'package:pointycastle/export.dart';
-import 'package:prysm/util/file_encrypt.dart';
+import 'package:prysm/crypto/constants.dart';
+import 'package:prysm/crypto/envelope.dart';
+import 'package:prysm/crypto/group_crypto.dart' as gc;
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/rsa_helper.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 
+/// Facade over [GroupCryptoV2] with legacy method names.
 class GroupCrypto {
-  static const String controlEnvelopeVersion = 'v2';
+  GroupCrypto._();
 
-  static Uint8List _randomBytes(int length) {
-    final rnd = Random.secure();
-    return Uint8List.fromList(List.generate(length, (_) => rnd.nextInt(256)));
-  }
+  static const String controlEnvelopeVersion = CryptoConstants.cryptoVersion;
 
-  /// Generate a new 32-byte AES group key.
-  static Uint8List generateGroupKey() => _randomBytes(32);
+  static Uint8List generateGroupKey() => gc.GroupCryptoV2.generateGroupKey();
 
-  static Map<String, String> _aesGcmEncrypt(Uint8List key, Uint8List plain) {
-    final gcm = GCMBlockCipher(AESEngine());
-    final iv = _randomBytes(12);
-    final aeadParams = AEADParameters(KeyParameter(key), 128, iv, Uint8List(0));
-    gcm.init(true, aeadParams);
-    final cipherText = gcm.process(plain);
-    return {
-      'iv': base64Encode(iv),
-      'ct': base64Encode(cipherText),
-    };
-  }
+  static Future<String> encryptText(Uint8List groupKey, String plaintext) =>
+      gc.GroupCryptoV2.encryptText(groupKey, plaintext);
 
-  static Uint8List _aesGcmDecrypt(Uint8List key, Uint8List iv, Uint8List ciphertext) {
-    final gcm = GCMBlockCipher(AESEngine());
-    final aeadParams = AEADParameters(KeyParameter(key), 128, iv, Uint8List(0));
-    gcm.init(false, aeadParams);
-    return gcm.process(ciphertext);
-  }
+  static Future<String> decryptText(Uint8List groupKey, String wire) =>
+      gc.GroupCryptoV2.decryptText(groupKey, wire);
 
-  /// Hybrid AES+RSA envelope for group control payloads (invite, rotate, etc.).
-  static String encryptControlPayloadForPeer(
+  static Future<String> encryptControlPayloadForPeer(
     String plaintextJson,
     KeyManager keyManager,
-    RSAPublicKey peerPublicKey,
-  ) {
-    final sessionKey = generateGroupKey();
-    final enc = _aesGcmEncrypt(sessionKey, utf8.encode(plaintextJson));
-    final rsaKey = keyManager.encryptBytesForPeer(sessionKey, peerPublicKey);
-    return jsonEncode({
-      'envelope': controlEnvelopeVersion,
-      'rsa_key': rsaKey,
-      'iv': enc['iv'],
-      'data': enc['ct'],
-    });
-  }
+    IdentityPublicKeys peer,
+  ) =>
+      gc.GroupCryptoV2.encryptControlPayload(
+        plaintextJson,
+        keyManager.identity,
+        peer.agreePublic,
+      );
 
-  /// Decrypt control payload; supports v2 envelope and legacy direct RSA.
-  static String decryptControlPayload(String wire, KeyManager keyManager) {
-    final trimmed = wire.trimLeft();
-    if (trimmed.startsWith('{')) {
-      final parsed = jsonDecode(wire);
-      if (parsed is! Map<String, dynamic>) {
-        throw ArgumentError('Invalid control payload JSON');
-      }
-      if (parsed['envelope'] == controlEnvelopeVersion) {
-        try {
-          final sessionKey = keyManager.decryptBytes(parsed['rsa_key'] as String);
-          final iv = base64Decode(parsed['iv'] as String);
-          final ct = base64Decode(parsed['data'] as String);
-          final plain = _aesGcmDecrypt(sessionKey, iv, ct);
-          return utf8.decode(plain);
-        } catch (e) {
-          throw ArgumentError('Failed to decrypt v2 control payload: $e');
-        }
-      }
-      throw ArgumentError('Unknown control payload envelope');
-    }
-    return keyManager.decryptMessage(wire);
-  }
+  static Future<String> decryptControlPayload(
+    String wire,
+    KeyManager keyManager,
+  ) =>
+      gc.GroupCryptoV2.decryptControlPayload(wire, keyManager.identity);
 
-  /// Encrypt plaintext with group AES key. Returns JSON string `{iv, ct}`.
-  static String encryptText(Uint8List groupKey, String plaintext) {
-    final enc = _aesGcmEncrypt(groupKey, utf8.encode(plaintext));
-    return jsonEncode(enc);
-  }
+  static Future<String> encryptGroupFile(Uint8List groupKey, Uint8List bytes) =>
+      gc.GroupCryptoV2.encryptGroupFile(groupKey, bytes);
 
-  /// Decrypt group message JSON `{iv, ct}` to plaintext.
-  static String decryptText(Uint8List groupKey, String encryptedJson) {
-    final map = jsonDecode(encryptedJson) as Map<String, dynamic>;
-    final iv = base64Decode(map['iv'] as String);
-    final ct = base64Decode(map['ct'] as String);
-    final plain = _aesGcmDecrypt(groupKey, iv, ct);
-    return utf8.decode(plain);
-  }
+  static Future<Uint8List> decryptGroupFile(Uint8List groupKey, String wire) =>
+      gc.GroupCryptoV2.decryptGroupFile(groupKey, wire);
 
-  /// Encrypt file bytes for group chat using group AES key.
-  static String encryptGroupFile(Uint8List groupKey, Uint8List bytes) {
-    final fileAesKey = AESHelper.generateAESKey();
-    final iv = AESHelper.generateIV();
-    final encryptedBytes = AESHelper.encryptBytes(bytes, fileAesKey, iv);
-    final wrappedKey = _aesGcmEncrypt(groupKey, fileAesKey.bytes);
-    return jsonEncode({
-      'group_wrapped_key': wrappedKey,
-      'iv': iv.base64,
-      'data': base64Encode(encryptedBytes),
-    });
-  }
-
-  /// Decrypt group file payload to raw bytes.
-  static Uint8List decryptGroupFile(Uint8List groupKey, String payloadJson) {
-    final hybrid = jsonDecode(payloadJson) as Map<String, dynamic>;
-    final wrapped = hybrid['group_wrapped_key'] as Map<String, dynamic>;
-    final ivWrapped = base64Decode(wrapped['iv'] as String);
-    final ctWrapped = base64Decode(wrapped['ct'] as String);
-    final fileKeyBytes = _aesGcmDecrypt(groupKey, ivWrapped, ctWrapped);
-
-    final iv = e.IV.fromBase64(hybrid['iv'] as String);
-    final encryptedData = base64Decode(hybrid['data'] as String);
-    final aesKey = e.Key(Uint8List.fromList(fileKeyBytes));
-    return AESHelper.decryptBytes(encryptedData, aesKey, iv);
-  }
-
-  /// RSA-encrypt group key bytes for storage (self) or distribution (peer).
-  static String encryptGroupKeyForStorage(
+  static Future<String> encryptGroupKeyForStorage(
     Uint8List groupKey,
     KeyManager keyManager, {
-    RSAPublicKey? peerPublicKey,
-  }) {
-    if (peerPublicKey != null) {
-      return keyManager.encryptBytesForPeer(groupKey, peerPublicKey);
-    }
-    return keyManager.encryptBytesForSelf(groupKey);
-  }
+    IdentityPublicKeys? peer,
+  }) =>
+      gc.GroupCryptoV2.encryptGroupKeyForStorage(
+        groupKey,
+        keyManager.identity,
+        peerAgreePublic: peer?.agreePublic,
+      );
 
-  /// RSA-decrypt stored group key bytes.
-  static Uint8List decryptGroupKey(String encryptedKey, KeyManager keyManager) {
-    return keyManager.decryptBytes(encryptedKey);
-  }
+  static Future<Uint8List> decryptGroupKey(
+    String wire,
+    KeyManager keyManager,
+  ) =>
+      gc.GroupCryptoV2.decryptGroupKey(wire, keyManager.identity);
 
-  /// Encrypt group key for a specific member in invite/rotate payloads.
-  static String encryptGroupKeyForMember(
+  static Future<String> encryptGroupKeyForMember(
     Uint8List groupKey,
     KeyManager keyManager,
-    RSAPublicKey memberPublicKey,
-  ) {
-    return RSAHelper.encryptBytesWithPublicKey(groupKey, memberPublicKey);
+    IdentityPublicKeys member,
+  ) =>
+      gc.GroupCryptoV2.encryptGroupKeyForStorage(
+        groupKey,
+        keyManager.identity,
+        peerAgreePublic: member.agreePublic,
+      );
+
+  static Future<Uint8List> decryptGroupKeyFromPayload(
+    String wire,
+    KeyManager keyManager,
+  ) =>
+      decryptGroupKey(wire, keyManager);
+
+  static Future<String> encryptWithSenderKey({
+    required Uint8List epochKey,
+    required String groupId,
+    required String senderId,
+    required int messageIndex,
+    required String plaintext,
+    required KeyManager keyManager,
+  }) =>
+      gc.GroupCryptoV2.encryptWithSenderKey(
+        epochKey: epochKey,
+        groupId: groupId,
+        senderId: senderId,
+        messageIndex: messageIndex,
+        plaintext: plaintext,
+        sender: keyManager.identity,
+      );
+
+  static Future<String> decryptWithSenderKey({
+    required Uint8List epochKey,
+    required String groupId,
+    required String wire,
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys =
+        await loadPeerIdentityFromDb(keyManager, transportSenderId);
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return gc.GroupCryptoV2.decryptWithSenderKey(
+      epochKey: epochKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
-  /// Decrypt per-member encrypted group key from control payload.
-  static Uint8List decryptGroupKeyFromPayload(
-    String encryptedGroupKey,
-    KeyManager keyManager,
-  ) {
-    return keyManager.decryptBytes(encryptedGroupKey);
+  static bool isSenderKeyEnvelope(String wire) {
+    final envelope = CryptoEnvelope.tryParse(wire);
+    return envelope != null &&
+        CryptoEnvelope.schemeOf(envelope) == CryptoConstants.schemeGroupSender1;
   }
 }
+
+typedef GroupCryptoV2 = GroupCrypto;

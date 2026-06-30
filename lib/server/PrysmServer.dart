@@ -45,13 +45,15 @@ class PrysmServer {
   }
 
   Future<void> start() async {
+    if (_server != null) return;
+
     final handler = Pipeline()
         .addMiddleware(logRequests())
         .addHandler(_rootHandler);
 
     _server = await io.serve(
       handler,
-      InternetAddress.anyIPv4,
+      InternetAddress.loopbackIPv4,
       port,
       shared: true,
     );
@@ -80,11 +82,11 @@ class PrysmServer {
       }
 
       if (request.method == 'GET' && request.url.path == 'public') {
-        return _toResponse(_router.buildPublicKey());
+        return _toResponse(await _router.buildPublicKey());
       }
 
       if (request.method == 'GET' && request.url.path == 'profile') {
-        return _toResponse(_router.buildProfile());
+        return _toResponse(await _router.buildProfile());
       }
 
       if (request.method == 'POST' && request.url.path == 'sync-hint') {

@@ -11,21 +11,21 @@ void main() {
       id: 'a.onion',
       name: 'A',
       avatarUrl: '',
-      publicKeyPem: '',
+      identityJson: '',
       lastMessageTimestamp: 1000,
     ));
     final b = DirectConversation(Contact(
       id: 'b.onion',
       name: 'B',
       avatarUrl: '',
-      publicKeyPem: '',
+      identityJson: '',
       lastMessageTimestamp: 2000,
     ));
     final c = DirectConversation(Contact(
       id: 'c.onion',
       name: 'C',
       avatarUrl: '',
-      publicKeyPem: '',
+      identityJson: '',
       lastMessageTimestamp: 500,
     ));
 
@@ -60,7 +60,7 @@ void main() {
       id: 'd.onion',
       name: 'D',
       avatarUrl: '',
-      publicKeyPem: '',
+      identityJson: '',
       lastMessageTimestamp: 9999,
     ));
 

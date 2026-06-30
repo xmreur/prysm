@@ -10,9 +10,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/panic_action.dart';
-import 'package:prysm/screens/pin_entry.dart';
+import 'package:prysm/models/unlock_type.dart';
+import 'package:prysm/screens/unlock_screen.dart';
+import 'package:prysm/screens/crypto_migration_screen.dart';
+import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
+import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
@@ -55,6 +59,7 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
+import 'package:prysm/crypto/qr_payload.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/decoy_session_data.dart';
@@ -143,8 +148,7 @@ void main() async {
 
   final keyManager = KeyManager();
 
-  // Start the message server early so incoming messages are received
-  // even while Tor is still bootstrapping or the user is on the PIN screen.
+  // Start early so Tor peers can connect during bootstrap / unlock screen.
   final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
   messageServer.start();
 
@@ -339,6 +343,10 @@ class _MyAppState extends State<MyApp> {
     static final settings = SettingsService();
     
   bool unlocked = false;
+  bool _keysChecked = false;
+  bool _keysExist = false;
+  bool _needsMigration = false;
+  bool _migrationChecked = false;
   bool _panicDecoySession = false;
   int _currentTheme = 0;
 
@@ -357,22 +365,33 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  Future<bool> onVerifyPin(String pin) async {
+  Future<bool> onVerifyUnlock(String secret) async {
     final keyManager = widget.keyManager;
-    if (await keyManager.unlockWithPin(pin)) {
-      await settings.migrateOnboardingIfExisting(
-        readPublicKey: () => keyManager.safeRead('PUBLIC_KEY'),
-        contactCount: (await DBHelper.getUsers()).length,
-      );
-      setState(() {
-        unlocked = true;
-        _panicDecoySession = false;
-      });
-      return true;
+    final lockout = UnlockLockoutService.instance;
+    final type = settings.unlockType;
+
+    if (!await lockout.isLockedOut()) {
+      if (await keyManager.unlockWithPassphrase(secret, type: type)) {
+        await lockout.recordSuccess();
+        await settings.migrateOnboardingIfExisting(
+          readPublicKey: () =>
+              keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
+          contactCount: (await DBHelper.getUsers()).length,
+        );
+        setState(() {
+          unlocked = true;
+          _keysExist = true;
+          _panicDecoySession = false;
+        });
+        return true;
+      }
+      await lockout.recordPrimaryFailure();
     }
 
-    if (await PanicPinService.instance.isConfigured() &&
-        await PanicPinService.instance.verify(pin)) {
+    if (secret.length == 6 &&
+        await PanicPinService.instance.isConfigured() &&
+        await PanicPinService.instance.verify(secret)) {
+      await lockout.recordSuccess();
       if (settings.panicAction == PanicAction.wipe) {
         await PanicWipeService.wipeAll();
         await keyManager.wipeSecureStorage();
@@ -383,6 +402,7 @@ class _MyAppState extends State<MyApp> {
       await keyManager.loadEphemeralKeys();
       setState(() {
         unlocked = true;
+        _keysExist = true;
         _panicDecoySession = true;
       });
       return true;
@@ -391,14 +411,40 @@ class _MyAppState extends State<MyApp> {
     return false;
   }
 
+  Future<bool> onVerifyPassphrase(String passphrase) =>
+      onVerifyUnlock(passphrase);
+
+  Future<bool> onVerifyPin(String pin) => onVerifyUnlock(pin);
+
   @override
   void initState() {
     super.initState();
     _loadSavedTheme();
+    _checkMigration();
+    _checkKeysExist();
     _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
       if (mounted) setState(() => _torBootstrapProgress = p);
     });
     _initTorInBackground();
+  }
+
+  Future<void> _checkKeysExist() async {
+    final exists = await widget.keyManager.isPassphraseSet();
+    if (!mounted) return;
+    setState(() {
+      _keysExist = exists;
+      _keysChecked = true;
+    });
+  }
+
+  Future<void> _checkMigration() async {
+    final needs = await CryptoKeyStore.needsCryptoMigration();
+    if (mounted) {
+      setState(() {
+        _needsMigration = needs;
+        _migrationChecked = true;
+      });
+    }
   }
 
   Future<void> _initTorInBackground() async {
@@ -460,15 +506,74 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_migrationChecked) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (_needsMigration) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: CryptoMigrationScreen(
+          keyManager: widget.keyManager,
+          onComplete: () => setState(() {
+            _needsMigration = false;
+          }),
+        ),
+      );
+    }
+
+    if (!_keysChecked) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (!_keysExist) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: "Setup ${settings.name}",
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: OnboardingScreen(
+          isInitialSetup: true,
+          keyManager: widget.keyManager,
+          onionAddress: _onionAddress ?? '',
+          torReady: _torReady,
+          torBootstrapProgress:
+              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+          onComplete: () {
+            if (mounted) {
+              setState(() {
+                _keysExist = true;
+                unlocked = true;
+              });
+            }
+          },
+        ),
+      );
+    }
+
     if (!unlocked) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: "Unlock ${settings.name} Chat",
         theme: ThemeManager.getTheme(_currentTheme),
-        home: PinScreen(
-          onVerifyPin: onVerifyPin,
-          isPinSet: widget.keyManager.isPinSet(),
-          torBootstrapProgress: _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+        home: UnlockScreen(
+          usePin: settings.unlockType == UnlockType.pin,
+          onVerify: onVerifyUnlock,
+          isUnlockSet: widget.keyManager.isPassphraseSet(),
+          torBootstrapProgress:
+              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
         ),
       );
     }
@@ -736,7 +841,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         id: widget.onionAddress,
         name: appSettings.username ?? '',
         avatarUrl: '',
-        publicKeyPem: 'NONE',
+        identityJson: 'NONE',
       );
     }
     _syncCoordinator = SyncCoordinator(
@@ -843,7 +948,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _processCallNotificationAction(PendingCallAction action) async {
-    if (widget.decoyMode || !mounted) return;
+    if (widget.decoyMode) return;
+    if (!mounted) {
+      PendingCallActionStore.instance.set(action);
+      return;
+    }
 
     try {
       CallManager.instance;
@@ -859,9 +968,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await NotificationService().cancelCallNotifications();
           await CallManager.instance.acceptIncoming();
         case CallNotificationAction.decline:
-          if (CallManager.instance.snapshot.state != CallState.incoming) break;
           await NotificationService().cancelCallNotifications();
-          await CallManager.instance.rejectIncoming();
+          await CallManager.instance.declineFromNotification(
+            callId: action.callId,
+            peerOnion: action.peerOnion,
+          );
         case CallNotificationAction.hangup:
           if (!CallManager.instance.snapshot.isInCall) break;
           await NotificationService().cancelCallNotifications();
@@ -1106,7 +1217,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         avatarUrl: '',
         avatarBase64: map['avatarBase64'] as String?,
         customName: map['customName'] as String?,
-        publicKeyPem: (map['publicKeyPem'] as String?) ?? '',
+        identityJson: (map['identityJson'] as String?) ?? (map['publicKeyPem'] as String?) ?? '',
         lastMessageTimestamp: timestamps[id],
       ));
     }
@@ -1326,7 +1437,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showAddUserDialog({String? prefilledId}) async {
-    final idController = TextEditingController(text: prefilledId ?? '');
+    String? onionPrefill = prefilledId;
+    String? expectedFingerprint;
+    if (prefilledId != null) {
+      final payload = QrPayload.tryParse(prefilledId);
+      if (payload != null) {
+        onionPrefill = payload.onion;
+        expectedFingerprint = payload.fingerprint;
+      }
+    }
+
+    final idController = TextEditingController(text: onionPrefill ?? '');
     final nameController = TextEditingController();
     final hostContext = context;
 
@@ -1354,7 +1475,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         return;
       }
-      final added = await _addNewUser(newId, newName);
+      final added = await _addNewUser(
+        newId,
+        newName,
+        expectedFingerprint: expectedFingerprint,
+      );
       if (!dialogContext.mounted) return;
       if (!added) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
@@ -1441,10 +1566,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<bool> _addNewUser(String id, String name) async {
+  Future<bool> _addNewUser(
+    String id,
+    String name, {
+    String? expectedFingerprint,
+  }) async {
     return ContactAddService.instance.addContact(
       onionId: id,
       displayName: name,
+      expectedFingerprint: expectedFingerprint,
     );
   }
 
@@ -1522,10 +1652,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 IconButton(
                   icon: const Icon(Icons.qr_code, size: 20),
                   tooltip: 'Show my QR code',
-                  onPressed: () => showPrysmIdQrDialog(
-                    context,
-                    encodeOnionToBase58(appUser.id),
-                  ),
+                  onPressed: () {
+                    String? fingerprint;
+                    try {
+                      final parsed = jsonDecode(widget.keyManager.publicKeyJson)
+                          as Map<String, dynamic>;
+                      fingerprint = parsed['fingerprint'] as String?;
+                    } catch (_) {}
+                    showPrysmIdQrDialog(
+                      context,
+                      encodeOnionToBase58(appUser.id),
+                      fingerprint: fingerprint,
+                    );
+                  },
                 ),
                 if (QrPlatform.isScanSupported)
                   IconButton(

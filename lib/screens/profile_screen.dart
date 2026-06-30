@@ -56,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       name: name,
       avatarUrl: widget.user.avatarUrl,
       avatarBase64: _avatarBase64,
-      publicKeyPem: widget.user.publicKeyPem,
+      identityJson: widget.user.identityJson,
     );
     widget.onUpdate(updatedUser);
     widget.onClose();

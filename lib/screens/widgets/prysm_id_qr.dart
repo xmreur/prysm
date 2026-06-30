@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:prysm/crypto/qr_payload.dart';
 
 /// A [CustomPainter] that paints a pre-generated [QrImage] once.
 /// No mask search or data encoding — pure rendering.
@@ -104,7 +105,14 @@ class _PrysmIdQrCodeState extends State<PrysmIdQrCode> {
   }
 }
 
-void showPrysmIdQrDialog(BuildContext context, String encodedId) {
+void showPrysmIdQrDialog(
+  BuildContext context,
+  String encodedId, {
+  String? fingerprint,
+}) {
+  final qrData = fingerprint != null && fingerprint.isNotEmpty
+      ? QrPayload(onion: encodedId, fingerprint: fingerprint).encode()
+      : encodedId;
   showDialog<void>(
     context: context,
     useRootNavigator: true,
@@ -120,10 +128,10 @@ void showPrysmIdQrDialog(BuildContext context, String encodedId) {
               style: TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 16),
-            PrysmIdQrCode(data: encodedId, size: 200),
+            PrysmIdQrCode(data: qrData, size: 200),
             const SizedBox(height: 12),
             SelectableText(
-              encodedId,
+              qrData,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'monospace',
@@ -136,7 +144,7 @@ void showPrysmIdQrDialog(BuildContext context, String encodedId) {
       actions: [
         TextButton(
           onPressed: () {
-            Clipboard.setData(ClipboardData(text: encodedId));
+            Clipboard.setData(ClipboardData(text: qrData));
             ScaffoldMessenger.of(dialogContext).showSnackBar(
               const SnackBar(content: Text('ID copied to clipboard')),
             );

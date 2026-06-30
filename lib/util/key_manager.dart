@@ -1,385 +1,281 @@
 import 'dart:convert';
-import 'dart:core';
-import 'dart:math';
-import 'package:encrypt/encrypt.dart' as e;
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:prysm/util/file_encrypt.dart';
-import 'rsa_helper.dart';
-import 'package:pointycastle/export.dart';
+import 'package:prysm/crypto/crypto.dart';
+import 'package:prysm/models/unlock_type.dart';
 
+/// Manages Prysm v2 identity keys and message encryption.
 class KeyManager {
-  static const String _encryptedPrivateKeyStorageKey = 'ENCRYPTED_PRIVATE_KEY';
-  static const String _publicKeyStorageKey = 'PUBLIC_KEY';
-  static const String _pinSaltStorageKey = 'PIN_SALT';
-  
-  static final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
-
-  RSAPublicKey? _publicKey;
-  RSAPrivateKey? _privateKey;
+  IdentityKeyPair? _identity;
+  IdentityPublicKeys? _cachedPublic;
 
   bool isCorrupted = false;
 
-  Future<String?> safeRead(String key) async {
-    try {
-      return await _secureStorage.read(key: key);
-    } catch (e) {
-      isCorrupted = true;
-      return null;
-    }
-  }
+  Future<String?> safeRead(String key) => CryptoKeyStore.read(key);
 
-  static Uint8List _randomBytes(int length) {
-    final rnd = Random.secure();
-    return Uint8List.fromList(List.generate(length, (_) => rnd.nextInt(256)));
-  }
-
-  static Uint8List _deriveKey(String pin, Uint8List salt, {int iterations = 100_000, int keyLen = 32}) {
-    final pbkdf2 = PBKDF2KeyDerivator(HMac(SHA256Digest(), 64));
-    pbkdf2.init(Pbkdf2Parameters(salt, iterations, keyLen));
-    return pbkdf2.process(utf8.encode(pin));
-  }
-
-  static Map<String, String> _aesGcmEncrypt(Uint8List key, Uint8List plain) {
-    final gcm = GCMBlockCipher(AESEngine());
-    final iv = _randomBytes(12);
-    final aeadParams = AEADParameters(KeyParameter(key), 128, iv, Uint8List(0));
-    gcm.init(true, aeadParams);
-
-    final cipherText = gcm.process(plain);
-    return {
-      'iv': base64Encode(iv),
-      'ct': base64Encode(cipherText),
-    };
-  }
-
-  static Uint8List _aesGcmDecrypt(Uint8List key, Uint8List iv, Uint8List ciphertext) {
-    final gcm = GCMBlockCipher(AESEngine());
-    final aeadParams = AEADParameters(KeyParameter(key), 128, iv, Uint8List(0));
-    gcm.init(false, aeadParams);
-
-    return gcm.process(ciphertext);
-  }
-  
-  Future<bool> unlockWithPin(String pin) async {
-    String? encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
-    String? privatePem = await safeRead('PRIVATE_KEY'); // Legacy plaintext key
-    String? publicPem = await safeRead(_publicKeyStorageKey);
-    String? saltB64 = await safeRead(_pinSaltStorageKey);
-
-    if (encPrivate != null && publicPem != null && saltB64 != null) {
-      // --- UNLOCK: derive key + decrypt in isolate ---
-      final result = await compute(_decryptPrivateKeyIsolate, {
-        'pin': pin,
-        'encPrivate': encPrivate,
-        'saltB64': saltB64,
-      });
-      if (result == null) return false;
-      _privateKey = RSAHelper.privateKeyFromPem(result);
-      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
-      return true;
-    } else if (privatePem != null && publicPem != null) {
-      // --- MIGRATION: encrypt legacy plaintext key with PIN (in isolate) ---
-      final encMap = await compute(_encryptPrivateKeyIsolate, {
-        'pin': pin,
-        'privatePem': privatePem,
-      });
-      final salt = base64Decode(encMap['saltB64']!);
-      await _secureStorage.write(
-        key: _encryptedPrivateKeyStorageKey, value: encMap['encrypted']!);
-      await _secureStorage.write(
-        key: _pinSaltStorageKey, value: base64Encode(salt));
-      await _secureStorage.delete(key: 'PRIVATE_KEY');
-      _privateKey = RSAHelper.privateKeyFromPem(privatePem);
-      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
-      return true;
-    } else if (publicPem != null || encPrivate != null || saltB64 != null) {
-      // Partial keystore — never generate new keys over an existing identity.
-      isCorrupted = true;
-      return false;
-    } else {
-      // --- FIRST SETUP: generate + encrypt keys in isolate ---
-      final result = await compute(_generateAndEncryptKeysIsolate, pin);
-      await _secureStorage.write(
-        key: _encryptedPrivateKeyStorageKey, value: result['encrypted']!);
-      await _secureStorage.write(
-        key: _publicKeyStorageKey, value: result['publicPem']!);
-      await _secureStorage.write(
-        key: _pinSaltStorageKey, value: result['saltB64']!);
-      _privateKey = RSAHelper.privateKeyFromPem(result['privatePem']!);
-      _publicKey = RSAHelper.publicKeyFromPem(result['publicPem']!);
-      return true;
-    }
-  }
-
-  // ---- Isolate-safe static workers ----
-
-  /// Derives key + decrypts private key. Returns PEM string or null on failure.
-  static String? _decryptPrivateKeyIsolate(Map<String, String> params) {
-    final pin = params['pin']!;
-    final encPrivate = params['encPrivate']!;
-    final saltB64 = params['saltB64']!;
-    try {
-      final salt = base64Decode(saltB64);
-      final key = _deriveKey(pin, salt);
-      final encMap = jsonDecode(encPrivate) as Map<String, dynamic>;
-      final iv = base64Decode(encMap['iv']);
-      final ct = base64Decode(encMap['ct']);
-      final decrypted = _aesGcmDecrypt(key, iv, ct);
-      return utf8.decode(decrypted);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Encrypts existing plaintext PEM with PIN. Returns {encrypted, saltB64}.
-  static Map<String, String> _encryptPrivateKeyIsolate(Map<String, String> params) {
-    final pin = params['pin']!;
-    final privatePem = params['privatePem']!;
-    final salt = _randomBytes(16);
-    final key = _deriveKey(pin, salt);
-    final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
-    return {
-      'encrypted': jsonEncode(encMap),
-      'saltB64': base64Encode(salt),
-    };
-  }
-
-  /// Generates RSA key pair + encrypts with PIN. Returns {encrypted, publicPem, privatePem, saltB64}.
-  static Map<String, String> _generateAndEncryptKeysIsolate(String pin) {
-    final salt = _randomBytes(16);
-    final key = _deriveKey(pin, salt);
-    final pair = RSAHelper.generateKeyPair();
-    final privateKey = pair.privateKey as RSAPrivateKey;
-    final publicKey = pair.publicKey as RSAPublicKey;
-    final privatePem = RSAHelper.privateKeyToPem(privateKey);
-    final publicPem = RSAHelper.publicKeyToPem(publicKey);
-    final encMap = _aesGcmEncrypt(key, utf8.encode(privatePem));
-    return {
-      'encrypted': jsonEncode(encMap),
-      'publicPem': publicPem,
-      'privatePem': privatePem,
-      'saltB64': base64Encode(salt),
-    };
-  }
-
-  Future<bool> isPinSet() async {
-    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
-    final salt = await safeRead(_pinSaltStorageKey);
-    return encPrivate != null && salt != null;
-  }
-
-  /// True if [pin] decrypts the stored identity (without loading keys into memory).
-  Future<bool> pinUnlocksStoredKeys(String pin) async {
-    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
-    final saltB64 = await safeRead(_pinSaltStorageKey);
-    if (encPrivate == null || saltB64 == null) return false;
-    final result = await compute(_decryptPrivateKeyIsolate, {
-      'pin': pin,
-      'encPrivate': encPrivate,
-      'saltB64': saltB64,
-    });
-    return result != null;
-  }
-
-  static final RegExp _pinFormat = RegExp(r'^\d{6}$');
-
-  /// Re-wrap the stored RSA private key with a new PIN. Identity keys are unchanged.
-  Future<bool> changePin({
-    required String currentPin,
-    required String newPin,
+  Future<bool> unlockWithPassphrase(
+    String passphrase, {
+    required UnlockType type,
   }) async {
-    if (!_pinFormat.hasMatch(newPin)) return false;
+    if (!CryptoKeyStore.isValidUnlockSecret(passphrase, type)) return false;
 
-    final encPrivate = await safeRead(_encryptedPrivateKeyStorageKey);
-    final saltB64 = await safeRead(_pinSaltStorageKey);
-    final publicPem = await safeRead(_publicKeyStorageKey);
-    if (encPrivate == null || saltB64 == null || publicPem == null) {
+    final encPrivate = await safeRead(CryptoKeyStore.encryptedIdentityKey);
+    final publicJson = await safeRead(CryptoKeyStore.publicIdentityKey);
+    final saltB64 = await safeRead(CryptoKeyStore.passphraseSaltKey);
+
+    if (encPrivate != null && publicJson != null && saltB64 != null) {
+      final identity = await CryptoKeyStore.decryptIdentity(
+        passphrase: passphrase,
+        encrypted: encPrivate,
+        saltB64: saltB64,
+      );
+      if (identity == null) return false;
+      _identity = identity;
+      _cachedPublic = IdentityKeyPair.parsePublicJson(
+        jsonDecode(publicJson) as Map<String, dynamic>,
+      );
+      await PrekeyBundle.loadStored(identity);
+      return true;
+    }
+
+    if (publicJson != null || encPrivate != null || saltB64 != null) {
+      isCorrupted = true;
       return false;
     }
 
-    late final String privatePem;
-    if (_privateKey != null) {
-      if (!await pinUnlocksStoredKeys(currentPin)) return false;
-      privatePem = privateKeyPem;
-    } else {
-      final decrypted = await compute(_decryptPrivateKeyIsolate, {
-        'pin': currentPin,
-        'encPrivate': encPrivate,
-        'saltB64': saltB64,
-      });
-      if (decrypted == null) return false;
-      privatePem = decrypted;
-    }
-
-    final encMap = await compute(_encryptPrivateKeyIsolate, {
-      'pin': newPin,
-      'privatePem': privatePem,
-    });
-
-    await _secureStorage.write(
-      key: _encryptedPrivateKeyStorageKey,
-      value: encMap['encrypted']!,
+    // First setup: generate new identity.
+    final identity = await IdentityKeyPair.generate();
+    await CryptoKeyStore.persistIdentity(
+      passphrase: passphrase,
+      identity: identity,
     );
-    await _secureStorage.write(
-      key: _pinSaltStorageKey,
-      value: encMap['saltB64']!,
+    _identity = identity;
+    _cachedPublic = IdentityPublicKeys(
+      signPublic: await identity.signPublicKey,
+      agreePublic: await identity.agreePublicKey,
+      fingerprint: IdentityKeyPair.fingerprintFromPublicJson(
+        await identity.toPublicJson(),
+      ),
     );
-
-    if (_privateKey == null) {
-      _privateKey = RSAHelper.privateKeyFromPem(privatePem);
-      _publicKey = RSAHelper.publicKeyFromPem(publicPem);
-    }
-
+    await PrekeyBundle.loadStored(identity);
     return true;
   }
 
-  @visibleForTesting
-  static Map<String, String> testEncryptPrivateKey({
-    required String pin,
-    required String privatePem,
-  }) =>
-      _encryptPrivateKeyIsolate({'pin': pin, 'privatePem': privatePem});
+  /// Backward-compatible alias during UI migration.
+  Future<bool> unlockWithPin(String pin, {required UnlockType type}) =>
+      unlockWithPassphrase(pin, type: type);
 
-  @visibleForTesting
-  static String? testDecryptPrivateKey({
-    required String pin,
-    required String encrypted,
-    required String saltB64,
+  Future<bool> isPassphraseSet() => CryptoKeyStore.isPassphraseSet();
+
+  Future<bool> isPinSet() => isPassphraseSet();
+
+  Future<bool> passphraseUnlocksStoredKeys(String passphrase) async {
+    final encPrivate = await safeRead(CryptoKeyStore.encryptedIdentityKey);
+    final saltB64 = await safeRead(CryptoKeyStore.passphraseSaltKey);
+    if (encPrivate == null || saltB64 == null) return false;
+    final identity = await CryptoKeyStore.decryptIdentity(
+      passphrase: passphrase,
+      encrypted: encPrivate,
+      saltB64: saltB64,
+    );
+    return identity != null;
+  }
+
+  Future<bool> pinUnlocksStoredKeys(String pin) =>
+      passphraseUnlocksStoredKeys(pin);
+
+  Future<bool> changePassphrase({
+    required String currentPassphrase,
+    required String newPassphrase,
+    required UnlockType type,
+  }) async {
+    if (!CryptoKeyStore.isValidUnlockSecret(newPassphrase, type)) return false;
+
+    final encPrivate = await safeRead(CryptoKeyStore.encryptedIdentityKey);
+    final saltB64 = await safeRead(CryptoKeyStore.passphraseSaltKey);
+    if (encPrivate == null || saltB64 == null) return false;
+
+    IdentityKeyPair identity;
+    if (_identity != null) {
+      if (!await passphraseUnlocksStoredKeys(currentPassphrase)) return false;
+      identity = _identity!;
+    } else {
+      final unlocked = await CryptoKeyStore.decryptIdentity(
+        passphrase: currentPassphrase,
+        encrypted: encPrivate,
+        saltB64: saltB64,
+      );
+      if (unlocked == null) return false;
+      identity = unlocked;
+    }
+
+    await CryptoKeyStore.persistIdentity(
+      passphrase: newPassphrase,
+      identity: identity,
+    );
+    _identity = identity;
+    _cachedPublic = IdentityPublicKeys(
+      signPublic: await identity.signPublicKey,
+      agreePublic: await identity.agreePublicKey,
+      fingerprint: IdentityKeyPair.fingerprintFromPublicJson(
+        await identity.toPublicJson(),
+      ),
+    );
+    return true;
+  }
+
+  Future<bool> changePin({
+    required String currentPin,
+    required String newPin,
   }) =>
-      _decryptPrivateKeyIsolate({
-        'pin': pin,
-        'encPrivate': encrypted,
-        'saltB64': saltB64,
-      });
+      changePassphrase(
+        currentPassphrase: currentPin,
+        newPassphrase: newPin,
+        type: UnlockType.pin,
+      );
 
   Future<void> loadEphemeralKeys() async {
-    final pair = RSAHelper.generateKeyPair();
-    _privateKey = pair.privateKey as RSAPrivateKey;
-    _publicKey = pair.publicKey as RSAPublicKey;
+    _identity = await IdentityKeyPair.generate();
+    _cachedPublic = IdentityPublicKeys(
+      signPublic: await _identity!.signPublicKey,
+      agreePublic: await _identity!.agreePublicKey,
+      fingerprint: 'ephemeral',
+    );
   }
 
   void lock() {
-    _privateKey = null;
-    _publicKey = null;
+    _identity = null;
+    _cachedPublic = null;
   }
 
   Future<void> wipeSecureStorage() async {
-    await _secureStorage.delete(key: _encryptedPrivateKeyStorageKey);
-    await _secureStorage.delete(key: _publicKeyStorageKey);
-    await _secureStorage.delete(key: _pinSaltStorageKey);
-    await _secureStorage.delete(key: 'PRIVATE_KEY');
+    await CryptoKeyStore.deleteAll();
     lock();
   }
 
-
-  RSAPublicKey get publicKey {
-    if (_publicKey == null) throw Exception("Keys not initialized. Call initKeys() first.");
-    return _publicKey!;
+  IdentityKeyPair get identity {
+    if (_identity == null) {
+      throw StateError('Keys not initialized. Unlock first.');
+    }
+    return _identity!;
   }
 
-  RSAPrivateKey get privateKey {
-    if (_privateKey == null) throw Exception("Keys not initialized. Call initKeys() first.");
-    return _privateKey!;
-  }
+  bool get isUnlocked => _identity != null;
 
-  String get publicKeyPem => RSAHelper.publicKeyToPem(publicKey);
-
-  /// Encrypt text for peer
-  String encryptForPeer(String message, RSAPublicKey peerPublicKey) {
-    return RSAHelper.encryptWithPublicKey(message, peerPublicKey);
-  }
-
-  /// Encrypt raw bytes for peer
-  String encryptBytesForPeer(Uint8List data, RSAPublicKey peerPublicKey) {
-    return RSAHelper.encryptBytesWithPublicKey(data, peerPublicKey);
-  }
-
-  /// Encrypt text for self
-  String encryptForSelf(String message) {
-    return RSAHelper.encryptWithPublicKey(message, publicKey);
-  }
-
-  /// Encrypt raw bytes for self
-  String encryptBytesForSelf(Uint8List data) {
-    return RSAHelper.encryptBytesWithPublicKey(data, publicKey);
-  }
-
-  /// Decrypt text message
-  String decryptMessage(String encrypted) {
-    return RSAHelper.decryptWithPrivateKey(encrypted, privateKey);
-  }
-
-  /// Decrypt my text message
-  String decryptMyMessage(String encryptedMessage) {
-    return RSAHelper.decryptWithPrivateKey(encryptedMessage, privateKey);
-  }
-
-  /// Decrypt bytes (files/photos)
-  Uint8List decryptBytes(String base64Encrypted) {
-    final bytes = base64Decode(base64Encrypted);
-    return RSAHelper.decryptBytesWithPrivateKey(bytes, privateKey);
-  }
-
-  Uint8List decryptMyMessageBytes(String base64Encrypted) {
-    return decryptBytes(base64Encrypted);
-  }
-
-  RSAPublicKey importPeerPublicKey(String pem) {
-    return RSAHelper.publicKeyFromPem(RSAHelper.normalizePublicKeyPem(pem));
-  }
-
-  /// Hybrid AES+RSA envelope for payloads larger than PKCS#1 RSA limit.
-  String encryptHybridForPeer(String plaintext, RSAPublicKey peerPublicKey) {
-    final aesKey = AESHelper.generateAESKey();
-    final iv = AESHelper.generateIV();
-    final encryptedBytes = AESHelper.encryptBytes(
-      Uint8List.fromList(utf8.encode(plaintext)),
-      aesKey,
-      iv,
+  Future<IdentityPublicKeys> get publicIdentity async {
+    if (_cachedPublic != null) return _cachedPublic!;
+    final raw = await safeRead(CryptoKeyStore.publicIdentityKey);
+    if (raw == null) throw StateError('Public identity not found');
+    return IdentityKeyPair.parsePublicJson(
+      jsonDecode(raw) as Map<String, dynamic>,
     );
-    final peerEncryptedKey =
-        RSAHelper.encryptBytesWithPublicKey(aesKey.bytes, peerPublicKey);
-    return jsonEncode({
-      'aes_key': peerEncryptedKey,
-      'iv': iv.base64,
-      'data': base64Encode(encryptedBytes),
-    });
   }
 
-  String decryptHybridEnvelope(String envelopeJson) {
-    final hybrid = jsonDecode(envelopeJson) as Map<String, dynamic>;
-    final aesKeyBytes = decryptMyMessageBytes(hybrid['aes_key'] as String);
-    final aesKey = e.Key(Uint8List.fromList(aesKeyBytes));
-    final iv = e.IV.fromBase64(hybrid['iv'] as String);
-    final encryptedData = base64Decode(hybrid['data'] as String);
-    final plainBytes = AESHelper.decryptBytes(encryptedData, aesKey, iv);
-    return utf8.decode(plainBytes);
+  String get publicKeyJson {
+    if (_cachedPublic != null) return _cachedPublic!.toJsonString();
+    throw StateError('Public identity not loaded');
   }
 
-  static bool isHybridEnvelope(String encrypted) {
-    if (!encrypted.trimLeft().startsWith('{')) return false;
+  /// Stored public identity JSON (safe without private key loaded).
+  Future<String?> storedPublicIdentityJson() =>
+      safeRead(CryptoKeyStore.publicIdentityKey);
+
+  Future<String> encryptForPeer(
+    String message,
+    IdentityPublicKeys peer, {
+    required String peerId,
+    PrekeyBundle? peerPrekey,
+  }) async {
     try {
-      final map = jsonDecode(encrypted) as Map<String, dynamic>;
-      return map.containsKey('aes_key') &&
-          map.containsKey('iv') &&
-          map.containsKey('data');
-    } catch (_) {
-      return false;
+      return await RatchetService.instance.encryptText(
+        peerId: peerId,
+        plaintext: message,
+        local: identity,
+        peer: peer,
+        peerBundle: peerPrekey,
+      );
+    } on StateError {
+      return CryptoWire.encryptTextForPeer(message, identity, peer.agreePublic);
     }
   }
 
-    String get privateKeyPem {
-        if (_privateKey == null) throw Exception("Not unlocked");
-        return RSAHelper.privateKeyToPem(_privateKey!);
-    }
+  Future<String> decryptPeerMessage({
+    required String peerId,
+    required String wire,
+    required IdentityPublicKeys peer,
+  }) async {
+    return RatchetService.instance.decryptText(
+      peerId: peerId,
+      wire: wire,
+      local: identity,
+      peer: peer,
+    );
+  }
 
-    KeyManager();  // Empty
+  Future<String> encryptForSelf(String message) async {
+    return CryptoWire.encryptTextForSelf(message, identity);
+  }
 
-    factory KeyManager.fromKeys(RSAPrivateKey privateKey, RSAPublicKey publicKey) {
-        final km = KeyManager();
-        km._privateKey = privateKey;
-        km._publicKey = publicKey;
-        return km;
+  Future<String> decryptMessage(String encrypted) async {
+    return CryptoWire.decryptTextForSelf(encrypted, identity);
+  }
+
+  String decryptMyMessage(String encryptedMessage) {
+    throw UnsupportedError('Use decryptMessage async');
+  }
+
+  Future<Uint8List> decryptBytes(String wire) async {
+    return CryptoWire.decryptForSelf(wire, identity);
+  }
+
+  Future<Uint8List> decryptMyMessageBytes(String wire) => decryptBytes(wire);
+
+  Future<String> encryptBytesForPeer(
+    Uint8List data,
+    IdentityPublicKeys peer, {
+    String? peerId,
+    PrekeyBundle? peerPrekey,
+  }) async {
+    return CryptoWire.encryptForPeer(data, identity, peer.agreePublic);
+  }
+
+  Future<String> encryptBytesForSelf(Uint8List data) async {
+    return CryptoWire.encryptForSelf(data, identity);
+  }
+
+  Future<String> encryptHybridForPeer(
+    String plaintext,
+    IdentityPublicKeys peer, {
+    required String peerId,
+    PrekeyBundle? peerPrekey,
+  }) =>
+      encryptForPeer(
+        plaintext,
+        peer,
+        peerId: peerId,
+        peerPrekey: peerPrekey,
+      );
+
+  Future<String> decryptHybridEnvelope(String envelopeJson) async {
+    return decryptMessage(envelopeJson);
+  }
+
+  static bool isHybridEnvelope(String encrypted) =>
+      CryptoEnvelope.isV2(encrypted);
+
+  IdentityPublicKeys importPeerIdentity(String jsonOrPem) {
+    final keys = IdentityKeyPair.tryParsePublicJsonString(jsonOrPem);
+    if (keys == null) {
+      throw FormatException('Expected v2 identity JSON');
     }
+    return keys;
+  }
+
+  KeyManager();
+
+  factory KeyManager.fromIdentity(IdentityKeyPair identity) {
+    final km = KeyManager();
+    km._identity = identity;
+    return km;
+  }
 }

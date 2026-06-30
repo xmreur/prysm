@@ -150,7 +150,7 @@ class WsConnectionManager {
         } catch (_) {
           final failures = (_pingFailures[peer] ?? 0) + 1;
           _pingFailures[peer] = failures;
-          if (failures >= _maxPingFailures) {
+          if (failures >= _maxPingFailures && !_pinnedPeers.contains(peer)) {
             _pingFailures.remove(peer);
             await _removeLink(peer);
           }
@@ -371,7 +371,7 @@ class WsConnectionManager {
     final peerOnion = link.peerOnion;
     final existing = _links[peerOnion];
     if (existing != null && existing.isConnected) {
-      unawaited(link.close());
+      unawaited(link.rejectDuplicateConnection());
       return;
     }
     if (existing != null) {
@@ -389,9 +389,7 @@ class WsConnectionManager {
     required bool outbound,
   }) {
     _links[peerOnion] = link;
-    if (outbound) {
-      WsInboundDispatcher.instance.attach(peerOnion, link.onPushFrames);
-    }
+    WsInboundDispatcher.instance.attach(peerOnion, link.onPushFrames);
     PeerTransportRegistry.instance.markWebSocket(peerOnion);
     _connectFailures.remove(peerOnion);
     _nextRetryAfter.remove(peerOnion);
@@ -529,9 +527,7 @@ class WsConnectionManager {
     final link = _links.remove(peerOnion);
     if (link == null) return;
 
-    if (link is OutboundWsPeerLink) {
-      WsInboundDispatcher.instance.detach(peerOnion);
-    }
+    WsInboundDispatcher.instance.detach(peerOnion);
     await link.close();
     onPeerDisconnected?.call(peerOnion);
   }

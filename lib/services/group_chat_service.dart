@@ -13,6 +13,7 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:uuid/uuid.dart';
 
 class GroupChatService {
@@ -138,7 +139,18 @@ class GroupChatService {
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
-    final encrypted = GroupCrypto.encryptText(_groupKey!, text);
+    final index = await GroupSenderIndexStore.nextIndex(
+      groupId: groupId,
+      senderId: userId,
+    );
+    final encrypted = await GroupCrypto.encryptWithSenderKey(
+      epochKey: _groupKey!,
+      groupId: groupId,
+      senderId: userId,
+      messageIndex: index,
+      plaintext: text,
+      keyManager: keyManager,
+    );
 
     await MessagesDb.insertMessage({
       'id': id,
@@ -208,7 +220,7 @@ class GroupChatService {
     final groupType = _groupTypeForMedia(type);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
-    final encrypted = GroupCrypto.encryptGroupFile(_groupKey!, bytes);
+    final encrypted = await GroupCrypto.encryptGroupFile(_groupKey!, bytes);
 
     await MessagesDb.insertMessage({
       'id': id,

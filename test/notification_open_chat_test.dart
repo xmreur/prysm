@@ -11,7 +11,7 @@ void main() {
         id: 'alice.onion',
         name: 'Alice',
         avatarUrl: '',
-        publicKeyPem: 'pem',
+        identityJson: 'pem',
       ),
     ];
 

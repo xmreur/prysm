@@ -1,26 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/database/messages.dart';
-import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/file_encrypt.dart';
-import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/transport/transport_provider.dart';
-import 'package:prysm/util/tor_runtime_gate.dart';
+import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
-import 'package:prysm/util/inbound_message_notifier.dart';
-import 'package:prysm/util/rsa_helper.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:uuid/uuid.dart';
-import 'package:pointycastle/asymmetric/api.dart';
-import 'dart:math';
 
 class ChatService {
   final String userId;
   final String peerId;
   final KeyManager keyManager;
-  RSAPublicKey? peerPublicKey;
+  IdentityPublicKeys? peerIdentity;
+  PrekeyBundle? peerPrekeyBundle;
 
   bool _isPolling = false;
   bool _isSending = false;
@@ -68,29 +68,28 @@ class ChatService {
 
   // PUBLIC API
 
-  Future<bool> initialize(String? peerPublicKeyPem) async {
-    if (peerPublicKeyPem != null &&
-        peerPublicKeyPem.isNotEmpty &&
-        peerPublicKeyPem != 'NONE') {
+  Future<bool> initialize(String? peerIdentityJson) async {
+    if (peerIdentityJson != null &&
+        peerIdentityJson.isNotEmpty &&
+        peerIdentityJson != 'NONE') {
       try {
-        peerPublicKey = keyManager.importPeerPublicKey(peerPublicKeyPem);
+        peerIdentity = keyManager.importPeerIdentity(peerIdentityJson);
         return true;
       } catch (e) {
-        print('Invalid cached peer public key: $e');
+        print('Invalid cached peer identity: $e');
       }
     }
 
-    // Try cache db first
-    final cachedPem = await _getPeerPublicKeyFromDb();
-    if (cachedPem != null) {
+    final cached = await _getPeerIdentityFromDb();
+    if (cached != null) {
       try {
-        peerPublicKey = keyManager.importPeerPublicKey(cachedPem);
+        peerIdentity = keyManager.importPeerIdentity(cached);
         return true;
       } catch (e) {
-        print('Invalid peer public key in database: $e');
+        print('Invalid peer identity in database: $e');
       }
     }
-    return await _fetchPeerPublicKeyOverTor();
+    return await _fetchPeerIdentityOverTor();
   }
 
   void startPolling() {
@@ -130,7 +129,7 @@ class ChatService {
   /// dropped from the pending_messages retry table (e.g. after a failed send
   /// before the queue insert, or app restart during a long Tor timeout).
   Future<void> reconcilePendingQueue() async {
-    if (_disposed || peerPublicKey == null) return;
+    if (_disposed || peerIdentity == null) return;
 
     final pendingRows = await MessagesDb.getPendingOutboundDirectMessages(
       senderId: userId,
@@ -139,7 +138,7 @@ class ChatService {
     if (pendingRows.isEmpty) return;
 
     for (final row in pendingRows) {
-      if (_disposed || peerPublicKey == null) return;
+      if (_disposed || peerIdentity == null) return;
 
       final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
       final type = row['type'] as String? ?? 'text';
@@ -170,14 +169,19 @@ class ChatService {
     String? replyToId,
     String? messageId,
   }) async {
-    if (peerPublicKey == null) return null;
+    if (peerIdentity == null) return null;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id =
         messageId ?? const Uuid().v4(); // ✅ Use provided ID or generate new
 
-    final encryptedForPeer = keyManager.encryptForPeer(text, peerPublicKey!);
-    final encryptedForSelf = keyManager.encryptForSelf(text);
+    final encryptedForPeer = await keyManager.encryptForPeer(
+      text,
+      peerIdentity!,
+      peerId: peerId,
+      peerPrekey: peerPrekeyBundle,
+    );
+    final encryptedForSelf = await keyManager.encryptForSelf(text);
 
     await MessagesDb.insertMessage({
       'id': id,
@@ -223,13 +227,9 @@ class ChatService {
     String? messageId,
     bool viewOnce = false,
   }) async {
-    if (peerPublicKey == null) return null;
+    if (peerIdentity == null) return null;
 
-    final payload = await compute(_encryptFileIsolate, {
-      'bytes': bytes,
-      'peerPublicKey': peerPublicKey,
-      'selfPublicKey': keyManager.publicKey,
-    });
+    final payload = await _encryptFilePayload(bytes);
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id =
@@ -492,21 +492,51 @@ class ChatService {
     }
   }
 
-  Future<bool> _fetchPeerPublicKeyOverTor() async {
+  Future<Map<String, String>> _encryptFilePayload(Uint8List bytes) async {
+    final peer = peerIdentity!;
+    final result = await CryptoWire.encryptFile(
+      bytes,
+      keyManager.identity,
+      peer.agreePublic,
+    );
+    return {
+      'peerPayload': result.peerPayload,
+      'selfPayload': result.selfPayload,
+    };
+  }
+
+  Future<bool> _fetchPeerIdentityOverTor() async {
     if (TorRuntimeGate.blocked) return false;
     try {
-      final publicKeyPem =
-          (await TransportProvider.getPublicOrFallback(peerId)).trim();
-      peerPublicKey = keyManager.importPeerPublicKey(publicKeyPem);
-      await _persistPeerPublicKey(publicKeyPem);
+      String? identityJson;
+      try {
+        final profileBody =
+            await TransportProvider.getProfileOrFallback(peerId);
+        final data = jsonDecode(profileBody) as Map<String, dynamic>;
+        identityJson = (data['identityJson'] as String?)?.trim() ??
+            (data['publicKeyPem'] as String?)?.trim();
+        final prekeyRaw = data['prekeyBundle'];
+        peerIdentity = keyManager.importPeerIdentity(identityJson!);
+        if (prekeyRaw is Map) {
+          peerPrekeyBundle = await PrekeyBundle.parseVerified(
+            Map<String, dynamic>.from(prekeyRaw),
+            peerIdentity!,
+          );
+        }
+      } catch (_) {
+        identityJson =
+            (await TransportProvider.getPublicOrFallback(peerId)).trim();
+        peerIdentity = keyManager.importPeerIdentity(identityJson);
+      }
+      await _persistPeerIdentity(identityJson);
       return true;
     } catch (e) {
-      print('Failed to fetch peer public key: $e');
+      print('Failed to fetch peer identity: $e');
       return false;
     }
   }
 
-  Future<void> _persistPeerPublicKey(String publicKeyPem) async {
+  Future<void> _persistPeerIdentity(String identityJson) async {
     try {
       final existing = await DBHelper.getUserById(peerId);
       await DBHelper.insertOrUpdateUser({
@@ -515,7 +545,8 @@ class ChatService {
         'avatarUrl': existing?['avatarUrl'] ?? '',
         'avatarBase64': existing?['avatarBase64'],
         'customName': existing?['customName'],
-        'publicKeyPem': publicKeyPem,
+        'identityJson': identityJson,
+        'publicKeyPem': identityJson,
       });
     } catch (e) {
       print('Failed to persist peer public key: $e');
@@ -546,11 +577,11 @@ class ChatService {
       peerId: peerId,
       keyManager: keyManager,
     );
-    final cached = await service._getPeerPublicKeyFromDb();
+    final cached = await service._getPeerIdentityFromDb();
     if (cached != null) {
-      service.peerPublicKey = keyManager.importPeerPublicKey(cached);
+      service.peerIdentity = keyManager.importPeerIdentity(cached);
     } else {
-      final ok = await service._fetchPeerPublicKeyOverTor();
+      final ok = await service._fetchPeerIdentityOverTor();
       if (!ok) {
         service.dispose();
         return false;
@@ -586,11 +617,11 @@ class ChatService {
         peerId: peer,
         keyManager: keyManager,
       );
-      final cached = await service._getPeerPublicKeyFromDb();
+      final cached = await service._getPeerIdentityFromDb();
       if (cached != null) {
-        service.peerPublicKey = keyManager.importPeerPublicKey(cached);
+        service.peerIdentity = keyManager.importPeerIdentity(cached);
       } else {
-        final ok = await service._fetchPeerPublicKeyOverTor();
+        final ok = await service._fetchPeerIdentityOverTor();
         if (!ok) {
           service.dispose();
           continue;
@@ -611,7 +642,7 @@ class ChatService {
     try {
       final pending =
           await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
-      if (pending.isEmpty || peerPublicKey == null) return;
+      if (pending.isEmpty || peerIdentity == null) return;
 
       final sentIds = <String>[];
       for (final msg in pending.take(10)) {
@@ -655,10 +686,11 @@ class ChatService {
     }
   }
 
-  Future<String?> _getPeerPublicKeyFromDb() async {
+  Future<String?> _getPeerIdentityFromDb() async {
     try {
       final user = await DBHelper.getUserById(peerId);
-      return user!['publicKeyPem'] as String?;
+      return (user?['identityJson'] as String?) ??
+          (user?['publicKeyPem'] as String?);
     } catch (_) {
       return null;
     }
@@ -690,28 +722,31 @@ class ChatService {
     // The message column has the self-encrypted payload, but we need
     // the peer-encrypted version. For text messages, re-encrypt from scratch.
     // For file messages, re-encrypt the stored data.
-    if (peerPublicKey == null) return;
+    if (peerIdentity == null) return;
 
     final type = msg['type'] as String;
     String peerPayload;
 
     if (type == 'text') {
-      // Decrypt our copy, re-encrypt for peer
-      final plaintext = keyManager.decryptMessage(msg['message'] as String);
-      peerPayload = keyManager.encryptForPeer(plaintext, peerPublicKey!);
+      final plaintext =
+          await keyManager.decryptMessage(msg['message'] as String);
+      peerPayload = await keyManager.encryptForPeer(
+        plaintext,
+        peerIdentity!,
+        peerId: peerId,
+        peerPrekey: peerPrekeyBundle,
+      );
     } else {
-      // For files/images/audio: decrypt self payload, re-encrypt for peer
-      final selfPayloadJson = jsonDecode(msg['message'] as String) as Map<String, dynamic>;
-      final selfKey = keyManager.privateKey;
-      final aesKeyBytes = RSAHelper.decryptBytesWithPrivateKey(
-        base64Decode(selfPayloadJson['aes_key'] as String), selfKey);
-      // Re-encrypt AES key for peer
-      final peerEncryptedKey = RSAHelper.encryptBytesWithPublicKey(aesKeyBytes, peerPublicKey!);
-      peerPayload = jsonEncode({
-        'aes_key': peerEncryptedKey,
-        'iv': selfPayloadJson['iv'],
-        'data': selfPayloadJson['data'],
-      });
+      final bytes = await CryptoWire.decryptFile(
+        msg['message'] as String,
+        keyManager.identity,
+      );
+      final payloads = await CryptoWire.encryptFile(
+        bytes,
+        keyManager.identity,
+        peerIdentity!.agreePublic,
+      );
+      peerPayload = payloads.peerPayload;
     }
 
     // Update status back to pending
@@ -767,37 +802,6 @@ class ChatService {
     });
   }
 
-  static Map<String, String> _encryptFileIsolate(Map<String, dynamic> params) {
-    final bytes = params['bytes'] as Uint8List;
-    final peerPubKey = params['peerPublicKey'] as RSAPublicKey;
-    final selfPubKey = params['selfPublicKey'] as RSAPublicKey;
-
-    final aesKey = AESHelper.generateAESKey();
-    final iv = AESHelper.generateIV();
-    final encryptedBytes = AESHelper.encryptBytes(bytes, aesKey, iv);
-
-    final peerEncryptedKey = RSAHelper.encryptBytesWithPublicKey(
-      aesKey.bytes,
-      peerPubKey,
-    );
-    final selfEncryptedKey = RSAHelper.encryptBytesWithPublicKey(
-      aesKey.bytes,
-      selfPubKey,
-    );
-
-    return {
-      'peerPayload': jsonEncode({
-        'aes_key': peerEncryptedKey,
-        'iv': iv.base64,
-        'data': base64Encode(encryptedBytes),
-      }),
-      'selfPayload': jsonEncode({
-        'aes_key': selfEncryptedKey,
-        'iv': iv.base64,
-        'data': base64Encode(encryptedBytes),
-      }),
-    };
-  }
 }
 
 class MessageStatusUpdate {

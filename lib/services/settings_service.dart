@@ -1,8 +1,10 @@
 // lib/services/settings_service.dart
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/settings.dart';
+import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/link_unfurl_service.dart';
 
 class SettingsService {
@@ -62,6 +64,8 @@ class SettingsService {
   // Onboarding
   bool get onboardingCompleted => _settings.onboardingCompleted;
 
+  UnlockType get unlockType => _settings.unlockType;
+
   static const String _legacyReadReceiptsKey = 'read_receipts';
 
   // Initialize (call at app startup)
@@ -70,6 +74,17 @@ class SettingsService {
     _settingsExistedAtLaunch = _prefs?.getString(_settingsKey) != null;
     await load();
     await _migrateLegacyPrefs();
+    await migrateUnlockTypeForExistingKeys();
+  }
+
+  /// Existing installs without unlockType default to passphrase (12+ char era).
+  Future<void> migrateUnlockTypeForExistingKeys() async {
+    final raw = _prefs?.getString(_settingsKey);
+    if (raw == null) return;
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    if (json.containsKey('unlockType')) return;
+    if (!await CryptoKeyStore.isPassphraseSet()) return;
+    await setUnlockType(UnlockType.passphrase);
   }
 
   /// One-time migration from privacy screen SharedPreferences keys.
@@ -233,6 +248,11 @@ class SettingsService {
 
   Future<void> setOnboardingCompleted(bool value) async {
     _settings = _settings.copyWith(onboardingCompleted: value);
+    await save();
+  }
+
+  Future<void> setUnlockType(UnlockType value) async {
+    _settings = _settings.copyWith(unlockType: value);
     await save();
   }
 

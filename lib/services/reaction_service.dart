@@ -12,7 +12,8 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/reaction_payload.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
-import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
+import 'package:prysm/crypto/identity.dart';
 
 class ReactionUpdate {
   final String targetMessageId;
@@ -132,7 +133,11 @@ class ReactionService {
     }
 
     final encrypted =
-        keyManager.encryptForPeer(payload.encode(), peerKey);
+        await keyManager.encryptForPeer(
+      payload.encode(),
+      peerKey,
+      peerId: peerId!,
+    );
     final eventId = reactionEventId(
       targetMessageId: payload.targetMessageId,
       reactorId: userId,
@@ -155,7 +160,7 @@ class ReactionService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return;
 
-    final encrypted = GroupCrypto.encryptText(groupKey, payload.encode());
+    final encrypted = await GroupCrypto.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     final targets = members.map((m) => m.memberId).where((id) => id != userId);
 
@@ -292,16 +297,9 @@ class ReactionService {
     );
   }
 
-  Future<RSAPublicKey?> _loadPeerPublicKey() async {
+  Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
     if (peerId == null) return null;
-    try {
-      final user = await DBHelper.getUserById(peerId!);
-      final pem = user?['publicKeyPem'] as String?;
-      if (pem == null || pem.isEmpty) return null;
-      return keyManager.importPeerPublicKey(pem);
-    } catch (_) {
-      return null;
-    }
+    return loadPeerIdentityFromDb(keyManager, peerId!);
   }
 
   /// Apply an inbound reaction from PrysmServer or pending retry worker.
@@ -317,6 +315,7 @@ class ReactionService {
       keyManager: keyManager,
       encrypted: encrypted,
       type: type,
+      senderId: senderId,
       groupId: groupId,
       groupService: groupService,
     );
@@ -359,17 +358,36 @@ class ReactionService {
     required KeyManager keyManager,
     required String encrypted,
     required String type,
+    required String senderId,
     String? groupId,
     GroupService? groupService,
   }) async {
     try {
       if (type == reactionType) {
-        return keyManager.decryptMessage(encrypted);
+        final user = await DBHelper.getUserById(senderId);
+        final identityJson = (user?['identityJson'] as String?) ??
+            (user?['publicKeyPem'] as String?);
+        if (identityJson == null || identityJson.isEmpty) return null;
+        final peerKey = keyManager.importPeerIdentity(identityJson);
+        return keyManager.decryptPeerMessage(
+          peerId: senderId,
+          wire: encrypted,
+          peer: peerKey,
+        );
       }
       if (type == groupReactionType && groupId != null && groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        return GroupCrypto.decryptText(groupKey, encrypted);
+        if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
+          return GroupCrypto.decryptWithSenderKey(
+            epochKey: groupKey,
+            groupId: groupId,
+            wire: encrypted,
+            transportSenderId: senderId,
+            keyManager: keyManager,
+          );
+        }
+        return await GroupCrypto.decryptText(groupKey, encrypted);
       }
     } catch (e) {
       print('Reaction decrypt failed: $e');

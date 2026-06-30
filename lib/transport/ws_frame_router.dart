@@ -43,7 +43,7 @@ class WsFrameRouter {
     if (frame.op == 'get_profile') {
       final router = _router;
       if (router == null) return [];
-      final result = router.buildProfile();
+      final result = await router.buildProfile();
       return [
         WsFrame.response(
           op: 'profile',
@@ -56,12 +56,16 @@ class WsFrameRouter {
     if (frame.op == 'get_public') {
       final router = _router;
       if (router == null) return [];
-      final result = router.buildPublicKey();
+      final result = await router.buildPublicKey();
+      final identityJson = result.plainTextBody ?? '';
       return [
         WsFrame.response(
           op: 'public',
           id: frame.id ?? '',
-          payload: {'publicKeyPem': result.plainTextBody ?? ''},
+          payload: {
+            'identityJson': identityJson,
+            'publicKeyPem': identityJson,
+          },
         ).encode(),
       ];
     }

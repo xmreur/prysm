@@ -1,29 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pointycastle/asymmetric/api.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/services/chat_service.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/rsa_helper.dart';
 
 void main() {
   late KeyManager keyManager;
   late ChatService service;
+  late IdentityKeyPair peerIdentity;
 
-  setUp(() {
+  setUp(() async {
     InboundMessageNotifier.instance.resetForTest();
 
-    final pair = RSAHelper.generateKeyPair();
-    keyManager = KeyManager.fromKeys(
-      pair.privateKey as RSAPrivateKey,
-      pair.publicKey as RSAPublicKey,
-    );
+    final local = await IdentityKeyPair.generate();
+    peerIdentity = await IdentityKeyPair.generate();
+    keyManager = KeyManager.fromIdentity(local);
 
     service = ChatService(
       userId: 'me.onion',
       peerId: 'peer.onion',
       keyManager: keyManager,
     );
-    service.peerPublicKey = pair.publicKey as RSAPublicKey;
+    service.peerIdentity = IdentityPublicKeys(
+      signPublic: await peerIdentity.signPublicKey,
+      agreePublic: await peerIdentity.agreePublicKey,
+      fingerprint: 'test',
+    );
   });
 
   tearDown(() {

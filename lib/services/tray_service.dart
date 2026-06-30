@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
+import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
@@ -66,6 +67,7 @@ class TrayService with TrayListener {
   StreamSubscription<void>? _pendingSub;
   StreamSubscription<void>? _refreshSub;
   StreamSubscription<void>? _batterySaverSub;
+  VoidCallback? _callManagerListener;
 
   int _lastUnread = -1;
   String? _badgedIconPath;
@@ -126,6 +128,11 @@ class TrayService with TrayListener {
     CallForegroundSession.onActiveChanged = (_) {
       unawaited(refreshStatus());
     };
+
+    _callManagerListener ??= () => unawaited(refreshStatus());
+    try {
+      CallManager.instance.addListener(_callManagerListener!);
+    } catch (_) {}
 
     _restartPollTimer();
     await refreshStatus();
@@ -313,6 +320,47 @@ class TrayService with TrayListener {
       MenuItem.separator(),
     ];
 
+    CallSnapshot? callSnapshot;
+    try {
+      callSnapshot = CallManager.instance.snapshot;
+    } catch (_) {}
+
+    final incoming = callSnapshot?.state == CallState.incoming;
+    final active = callSnapshot?.state == CallState.active;
+    final incomingCallId = callSnapshot?.callId;
+    final incomingPeer = callSnapshot?.peerOnion;
+
+    if (incoming && incomingCallId != null && incomingPeer != null) {
+      items.addAll([
+        MenuItem(label: 'Incoming call', disabled: true),
+        MenuItem(
+          key: 'call_accept',
+          label: 'Accept call',
+          onClick: (_) => unawaited(_acceptCallFromTray()),
+        ),
+        MenuItem(
+          key: 'call_decline',
+          label: 'Decline call',
+          onClick: (_) => unawaited(
+            CallManager.instance.declineFromNotification(
+              callId: incomingCallId,
+              peerOnion: incomingPeer,
+            ),
+          ),
+        ),
+        MenuItem.separator(),
+      ]);
+    } else if (active) {
+      items.add(
+        MenuItem(
+          key: 'call_hangup',
+          label: 'Hang up',
+          onClick: (_) => unawaited(CallManager.instance.endCall()),
+        ),
+      );
+      items.add(MenuItem.separator());
+    }
+
     if (!Platform.isLinux) {
       final pendingLine = status.pendingCount == 1
           ? 'Pending: 1 message'
@@ -362,6 +410,11 @@ class TrayService with TrayListener {
     await windowManager.focus();
   }
 
+  Future<void> _acceptCallFromTray() async {
+    await _showWindow();
+    await CallManager.instance.acceptIncoming();
+  }
+
   /// Called from tray menu Quit and shared shutdown path.
   Future<void> onQuitRequested() async {
     // Import cycle avoided: main.dart registers this callback.
@@ -385,6 +438,12 @@ class TrayService with TrayListener {
     await _refreshSub?.cancel();
     if (CallForegroundSession.onActiveChanged != null) {
       CallForegroundSession.onActiveChanged = null;
+    }
+    if (_callManagerListener != null) {
+      try {
+        CallManager.instance.removeListener(_callManagerListener!);
+      } catch (_) {}
+      _callManagerListener = null;
     }
     trayManager.removeListener(this);
     try {

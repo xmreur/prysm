@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/stt_model_manager.dart';
+import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'package:flutter/foundation.dart';
@@ -90,6 +91,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableLinkUnfurling = settings.enableLinkUnfurling;
       _enableVoiceTranscription = settings.enableVoiceTranscription;
     });
+  }
+
+  Future<void> _showUnlockMethodPicker() async {
+    final km = widget.keyManager;
+    if (km == null) return;
+    final current = settings.unlockType;
+  UnlockType? selected = current;
+
+    final picked = await showModalBottomSheet<UnlockType>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Unlock method',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Switching methods requires setting a new unlock code.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 16),
+                    RadioGroup<UnlockType>(
+                      groupValue: selected,
+                      onChanged: (v) => setModalState(() => selected = v),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<UnlockType>(
+                            title: const Text('6-digit PIN'),
+                            value: UnlockType.pin,
+                          ),
+                          RadioListTile<UnlockType>(
+                            title: const Text('Passphrase (12+ characters)'),
+                            value: UnlockType.passphrase,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: selected == null || selected == current
+                          ? null
+                          : () => Navigator.pop(ctx, selected),
+                      child: const Text('Continue'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (picked == null || picked == current || !mounted) return;
+    final ok = await runUnlockMethodChange(context, km, picked);
+    if (mounted && ok) setState(() {});
   }
 
   Future<void> _loadDownloadLocationDisplay() async {
@@ -573,11 +640,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildCard([
                 if (widget.keyManager != null) ...[
                   _buildNavigationTile(
+                    'Unlock method',
+                    Icons.lock_outline,
+                    _showUnlockMethodPicker,
+                    subtitle: settings.unlockType == UnlockType.pin
+                        ? '6-digit PIN'
+                        : 'Passphrase (12+ characters)',
+                  ),
+                  const Divider(height: 1),
+                  _buildNavigationTile(
                     'Change passcode',
                     Icons.pin_outlined,
                     () => runChangePasscodeFlow(context, widget.keyManager!),
-                    subtitle:
-                        'Update your unlock PIN without changing your identity',
+                    subtitle: settings.unlockType == UnlockType.pin
+                        ? 'Update your unlock PIN without changing your identity'
+                        : 'Update your unlock passphrase without changing your identity',
                   ),
                   const Divider(height: 1),
                 ],

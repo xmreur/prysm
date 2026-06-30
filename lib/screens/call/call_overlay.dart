@@ -86,7 +86,7 @@ class _CallOverlayState extends State<CallOverlay> {
             id: peerOnion,
             name: _shortOnion(peerOnion),
             avatarUrl: '',
-            publicKeyPem: '',
+            identityJson: '',
           )
         : Contact(
             id: row['id'] as String,
@@ -96,7 +96,7 @@ class _CallOverlayState extends State<CallOverlay> {
             avatarUrl: '',
             avatarBase64: row['avatarBase64'] as String?,
             customName: row['customName'] as String?,
-            publicKeyPem: (row['publicKeyPem'] as String?) ?? '',
+            identityJson: (row['identityJson'] as String?) ?? (row['publicKeyPem'] as String?) ?? '',
           );
 
     setState(() => _peer = contact);

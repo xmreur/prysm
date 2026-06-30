@@ -1,10 +1,10 @@
 import 'dart:convert';
 
-import 'package:encrypt/encrypt.dart' as e;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
-import 'package:prysm/util/file_encrypt.dart';
+import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/key_manager.dart';
+
 class FileAttachmentResolver {
   FileAttachmentResolver._();
 
@@ -37,7 +37,6 @@ class FileAttachmentResolver {
       return Uint8List(0);
     }
 
-    // Optimistic sender / group plaintext base64.
     if (_looksLikeBase64Payload(source)) {
       try {
         return base64Decode(source);
@@ -77,13 +76,7 @@ class FileAttachmentResolver {
     String encryptedJson,
     KeyManager keyManager,
   ) async {
-    final hybrid = jsonDecode(encryptedJson) as Map<String, dynamic>;
-    final aesKeyBytes = keyManager.decryptMyMessageBytes(hybrid['aes_key'] as String);
-    return compute(_aesDecryptFilePayload, {
-      'aesKey': aesKeyBytes,
-      'iv': hybrid['iv'],
-      'data': hybrid['data'],
-    });
+    return CryptoWire.decryptFile(encryptedJson, keyManager.identity);
   }
 
   static void _putCache(String messageId, Uint8List bytes) {
@@ -101,11 +94,4 @@ class FileAttachmentResolver {
     _cache.remove(messageId);
     _cacheOrder.remove(messageId);
   }
-}
-
-Uint8List _aesDecryptFilePayload(Map<String, dynamic> args) {
-  final aesKey = e.Key(Uint8List.fromList(List<int>.from(args['aesKey'] as List)));
-  final iv = e.IV.fromBase64(args['iv'] as String);
-  final encryptedData = base64Decode(args['data'] as String);
-  return AESHelper.decryptBytes(encryptedData, aesKey, iv);
 }

@@ -183,7 +183,7 @@ class CallManager extends ChangeNotifier {
       await transport.send(peerOnion, 'call_offer', {
         'callId': callId,
         'sessionId': sessionId,
-        'wrappedKey': session.wrapKeyForPeer(peerKey, _keyManager),
+        'wrappedKey': await session.wrapKeyForPeer(peerKey, _keyManager),
         'codec': {
           'sampleRate': session.codec.sampleRate,
           'channels': session.codec.channels,
@@ -252,6 +252,45 @@ class CallManager extends ChangeNotifier {
     }
   }
 
+  /// Handles notification/tray decline when UI state may lag behind signaling.
+  Future<void> declineFromNotification({
+    required String callId,
+    required String peerOnion,
+  }) async {
+    if (_shuttingDown) return;
+
+    for (var attempt = 0; attempt < 15; attempt++) {
+      final snap = _snapshot;
+      if (snap.state == CallState.incoming &&
+          snap.callId == callId &&
+          snap.peerOnion == peerOnion) {
+        await rejectIncoming();
+        return;
+      }
+      if (!snap.isInCall) {
+        if (attempt == 0) {
+          await _sendEnd(peerOnion, callId, reason: 'declined');
+        }
+        return;
+      }
+      if (snap.peerOnion == peerOnion &&
+          snap.callId == callId &&
+          (snap.state == CallState.active ||
+              snap.state == CallState.ringing ||
+              snap.state == CallState.connecting)) {
+        await endCall();
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+
+    await _sendEnd(peerOnion, callId, reason: 'declined');
+    if (_snapshot.isInCall && _snapshot.peerOnion == peerOnion) {
+      await _teardown();
+      _setSnapshot(const CallSnapshot(state: CallState.idle));
+    }
+  }
+
   Future<void> endCall() async {
     final peerOnion = _snapshot.peerOnion;
     final callId = _snapshot.callId;
@@ -314,7 +353,7 @@ class CallManager extends ChangeNotifier {
     if (callId == null || sessionId == 0 || wrappedKey == null) return;
 
     try {
-      final session = CallSession.fromInbound(
+      final session = await CallSession.fromInbound(
         callId: callId,
         sessionId: sessionId,
         peerOnion: event.peerOnion,
@@ -447,13 +486,17 @@ class CallManager extends ChangeNotifier {
     String callId, {
     required String reason,
   }) async {
+    final transport = _transport;
+    if (transport == null) return;
+
     final payload = {
       'callId': callId,
       'reason': reason,
     };
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        await _transport?.send(peerOnion, 'call_end', payload);
+        await transport.ensureConnected(peerOnion);
+        await transport.send(peerOnion, 'call_end', payload);
         return;
       } catch (e) {
         if (kDebugMode) {

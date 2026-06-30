@@ -6,11 +6,15 @@ class PassphraseScreen extends StatefulWidget {
   final Future<bool> Function(String passphrase) onVerifyPassphrase;
   final Future<bool> isPassphraseSet;
   final int? torBootstrapProgress;
+  final bool showBiometricButton;
+  final VoidCallback? onTryBiometric;
 
   const PassphraseScreen({
     required this.onVerifyPassphrase,
     required this.isPassphraseSet,
     this.torBootstrapProgress,
+    this.showBiometricButton = false,
+    this.onTryBiometric,
     super.key,
   });
 
@@ -156,6 +160,16 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                     _title,
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
+                  if (widget.showBiometricButton &&
+                      !_isSetup &&
+                      widget.onTryBiometric != null) ...[
+                    const SizedBox(height: 16),
+                    IconButton(
+                      icon: const Icon(Icons.fingerprint, size: 48),
+                      tooltip: 'Unlock with biometrics',
+                      onPressed: widget.onTryBiometric,
+                    ),
+                  ],
                   if (_isSetup) ...[
                     const SizedBox(height: 8),
                     Text(

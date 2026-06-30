@@ -17,6 +17,7 @@ import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/models/unlock_type.dart';
+import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'package:flutter/foundation.dart';
@@ -53,6 +54,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
   bool _enableVoiceTranscription = false;
+  bool _biometricsEnabled = false;
+  bool _biometricsAvailable = false;
   bool _isDownloadingSttModel = false;
   double _sttModelDownloadProgress = 0;
   String _downloadLocationDisplay = 'Loading...';
@@ -66,6 +69,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadDownloadLocationDisplay();
+    if (Platform.isAndroid) {
+      unawaited(_loadBiometricsState());
+    }
     if (!kIsWeb && Platform.isLinux) {
       unawaited(_loadLinuxInputDevices());
     }
@@ -90,7 +96,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
       _enableVoiceTranscription = settings.enableVoiceTranscription;
+      _biometricsEnabled = settings.biometricsEnabled;
     });
+  }
+
+  Future<void> _loadBiometricsState() async {
+    final available = await BiometricUnlockService.instance.isAvailable();
+    if (mounted) {
+      setState(() => _biometricsAvailable = available);
+    }
+  }
+
+  Future<void> _onBiometricsToggled(bool value) async {
+    final km = widget.keyManager;
+    if (km == null) return;
+
+    if (!value) {
+      await BiometricUnlockService.instance.clear();
+      await settings.setBiometricsEnabled(false);
+      if (mounted) setState(() => _biometricsEnabled = false);
+      return;
+    }
+
+    final current = await promptCurrentUnlockSecret(
+      context,
+      km,
+      settings.unlockType,
+    );
+    if (current == null || !mounted) return;
+
+    await BiometricUnlockService.instance.storeSecret(current);
+    await settings.setBiometricsEnabled(true);
+    if (mounted) setState(() => _biometricsEnabled = true);
   }
 
   Future<void> _showUnlockMethodPicker() async {
@@ -657,6 +694,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : 'Update your unlock passphrase without changing your identity',
                   ),
                   const Divider(height: 1),
+                  if (Platform.isAndroid && _biometricsAvailable) ...[
+                    _buildSwitchTile(
+                      'Unlock with biometrics',
+                      'Skip PIN or passphrase using fingerprint or face',
+                      Icons.fingerprint,
+                      _biometricsEnabled,
+                      _onBiometricsToggled,
+                    ),
+                    const Divider(height: 1),
+                  ],
                 ],
                 _buildNavigationTile(
                   'Advanced Privacy',

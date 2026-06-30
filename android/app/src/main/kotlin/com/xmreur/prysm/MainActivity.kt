@@ -1,60 +1,37 @@
 package com.xmreur.prysm
 
-import TorController
-import android.util.Log
 import android.view.WindowManager
-import androidx.lifecycle.lifecycleScope
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import kotlinx.coroutines.launch
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
+
     private lateinit var torController: TorController
+    private var biometricChannelHandler: BiometricChannelHandler? = null
+    private var torChannelHandler: TorChannelHandler? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         torController = TorController(this)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "prysm_tor").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "startTor" -> {
-                    lifecycleScope.launch {
-                        try {
-                            torController.startTor()
-                            result.success(null)
-                        } catch (e: Exception) {
-                            Log.e("TOR", "startTor failed", e)
-                            result.error("START_FAILED", e.message, null)
-                        }
-                    }
-                }
-                "stopTor" -> {
-                    lifecycleScope.launch {
-                        try {
-                            torController.stopTor()
-                            result.success(true)
-                        } catch (e: Exception) {
-                            Log.e("TOR", "stopTor failed", e)
-                            result.error("STOP_FAILED", e.message, null)
-                        }
-                    }
-                }
-                "getOnionAddress" -> {
-                    torController.getOnionAddressAsync { onionAddress ->
-                        if (onionAddress != null && onionAddress.endsWith(".onion")) {
-                            Log.d("TOR", "Onion address ready: $onionAddress")
-                            result.success(onionAddress)
-                        } else {
-                            result.error("NO_ADDRESS", "ONION address not available", null)
-                        }
-                    }
-                }
-                else -> result.notImplemented()
-            }
-        }
+        torChannelHandler = TorChannelHandler(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+            torController = torController
+        ).also { it.register() }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "prysm/flag_secure").setMethodCallHandler { call, result ->
+        biometricChannelHandler = BiometricChannelHandler(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+            biometricController = BiometricController(this)
+        ).also { it.register() }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "prysm/flag_secure"
+        ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "enable" -> {
                     window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -67,5 +44,15 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        biometricChannelHandler?.unregister()
+        biometricChannelHandler = null
+
+        torChannelHandler?.unregister()
+        torChannelHandler = null
+
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 }

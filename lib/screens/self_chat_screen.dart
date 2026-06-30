@@ -6,7 +6,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/crypto/wire.dart';
@@ -15,14 +14,15 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
-import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
+import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/services/self_chat_service.dart';
+import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_modify_policy.dart';
@@ -226,33 +226,16 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     );
     if (pickedFile == null) return;
 
-    var bytes = await pickedFile.readAsBytes();
-
-    if (bytes.length > 500 * 1024) {
-      try {
-        bytes = await FlutterImageCompress.compressWithList(
-          bytes,
-          minHeight: 1080,
-          minWidth: 1080,
-          quality: 70,
-        );
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image compression failed, sending original.'),
-            ),
-          );
-        }
-      }
-    }
-
+    final bytes = await pickedFile.readAsBytes();
     if (!mounted) return;
 
-    final viewOnce = await ImageSendPreviewScreen.open(context, bytes);
-    if (viewOnce == null || !mounted) return;
-
-    await _sendFile(bytes, pickedFile.name, 'image', viewOnce: viewOnce);
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: bytes,
+      fileName: pickedFile.name,
+      sendFile: _sendFile,
+      forceImageFlow: true,
+    );
   }
 
   Future<void> _handleSendFile() async {
@@ -261,7 +244,33 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
 
     final file = result.files.first;
     if (file.bytes == null) return;
-    await _sendFile(file.bytes!, file.name, 'file');
+    if (!mounted) return;
+
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: file.bytes!,
+      fileName: file.name,
+      sendFile: _sendFile,
+    );
+  }
+
+  Future<void> _handleDroppedFile(String path, String name) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (!mounted) return;
+      await ChatAttachmentIngress.sendLocalAttachment(
+        context: context,
+        bytes: bytes,
+        fileName: name,
+        sendFile: _sendFile,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not read dropped file: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
@@ -596,7 +605,9 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         ),
       ),
       body: SafeArea(
-        child: JumpToBottomFabOverlay(
+        child: PrysmChatDropTarget(
+          onFileDropped: _handleDroppedFile,
+          child: JumpToBottomFabOverlay(
           visible: !_stickToBottom && _messages.messages.isNotEmpty,
           onPressed: _jumpToBottom,
           child: Chat(
@@ -690,6 +701,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
               );
             },
           ),
+        ),
         ),
         ),
       ),

@@ -418,7 +418,7 @@ class MessageModifyService {
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
     if (peerId == null) return null;
     try {
-      return loadPeerIdentityFromDb(keyManager, peerId!);
+      return await loadPeerIdentityFromDb(keyManager, peerId!);
     } catch (e) {
       print('Failed to load peer public key for $peerId: $e');
       return null;

@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/peer_ws_connection_notifier.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
@@ -129,8 +130,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _currentTheme = 0;
   bool? _peerOnline;
   late PeerPresenceTracker _presenceTracker;
-  Timer? _pingTimer;
   Timer? _presenceStaleTimer;
+  StreamSubscription<PeerWsConnectionEvent>? _wsPresenceSub;
   StreamSubscription<void>? _batterySaverSub;
 
   Set<String> selectedMessageIds = {};
@@ -219,13 +220,62 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceTracker = PeerPresenceTracker();
     _listScrollController.addListener(_onListScroll);
     _initializeChat(); // ✅ NEW METHOD
-    _checkPeerStatus();
-    _startPeerPingTimer();
-    _startPresenceStaleTimer();
+    _initPeerPresence();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
       if (mounted) {
-        _startPeerPingTimer();
         _startPresenceStaleTimer();
+      }
+    });
+  }
+
+  bool get _isNetworkAvailable =>
+      TransportProvider.isConfigured && !TorRuntimeGate.blocked;
+
+  void _applyOfflinePresence() {
+    if (!mounted) return;
+    if (_peerOnline != false) {
+      setState(() => _peerOnline = false);
+    }
+  }
+
+  void _initPeerPresence() {
+    if (!_isNetworkAvailable) {
+      _applyOfflinePresence();
+    } else {
+      _syncPeerPresenceFromWs();
+      _subscribeToWsPresence();
+      unawaited(_refreshPeerProfile());
+    }
+    _startPresenceStaleTimer();
+  }
+
+  void _syncPeerPresenceFromWs() {
+    if (!_isNetworkAvailable) {
+      _applyOfflinePresence();
+      return;
+    }
+    final manager = TransportProvider.instance.wsManager;
+    if (manager.isConnected(widget.peerId)) {
+      _presenceTracker.recordWsConnected();
+    } else if (manager.isConnectInFlight(widget.peerId)) {
+      _presenceTracker.clearWsState();
+    } else {
+      _presenceTracker.recordWsDisconnected();
+    }
+    _syncPeerPresence();
+  }
+
+  void _subscribeToWsPresence() {
+    _wsPresenceSub?.cancel();
+    _wsPresenceSub = PeerWsConnectionNotifier.instance.onChanged.listen((event) {
+      if (event.peerOnion != widget.peerId || !mounted) return;
+      if (event.connected) {
+        _presenceTracker.recordWsConnected();
+        _syncPeerPresence();
+        unawaited(_refreshPeerProfile());
+      } else {
+        _presenceTracker.recordWsDisconnected();
+        _syncPeerPresence();
       }
     });
   }
@@ -247,15 +297,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceStaleTimer?.cancel();
     _presenceStaleTimer = Timer.periodic(
       BatterySaverPolicy.presenceStaleCheckInterval(),
-      (_) => _syncPeerPresence(),
-    );
-  }
-
-  void _startPeerPingTimer() {
-    _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(
-      BatterySaverPolicy.peerStatusInterval(),
-      (_) => _checkPeerStatus(),
+      (_) {
+        if (_isNetworkAvailable) {
+          _syncPeerPresenceFromWs();
+        } else {
+          _applyOfflinePresence();
+        }
+      },
     );
   }
 
@@ -301,12 +349,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (TransportProvider.isConfigured) {
       TransportProvider.instance.pinPeer(widget.peerId);
     }
-  }
-
-  void _suspendPresenceProbeDuringMediaUpload() {
-    _presenceTracker.suspendProbeFailuresFor(
-      BatterySaverPolicy.mediaUploadPresenceGrace,
-    );
   }
 
   void _onTypingEvent(TypingIndicatorEvent event) {
@@ -459,7 +501,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _readReceiptRefreshSub?.cancel();
     _readReceiptDebounce?.cancel();
     _highlightTimer?.cancel();
-    _pingTimer?.cancel();
+    _wsPresenceSub?.cancel();
     _presenceStaleTimer?.cancel();
     _batterySaverSub?.cancel();
 
@@ -472,12 +514,11 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  /// Check peer status by calling /profile — determines online/offline
-  /// AND fetches fresh name/avatar in one round-trip.
-  Future<void> _checkPeerStatus({
+  /// Fetches fresh name/avatar from /profile.
+  Future<void> _refreshPeerProfile({
     TransportPreference preference = TransportPreference.wsPreferred,
   }) async {
-    if (TorRuntimeGate.blocked) return;
+    if (!_isNetworkAvailable) return;
     try {
       final body = await TransportProvider.getProfileOrFallback(
         widget.peerId,
@@ -486,8 +527,6 @@ class _ChatScreenState extends State<ChatScreen> {
       final data = jsonDecode(body) as Map<String, dynamic>;
 
       if (!mounted) return;
-
-      _recordPeerActivity();
 
       // Update DB with fresh remote data
       final updates = <String, dynamic>{};
@@ -520,18 +559,8 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.reloadUsers(); // Refresh sidebar with updated name/avatar
         }
       }
-
-      if (mounted) _syncPeerPresence();
     } catch (e) {
-      debugPrint('Profile check failed: $e');
-      if (!mounted) return;
-      final errStr = e.toString();
-      final isHardFailure = errStr.contains('hostUnreachable') ||
-          errStr.contains('connectionRefused') ||
-          errStr.contains('ttlExpired') ||
-          e is TimeoutException;
-      _presenceTracker.considerProfileFailure(isHardFailure: isHardFailure);
-      _syncPeerPresence();
+      debugPrint('Profile refresh failed: $e');
     }
   }
 
@@ -556,7 +585,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _newMessagesSub?.cancel();
       _statusSub?.cancel();
       _reachableSub?.cancel();
-      _pingTimer?.cancel();
+      _wsPresenceSub?.cancel();
       _presenceStaleTimer?.cancel();
 
       _presenceTracker = PeerPresenceTracker();
@@ -594,9 +623,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       _initializeChat();
-      _checkPeerStatus();
-      _startPeerPingTimer();
-      _startPresenceStaleTimer();
+      _initPeerPresence();
     }
 
     if (oldWidget.currentTheme != widget.currentTheme) {
@@ -1143,7 +1170,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background
-    _suspendPresenceProbeDuringMediaUpload();
     _chatService
         .sendFileMessage(
           bytes,
@@ -1252,7 +1278,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scheduleScrollToBottomAfterSend();
 
-    _suspendPresenceProbeDuringMediaUpload();
     _chatService
         .sendFileMessage(
           bytes,

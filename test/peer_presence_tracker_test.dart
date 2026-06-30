@@ -16,6 +16,23 @@ void main() {
       expect(tracker.isOnline, isNull);
     });
 
+    test('WS connected is online', () {
+      tracker.recordWsConnected();
+      expect(tracker.isOnline, isTrue);
+    });
+
+    test('WS disconnected is offline', () {
+      tracker.recordWsDisconnected();
+      expect(tracker.isOnline, isFalse);
+    });
+
+    test('WS connected takes priority over expired activity', () {
+      tracker.recordActivity();
+      now = now.add(BatterySaverPolicy.presenceActivityTtl());
+      tracker.recordWsConnected();
+      expect(tracker.isOnline, isTrue);
+    });
+
     test('activity within TTL is online', () {
       tracker.recordActivity();
       expect(tracker.isOnline, isTrue);
@@ -30,57 +47,31 @@ void main() {
       expect(tracker.isOnline, isFalse);
     });
 
-    test('profile failure with recent activity stays online', () {
+    test('activity with WS disconnected stays online via TTL', () {
+      tracker.recordWsDisconnected();
       tracker.recordActivity();
-      tracker.considerProfileFailure(isHardFailure: true);
-      tracker.considerProfileFailure(isHardFailure: true);
       expect(tracker.isOnline, isTrue);
     });
 
-    test('two hard profile failures without activity is offline', () {
-      tracker.considerProfileFailure(isHardFailure: true);
-      expect(tracker.isOnline, isNull);
-      tracker.considerProfileFailure(isHardFailure: true);
-      expect(tracker.isOnline, isFalse);
-    });
-
-    test('three soft profile failures without activity is offline', () {
-      tracker.considerProfileFailure(isHardFailure: false);
-      tracker.considerProfileFailure(isHardFailure: false);
-      expect(tracker.isOnline, isNull);
-      tracker.considerProfileFailure(isHardFailure: false);
-      expect(tracker.isOnline, isFalse);
-    });
-
-    test('recordActivity after offline probe returns online', () {
-      tracker.considerProfileFailure(isHardFailure: true);
-      tracker.considerProfileFailure(isHardFailure: true);
+    test('recordActivity after WS offline returns online', () {
+      tracker.recordWsDisconnected();
       expect(tracker.isOnline, isFalse);
 
       tracker.recordActivity();
       expect(tracker.isOnline, isTrue);
+    });
+
+    test('clearWsState returns unknown when no activity', () {
+      tracker.recordWsDisconnected();
+      tracker.clearWsState();
+      expect(tracker.isOnline, isNull);
     });
 
     test('reset clears state', () {
-      tracker.recordActivity();
+      tracker.recordWsConnected();
       tracker.reset();
       expect(tracker.isOnline, isNull);
       expect(tracker.lastActivityAt, isNull);
-    });
-
-    test('suspended probe failures do not mark offline', () {
-      tracker.suspendProbeFailuresFor(const Duration(minutes: 5));
-      tracker.considerProfileFailure(isHardFailure: true);
-      tracker.considerProfileFailure(isHardFailure: true);
-      expect(tracker.isOnline, isNull);
-    });
-
-    test('probe failures resume after suspend expires', () {
-      tracker.suspendProbeFailuresFor(const Duration(minutes: 1));
-      now = now.add(const Duration(minutes: 2));
-      tracker.considerProfileFailure(isHardFailure: true);
-      tracker.considerProfileFailure(isHardFailure: true);
-      expect(tracker.isOnline, isFalse);
     });
   });
 }

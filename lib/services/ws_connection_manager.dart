@@ -10,6 +10,7 @@ import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/peer_ws_connection_notifier.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -409,6 +410,8 @@ class WsConnectionManager {
     if (flush != null) {
       unawaited(flush(peerOnion));
     }
+
+    PeerWsConnectionNotifier.instance.notify(peerOnion, connected: true);
   }
 
   void unregisterLink(String peerOnion) {
@@ -530,6 +533,7 @@ class WsConnectionManager {
     WsInboundDispatcher.instance.detach(peerOnion);
     await link.close();
     onPeerDisconnected?.call(peerOnion);
+    PeerWsConnectionNotifier.instance.notify(peerOnion, connected: false);
   }
 
   @visibleForTesting

@@ -421,27 +421,33 @@ class TransportProvider implements OutboundTransport {
     String? senderId,
     Duration timeout = const Duration(seconds: 15),
   }) async {
-    final localSender = senderId;
-    if (localSender == null || localSender.isEmpty) {
-      if (!isConfigured) return;
-      final onion = await instance._torManager.getOnionAddress();
-      if (onion == null || onion.isEmpty) return;
-      return postSyncHint(
+    try {
+      final localSender = senderId;
+      if (localSender == null || localSender.isEmpty) {
+        if (!isConfigured) return;
+        final onion = await instance._torManager.getOnionAddress();
+        if (onion == null || onion.isEmpty) return;
+        return postSyncHint(
+          peerOnion: peerOnion,
+          senderId: onion,
+          timeout: timeout,
+        );
+      }
+
+      await postJsonOrFallback(
         peerOnion: peerOnion,
-        senderId: onion,
+        path: 'sync-hint',
+        payload: {
+          'senderId': localSender,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
         timeout: timeout,
       );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('TransportProvider: sync-hint to $peerOnion failed: $e');
+      }
     }
-
-    await postJsonOrFallback(
-      peerOnion: peerOnion,
-      path: 'sync-hint',
-      payload: {
-        'senderId': localSender,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      },
-      timeout: timeout,
-    );
   }
 
   static Future<void> postJsonOrFallback({

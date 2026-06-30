@@ -46,6 +46,7 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
@@ -1667,6 +1668,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.onThemeChanged?.call(themeIndex);
   }
 
+  bool _isEditableFocused() {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    return ctx?.widget is EditableText;
+  }
+
+  Map<ShortcutActivator, VoidCallback> _desktopShortcut(
+    LogicalKeyboardKey key,
+    VoidCallback action,
+  ) {
+    if (!isDesktopPlatform) return {};
+    void invoke() {
+      if (_isEditableFocused()) return;
+      action();
+    }
+    return {
+      SingleActivator(key, control: true): invoke,
+      if (Platform.isMacOS) SingleActivator(key, meta: true): invoke,
+    };
+  }
+
+  String _desktopShortcutTooltip(String label, String key) {
+    if (!isDesktopPlatform) return label;
+    final mod = Platform.isMacOS ? 'Cmd' : 'Ctrl';
+    return '$label ($mod+$key)';
+  }
+
   Future<void> _showAddUserDialog({String? prefilledId}) async {
     if (widget.offlineMode) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2244,22 +2271,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 IconButton(
                   icon: const Icon(Icons.settings_outlined),
                   onPressed: onShowSettings,
-                  tooltip: "Settings",
+                  tooltip: _desktopShortcutTooltip('Settings', 'I'),
                 ),
                 IconButton(
                   icon: const Icon(Icons.person_outline),
                   onPressed: onShowProfile,
-                  tooltip: "Profile",
+                  tooltip: 'Profile',
                 ),
                 IconButton(
                   icon: const Icon(Icons.group_add_outlined),
                   onPressed: _showCreateGroup,
-                  tooltip: "Create Group",
+                  tooltip: _desktopShortcutTooltip('Create Group', 'G'),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add_circle_outline),
                   onPressed: _showAddUserDialog,
-                  tooltip: "Add Contact",
+                  tooltip: _desktopShortcutTooltip('Add Contact', 'N'),
                 ),
               ],
             ),
@@ -3200,7 +3227,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    return Scaffold(
+    return CallbackShortcuts(
+      bindings: {
+        ..._desktopShortcut(LogicalKeyboardKey.keyN, _showAddUserDialog),
+        ..._desktopShortcut(LogicalKeyboardKey.keyI, onShowSettings),
+        ..._desktopShortcut(LogicalKeyboardKey.keyG, _showCreateGroup),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
       appBar: AppBar(
         toolbarHeight: 70,
         title: Row(
@@ -3229,8 +3264,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _buildTorAppBarAction(),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: () => setState(() => showSettings = true),
+            tooltip: _desktopShortcutTooltip('Settings', 'I'),
+            onPressed: onShowSettings,
           ),
         ],
         elevation: 2,
@@ -3248,6 +3283,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }

@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/services/message_draft_store.dart';
+import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 
 class MessageComposer extends StatefulWidget {
@@ -35,6 +37,7 @@ class MessageComposer extends StatefulWidget {
 
 class MessageComposerState extends State<MessageComposer> {
   final TextEditingController _textController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   String currentText = '';
   bool showEmojiPicker = false;
 
@@ -49,6 +52,9 @@ class MessageComposerState extends State<MessageComposer> {
   void initState() {
     super.initState();
     _loadDraft();
+    if (isDesktopPlatform) {
+      HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    }
   }
 
   @override
@@ -79,7 +85,11 @@ class MessageComposerState extends State<MessageComposer> {
   void dispose() {
     widget.onTypingChanged?.call(false);
     _persistDraft();
+    if (isDesktopPlatform) {
+      HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    }
     _textController.dispose();
+    _inputFocusNode.dispose();
     _recordTimer?.cancel();
     _recorder.dispose();
     super.dispose();
@@ -105,6 +115,38 @@ class MessageComposerState extends State<MessageComposer> {
     });
     _persistDraft();
     WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
+  }
+
+  void _insertNewlineAtSelection() {
+    final text = _textController.text;
+    final sel = _textController.selection;
+    final start = sel.start >= 0 ? sel.start : text.length;
+    final end = sel.end >= 0 ? sel.end : text.length;
+    final newText = text.replaceRange(start, end, '\n');
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + 1),
+    );
+    setState(() => currentText = newText);
+    _persistDraft();
+    _notifyTypingFromText(newText);
+  }
+
+  bool _handleHardwareKey(KeyEvent event) {
+    if (!_inputFocusNode.hasFocus) return false;
+    if (event is! KeyDownEvent) return false;
+    if (event.logicalKey != LogicalKeyboardKey.enter) return false;
+
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isShiftPressed) {
+      _insertNewlineAtSelection();
+      return true;
+    }
+
+    _handleSend();
+    return true;
   }
 
   void _onEmojiSelected(Category? category, Emoji emoji) {
@@ -307,13 +349,14 @@ class MessageComposerState extends State<MessageComposer> {
         const SizedBox(width: 8),
         Expanded(
           child: TextField(
+            focusNode: _inputFocusNode,
             controller: _textController,
             onChanged: (text) {
               setState(() => currentText = text);
               _persistDraft();
               _notifyTypingFromText(text);
             },
-            onSubmitted: (_) => _handleSend(),
+            onSubmitted: isDesktopPlatform ? null : (_) => _handleSend(),
             decoration: InputDecoration(
               hintText: 'Type a message',
               border: OutlineInputBorder(

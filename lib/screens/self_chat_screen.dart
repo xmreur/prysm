@@ -17,6 +17,7 @@ import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
+import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
@@ -57,6 +58,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   final _messages = InMemoryChatController();
   final _scrollController = ScrollController();
 
+  bool _stickToBottom = true;
   bool _loading = false;
   bool _hasMore = true;
   int? _oldestTimestamp;
@@ -82,7 +84,19 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   }
 
   void _onListScroll() {
-    isChatScrolledToBottom(_scrollController);
+    final atBottom = isChatScrolledToBottom(_scrollController);
+    if (atBottom == _stickToBottom) return;
+    setState(() => _stickToBottom = atBottom);
+  }
+
+  void _jumpToBottom() {
+    _stickToBottom = true;
+    scheduleScrollChatToBottom(
+      _messages,
+      animated: true,
+      isMounted: () => mounted,
+    );
+    setState(() {});
   }
 
   Future<void> _loadInitialMessages() async {
@@ -128,6 +142,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   }
 
   void _scheduleScrollToBottomAfterSend() {
+    _stickToBottom = true;
     scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
   }
 
@@ -581,7 +596,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         ),
       ),
       body: SafeArea(
-        child: Chat(
+        child: JumpToBottomFabOverlay(
+          visible: !_stickToBottom && _messages.messages.isNotEmpty,
+          onPressed: _jumpToBottom,
+          child: Chat(
           chatController: _messages,
           currentUserId: widget.userId,
           theme: ChatTheme.fromThemeData(Theme.of(context)),
@@ -671,6 +689,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
               );
             },
           ),
+        ),
         ),
       ),
     );

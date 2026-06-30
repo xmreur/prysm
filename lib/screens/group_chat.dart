@@ -17,6 +17,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
+import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
@@ -136,7 +137,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _onListScroll() {
-    _stickToBottom = isChatScrolledToBottom(_listScrollController);
+    final atBottom = isChatScrolledToBottom(_listScrollController);
+    if (atBottom == _stickToBottom) return;
+    setState(() => _stickToBottom = atBottom);
+  }
+
+  void _jumpToBottom() {
+    _stickToBottom = true;
+    scheduleScrollChatToBottom(
+      _messages,
+      animated: true,
+      isMounted: () => mounted,
+    );
+    setState(() {});
   }
 
   void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
@@ -1624,7 +1637,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: SafeArea(
-        child: Chat(
+        child: JumpToBottomFabOverlay(
+          visible: !_stickToBottom &&
+              _messages.messages.isNotEmpty &&
+              selectedMessageIds.isEmpty,
+          onPressed: _jumpToBottom,
+          child: Chat(
           currentUserId: _user.id,
           resolveUser: (id) async => User(id: id),
           chatController: _messages,
@@ -1815,6 +1833,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               );
             },
           ),
+        ),
         ),
       ),
     );

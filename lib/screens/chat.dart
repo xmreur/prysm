@@ -10,6 +10,8 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:prysm/models/reply_preview_data.dart';
+import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -137,6 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Set<String> selectedMessageIds = {};
   Message? _replyToMessage;
+  ReplyPreviewData? _replyDraft;
   final Map<String, double> _dragOffsets = {};
 
   Key _chatKey = UniqueKey();
@@ -175,6 +178,47 @@ class _ChatScreenState extends State<ChatScreen> {
       isMounted: () => mounted,
     );
     setState(() {});
+  }
+
+  String get _draftKey => 'dm:${widget.peerId}';
+
+  String? get _replyToMessageId => _replyToMessage?.id ?? _replyDraft?.messageId;
+
+  void _persistReplyDraft() {
+    final data = _replyToMessage != null
+        ? replyPreviewFromMessage(_replyToMessage!)
+        : _replyDraft;
+    MessageDraftStore.instance.setReply(_draftKey, data);
+  }
+
+  void _restoreReplyDraft() {
+    final stored = MessageDraftStore.instance.get(_draftKey).reply;
+    if (stored == null) return;
+    Message? found;
+    for (final message in _messages.messages) {
+      if (message.id == stored.messageId) {
+        found = message;
+        break;
+      }
+    }
+    setState(() {
+      _replyToMessage = found;
+      _replyDraft = found == null ? stored : null;
+    });
+  }
+
+  void _clearReplyState() {
+    _replyToMessage = null;
+    _replyDraft = null;
+    MessageDraftStore.instance.setReply(_draftKey, null);
+  }
+
+  void _setReplyToMessage(Message message) {
+    setState(() {
+      _replyToMessage = message;
+      _replyDraft = null;
+    });
+    _persistReplyDraft();
   }
 
   void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
@@ -349,6 +393,7 @@ class _ChatScreenState extends State<ChatScreen> {
             .listen(_applyReadReceiptUpdate);
 
     await _loadInitialMessages();
+    _restoreReplyDraft();
     await _markInboundAsRead();
 
     if (mounted && _messages.messages.isNotEmpty) {
@@ -580,6 +625,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void resetChatState() {
     _messages = InMemoryChatController();
     _replyToMessage = null;
+    _replyDraft = null;
     _messageCache.clear();
     _oldestTimestamp = null;
     _oldestMessageId = null;
@@ -1099,7 +1145,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleSendText(String text) async {
     if (!mounted) return;
 
-    var replyToId = _replyToMessage?.id;
+    var replyToId = _replyToMessageId;
 
     // ✅ Generate ID and show UI IMMEDIATELY
     final messageId = const Uuid().v4();
@@ -1118,7 +1164,9 @@ class _ChatScreenState extends State<ChatScreen> {
         index: _messages.messages.length,
       );
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background (non-blocking)
@@ -1140,7 +1188,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
     if (!mounted) return;
 
-    var replyToId = _replyToMessage?.id;
+    var replyToId = _replyToMessageId;
 
     // ✅ Generate ID and show UI IMMEDIATELY
     final messageId = const Uuid().v4();
@@ -1179,7 +1227,9 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background
@@ -1260,7 +1310,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
 
     final messageId = const Uuid().v4();
-    final replyToId = _replyToMessage?.id;
+    final replyToId = _replyToMessageId;
 
     // Save to cache so we can play back our own sent voice messages
     final cacheDir = await getTemporaryDirectory();
@@ -1288,7 +1338,9 @@ class _ChatScreenState extends State<ChatScreen> {
         index: _messages.messages.length,
       );
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
     _chatService
@@ -1397,6 +1449,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _messages = InMemoryChatController();
               _chatKey = UniqueKey();
             });
+            MessageDraftStore.instance.setReply(_draftKey, null);
             _loadInitialMessages();
           },
           onDeleteContact: () async {
@@ -1406,8 +1459,8 @@ class _ChatScreenState extends State<ChatScreen> {
             setState(() {
               _messages = InMemoryChatController();
               _chatKey = UniqueKey();
-              _replyToMessage = null;
             });
+            MessageDraftStore.instance.setReply(_draftKey, null);
             widget.clearChat();
           },
           onPreferencesChanged: widget.reloadUsers,
@@ -1427,8 +1480,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildReplyPreview() {
-    if (_replyToMessage == null) return const SizedBox.shrink();
-    final data = replyPreviewFromMessage(_replyToMessage!);
+    final data = _replyToMessage != null
+        ? replyPreviewFromMessage(_replyToMessage!)
+        : _replyDraft;
+    if (data == null) return const SizedBox.shrink();
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
@@ -1453,7 +1508,9 @@ class _ChatScreenState extends State<ChatScreen> {
             IconButton(
               icon: const Icon(Icons.close),
               visualDensity: VisualDensity.compact,
-              onPressed: () => setState(() => _replyToMessage = null),
+              onPressed: () {
+                setState(_clearReplyState);
+              },
             ),
           ],
         ),
@@ -1518,7 +1575,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('Reply'),
         onTap: () {
           Navigator.pop(context);
-          setState(() => _replyToMessage = message);
+          _setReplyToMessage(message);
         },
       ),
       ListTile(
@@ -1906,12 +1963,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                 });
                               },
                               onHorizontalDragEnd: (details) {
+                                final shouldReply =
+                                    (_dragOffsets[message.id] ?? 0) > 50;
                                 setState(() {
-                                  if ((_dragOffsets[message.id] ?? 0) > 50) {
+                                  if (shouldReply) {
                                     _replyToMessage = message;
+                                    _replyDraft = null;
                                   }
                                   _dragOffsets[message.id] = 0;
                                 });
+                                if (shouldReply) {
+                                  _persistReplyDraft();
+                                }
                               },
                               onLongPressStart: (details) {
                                 if (selectedMessageIds.isNotEmpty) {
@@ -1993,7 +2056,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
                   composerBuilder: (context) {
                     return PrysmChatComposerOverlay(
-                      replyPreview: _replyToMessage != null
+                      draftKey: _draftKey,
+                      replyPreview: _replyToMessage != null || _replyDraft != null
                           ? _buildReplyPreview()
                           : null,
                       typingTypistNames: _typingTypistNames(),

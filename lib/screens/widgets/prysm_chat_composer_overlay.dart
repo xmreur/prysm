@@ -15,6 +15,7 @@ class PrysmChatComposerOverlay extends StatefulWidget {
   final VoidCallback onSendFile;
   final void Function(Uint8List bytes, int durationMs)? onSendVoice;
   final ValueChanged<bool>? onTypingChanged;
+  final String? draftKey;
 
   const PrysmChatComposerOverlay({
     super.key,
@@ -25,6 +26,7 @@ class PrysmChatComposerOverlay extends StatefulWidget {
     required this.onSendFile,
     this.onSendVoice,
     this.onTypingChanged,
+    this.draftKey,
   });
 
   @override
@@ -76,6 +78,7 @@ class _PrysmChatComposerOverlayState extends State<PrysmChatComposerOverlay> {
             if (widget.replyPreview != null) widget.replyPreview!,
             TypingIndicatorBar(typistNames: widget.typingTypistNames),
             MessageComposer(
+              draftKey: widget.draftKey,
               onSendText: widget.onSendText,
               onSendImage: widget.onSendImage,
               onSendFile: widget.onSendFile,

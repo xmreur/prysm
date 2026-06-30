@@ -15,6 +15,8 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/models/reply_preview_data.dart';
+import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
@@ -122,6 +124,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Timer? _highlightTimer;
 
   Message? _replyToMessage;
+  ReplyPreviewData? _replyDraft;
   final Set<String> selectedMessageIds = {};
   final Map<String, double> _dragOffsets = {};
   late TypingIndicatorService _typingService;
@@ -150,6 +153,47 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       isMounted: () => mounted,
     );
     setState(() {});
+  }
+
+  String get _draftKey => 'group:${widget.group.id}';
+
+  String? get _replyToMessageId => _replyToMessage?.id ?? _replyDraft?.messageId;
+
+  void _persistReplyDraft() {
+    final data = _replyToMessage != null
+        ? replyPreviewFromMessage(_replyToMessage!)
+        : _replyDraft;
+    MessageDraftStore.instance.setReply(_draftKey, data);
+  }
+
+  void _restoreReplyDraft() {
+    final stored = MessageDraftStore.instance.get(_draftKey).reply;
+    if (stored == null) return;
+    Message? found;
+    for (final message in _messages.messages) {
+      if (message.id == stored.messageId) {
+        found = message;
+        break;
+      }
+    }
+    setState(() {
+      _replyToMessage = found;
+      _replyDraft = found == null ? stored : null;
+    });
+  }
+
+  void _clearReplyState() {
+    _replyToMessage = null;
+    _replyDraft = null;
+    MessageDraftStore.instance.setReply(_draftKey, null);
+  }
+
+  void _setReplyToMessage(Message message) {
+    setState(() {
+      _replyToMessage = message;
+      _replyDraft = null;
+    });
+    _persistReplyDraft();
   }
 
   void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
@@ -212,6 +256,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (oldWidget.group.id != widget.group.id) {
       _teardown();
       _messages = InMemoryChatController();
+      _replyToMessage = null;
+      _replyDraft = null;
       _senderNames.clear();
       _memberCount = 0;
       _loading = false;
@@ -300,6 +346,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             .listen(_applyReadReceiptUpdate);
 
     await _loadMoreMessages();
+    _restoreReplyDraft();
     await _markInboundAsRead();
     _chatService.startPolling();
     _chatService.startSendQueue();
@@ -338,11 +385,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Widget _buildReplyPreview() {
-    if (_replyToMessage == null) return const SizedBox.shrink();
-    final data = replyPreviewFromMessage(_replyToMessage!);
-    final authorName = _replyToMessage!.authorId == widget.userId
+    final data = _replyToMessage != null
+        ? replyPreviewFromMessage(_replyToMessage!)
+        : _replyDraft;
+    if (data == null) return const SizedBox.shrink();
+    final authorName = data.authorId == widget.userId
         ? 'You'
-        : _senderNames[_replyToMessage!.authorId];
+        : _senderNames[data.authorId];
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
@@ -368,7 +417,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             IconButton(
               icon: const Icon(Icons.close),
               visualDensity: VisualDensity.compact,
-              onPressed: () => setState(() => _replyToMessage = null),
+              onPressed: () => setState(_clearReplyState),
             ),
           ],
         ),
@@ -413,7 +462,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           title: const Text('Reply'),
           onTap: () {
             Navigator.pop(context);
-            setState(() => _replyToMessage = message);
+            _setReplyToMessage(message);
           },
         ),
         ListTile(
@@ -1013,7 +1062,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   void _handleSendText(String text) async {
     final messageId = const Uuid().v4();
-    final replyToId = _replyToMessage?.id;
+    final replyToId = _replyToMessageId;
     setState(() {
       _messages.insertMessage(
         messageWithPendingStatus(
@@ -1028,7 +1077,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         index: _messages.messages.length,
       );
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
     final sentId = await _chatService.sendTextMessage(
       text,
@@ -1045,7 +1096,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   void _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
     final messageId = const Uuid().v4();
-    final replyToId = _replyToMessage?.id;
+    final replyToId = _replyToMessageId;
     setState(() {
       if (type == 'file') {
         _messages.insertMessage(
@@ -1080,7 +1131,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         );
       }
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
     final sentId = await _chatService.sendFileMessage(
@@ -1134,7 +1187,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
     final messageId = const Uuid().v4();
-    final replyToId = _replyToMessage?.id;
+    final replyToId = _replyToMessageId;
     final cacheDir = await getTemporaryDirectory();
     final cachePath = '${cacheDir.path}/group_voice_cache_$messageId.wav';
     await File(cachePath).writeAsBytes(bytes);
@@ -1159,7 +1212,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         index: _messages.messages.length,
       );
       _replyToMessage = null;
+      _replyDraft = null;
     });
+    MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
     await _chatService.sendFileMessage(
@@ -1742,12 +1797,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             });
                           },
                           onHorizontalDragEnd: (details) {
+                            final shouldReply =
+                                (_dragOffsets[message.id] ?? 0) > 50;
                             setState(() {
-                              if ((_dragOffsets[message.id] ?? 0) > 50) {
+                              if (shouldReply) {
                                 _replyToMessage = message;
+                                _replyDraft = null;
                               }
                               _dragOffsets[message.id] = 0;
                             });
+                            if (shouldReply) {
+                              _persistReplyDraft();
+                            }
                           },
                           child: Transform.translate(
                             offset: Offset(
@@ -1821,7 +1882,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   fileMessageBuilder: _groupFileMessageBuilder,
             composerBuilder: (context) {
               return PrysmChatComposerOverlay(
-                replyPreview: _replyToMessage != null
+                draftKey: _draftKey,
+                replyPreview: _replyToMessage != null || _replyDraft != null
                     ? _buildReplyPreview()
                     : null,
                 typingTypistNames: _typingTypistNames(),

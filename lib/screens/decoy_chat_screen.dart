@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 /// Read-only-looking chat for panic decoy sessions. Messages stay in memory only.
 class DecoyChatScreen extends StatefulWidget {
+  final String conversationId;
   final String title;
   final String? avatarName;
   final String? avatarBase64;
@@ -16,6 +17,7 @@ class DecoyChatScreen extends StatefulWidget {
   final VoidCallback? onCloseChat;
 
   const DecoyChatScreen({
+    required this.conversationId,
     required this.title,
     this.avatarName,
     this.avatarBase64,
@@ -139,6 +141,7 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
             ),
           ),
           MessageComposer(
+            draftKey: 'decoy:${widget.conversationId}',
             onSendText: _handleSend,
             onSendImage: () {},
             onSendFile: () {},

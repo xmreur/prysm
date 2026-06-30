@@ -39,6 +39,7 @@ class Settings {
 
   // Unlock
   final UnlockType unlockType;
+  final bool biometricsEnabled;
 
   Settings({
     this.enableNotifications = true,
@@ -62,6 +63,7 @@ class Settings {
     this.customDownloadPath,
     this.onboardingCompleted = false,
     this.unlockType = UnlockType.pin,
+    this.biometricsEnabled = false,
   });
 
   // Serialize to JSON
@@ -87,6 +89,7 @@ class Settings {
     'customDownloadPath': customDownloadPath,
     'onboardingCompleted': onboardingCompleted,
     'unlockType': unlockType.toJson(),
+    'biometricsEnabled': biometricsEnabled,
   };
 
   // Deserialize from JSON
@@ -114,6 +117,7 @@ class Settings {
     unlockType: json.containsKey('unlockType')
         ? UnlockType.fromJson(json['unlockType'] as String?)
         : UnlockType.pin,
+    biometricsEnabled: json['biometricsEnabled'] ?? false,
   );
 
   // Copy with modifications (immutable pattern)
@@ -139,6 +143,7 @@ class Settings {
     String? customDownloadPath,
     bool? onboardingCompleted,
     UnlockType? unlockType,
+    bool? biometricsEnabled,
     bool clearCustomDownloadPath = false,
   }) => Settings(
     enableNotifications: enableNotifications ?? this.enableNotifications,
@@ -167,6 +172,7 @@ class Settings {
         : (customDownloadPath ?? this.customDownloadPath),
     onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
     unlockType: unlockType ?? this.unlockType,
+    biometricsEnabled: biometricsEnabled ?? this.biometricsEnabled,
   );
 
   @override
@@ -205,7 +211,8 @@ class Settings {
         other.enableVoiceTranscription == enableVoiceTranscription &&
         other.customDownloadPath == customDownloadPath &&
         other.onboardingCompleted == onboardingCompleted &&
-        other.unlockType == unlockType;
+        other.unlockType == unlockType &&
+        other.biometricsEnabled == biometricsEnabled;
   }
 
   @override
@@ -230,6 +237,7 @@ class Settings {
         enableVoiceTranscription.hashCode ^
         (customDownloadPath?.hashCode ?? 0) ^
         onboardingCompleted.hashCode ^
-        unlockType.hashCode;
+        unlockType.hashCode ^
+        biometricsEnabled.hashCode;
   }
 }

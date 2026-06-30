@@ -65,6 +65,7 @@ class SettingsService {
   bool get onboardingCompleted => _settings.onboardingCompleted;
 
   UnlockType get unlockType => _settings.unlockType;
+  bool get biometricsEnabled => _settings.biometricsEnabled;
 
   static const String _legacyReadReceiptsKey = 'read_receipts';
 
@@ -253,6 +254,11 @@ class SettingsService {
 
   Future<void> setUnlockType(UnlockType value) async {
     _settings = _settings.copyWith(unlockType: value);
+    await save();
+  }
+
+  Future<void> setBiometricsEnabled(bool value) async {
+    _settings = _settings.copyWith(biometricsEnabled: value);
     await save();
   }
 

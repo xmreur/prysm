@@ -5,10 +5,11 @@ import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/screens/passphrase_entry.dart';
 import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/services/panic_pin_service.dart';
+import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 
-Future<String?> _promptCurrentSecret(
+Future<String?> promptCurrentUnlockSecret(
   BuildContext context,
   KeyManager keyManager,
   UnlockType type,
@@ -92,7 +93,7 @@ Future<bool> runChangePasscodeFlow(
   final settings = SettingsService();
   final type = settings.unlockType;
 
-  final current = await _promptCurrentSecret(context, keyManager, type);
+  final current = await promptCurrentUnlockSecret(context, keyManager, type);
   if (current == null || !context.mounted) return false;
 
   final newSecret = await _promptNewSecret(context, type, current);
@@ -105,6 +106,10 @@ Future<bool> runChangePasscodeFlow(
   );
   if (!context.mounted) return false;
   if (ok) {
+    if (settings.biometricsEnabled) {
+      await BiometricUnlockService.instance.storeSecret(newSecret);
+    }
+    if (!context.mounted) return false;
     _showSnack(
       context,
       type == UnlockType.pin ? 'PIN updated' : 'Passphrase updated',
@@ -124,7 +129,7 @@ Future<bool> runUnlockMethodChange(
   final oldType = settings.unlockType;
   if (newType == oldType) return true;
 
-  final current = await _promptCurrentSecret(context, keyManager, oldType);
+  final current = await promptCurrentUnlockSecret(context, keyManager, oldType);
   if (current == null || !context.mounted) return false;
 
   final newSecret = await _promptNewSecret(context, newType, current);
@@ -138,6 +143,9 @@ Future<bool> runUnlockMethodChange(
   if (!context.mounted) return false;
   if (ok) {
     await settings.setUnlockType(newType);
+    if (settings.biometricsEnabled) {
+      await BiometricUnlockService.instance.storeSecret(newSecret);
+    }
     if (!context.mounted) return false;
     _showSnack(
       context,

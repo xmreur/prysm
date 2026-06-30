@@ -50,6 +50,8 @@ android {
 dependencies {
     implementation("info.guardianproject:tor-android:0.4.8.18")
     implementation("info.guardianproject:jtorctl:0.4.5.7")
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.appcompat:appcompat:1.7.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 

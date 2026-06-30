@@ -7,11 +7,15 @@ class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
   final Future<bool> isPinSet;
   final int? torBootstrapProgress;
+  final bool showBiometricButton;
+  final VoidCallback? onTryBiometric;
 
   const PinScreen({
     required this.onVerifyPin,
     required this.isPinSet,
     this.torBootstrapProgress,
+    this.showBiometricButton = false,
+    this.onTryBiometric,
     super.key,
   });
 
@@ -150,6 +154,16 @@ class _PinScreenState extends State<PinScreen> {
                     fontSize: 30,
                   ),
                 ),
+                if (widget.showBiometricButton &&
+                    !_isSetup &&
+                    widget.onTryBiometric != null) ...[
+                  const SizedBox(height: 16),
+                  IconButton(
+                    icon: const Icon(Icons.fingerprint, size: 48),
+                    tooltip: 'Unlock with biometrics',
+                    onPressed: widget.onTryBiometric,
+                  ),
+                ],
                 const SizedBox(height: 30),
                 isLoading
                     ? const CircularProgressIndicator()

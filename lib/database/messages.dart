@@ -1,5 +1,6 @@
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
+import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:prysm/util/sqflite_platform.dart';
@@ -14,7 +15,7 @@ class MessagesDb {
 	static Future<Database>? _opening;
 	static final _dbMutex = Mutex();
 
-    static const _dbVersion = 9;
+    static const _dbVersion = 10;
 
 	static const String _directChatTypeFilter =
 		"(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
@@ -58,6 +59,7 @@ class MessagesDb {
 				if (oldVersion < 7) await _upgradeToV7(db);
 				if (oldVersion < 8) await _upgradeToV8(db);
 				if (oldVersion < 9) await _upgradeToV9(db);
+				if (oldVersion < 10) await _upgradeToV10(db);
 			},
 			onDowngrade: (db, oldVersion, newVersion) async {
 				throw Exception('Database downgrade not supported: $oldVersion -> $newVersion');
@@ -123,6 +125,7 @@ class MessagesDb {
         );
         await MessageReactionsDb.createTable(db);
         await MessageReadReceiptsDb.createTable(db);
+        await SelfMessagesDb.createTable(db);
     }
 
 
@@ -218,6 +221,11 @@ class MessagesDb {
 			WHERE COALESCE(status, '') = 'sent'
 			  AND COALESCE(status, '') != 'received'
 		''');
+	}
+
+	static Future<void> _upgradeToV10(Database db) async {
+		print('UPGRADING DB TO v10');
+		await SelfMessagesDb.createTable(db);
 	}
 
 	/// Storage primary key: group messages are scoped per group to avoid cross-group REPLACE.

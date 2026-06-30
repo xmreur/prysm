@@ -1,14 +1,10 @@
 import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/aead.dart';
-import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/kdf.dart';
-import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/key_manager.dart';
 

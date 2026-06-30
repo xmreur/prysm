@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/crypto/crypto.dart';
-import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
@@ -531,7 +528,7 @@ class ChatService {
             (await TransportProvider.getPublicOrFallback(peerId)).trim();
         peerIdentity = keyManager.importPeerIdentity(identityJson);
       }
-      await _persistPeerIdentity(identityJson!);
+      await _persistPeerIdentity(identityJson);
       return true;
     } catch (e) {
       print('Failed to fetch peer identity: $e');

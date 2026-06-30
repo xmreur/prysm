@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:prysm/crypto/aead.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/kdf.dart';

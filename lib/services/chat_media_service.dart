@@ -10,7 +10,6 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/group_service.dart';
-import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/waveform_extractor.dart';

@@ -1,11 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/crypto.dart';
-import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
-import 'package:prysm/crypto/ratchet/ratchet_service.dart';
 import 'package:prysm/models/unlock_type.dart';
 
 /// Manages Prysm v2 identity keys and message encryption.
@@ -274,28 +270,6 @@ class KeyManager {
     }
     return keys;
   }
-
-  @visibleForTesting
-  static Future<Map<String, String>> testEncryptIdentity({
-    required String passphrase,
-    required IdentityKeyPair identity,
-  }) =>
-      CryptoKeyStore.testEncryptIdentity(
-        passphrase: passphrase,
-        identity: identity,
-      );
-
-  @visibleForTesting
-  static Future<IdentityKeyPair?> testDecryptIdentity({
-    required String passphrase,
-    required String encrypted,
-    required String saltB64,
-  }) =>
-      CryptoKeyStore.testDecryptIdentity(
-        passphrase: passphrase,
-        encrypted: encrypted,
-        saltB64: saltB64,
-      );
 
   KeyManager();
 

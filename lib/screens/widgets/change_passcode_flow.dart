@@ -138,6 +138,7 @@ Future<bool> runUnlockMethodChange(
   if (!context.mounted) return false;
   if (ok) {
     await settings.setUnlockType(newType);
+    if (!context.mounted) return false;
     _showSnack(
       context,
       newType == UnlockType.pin

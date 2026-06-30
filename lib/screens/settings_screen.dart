@@ -121,17 +121,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 16),
-                    RadioListTile<UnlockType>(
-                      title: const Text('6-digit PIN'),
-                      value: UnlockType.pin,
+                    RadioGroup<UnlockType>(
                       groupValue: selected,
                       onChanged: (v) => setModalState(() => selected = v),
-                    ),
-                    RadioListTile<UnlockType>(
-                      title: const Text('Passphrase (12+ characters)'),
-                      value: UnlockType.passphrase,
-                      groupValue: selected,
-                      onChanged: (v) => setModalState(() => selected = v),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<UnlockType>(
+                            title: const Text('6-digit PIN'),
+                            value: UnlockType.pin,
+                          ),
+                          RadioListTile<UnlockType>(
+                            title: const Text('Passphrase (12+ characters)'),
+                            value: UnlockType.passphrase,
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 8),
                     FilledButton(

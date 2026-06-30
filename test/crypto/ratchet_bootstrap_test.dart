@@ -4,8 +4,6 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/crypto.dart';
-import 'package:prysm/crypto/ratchet/ratchet_service.dart';
-import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

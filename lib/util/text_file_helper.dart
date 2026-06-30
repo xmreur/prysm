@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/key_manager.dart';
 

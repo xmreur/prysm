@@ -10,11 +10,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/panic_action.dart';
-import 'package:prysm/screens/passphrase_entry.dart';
+import 'package:prysm/models/unlock_type.dart';
+import 'package:prysm/screens/unlock_screen.dart';
 import 'package:prysm/screens/crypto_migration_screen.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
+import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
@@ -341,6 +343,8 @@ class _MyAppState extends State<MyApp> {
     static final settings = SettingsService();
     
   bool unlocked = false;
+  bool _keysChecked = false;
+  bool _keysExist = false;
   bool _needsMigration = false;
   bool _migrationChecked = false;
   bool _panicDecoySession = false;
@@ -361,23 +365,33 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  Future<bool> onVerifyPassphrase(String passphrase) async {
+  Future<bool> onVerifyUnlock(String secret) async {
     final keyManager = widget.keyManager;
-    if (await keyManager.unlockWithPassphrase(passphrase)) {
-      await settings.migrateOnboardingIfExisting(
-        readPublicKey: () => keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
-        contactCount: (await DBHelper.getUsers()).length,
-      );
-      setState(() {
-        unlocked = true;
-        _panicDecoySession = false;
-      });
-      return true;
+    final lockout = UnlockLockoutService.instance;
+    final type = settings.unlockType;
+
+    if (!await lockout.isLockedOut()) {
+      if (await keyManager.unlockWithPassphrase(secret, type: type)) {
+        await lockout.recordSuccess();
+        await settings.migrateOnboardingIfExisting(
+          readPublicKey: () =>
+              keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
+          contactCount: (await DBHelper.getUsers()).length,
+        );
+        setState(() {
+          unlocked = true;
+          _keysExist = true;
+          _panicDecoySession = false;
+        });
+        return true;
+      }
+      await lockout.recordPrimaryFailure();
     }
 
-    if (passphrase.length == 6 &&
+    if (secret.length == 6 &&
         await PanicPinService.instance.isConfigured() &&
-        await PanicPinService.instance.verify(passphrase)) {
+        await PanicPinService.instance.verify(secret)) {
+      await lockout.recordSuccess();
       if (settings.panicAction == PanicAction.wipe) {
         await PanicWipeService.wipeAll();
         await keyManager.wipeSecureStorage();
@@ -388,6 +402,7 @@ class _MyAppState extends State<MyApp> {
       await keyManager.loadEphemeralKeys();
       setState(() {
         unlocked = true;
+        _keysExist = true;
         _panicDecoySession = true;
       });
       return true;
@@ -396,17 +411,30 @@ class _MyAppState extends State<MyApp> {
     return false;
   }
 
-  Future<bool> onVerifyPin(String pin) => onVerifyPassphrase(pin);
+  Future<bool> onVerifyPassphrase(String passphrase) =>
+      onVerifyUnlock(passphrase);
+
+  Future<bool> onVerifyPin(String pin) => onVerifyUnlock(pin);
 
   @override
   void initState() {
     super.initState();
     _loadSavedTheme();
     _checkMigration();
+    _checkKeysExist();
     _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
       if (mounted) setState(() => _torBootstrapProgress = p);
     });
     _initTorInBackground();
+  }
+
+  Future<void> _checkKeysExist() async {
+    final exists = await widget.keyManager.isPassphraseSet();
+    if (!mounted) return;
+    setState(() {
+      _keysExist = exists;
+      _keysChecked = true;
+    });
   }
 
   Future<void> _checkMigration() async {
@@ -501,15 +529,51 @@ class _MyAppState extends State<MyApp> {
       );
     }
 
+    if (!_keysChecked) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (!_keysExist) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: "Setup ${settings.name}",
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: OnboardingScreen(
+          isInitialSetup: true,
+          keyManager: widget.keyManager,
+          onionAddress: _onionAddress ?? '',
+          torReady: _torReady,
+          torBootstrapProgress:
+              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+          onComplete: () {
+            if (mounted) {
+              setState(() {
+                _keysExist = true;
+                unlocked = true;
+              });
+            }
+          },
+        ),
+      );
+    }
+
     if (!unlocked) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: "Unlock ${settings.name} Chat",
         theme: ThemeManager.getTheme(_currentTheme),
-        home: PassphraseScreen(
-          onVerifyPassphrase: onVerifyPassphrase,
-          isPassphraseSet: widget.keyManager.isPassphraseSet(),
-          torBootstrapProgress: _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+        home: UnlockScreen(
+          usePin: settings.unlockType == UnlockType.pin,
+          onVerify: onVerifyUnlock,
+          isUnlockSet: widget.keyManager.isPassphraseSet(),
+          torBootstrapProgress:
+              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
         ),
       );
     }

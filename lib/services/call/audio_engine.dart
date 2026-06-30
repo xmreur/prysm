@@ -16,6 +16,15 @@ import 'package:record/record.dart';
 
 typedef CallAudioSendCallback = void Function(Uint8List encryptedFrame);
 
+/// Serializes async encrypt+send so capture frames leave in order.
+@visibleForTesting
+Future<void> chainAudioSend(
+  Future<void> chain,
+  Future<Uint8List> Function() encrypt,
+  CallAudioSendCallback send,
+) =>
+    chain.then((_) async => send(await encrypt()));
+
 abstract class CallAudio {
   Future<bool> start();
   Future<void> stop();
@@ -47,6 +56,7 @@ class AudioEngine implements CallAudio {
   bool _running = false;
   bool _muted = false;
   bool _linuxCaptureActive = false;
+  Future<void> _sendChain = Future.value();
   final PcmGainNormalizer _captureGain = PcmGainNormalizer();
   final PcmGainNormalizer _playbackGain = PcmGainNormalizer();
   final PcmCaptureProcessor _captureProcessor = PcmCaptureProcessor();
@@ -123,8 +133,10 @@ class AudioEngine implements CallAudio {
                 applyGain: _captureProcessor.gateOpen,
               );
               final opus = codec.encodeFrame(normalized);
-              unawaited(
-                session.encryptAudioFrame(opus).then(onSendFrame),
+              _sendChain = chainAudioSend(
+                _sendChain,
+                () => session.encryptAudioFrame(opus),
+                onSendFrame,
               );
             } catch (e) {
               if (kDebugMode) {
@@ -198,6 +210,7 @@ class AudioEngine implements CallAudio {
   @override
   Future<void> stop() async {
     _running = false;
+    _sendChain = Future.value();
     await _captureSub?.cancel();
     _captureSub = null;
     _pcmBuffer.clear();

@@ -12,6 +12,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/read_receipt_payload.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -328,14 +329,7 @@ class ReadReceiptService {
 
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
     if (peerId == null) return null;
-    try {
-      final user = await DBHelper.getUserById(peerId!);
-      final pem = user?['publicKeyPem'] as String?;
-      if (pem == null || pem.isEmpty) return null;
-      return keyManager.importPeerIdentity(pem);
-    } catch (_) {
-      return null;
-    }
+    return loadPeerIdentityFromDb(keyManager, peerId!);
   }
 
   static Future<void> applyInbound({
@@ -503,7 +497,10 @@ class ReadReceiptService {
         if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
           return GroupCrypto.decryptWithSenderKey(
             epochKey: groupKey,
+            groupId: groupId,
             wire: encrypted,
+            transportSenderId: senderId,
+            keyManager: keyManager,
           );
         }
         return await GroupCrypto.decryptText(groupKey, encrypted);

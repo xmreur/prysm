@@ -6,6 +6,7 @@ class CryptoConstants {
   static const String keystoreVersion = '2';
 
   static const int minPassphraseLength = 12;
+  static const int pinLength = 6;
   static const int saltLength = 16;
   static const int aeadKeyLength = 32;
   static const int gcmNonceLength = 12;

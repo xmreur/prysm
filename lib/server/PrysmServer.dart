@@ -53,7 +53,7 @@ class PrysmServer {
 
     _server = await io.serve(
       handler,
-      InternetAddress.anyIPv4,
+      InternetAddress.loopbackIPv4,
       port,
       shared: true,
     );

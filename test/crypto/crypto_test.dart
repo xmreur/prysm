@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/crypto.dart';
+import 'package:prysm/models/unlock_type.dart';
 
 void main() {
   group('CryptoKdf', () {
@@ -69,12 +71,49 @@ void main() {
       final pubB = await restored.signPublicKeyBytes();
       expect(pubA, pubB);
     });
+
+    test('rejects mismatched wire fingerprint', () async {
+      final id = await IdentityKeyPair.generate();
+      final json = await id.toPublicJson();
+      json['fingerprint'] = 'deadbeef';
+      expect(
+        () => IdentityKeyPair.parsePublicJson(json),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('PrekeyBundle', () {
+    test('parseVerified rejects tampered signature', () async {
+      final id = await IdentityKeyPair.generate();
+      final pub = IdentityPublicKeys(
+        signPublic: await id.signPublicKey,
+        agreePublic: await id.agreePublicKey,
+        fingerprint: 'fp',
+      );
+      final bundle = await PrekeyBundle.generate(id, persist: false);
+      final json = bundle.toJson();
+      json['signedPreKeySig'] = base64Encode(List.filled(64, 1));
+      expect(
+        () => PrekeyBundle.parseVerified(json, pub),
+        throwsFormatException,
+      );
+    });
   });
 
   group('CryptoKeyStore', () {
     test('passphrase validation', () {
-      expect(CryptoKeyStore.isValidPassphrase('short'), isFalse);
-      expect(CryptoKeyStore.isValidPassphrase('long-enough-pass'), isTrue);
+      expect(
+        CryptoKeyStore.isValidUnlockSecret('short', UnlockType.passphrase),
+        isFalse,
+      );
+      expect(
+        CryptoKeyStore.isValidUnlockSecret(
+          'long-enough-pass',
+          UnlockType.passphrase,
+        ),
+        isTrue,
+      );
     });
 
     test('encrypt and decrypt identity', () async {
@@ -135,6 +174,72 @@ void main() {
       final enc = await GroupCryptoV2.encryptText(key, 'group msg');
       final dec = await GroupCryptoV2.decryptText(key, enc);
       expect(dec, 'group msg');
+    });
+
+    test('sender key rejects forged sender id', () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final epochKey = GroupCryptoV2.generateGroupKey();
+      const groupId = 'group-test';
+      const index = 1;
+
+      final wire = await GroupCryptoV2.encryptWithSenderKey(
+        epochKey: epochKey,
+        groupId: groupId,
+        senderId: 'bob.onion',
+        messageIndex: index,
+        plaintext: 'forged',
+        sender: alice,
+      );
+
+      final bobPub = IdentityPublicKeys(
+        signPublic: await bob.signPublicKey,
+        agreePublic: await bob.agreePublicKey,
+        fingerprint: 'bob',
+      );
+
+      expect(
+        () => GroupCryptoV2.decryptWithSenderKey(
+          epochKey: epochKey,
+          groupId: groupId,
+          wire: wire,
+          transportSenderId: 'alice.onion',
+          senderKeys: bobPub,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('sender key round trip with signature', () async {
+      final alice = await IdentityKeyPair.generate();
+      final epochKey = GroupCryptoV2.generateGroupKey();
+      const groupId = 'group-test';
+      const senderId = 'alice.onion';
+      const index = 2;
+
+      final wire = await GroupCryptoV2.encryptWithSenderKey(
+        epochKey: epochKey,
+        groupId: groupId,
+        senderId: senderId,
+        messageIndex: index,
+        plaintext: 'hello group',
+        sender: alice,
+      );
+
+      final alicePub = IdentityPublicKeys(
+        signPublic: await alice.signPublicKey,
+        agreePublic: await alice.agreePublicKey,
+        fingerprint: 'alice',
+      );
+
+      final plain = await GroupCryptoV2.decryptWithSenderKey(
+        epochKey: epochKey,
+        groupId: groupId,
+        wire: wire,
+        transportSenderId: senderId,
+        senderKeys: alicePub,
+      );
+      expect(plain, 'hello group');
     });
   });
 }

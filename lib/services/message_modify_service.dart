@@ -13,6 +13,7 @@ import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_payload.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/crypto/identity.dart';
 
 class MessageModifyService {
@@ -417,10 +418,7 @@ class MessageModifyService {
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
     if (peerId == null) return null;
     try {
-      final user = await DBHelper.getUserById(peerId!);
-      final pem = user?['publicKeyPem'] as String?;
-      if (pem == null || pem.isEmpty) return null;
-      return keyManager.importPeerIdentity(pem);
+      return loadPeerIdentityFromDb(keyManager, peerId!);
     } catch (e) {
       print('Failed to load peer public key for $peerId: $e');
       return null;
@@ -521,7 +519,10 @@ class MessageModifyService {
         if (GroupCrypto.isSenderKeyEnvelope(encryptedBody)) {
           return GroupCrypto.decryptWithSenderKey(
             epochKey: groupKey,
+            groupId: groupId,
             wire: encryptedBody,
+            transportSenderId: senderId,
+            keyManager: keyManager,
           );
         }
         return await GroupCrypto.decryptText(groupKey, encryptedBody);
@@ -561,7 +562,10 @@ class MessageModifyService {
         if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
           return GroupCrypto.decryptWithSenderKey(
             epochKey: groupKey,
+            groupId: groupId,
             wire: encrypted,
+            transportSenderId: senderId,
+            keyManager: keyManager,
           );
         }
         return await GroupCrypto.decryptText(groupKey, encrypted);

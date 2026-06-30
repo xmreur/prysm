@@ -13,6 +13,9 @@ import 'package:prysm/crypto/wire.dart';
 class GroupCryptoV2 {
   GroupCryptoV2._();
 
+  static final List<int> _senderKeySalt =
+      utf8.encode('prysm/group-sender-salt');
+
   static Uint8List generateGroupKey() =>
       CryptoKdf.randomBytes(CryptoConstants.aeadKeyLength);
 
@@ -163,36 +166,44 @@ class GroupCryptoV2 {
   /// Sender-key message encryption (epoch key + sender id + index).
   static Future<String> encryptWithSenderKey({
     required Uint8List epochKey,
+    required String groupId,
     required String senderId,
     required int messageIndex,
     required String plaintext,
+    required IdentityKeyPair sender,
   }) async {
     final msgKey = await CryptoKdf.hkdf(
       sharedSecret: epochKey,
       info: utf8.encode(
         'prysm/group-sender/$senderId/$messageIndex',
       ),
-    );
-    final aeadKey = await CryptoAead.secretKeyFromBytes(
-      Uint8List.fromList(await msgKey.extractBytes()),
+      salt: _senderKeySalt,
     );
     final enc = await CryptoAead.encryptAesGcm(
       utf8.encode(plaintext),
-      key: aeadKey,
+      key: msgKey,
     );
+    final iv = base64Encode(enc.nonce);
+    final ct = base64Encode(enc.ciphertext);
+    final signPayload = utf8.encode('$groupId|$senderId|$messageIndex|$iv|$ct');
+    final signature = await sender.sign(signPayload);
     return CryptoEnvelope.encode({
       'crypto': CryptoConstants.cryptoVersion,
       'scheme': CryptoConstants.schemeGroupSender1,
       'senderId': senderId,
       'index': messageIndex,
-      'iv': base64Encode(enc.nonce),
-      'ct': base64Encode(enc.ciphertext),
+      'iv': iv,
+      'ct': ct,
+      'sig': base64Encode(signature.bytes),
     });
   }
 
   static Future<String> decryptWithSenderKey({
     required Uint8List epochKey,
+    required String groupId,
     required String wire,
+    required String transportSenderId,
+    required IdentityPublicKeys senderKeys,
   }) async {
     final envelope = CryptoEnvelope.tryParse(wire);
     if (envelope == null ||
@@ -200,19 +211,38 @@ class GroupCryptoV2 {
       throw ArgumentError('Invalid group sender envelope');
     }
     final senderId = envelope['senderId'] as String;
+    if (senderId != transportSenderId) {
+      throw ArgumentError('Sender id mismatch');
+    }
     final index = envelope['index'] as int;
+    final ivB64 = envelope['iv'] as String;
+    final ctB64 = envelope['ct'] as String;
+    final sigRaw = envelope['sig'] as String?;
+    if (sigRaw == null) {
+      throw ArgumentError('Missing group sender signature');
+    }
+    final signPayload =
+        utf8.encode('$groupId|$senderId|$index|$ivB64|$ctB64');
+    final valid = await Ed25519().verify(
+      signPayload,
+      signature: Signature(
+        base64Decode(sigRaw),
+        publicKey: senderKeys.signPublic,
+      ),
+    );
+    if (!valid) {
+      throw ArgumentError('Invalid group sender signature');
+    }
+    final iv = base64Decode(ivB64);
+    final ct = base64Decode(ctB64);
     final msgKey = await CryptoKdf.hkdf(
       sharedSecret: epochKey,
       info: utf8.encode('prysm/group-sender/$senderId/$index'),
+      salt: _senderKeySalt,
     );
-    final aeadKey = await CryptoAead.secretKeyFromBytes(
-      Uint8List.fromList(await msgKey.extractBytes()),
-    );
-    final iv = base64Decode(envelope['iv'] as String);
-    final ct = base64Decode(envelope['ct'] as String);
     final plain = await CryptoAead.decryptAesGcm(
       ciphertextWithTag: ct,
-      key: aeadKey,
+      key: msgKey,
       nonce: iv,
     );
     return utf8.decode(plain);

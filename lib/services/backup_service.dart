@@ -2,35 +2,38 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/aead.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/crypto/kdf.dart';
+import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Backup v2: Argon2id + AES-GCM encrypted manifest.
 class BackupService {
   BackupService._();
 
-  static const _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  @visibleForTesting
+  static String? testDocumentsDirectory;
 
   static const _secureKeyNames = [
     CryptoKeyStore.encryptedIdentityKey,
     CryptoKeyStore.publicIdentityKey,
     CryptoKeyStore.passphraseSaltKey,
     CryptoKeyStore.cryptoGenerationKey,
+    PrekeyBundle.storageSignedPreKeyPrivate,
+    PrekeyBundle.storageOneTimePreKeyPrivate,
+    PrekeyBundle.storageOneTimePreKeyPool,
     'PANIC_PIN_HASH',
     'PANIC_PIN_SALT',
   ];
 
   static Future<void> createBackup(String outputPath, String password) async {
-    final docDir = await getApplicationDocumentsDirectory();
-    final prysmDir = p.join(docDir.path, 'prysm');
+    final docDir = await _documentsDirectory();
+    final prysmDir = p.join(docDir, 'prysm');
 
     final dbNames = [
       'chat_app.db',
@@ -48,7 +51,7 @@ class BackupService {
 
     final secureKeys = <String, String?>{};
     for (final key in _secureKeyNames) {
-      secureKeys[key] = await _secureStorage.read(key: key);
+      secureKeys[key] = await CryptoKeyStore.read(key);
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -113,8 +116,8 @@ class BackupService {
       return false;
     }
 
-    final docDir = await getApplicationDocumentsDirectory();
-    final prysmDir = p.join(docDir.path, 'prysm');
+    final docDir = await _documentsDirectory();
+    final prysmDir = p.join(docDir, 'prysm');
     await Directory(prysmDir).create(recursive: true);
 
     final databases = manifest['databases'] as Map<String, dynamic>? ?? {};
@@ -126,10 +129,7 @@ class BackupService {
     final secureKeys = manifest['secureKeys'] as Map<String, dynamic>? ?? {};
     for (final entry in secureKeys.entries) {
       if (entry.value != null) {
-        await _secureStorage.write(
-          key: entry.key,
-          value: entry.value as String,
-        );
+        await CryptoKeyStore.write(entry.key, entry.value as String);
       }
     }
 
@@ -151,5 +151,13 @@ class BackupService {
     }
 
     return true;
+  }
+
+  static Future<String> _documentsDirectory() async {
+    if (testDocumentsDirectory != null) {
+      return testDocumentsDirectory!;
+    }
+    final docDir = await getApplicationDocumentsDirectory();
+    return docDir.path;
   }
 }

@@ -814,7 +814,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           final text = GroupCrypto.isSenderKeyEnvelope(wireStr)
               ? await GroupCrypto.decryptWithSenderKey(
                   epochKey: groupKey,
+                  groupId: widget.group.id,
                   wire: wireStr,
+                  transportSenderId: authorId,
+                  keyManager: widget.keyManager,
                 )
               : await GroupCrypto.decryptText(groupKey, wireStr);
           result.add(TextMessage(

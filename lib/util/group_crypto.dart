@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/envelope.dart';
 import 'package:prysm/crypto/group_crypto.dart' as gc;
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 
 /// Facade over [GroupCryptoV2] with legacy method names.
 class GroupCrypto {
@@ -80,22 +80,41 @@ class GroupCrypto {
 
   static Future<String> encryptWithSenderKey({
     required Uint8List epochKey,
+    required String groupId,
     required String senderId,
     required int messageIndex,
     required String plaintext,
+    required KeyManager keyManager,
   }) =>
       gc.GroupCryptoV2.encryptWithSenderKey(
         epochKey: epochKey,
+        groupId: groupId,
         senderId: senderId,
         messageIndex: messageIndex,
         plaintext: plaintext,
+        sender: keyManager.identity,
       );
 
   static Future<String> decryptWithSenderKey({
     required Uint8List epochKey,
+    required String groupId,
     required String wire,
-  }) =>
-      gc.GroupCryptoV2.decryptWithSenderKey(epochKey: epochKey, wire: wire);
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys =
+        await loadPeerIdentityFromDb(keyManager, transportSenderId);
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return gc.GroupCryptoV2.decryptWithSenderKey(
+      epochKey: epochKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
+  }
 
   static bool isSenderKeyEnvelope(String wire) {
     final envelope = CryptoEnvelope.tryParse(wire);

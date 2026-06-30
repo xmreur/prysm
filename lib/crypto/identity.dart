@@ -77,6 +77,14 @@ class IdentityKeyPair {
     }
     final signBytes = base64Decode(json['signPublic'] as String);
     final agreeBytes = base64Decode(json['agreePublic'] as String);
+    final computed = fingerprintFromPublicKeys(
+      Uint8List.fromList(signBytes),
+      Uint8List.fromList(agreeBytes),
+    );
+    final wireFingerprint = json['fingerprint'] as String?;
+    if (wireFingerprint != null && wireFingerprint != computed) {
+      throw const FormatException('Identity fingerprint does not match public keys');
+    }
     return IdentityPublicKeys(
       signPublic: SimplePublicKey(
         signBytes,
@@ -86,11 +94,7 @@ class IdentityKeyPair {
         agreeBytes,
         type: KeyPairType.x25519,
       ),
-      fingerprint: json['fingerprint'] as String? ??
-          fingerprintFromPublicKeys(
-            Uint8List.fromList(signBytes),
-            Uint8List.fromList(agreeBytes),
-          ),
+      fingerprint: computed,
     );
   }
 

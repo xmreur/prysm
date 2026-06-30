@@ -1,5 +1,6 @@
 // lib/models/app_settings.dart
 import 'package:prysm/models/panic_action.dart';
+import 'package:prysm/models/unlock_type.dart';
 
 class Settings {
   // General
@@ -36,6 +37,9 @@ class Settings {
   // Onboarding
   final bool onboardingCompleted;
 
+  // Unlock
+  final UnlockType unlockType;
+
   Settings({
     this.enableNotifications = true,
     this.showOnlineStatus = true,
@@ -57,6 +61,7 @@ class Settings {
     this.enableVoiceTranscription = false,
     this.customDownloadPath,
     this.onboardingCompleted = false,
+    this.unlockType = UnlockType.pin,
   });
 
   // Serialize to JSON
@@ -81,6 +86,7 @@ class Settings {
     'enableVoiceTranscription': enableVoiceTranscription,
     'customDownloadPath': customDownloadPath,
     'onboardingCompleted': onboardingCompleted,
+    'unlockType': unlockType.toJson(),
   };
 
   // Deserialize from JSON
@@ -105,6 +111,9 @@ class Settings {
     enableVoiceTranscription: json['enableVoiceTranscription'] ?? false,
     customDownloadPath: json['customDownloadPath'],
     onboardingCompleted: json['onboardingCompleted'] ?? false,
+    unlockType: json.containsKey('unlockType')
+        ? UnlockType.fromJson(json['unlockType'] as String?)
+        : UnlockType.pin,
   );
 
   // Copy with modifications (immutable pattern)
@@ -129,6 +138,7 @@ class Settings {
     bool? enableVoiceTranscription,
     String? customDownloadPath,
     bool? onboardingCompleted,
+    UnlockType? unlockType,
     bool clearCustomDownloadPath = false,
   }) => Settings(
     enableNotifications: enableNotifications ?? this.enableNotifications,
@@ -156,6 +166,7 @@ class Settings {
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
     onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
+    unlockType: unlockType ?? this.unlockType,
   );
 
   @override
@@ -193,7 +204,8 @@ class Settings {
         other.enableLinkUnfurling == enableLinkUnfurling &&
         other.enableVoiceTranscription == enableVoiceTranscription &&
         other.customDownloadPath == customDownloadPath &&
-        other.onboardingCompleted == onboardingCompleted;
+        other.onboardingCompleted == onboardingCompleted &&
+        other.unlockType == unlockType;
   }
 
   @override
@@ -217,6 +229,7 @@ class Settings {
         enableLinkUnfurling.hashCode ^
         enableVoiceTranscription.hashCode ^
         (customDownloadPath?.hashCode ?? 0) ^
-        onboardingCompleted.hashCode;
+        onboardingCompleted.hashCode ^
+        unlockType.hashCode;
   }
 }

@@ -145,9 +145,11 @@ class GroupChatService {
     );
     final encrypted = await GroupCrypto.encryptWithSenderKey(
       epochKey: _groupKey!,
+      groupId: groupId,
       senderId: userId,
       messageIndex: index,
       plaintext: text,
+      keyManager: keyManager,
     );
 
     await MessagesDb.insertMessage({

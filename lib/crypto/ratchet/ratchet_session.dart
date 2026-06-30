@@ -9,35 +9,26 @@ import 'package:prysm/crypto/kdf.dart';
 /// Simplified Double Ratchet session for 1:1 chats (Phase 2).
 class RatchetSession {
   RatchetSession({
-    required this.rootKey,
-    required this.sendingChainKey,
-    required this.receivingChainKey,
+    required this.sharedMaterial,
+    required this.isInitiator,
     required this.sendCounter,
     required this.recvCounter,
   });
 
-  List<int> rootKey;
-  List<int> sendingChainKey;
-  List<int> receivingChainKey;
+  final Uint8List sharedMaterial;
+  final bool isInitiator;
   int sendCounter;
   int recvCounter;
+
+  static final Uint8List _ratchetSalt =
+      Uint8List.fromList(utf8.encode('prysm/ratchet/root-salt'));
 
   static Future<RatchetSession> initializeAsInitiator(
     Uint8List sharedMaterial,
   ) async {
-    final rootBytes = await _deriveRoot(sharedMaterial);
-    final sendChain = await CryptoKdf.hkdf(
-      sharedSecret: rootBytes,
-      info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/send'),
-    );
-    final recvChain = await CryptoKdf.hkdf(
-      sharedSecret: rootBytes,
-      info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/recv'),
-    );
     return RatchetSession(
-      rootKey: rootBytes,
-      sendingChainKey: await sendChain.extractBytes(),
-      receivingChainKey: await recvChain.extractBytes(),
+      sharedMaterial: sharedMaterial,
+      isInitiator: true,
       sendCounter: 0,
       recvCounter: -1,
     );
@@ -46,37 +37,23 @@ class RatchetSession {
   static Future<RatchetSession> initializeAsResponder(
     Uint8List sharedMaterial,
   ) async {
-    final rootBytes = await _deriveRoot(sharedMaterial);
-    final sendChain = await CryptoKdf.hkdf(
-      sharedSecret: rootBytes,
-      info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/recv'),
-    );
-    final recvChain = await CryptoKdf.hkdf(
-      sharedSecret: rootBytes,
-      info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/send'),
-    );
     return RatchetSession(
-      rootKey: rootBytes,
-      sendingChainKey: await sendChain.extractBytes(),
-      receivingChainKey: await recvChain.extractBytes(),
+      sharedMaterial: sharedMaterial,
+      isInitiator: false,
       sendCounter: 0,
       recvCounter: -1,
     );
   }
 
-  static Future<List<int>> _deriveRoot(Uint8List sharedMaterial) async {
-    final root = await CryptoKdf.hkdf(
-      sharedSecret: sharedMaterial,
-      info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/root'),
-      salt: Uint8List.fromList(utf8.encode('prysm/ratchet/root-salt')),
-    );
-    return await root.extractBytes();
-  }
-
   Future<({String wire, Map<String, dynamic> handshake})> encryptMessage(
     Uint8List plaintext,
   ) async {
-    final messageKey = await _nextSendKey();
+    final counter = sendCounter;
+    final messageKey = await _messageKey(
+      role: isInitiator ? 'send' : 'recv',
+      counter: counter,
+    );
+    sendCounter++;
     final aeadKey = await CryptoAead.secretKeyFromBytes(
       Uint8List.fromList(messageKey),
     );
@@ -86,7 +63,7 @@ class RatchetSession {
       'scheme': CryptoConstants.schemeRatchet1,
       'nonce': base64Encode(enc.nonce),
       'ciphertext': base64Encode(enc.ciphertext),
-      'counter': sendCounter - 1,
+      'counter': counter,
     });
     return (wire: wire, handshake: <String, dynamic>{});
   }
@@ -101,7 +78,10 @@ class RatchetSession {
       throw StateError('Replay detected');
     }
     recvCounter = counter;
-    final messageKey = await _recvKeyForCounter(counter);
+    final messageKey = await _messageKey(
+      role: isInitiator ? 'recv' : 'send',
+      counter: counter,
+    );
     final aeadKey = await CryptoAead.secretKeyFromBytes(
       Uint8List.fromList(messageKey),
     );
@@ -112,36 +92,31 @@ class RatchetSession {
     );
   }
 
-  Future<List<int>> _nextSendKey() async {
+  Future<List<int>> _messageKey({
+    required String role,
+    required int counter,
+  }) async {
     final key = await CryptoKdf.hkdf(
-      sharedSecret: sendingChainKey,
-      info: utf8.encode('msg-$sendCounter'),
-    );
-    sendCounter++;
-    return await key.extractBytes();
-  }
-
-  Future<List<int>> _recvKeyForCounter(int counter) async {
-    final key = await CryptoKdf.hkdf(
-      sharedSecret: receivingChainKey,
-      info: utf8.encode('msg-$counter'),
+      sharedSecret: sharedMaterial,
+      info: utf8.encode(
+        '${CryptoConstants.hkdfInfoRatchet}/$role/msg/$counter',
+      ),
+      salt: _ratchetSalt,
     );
     return await key.extractBytes();
   }
 
   Map<String, dynamic> toJson() => {
-        'rootKey': base64Encode(rootKey),
-        'sendingChainKey': base64Encode(sendingChainKey),
-        'receivingChainKey': base64Encode(receivingChainKey),
+        'sharedMaterial': base64Encode(sharedMaterial),
+        'isInitiator': isInitiator,
         'sendCounter': sendCounter,
         'recvCounter': recvCounter,
       };
 
   static RatchetSession fromJson(Map<String, dynamic> json) {
     return RatchetSession(
-      rootKey: base64Decode(json['rootKey'] as String),
-      sendingChainKey: base64Decode(json['sendingChainKey'] as String),
-      receivingChainKey: base64Decode(json['receivingChainKey'] as String),
+      sharedMaterial: base64Decode(json['sharedMaterial'] as String),
+      isInitiator: json['isInitiator'] as bool? ?? true,
       sendCounter: json['sendCounter'] as int,
       recvCounter: json['recvCounter'] as int,
     );

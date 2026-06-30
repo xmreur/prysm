@@ -25,8 +25,9 @@ This document describes what Prysm 0.4.0 (Crypto v2) is designed to protect agai
 
 ### Identity and unlock
 
-- Passphrase (≥12 chars) + Argon2id KDF → AES-GCM wrapped identity blob.
-- Panic PIN remains 6-digit (coercion UX) but uses same Argon2id parameters.
+- User-chosen unlock: **6-digit PIN** or **passphrase (≥12 chars)**; Argon2id KDF → AES-GCM wrapped identity blob.
+- On-device lockout: 5 failed primary unlock attempts → 2-hour block (PIN and passphrase).
+- Panic PIN remains optional 6-digit emergency code (separate from primary unlock).
 - Clean-break migration from RSA/PIN era; no dual-decrypt legacy paths.
 
 ### 1:1 messaging
@@ -43,7 +44,7 @@ This document describes what Prysm 0.4.0 (Crypto v2) is designed to protect agai
 ### Transport
 
 - `PrysmServer` binds to `127.0.0.1` only.
-- Server deferred until identity unlock (or public identity served from storage).
+- Server starts at app launch so Tor hidden service handshakes can complete.
 
 ### Backups
 
@@ -68,8 +69,9 @@ This document describes what Prysm 0.4.0 (Crypto v2) is designed to protect agai
 ## Verification checklist
 
 - [ ] No RSA / PKCS#1 / CBC in message paths
-- [ ] Passphrase required for unlock (not 6-digit PIN)
-- [ ] Loopback server bind
+- [ ] User-chosen PIN or passphrase unlock with Argon2id
+- [ ] Unlock lockout after repeated failures
+ [ ] Loopback server bind
 - [ ] Ratchet sessions persisted per peer
 - [ ] Group key rotation resets sender indices
 - [ ] Backup version check on restore

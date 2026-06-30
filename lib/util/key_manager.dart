@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/crypto/ratchet/ratchet_service.dart';
+import 'package:prysm/models/unlock_type.dart';
 
 /// Manages Prysm v2 identity keys and message encryption.
 class KeyManager {
@@ -16,8 +17,11 @@ class KeyManager {
 
   Future<String?> safeRead(String key) => CryptoKeyStore.read(key);
 
-  Future<bool> unlockWithPassphrase(String passphrase) async {
-    if (!CryptoKeyStore.isValidPassphrase(passphrase)) return false;
+  Future<bool> unlockWithPassphrase(
+    String passphrase, {
+    required UnlockType type,
+  }) async {
+    if (!CryptoKeyStore.isValidUnlockSecret(passphrase, type)) return false;
 
     final encPrivate = await safeRead(CryptoKeyStore.encryptedIdentityKey);
     final publicJson = await safeRead(CryptoKeyStore.publicIdentityKey);
@@ -62,7 +66,8 @@ class KeyManager {
   }
 
   /// Backward-compatible alias during UI migration.
-  Future<bool> unlockWithPin(String pin) => unlockWithPassphrase(pin);
+  Future<bool> unlockWithPin(String pin, {required UnlockType type}) =>
+      unlockWithPassphrase(pin, type: type);
 
   Future<bool> isPassphraseSet() => CryptoKeyStore.isPassphraseSet();
 
@@ -86,8 +91,9 @@ class KeyManager {
   Future<bool> changePassphrase({
     required String currentPassphrase,
     required String newPassphrase,
+    required UnlockType type,
   }) async {
-    if (!CryptoKeyStore.isValidPassphrase(newPassphrase)) return false;
+    if (!CryptoKeyStore.isValidUnlockSecret(newPassphrase, type)) return false;
 
     final encPrivate = await safeRead(CryptoKeyStore.encryptedIdentityKey);
     final saltB64 = await safeRead(CryptoKeyStore.passphraseSaltKey);
@@ -129,6 +135,7 @@ class KeyManager {
       changePassphrase(
         currentPassphrase: currentPin,
         newPassphrase: newPin,
+        type: UnlockType.pin,
       );
 
   Future<void> loadEphemeralKeys() async {

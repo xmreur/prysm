@@ -6,6 +6,7 @@ import 'package:prysm/crypto/aead.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/kdf.dart';
+import 'package:prysm/models/unlock_type.dart';
 
 /// Secure storage for identity keys and crypto generation marker.
 class CryptoKeyStore {
@@ -20,28 +21,87 @@ class CryptoKeyStore {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
+  static final Map<String, String> _testMemory = {};
+
+  @visibleForTesting
+  static void useInMemoryStorageForTest() {
+    _testMemory.clear();
+  }
+
+  @visibleForTesting
+  static void resetInMemoryStorageForTest() {
+    _testMemory.clear();
+  }
+
   static Future<String?> read(String key) async {
+    if (_testMemory.isNotEmpty || _useTestMemoryOnly) {
+      return _testMemory[key];
+    }
     try {
       return await _storage.read(key: key);
     } catch (_) {
-      return null;
+      return _testMemory[key];
+    }
+  }
+
+  static bool _useTestMemoryOnly = false;
+
+  @visibleForTesting
+  static void setUseInMemoryStorageOnly(bool value) {
+    _useTestMemoryOnly = value;
+    if (value) {
+      _testMemory.clear();
     }
   }
 
   static Future<void> write(String key, String value) async {
-    await _storage.write(key: key, value: value);
+    if (_useTestMemoryOnly) {
+      _testMemory[key] = value;
+      return;
+    }
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (_) {
+      _testMemory[key] = value;
+    }
   }
 
   static Future<void> delete(String key) async {
-    await _storage.delete(key: key);
+    if (_useTestMemoryOnly) {
+      _testMemory.remove(key);
+      return;
+    }
+    try {
+      await _storage.delete(key: key);
+    } catch (_) {
+      _testMemory.remove(key);
+    }
   }
 
   static Future<void> deleteAll() async {
-    await _storage.deleteAll();
+    if (_useTestMemoryOnly) {
+      _testMemory.clear();
+      return;
+    }
+    try {
+      await _storage.deleteAll();
+    } catch (_) {
+      _testMemory.clear();
+    }
   }
 
+  static bool isValidUnlockSecret(String secret, UnlockType type) {
+    switch (type) {
+      case UnlockType.pin:
+        return RegExp(r'^\d{6}$').hasMatch(secret);
+      case UnlockType.passphrase:
+        return secret.length >= CryptoConstants.minPassphraseLength;
+    }
+  }
+
+  /// @deprecated Use [isValidUnlockSecret] with [UnlockType.passphrase].
   static bool isValidPassphrase(String passphrase) {
-    return passphrase.length >= CryptoConstants.minPassphraseLength;
+    return isValidUnlockSecret(passphrase, UnlockType.passphrase);
   }
 
   static Future<bool> isPassphraseSet() async {

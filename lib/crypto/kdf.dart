@@ -45,9 +45,26 @@ class CryptoKdf {
       outputLength: outputLength,
     );
     return hkdf.deriveKey(
-      secretKey: SecretKey(sharedSecret),
+      secretKey: SecretKey(Uint8List.fromList(sharedSecret)),
       info: info,
-      nonce: salt ?? const [],
+      nonce: salt != null ? Uint8List.fromList(salt) : Uint8List(0),
+    );
+  }
+
+  static Future<SecretKey> hkdfFromSecretKey({
+    required SecretKey secretKey,
+    required List<int> info,
+    List<int>? salt,
+    int outputLength = CryptoConstants.aeadKeyLength,
+  }) async {
+    final hkdf = Hkdf(
+      hmac: Hmac.sha256(),
+      outputLength: outputLength,
+    );
+    return hkdf.deriveKey(
+      secretKey: secretKey,
+      info: info,
+      nonce: salt != null ? Uint8List.fromList(salt) : Uint8List(0),
     );
   }
 

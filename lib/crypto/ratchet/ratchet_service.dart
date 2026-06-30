@@ -54,10 +54,12 @@ class RatchetService {
         local: local,
         peer: peer,
         peerBundle: bundle,
+        ephemeral: ephemeral,
       );
       session = await RatchetSession.initializeAsInitiator(shared);
       handshake = {
         'ephemeralPub': base64Encode(ephemeralPublic.bytes),
+        'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
       };
     }
 
@@ -117,10 +119,19 @@ class RatchetService {
           ephemeralBytes,
           type: KeyPairType.x25519,
         );
+        SimplePublicKey? usedOneTime;
+        final oneTimeRaw = handshake['oneTimePreKey'] as String?;
+        if (oneTimeRaw != null) {
+          usedOneTime = SimplePublicKey(
+            base64Decode(oneTimeRaw),
+            type: KeyPairType.x25519,
+          );
+        }
         final shared = await PrekeyBundle.sharedSecretAsResponder(
           local: local,
           peer: peer,
           initiatorEphemeralPublic: ephemeralPublic,
+          usedOneTimePreKeyPublic: usedOneTime,
         );
         if (shared == null) {
           throw StateError('Cannot derive ratchet session for $peerId');
@@ -131,8 +142,10 @@ class RatchetService {
       final plain = await session.decryptMessage(wire);
       await RatchetSessionStore.save(peerId, session);
       return plain;
-    } catch (e) {
-      return CryptoWire.decryptFromPeer(wire, local, peer.agreePublic);
+    } on FormatException {
+      rethrow;
+    } on StateError {
+      rethrow;
     }
   }
 }

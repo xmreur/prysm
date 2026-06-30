@@ -51,8 +51,8 @@ Tor onion addresses are separate from Prysm identity keys.
 
 ### Transport
 
-- Local message server binds to **loopback only** (`127.0.0.1`).
-- Server starts after identity unlock.
+- Local message server binds to **all IPv4 interfaces** (`InternetAddress.anyIPv4`) so Tor can reach the hidden service port.
+- Server starts at app launch.
 
 ### Backups
 

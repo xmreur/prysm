@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/crypto.dart';
+import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/util/key_manager.dart';
 
 void main() {
@@ -17,6 +18,7 @@ void main() {
     final ok = await km.changePassphrase(
       currentPassphrase: passphraseA,
       newPassphrase: passphraseB,
+      type: UnlockType.passphrase,
     );
     // Without secure storage plugin, in-memory change may fail; verify crypto round-trip.
     if (!ok) {
@@ -49,7 +51,16 @@ void main() {
   });
 
   test('invalid passphrase rejected', () async {
-    expect(CryptoKeyStore.isValidPassphrase('short'), isFalse);
-    expect(CryptoKeyStore.isValidPassphrase('long-enough-pass'), isTrue);
+    expect(
+      CryptoKeyStore.isValidUnlockSecret('short', UnlockType.passphrase),
+      isFalse,
+    );
+    expect(
+      CryptoKeyStore.isValidUnlockSecret(
+        'long-enough-pass',
+        UnlockType.passphrase,
+      ),
+      isTrue,
+    );
   });
 }

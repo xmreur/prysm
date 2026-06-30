@@ -519,17 +519,19 @@ class ChatService {
         identityJson = (data['identityJson'] as String?)?.trim() ??
             (data['publicKeyPem'] as String?)?.trim();
         final prekeyRaw = data['prekeyBundle'];
+        peerIdentity = keyManager.importPeerIdentity(identityJson!);
         if (prekeyRaw is Map) {
-          peerPrekeyBundle = PrekeyBundle.fromJson(
+          peerPrekeyBundle = await PrekeyBundle.parseVerified(
             Map<String, dynamic>.from(prekeyRaw),
+            peerIdentity!,
           );
         }
       } catch (_) {
         identityJson =
             (await TransportProvider.getPublicOrFallback(peerId)).trim();
+        peerIdentity = keyManager.importPeerIdentity(identityJson);
       }
-      peerIdentity = keyManager.importPeerIdentity(identityJson!);
-      await _persistPeerIdentity(identityJson);
+      await _persistPeerIdentity(identityJson!);
       return true;
     } catch (e) {
       print('Failed to fetch peer identity: $e');

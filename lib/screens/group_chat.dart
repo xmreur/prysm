@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -30,7 +29,8 @@ import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
-import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
+import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/util/reply_preview_label.dart';
@@ -1157,24 +1157,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile == null) return;
 
-    var bytes = await pickedFile.readAsBytes();
-    if (bytes.length > 500 * 1024) {
-      try {
-        bytes = await FlutterImageCompress.compressWithList(
-          bytes,
-          minHeight: 1080,
-          minWidth: 1080,
-          quality: 70,
-        );
-      } catch (_) {}
-    }
-
+    final bytes = await pickedFile.readAsBytes();
     if (!mounted) return;
 
-    final viewOnce = await ImageSendPreviewScreen.open(context, bytes);
-    if (viewOnce == null || !mounted) return;
-
-    _sendFile(bytes, pickedFile.name, 'image', viewOnce: viewOnce);
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: bytes,
+      fileName: pickedFile.name,
+      sendFile: _sendFile,
+      forceImageFlow: true,
+    );
   }
 
   Future<void> _handleSendFile() async {
@@ -1182,7 +1174,33 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     if (file.bytes == null) return;
-    _sendFile(file.bytes!, file.name, 'file');
+    if (!mounted) return;
+
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: file.bytes!,
+      fileName: file.name,
+      sendFile: _sendFile,
+    );
+  }
+
+  Future<void> _handleDroppedFile(String path, String name) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (!mounted) return;
+      await ChatAttachmentIngress.sendLocalAttachment(
+        context: context,
+        bytes: bytes,
+        fileName: name,
+        sendFile: _sendFile,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not read dropped file: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
@@ -1692,7 +1710,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
       body: SafeArea(
-        child: JumpToBottomFabOverlay(
+        child: PrysmChatDropTarget(
+          onFileDropped: _handleDroppedFile,
+          child: JumpToBottomFabOverlay(
           visible: !_stickToBottom &&
               _messages.messages.isNotEmpty &&
               selectedMessageIds.isEmpty,
@@ -1895,6 +1915,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               );
             },
           ),
+        ),
         ),
         ),
       ),

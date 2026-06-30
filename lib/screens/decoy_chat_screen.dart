@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
+import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/decoy_session_data.dart';
 import 'package:uuid/uuid.dart';
 
@@ -30,21 +32,31 @@ class DecoyChatScreen extends StatefulWidget {
 class _DecoyChatScreenState extends State<DecoyChatScreen> {
   late List<DecoyMessage> _messages;
   final _scrollController = ScrollController();
+  bool _atBottom = true;
 
   @override
   void initState() {
     super.initState();
     _messages = List.of(widget.initialMessages);
+    _scrollController.addListener(_onListScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _onListScroll() {
+    final atBottom = isChatScrolledToBottom(_scrollController);
+    if (atBottom == _atBottom) return;
+    setState(() => _atBottom = atBottom);
   }
 
   void _scrollToBottom() {
     if (!_scrollController.hasClients) return;
+    _atBottom = true;
     _scrollController.animateTo(
       _scrollController.position.maxScrollExtent,
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
     );
+    if (mounted) setState(() {});
   }
 
   void _handleSend(String text) {
@@ -63,6 +75,7 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onListScroll);
     _scrollController.dispose();
     super.dispose();
   }
@@ -110,14 +123,19 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return _DecoyMessageBubble(message: msg, isGroup: widget.isGroup);
-              },
+            child: JumpToBottomFabOverlay(
+              visible: !_atBottom && _messages.isNotEmpty,
+              onPressed: _scrollToBottom,
+              bottom: 16,
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final msg = _messages[index];
+                  return _DecoyMessageBubble(message: msg, isGroup: widget.isGroup);
+                },
+              ),
             ),
           ),
           MessageComposer(

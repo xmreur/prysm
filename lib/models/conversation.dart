@@ -37,3 +37,21 @@ class GroupConversation extends Conversation {
   @override
   String get displayName => group.name;
 }
+
+/// Local notes-to-self chat (not P2P).
+class SelfConversation extends Conversation {
+  SelfConversation(this._lastTimestamp);
+
+  static const conversationId = '__self__';
+
+  final int? _lastTimestamp;
+
+  @override
+  String get id => conversationId;
+
+  @override
+  String get displayName => 'Chat with myself';
+
+  @override
+  int? get lastMessageTimestamp => _lastTimestamp;
+}

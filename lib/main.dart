@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/screens/unlock_screen.dart';
@@ -34,6 +35,7 @@ import 'package:prysm/screens/call/call_overlay.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/screens/chat.dart';
+import 'package:prysm/screens/self_chat_screen.dart';
 import 'package:prysm/screens/create_group_screen.dart';
 import 'package:prysm/screens/group_chat.dart';
 import 'package:prysm/models/conversation.dart';
@@ -696,6 +698,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Conversation? selectedConversation;
   bool showProfile = false;
   bool showSettings = false;
+  bool showSelfChat = false;
+  int? _selfChatLastTimestamp;
+  String? _selfChatLastPreview;
   bool isLoading = true;
   int currentTheme = 0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   String _searchQuery = '';
@@ -1138,6 +1143,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         MessagesDb.getLastMessagePreviews(widget.onionAddress),
         MessagesDb.getUnreadCounts(widget.onionAddress),
         ConversationPreferencesService.instance.getAll(),
+        SelfMessagesDb.getLastTimestamp(),
+        SelfMessagesDb.getLastPreview(),
       ]);
       if (!mounted) return;
       userMaps = results[0] as List<Map<String, dynamic>>;
@@ -1146,6 +1153,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       previews = results[3] as Map<String, String>;
       unread = results[4] as Map<String, int>;
       prefs = results[5] as Map<String, ConversationPreferences>;
+      _selfChatLastTimestamp = results[6] as int?;
+      _selfChatLastPreview = results[7] as String?;
     } else {
       final fastResults = await Future.wait([
         DBHelper.getUsers(),
@@ -1173,10 +1182,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final deferred = await Future.wait([
         MessagesDb.getLastMessagePreviews(widget.onionAddress),
         MessagesDb.getUnreadCounts(widget.onionAddress),
+        SelfMessagesDb.getLastTimestamp(),
+        SelfMessagesDb.getLastPreview(),
       ]);
       if (!mounted) return;
       previews = deferred[0] as Map<String, String>;
       unread = deferred[1] as Map<String, int>;
+      _selfChatLastTimestamp = deferred[2] as int?;
+      _selfChatLastPreview = deferred[3] as String?;
     }
 
     _applyLoadedUsers(
@@ -1370,6 +1383,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       selectedConversation = DirectConversation(contact);
       showProfile = false;
       showSettings = false;
+      showSelfChat = false;
     });
     _syncActiveConversationTracker();
     _dismissConversationNotification(senderId: contact.id);
@@ -1381,6 +1395,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       selectedConversation = GroupConversation(group);
       showProfile = false;
       showSettings = false;
+      showSelfChat = false;
     });
     _syncActiveConversationTracker();
     _dismissConversationNotification(
@@ -1415,10 +1430,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void onSelectSelfChat() {
+    setState(() {
+      showSelfChat = true;
+      selectedContact = null;
+      selectedConversation = SelfConversation(_selfChatLastTimestamp);
+      showProfile = false;
+      showSettings = false;
+    });
+    _closeMobileDrawerIfOpen();
+  }
+
   void onShowProfile() {
     setState(() {
       showSettings = false;
       showProfile = true;
+      showSelfChat = false;
     });
   }
 
@@ -1426,6 +1453,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       showSettings = true;
       showProfile = false;
+      showSelfChat = false;
     });
   }
 
@@ -1575,6 +1603,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onionId: id,
       displayName: name,
       expectedFingerprint: expectedFingerprint,
+    );
+  }
+
+  bool get _showSelfChatInSidebar {
+    if (widget.decoyMode || _viewingArchived) return false;
+    if (_searchQuery.isEmpty) return true;
+    return 'chat with myself'.contains(_searchQuery);
+  }
+
+  Widget _buildSelfChatSidebarTile() {
+    final timeLabel = formatLastMessageTime(_selfChatLastTimestamp);
+    final preview = _selfChatLastPreview;
+    final subtitle = preview != null ? '$preview · $timeLabel' : timeLabel;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: ListTile(
+        leading: ContactAvatar(
+          name: appUser.name,
+          avatarBase64: appUser.avatarBase64,
+        ),
+        title: const Text('Chat with myself'),
+        subtitle: Text(subtitle),
+        selected: showSelfChat,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        onTap: onSelectSelfChat,
+      ),
     );
   }
 
@@ -1745,6 +1800,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(height: 8),
+          if (_showSelfChatInSidebar) _buildSelfChatSidebarTile(),
           // Conversation list
           Expanded(
             child: ListView.builder(
@@ -2629,6 +2685,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       loadUsers();
       selectedContact = null;
       selectedConversation = null;
+      showSelfChat = false;
     });
     _syncActiveConversationTracker();
   }
@@ -2650,6 +2707,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         torManager: widget.torManager,
         keyManager: widget.decoyMode ? null : widget.keyManager,
         onionAddress: widget.decoyMode ? null : widget.onionAddress,
+      );
+    }
+    if (showSelfChat && !widget.decoyMode) {
+      return SelfChatScreen(
+        key: const ValueKey('self_chat'),
+        userId: appUser.id,
+        userName: appUser.name,
+        avatarBase64: appUser.avatarBase64,
+        keyManager: widget.keyManager,
+        onCloseChat: () => clearChat(),
+        reloadSidebar: () => loadUsers(),
       );
     }
     if (selectedConversation is GroupConversation) {
@@ -2720,7 +2788,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     
     if (isMobile) {
        return Scaffold(
-        appBar: selectedConversation == null && !showProfile && !showSettings
+        appBar: selectedConversation == null &&
+                !showProfile &&
+                !showSettings &&
+                !showSelfChat
             ? AppBar(
           toolbarHeight: 70,
           title: Row(
@@ -2759,7 +2830,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'Settings',
-              onPressed: () => setState(() => showSettings = true),
+              onPressed: () => setState(() {
+                showSettings = true;
+                showSelfChat = false;
+              }),
             ),
           ],
           elevation: 2,

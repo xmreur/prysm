@@ -28,6 +28,9 @@ class SettingsScreen extends StatefulWidget {
   final dynamic torManager;
   final KeyManager? keyManager;
   final String? onionAddress;
+  final bool offlineMode;
+  final bool torConnecting;
+  final Future<void> Function()? onConnectTor;
 
   const SettingsScreen({
     required this.onClose,
@@ -35,6 +38,9 @@ class SettingsScreen extends StatefulWidget {
     this.torManager,
     this.keyManager,
     this.onionAddress,
+    this.offlineMode = false,
+    this.torConnecting = false,
+    this.onConnectTor,
     super.key,
   });
 
@@ -728,24 +734,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Network'),
               const SizedBox(height: 12),
               _buildCard([
-                _buildNavigationTile(
-                  'Refresh Tor Circuit',
-                  Icons.sync,
-                  () async {
-                    if (widget.torManager == null) return;
-                    final ok = await widget.torManager.refreshCircuit();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(ok
-                              ? 'New Tor circuit requested'
-                              : 'Failed to refresh circuit'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                  },
-                  subtitle: 'Request a new circuit when connections are stuck',
-                ),
+                if (widget.offlineMode) ...[
+                  _buildNavigationTile(
+                    widget.torConnecting ? 'Connecting to Tor…' : 'Connect Tor',
+                    Icons.link,
+                    widget.torConnecting
+                        ? null
+                        : () => widget.onConnectTor?.call(),
+                    subtitle: 'Go online to send and receive messages',
+                  ),
+                ] else ...[
+                  _buildNavigationTile(
+                    'Refresh Tor Circuit',
+                    Icons.sync,
+                    () async {
+                      if (widget.torManager == null) return;
+                      final ok = await widget.torManager.refreshCircuit();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(ok
+                                ? 'New Tor circuit requested'
+                                : 'Failed to refresh circuit'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                    },
+                    subtitle: 'Request a new circuit when connections are stuck',
+                  ),
+                ],
                 if (kDebugMode) ...[
                   _buildSwitchTile(
                     'Enable Relay Server',
@@ -1095,7 +1112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildNavigationTile(
     String title,
     IconData icon,
-    VoidCallback onTap, {
+    VoidCallback? onTap, {
     String? subtitle,
     Color? textColor,
   }) {

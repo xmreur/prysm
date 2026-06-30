@@ -70,6 +70,7 @@ import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
+import 'package:prysm/util/network_reachability.dart';
 import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
@@ -211,27 +212,59 @@ Future<void> runDesktopUpdaterCheck() async {
   }
 }
 
-Future<TorInitResult> initializeTor() async {
-  TorBootstrapNotifier.instance.reset();
-  var torPath = "";
-  if (!Platform.isAndroid) {
-    final torDownloader = TorDownloader();
-    torPath = await torDownloader.getOrDownloadTor();
-  }
-
+Future<String> _resolveTorDataDir() async {
   final documentsDir = await getApplicationDocumentsDirectory();
-  final dataDirPath = p.join(documentsDir.path, 'prysm', 'tor_executable', 'tor_data');
-
+  final dataDirPath =
+      p.join(documentsDir.path, 'prysm', 'tor_executable', 'tor_data');
   final dataDir = Directory(dataDirPath);
   if (!dataDir.existsSync()) {
     dataDir.createSync(recursive: true);
   }
+  return dataDirPath;
+}
 
-  final torManager = TorManager(
+Future<String> _resolveTorBinaryPath({bool allowDownload = true}) async {
+  if (Platform.isAndroid) return '';
+  if (allowDownload) {
+    final torDownloader = TorDownloader();
+    return torDownloader.getOrDownloadTor();
+  }
+
+  final documentsDir = await getApplicationDocumentsDirectory();
+  final torDirPath = p.join(documentsDir.path, 'prysm', 'tor_executable');
+  final String executableName;
+  if (Platform.isWindows) {
+    executableName = 'tor.exe';
+  } else if (Platform.isMacOS) {
+    executableName = 'tor_macos';
+  } else if (Platform.isLinux) {
+    executableName = 'tor';
+  } else {
+    return '';
+  }
+
+  final executablePath = p.join(torDirPath, executableName);
+  return File(executablePath).existsSync() ? executablePath : '';
+}
+
+Future<TorManager> createTorManager({bool allowDownload = true}) async {
+  final torPath = await _resolveTorBinaryPath(allowDownload: allowDownload);
+  final dataDirPath = await _resolveTorDataDir();
+  return TorManager(
     torPath: torPath,
     dataDir: dataDirPath,
     controlPassword: 'your_strong_password_here',
   );
+}
+
+Future<String?> loadCachedOnionAddress() async {
+  final manager = await createTorManager(allowDownload: false);
+  return manager.getOnionAddress();
+}
+
+Future<TorInitResult> initializeTor() async {
+  TorBootstrapNotifier.instance.reset();
+  final torManager = await createTorManager();
 
   await torManager.startTor();
 
@@ -358,6 +391,8 @@ class _MyAppState extends State<MyApp> {
   String _torStatus = 'Initializing...';
   bool _torReady = false;
   bool _torFailed = false;
+  bool _offlineMode = false;
+  bool _torConnecting = false;
   int _torBootstrapProgress = 0;
   StreamSubscription<int>? _bootstrapSub;
 
@@ -427,7 +462,98 @@ class _MyAppState extends State<MyApp> {
     _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
       if (mounted) setState(() => _torBootstrapProgress = p);
     });
-    _initTorInBackground();
+    unawaited(_checkStartupConnectivity());
+  }
+
+  Future<void> _checkStartupConnectivity() async {
+    if (!await NetworkReachability.hasInternet()) {
+      await _enterOfflineMode();
+      return;
+    }
+    await _initTorInBackground();
+  }
+
+  Future<void> _enterOfflineMode() async {
+    final manager = await createTorManager(allowDownload: false);
+    final cachedOnion = await manager.getOnionAddress();
+    if (!mounted) return;
+    setState(() {
+      _torManager = manager;
+      _onionAddress = cachedOnion;
+      _offlineMode = true;
+      _torReady = false;
+      _torFailed = false;
+      _torConnecting = false;
+      _torStatus = cachedOnion == null || cachedOnion.isEmpty
+          ? 'Offline — connect to Tor to get your Prysm ID'
+          : 'Offline';
+    });
+    TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
+  }
+
+  Future<void> _applyTorConnectedResult(TorInitResult result) async {
+    _globalTorManager = result.torManager;
+    TransportProvider.configure(result.torManager);
+    CallManager.configure(keyManager: widget.keyManager);
+    CallManager.instance.start();
+
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      windowManager.addListener(MyWindowListener(result.torManager));
+    }
+
+    PrysmServer.instance?.localOnionAddress = result.onionAddress;
+    TorConnectionNotifier.instance.update(TorConnectionState.connected);
+  }
+
+  Future<void> _connectTor() async {
+    if (_torConnecting) return;
+    if (!await NetworkReachability.hasInternet()) {
+      if (mounted) {
+        setState(() {
+          _torFailed = true;
+          _torStatus = 'No internet connection detected.';
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _torConnecting = true;
+      _torFailed = false;
+      _torReady = false;
+      _torStatus = 'Connecting to Tor...';
+    });
+
+    try {
+      final result = await initializeTor();
+      await _applyTorConnectedResult(result);
+      if (mounted) {
+        setState(() {
+          _torManager = result.torManager;
+          _onionAddress = result.onionAddress;
+          _torReady = true;
+          _offlineMode = false;
+          _torConnecting = false;
+          _torFailed = false;
+          _torStatus = 'Connected';
+        });
+      }
+    } catch (e) {
+      print('Tor connection failed: $e');
+      if (_torManager == null) {
+        await _enterOfflineMode();
+      }
+      if (mounted) {
+        setState(() {
+          _torConnecting = false;
+          _torFailed = true;
+          _offlineMode = true;
+          _torStatus =
+              'Failed to connect to Tor. Check your network and try again.';
+        });
+        TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
+      }
+    }
   }
 
   Future<void> _checkKeysExist() async {
@@ -453,22 +579,16 @@ class _MyAppState extends State<MyApp> {
     try {
       setState(() => _torStatus = 'Starting Tor...');
       final result = await initializeTor();
-      _globalTorManager = result.torManager;
-      TransportProvider.configure(result.torManager);
-      CallManager.configure(keyManager: widget.keyManager);
-      CallManager.instance.start();
-
-      if (!Platform.isAndroid) {
-        windowManager.addListener(MyWindowListener(result.torManager));
-      }
+      await _applyTorConnectedResult(result);
 
       if (mounted) {
-        PrysmServer.instance?.localOnionAddress = result.onionAddress;
         setState(() {
           _torManager = result.torManager;
           _onionAddress = result.onionAddress;
           _torReady = true;
+          _offlineMode = false;
           _torFailed = false;
+          _torConnecting = false;
           _torStatus = 'Connected';
         });
       }
@@ -477,8 +597,11 @@ class _MyAppState extends State<MyApp> {
       if (mounted) {
         setState(() {
           _torFailed = true;
-          _torStatus = 'Failed to connect to Tor. Check your network and try again.';
+          _torConnecting = false;
+          _torStatus =
+              'Failed to connect to Tor. Check your network and try again.';
         });
+        TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
     }
   }
@@ -487,9 +610,10 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _torFailed = false;
       _torReady = false;
+      _offlineMode = false;
       _torStatus = 'Retrying Tor connection...';
     });
-    await _initTorInBackground();
+    await _connectTor();
   }
 
   Future<void> _loadSavedTheme() async {
@@ -551,6 +675,7 @@ class _MyAppState extends State<MyApp> {
           keyManager: widget.keyManager,
           onionAddress: _onionAddress ?? '',
           torReady: _torReady,
+          offlineMode: _offlineMode,
           torBootstrapProgress:
               _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
           onComplete: () {
@@ -579,7 +704,7 @@ class _MyAppState extends State<MyApp> {
         ),
       );
     }
-    if (!_torReady) {
+    if (!_torReady && !_offlineMode) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: '${settings.name} Chat',
@@ -605,7 +730,7 @@ class _MyAppState extends State<MyApp> {
                 const SizedBox(height: 8),
                 Text(
                   _torFailed
-                      ? 'Tor is required for Prysm to work'
+                      ? 'You can use Prysm offline or retry when you have a connection.'
                       : _torBootstrapProgress > 0
                           ? 'Tor bootstrap: $_torBootstrapProgress%'
                           : 'Setting up secure connection...',
@@ -625,6 +750,12 @@ class _MyAppState extends State<MyApp> {
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),
                   ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _enterOfflineMode,
+                    icon: const Icon(Icons.offline_bolt),
+                    label: const Text('Continue offline'),
+                  ),
                 ],
               ],
             ),
@@ -634,7 +765,7 @@ class _MyAppState extends State<MyApp> {
     }
     final onionAddress = _panicDecoySession
         ? DecoySessionData.identityOnion
-        : _onionAddress!;
+        : (_onionAddress ?? '');
     final showOnboarding =
         !_panicDecoySession && !settings.onboardingCompleted;
 
@@ -646,6 +777,7 @@ class _MyAppState extends State<MyApp> {
           ? OnboardingScreen(
               onionAddress: onionAddress,
               torReady: _torReady,
+              offlineMode: _offlineMode,
               onComplete: () {
                 if (mounted) setState(() {});
               },
@@ -658,6 +790,9 @@ class _MyAppState extends State<MyApp> {
                 onThemeChanged: updateTheme,
                 currentTheme: _currentTheme,
                 decoyMode: _panicDecoySession,
+                offlineMode: _offlineMode,
+                torConnecting: _torConnecting,
+                onConnectTor: _connectTor,
               ),
             ),
     );
@@ -671,14 +806,20 @@ class HomeScreen extends StatefulWidget {
   final Function(int)? onThemeChanged;
   final int currentTheme;
   final bool decoyMode;
+  final bool offlineMode;
+  final bool torConnecting;
+  final Future<void> Function() onConnectTor;
 
   const HomeScreen({
     required this.torManager,
     required this.onionAddress,
     required this.keyManager,
+    required this.onConnectTor,
     this.onThemeChanged,
     this.currentTheme = 0,
     this.decoyMode = false,
+    this.offlineMode = false,
+    this.torConnecting = false,
     super.key,
   });
 
@@ -833,6 +974,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _wireOnlineServices() {
+    if (widget.decoyMode || widget.offlineMode) return;
+
+    TransportProvider.configure(
+      widget.torManager,
+      onPeerConnected: (peerId) =>
+          _syncCoordinator!.flushPendingForPeer(peerId),
+    );
+    TransportProvider.instance.startWebSocketConnections();
+    TorRuntimeGate.isTorStopped = () => _torStopped;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      _torSupervisor = TorSupervisor(
+        torManager: widget.torManager,
+        isTorStopped: () => _torStopped,
+        isRestartInProgress: () => _torRestartInProgress,
+        performRestart: ({bool userInitiated = false}) =>
+            _performTorRestart(userInitiated: userInitiated),
+      );
+    }
+    _syncCoordinator!.start();
+    WakeHintService.instance.configure(
+      userId: widget.onionAddress,
+      onFlushPeer: (peerId) => _syncCoordinator!.flushPendingForPeer(peerId),
+    );
+    ReadReceiptService.configure(
+      flushPendingForPeer: (peerId) =>
+          _syncCoordinator!.flushPendingForPeer(peerId),
+    );
+    _torStopped = false;
+    _torConnectionState = TorConnectionState.disconnected;
+    _startTorHealthMonitor();
+    unawaited(_onTorReconnected());
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.offlineMode && !widget.offlineMode) {
+      _wireOnlineServices();
+      unawaited(loadUsers());
+    }
+    if (oldWidget.currentTheme != widget.currentTheme) {
+      setState(() {
+        currentTheme = widget.currentTheme;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -849,39 +1038,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         identityJson: 'NONE',
       );
     }
+    if (widget.offlineMode) {
+      _torStopped = true;
+      _torConnectionState = TorConnectionState.disconnected;
+      TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
+    }
     _syncCoordinator = SyncCoordinator(
       userId: widget.decoyMode ? 'decoy-user' : widget.onionAddress,
       keyManager: widget.keyManager,
       torManager: widget.torManager,
       isTorStopped: () => _torStopped,
     );
-    if (!widget.decoyMode) {
-      TransportProvider.configure(
-        widget.torManager,
-        onPeerConnected: (peerId) =>
-            _syncCoordinator!.flushPendingForPeer(peerId),
-      );
-      TransportProvider.instance.startWebSocketConnections();
+    if (!widget.decoyMode && !widget.offlineMode) {
+      _wireOnlineServices();
+    } else if (!widget.decoyMode) {
       TorRuntimeGate.isTorStopped = () => _torStopped;
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        _torSupervisor = TorSupervisor(
-          torManager: widget.torManager,
-          isTorStopped: () => _torStopped,
-          isRestartInProgress: () => _torRestartInProgress,
-          performRestart: ({bool userInitiated = false}) =>
-              _performTorRestart(userInitiated: userInitiated),
-        );
-      }
-      _syncCoordinator!.start();
-      WakeHintService.instance.configure(
-        userId: widget.onionAddress,
-        onFlushPeer: (peerId) =>
-            _syncCoordinator!.flushPendingForPeer(peerId),
-      );
-      ReadReceiptService.configure(
-        flushPendingForPeer: (peerId) =>
-            _syncCoordinator!.flushPendingForPeer(peerId),
-      );
     }
 
     if (widget.decoyMode) {
@@ -905,7 +1076,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     _startAutoRefresh();
-    _startTorHealthMonitor();
+    if (!widget.offlineMode) {
+      _startTorHealthMonitor();
+    }
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
       if (!mounted) return;
       _restartBackgroundIntervals();
@@ -1077,21 +1250,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ActiveConversationTracker.instance.clear();
   }
 
-  @override
-  void didUpdateWidget(covariant HomeScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentTheme != widget.currentTheme) {
-      setState(() {
-        currentTheme = widget.currentTheme;
-      });
-    }
-  }
-
-
   void _restartBackgroundIntervals() {
     _refreshTimer?.cancel();
     _startAutoRefresh();
-    _startTorHealthMonitor();
+    if (!widget.offlineMode) {
+      _startTorHealthMonitor();
+    }
     _syncCoordinator?.start();
   }
 
@@ -1465,6 +1629,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showAddUserDialog({String? prefilledId}) async {
+    if (widget.offlineMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connect to Tor before adding contacts'),
+        ),
+      );
+      return;
+    }
+
     String? onionPrefill = prefilledId;
     String? expectedFingerprint;
     if (prefilledId != null) {
@@ -2284,40 +2457,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ],
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _torConnectionState == TorConnectionState.connecting ||
-                          _torRestartInProgress
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          _restartTor();
-                        },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Restart Tor'),
+              if (widget.offlineMode) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: widget.torConnecting
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            widget.onConnectTor();
+                          },
+                    icon: const Icon(Icons.link),
+                    label: Text(
+                      widget.torConnecting ? 'Connecting…' : 'Connect Tor',
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    final ok = await widget.torManager.refreshCircuit();
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          ok ? 'New Tor circuit requested' : 'Circuit refresh failed',
+              ] else ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _torConnectionState == TorConnectionState.connecting ||
+                            _torRestartInProgress
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _restartTor();
+                          },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Restart Tor'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final ok = await widget.torManager.refreshCircuit();
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok ? 'New Tor circuit requested' : 'Circuit refresh failed',
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.swap_horiz),
-                  label: const Text('New circuit'),
+                      );
+                    },
+                    icon: const Icon(Icons.swap_horiz),
+                    label: const Text('New circuit'),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -2326,9 +2517,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _onionPreview(String onion) {
+    if (onion.isEmpty) return 'Connect Tor for Prysm ID';
     final short = onion.replaceAll('.onion', '');
     if (short.length <= 10) return short;
     return '${short.substring(0, 8)}…';
+  }
+
+  Widget _buildOfflineBanner() {
+    if (!widget.offlineMode) return const SizedBox.shrink();
+    return Material(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Icon(
+              Icons.wifi_off,
+              size: 18,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.torConnecting
+                    ? 'Connecting to Tor…'
+                    : 'Offline — messages will send when Tor connects',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+              ),
+            ),
+            if (!widget.torConnecting)
+              TextButton(
+                onPressed: () => widget.onConnectTor(),
+                child: const Text('Connect'),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Color _torStatusColor(TorConnectionState state) => switch (state) {
@@ -2356,6 +2584,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _torStatusLabel(TorConnectionState state) {
+    if (widget.torConnecting) return 'Connecting…';
+    if (widget.offlineMode) return 'Offline';
     if (_torNeedsAttention) return 'Needs attention';
     return switch (state) {
       TorConnectionState.connected => 'Connected',
@@ -2370,7 +2600,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final shortLabel = switch (_torConnectionState) {
       TorConnectionState.connected => 'Tor',
       TorConnectionState.connecting => '…',
-      TorConnectionState.disconnected => 'Off',
+      TorConnectionState.disconnected => widget.offlineMode ? 'Off' : 'Off',
     };
 
     return Padding(
@@ -2707,6 +2937,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         torManager: widget.torManager,
         keyManager: widget.decoyMode ? null : widget.keyManager,
         onionAddress: widget.decoyMode ? null : widget.onionAddress,
+        offlineMode: widget.offlineMode,
+        torConnecting: widget.torConnecting,
+        onConnectTor: widget.onConnectTor,
       );
     }
     if (showSelfChat && !widget.decoyMode) {
@@ -2843,9 +3076,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         drawer: Drawer(
           child: buildSidebar(),
         ),
-        body: Row(
+        body: Column(
           children: [
-            Expanded(child: _buildChatBody()),
+            _buildOfflineBanner(),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: _buildChatBody()),
+                ],
+              ),
+            ),
           ],
         ),
       );
@@ -2886,10 +3126,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         elevation: 2,
         shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
-      body: Row(
+      body: Column(
         children: [
-          buildSidebar(),
-          Expanded(child: _buildChatBody()),
+          _buildOfflineBanner(),
+          Expanded(
+            child: Row(
+              children: [
+                buildSidebar(),
+                Expanded(child: _buildChatBody()),
+              ],
+            ),
+          ),
         ],
       ),
     );

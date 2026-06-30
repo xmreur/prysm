@@ -14,6 +14,7 @@ import 'package:prysm/util/qr_platform.dart';
 class OnboardingScreen extends StatefulWidget {
   final String onionAddress;
   final bool torReady;
+  final bool offlineMode;
   final bool isReplay;
   final bool isInitialSetup;
   final KeyManager? keyManager;
@@ -24,6 +25,7 @@ class OnboardingScreen extends StatefulWidget {
     required this.onionAddress,
     required this.torReady,
     required this.onComplete,
+    this.offlineMode = false,
     this.isReplay = false,
     this.isInitialSetup = false,
     this.keyManager,
@@ -120,6 +122,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _addContact() async {
+    if (widget.offlineMode) {
+      _showSnack('Connect to Tor before adding contacts');
+      return;
+    }
+
     String onionId;
     try {
       onionId = decodeBase58ToOnion(_contactIdController.text.trim());
@@ -623,6 +630,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _torStep(ThemeData theme) {
     final connected = widget.torReady;
+    final offline = widget.offlineMode && !connected;
     return _stepScaffold(
       theme: theme,
       icon: Icons.shield_outlined,
@@ -645,13 +653,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 height: 10,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: connected ? Colors.green : Colors.orange,
+                  color: connected
+                      ? Colors.green
+                      : offline
+                          ? Colors.red
+                          : Colors.orange,
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                connected ? 'Tor is connected' : 'Tor is connecting…',
-                style: theme.textTheme.titleMedium,
+              Expanded(
+                child: Text(
+                  connected
+                      ? 'Tor is connected'
+                      : offline
+                          ? 'Offline — connect later to get your Prysm ID'
+                          : 'Tor is connecting…',
+                  style: theme.textTheme.titleMedium,
+                ),
               ),
             ],
           ),
@@ -762,8 +780,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Ask a friend for their Prysm ID (a Base58 code or QR). '
-            'They must be online on Tor for the first connection.',
+            widget.offlineMode
+                ? 'Connect to Tor to add contacts. You can skip this step and '
+                    'add friends later from the main app.'
+                : 'Ask a friend for their Prysm ID (a Base58 code or QR). '
+                    'They must be online on Tor for the first connection.',
             style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
           ),
           const SizedBox(height: 24),
@@ -823,7 +844,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 16),
           FilledButton(
-            onPressed: _addingContact ? null : _addContact,
+            onPressed: widget.offlineMode || _addingContact ? null : _addContact,
             child: _addingContact
                 ? const SizedBox(
                     height: 20,

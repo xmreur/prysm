@@ -109,6 +109,7 @@ Future<bool> runChangePasscodeFlow(
     if (settings.biometricsEnabled) {
       await BiometricUnlockService.instance.storeSecret(newSecret);
     }
+    if (!context.mounted) return false;
     _showSnack(
       context,
       type == UnlockType.pin ? 'PIN updated' : 'Passphrase updated',

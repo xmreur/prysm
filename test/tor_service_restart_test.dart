@@ -75,10 +75,7 @@ void main() {
   });
 
   group('TorRuntimeGate with lifecycle', () {
-    tearDown(() {
-      TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
-      TorRuntimeGate.isTorStopped = null;
-    });
+    tearDown(TorRuntimeGate.resetForTest);
 
     test('blocks while lifecycle is not ready', () {
       TorRuntimeGate.isTorStopped = () => false;

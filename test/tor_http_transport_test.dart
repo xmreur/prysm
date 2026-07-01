@@ -3,14 +3,18 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/transport/tor_http_transport.dart';
 import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
   setUp(() {
+    TorRuntimeGate.resetForTest();
     TorDelivery.resetForTest();
   });
 
   tearDown(() {
+    TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
     TorDelivery.resetForTest();
   });
 

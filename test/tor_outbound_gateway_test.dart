@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_outbound_gateway.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
   setUp(() {
+    TorRuntimeGate.resetForTest();
     TorOutboundGateway.resetForTest();
     TorDelivery.resetForTest();
     TorOutboundGateway.configure(
@@ -16,6 +19,7 @@ void main() {
   });
 
   tearDown(() {
+    TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
     TorOutboundGateway.resetForTest();
     TorDelivery.resetForTest();
   });

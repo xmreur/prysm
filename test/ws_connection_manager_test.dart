@@ -3,16 +3,17 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
   setUp(() {
-    TorRuntimeGate.isTorStopped = null;
+    TorRuntimeGate.resetForTest();
   });
 
   tearDown(() {
-    TorRuntimeGate.isTorStopped = null;
+    TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
   });
 
   test('interactive connect budget is 25 seconds', () {
@@ -23,6 +24,7 @@ void main() {
   });
 
   test('ensureConnected rejects when Tor is stopped', () async {
+    TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
     TorRuntimeGate.isTorStopped = () => true;
     final manager = WsConnectionManager(
       TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-test-2'),

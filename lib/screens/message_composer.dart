@@ -55,6 +55,7 @@ class MessageComposerState extends State<MessageComposer> {
     if (isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_handleHardwareKey);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
   }
 
   @override
@@ -194,6 +195,7 @@ class MessageComposerState extends State<MessageComposer> {
       path: _recordPath!,
     );
 
+    if (!mounted) return;
     setState(() {
       _isRecording = true;
       _recordDuration = Duration.zero;
@@ -213,6 +215,7 @@ class MessageComposerState extends State<MessageComposer> {
 
     final path = await _recorder.stop();
 
+    if (!mounted) return;
     setState(() => _isRecording = false);
     WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
@@ -254,7 +257,6 @@ class MessageComposerState extends State<MessageComposer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyLayoutChanged());
 
     return Column(
       mainAxisSize: MainAxisSize.min,

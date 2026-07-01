@@ -11,6 +11,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 /// Unified offline sync: pending delivery retries and adaptive sidebar refresh triggers.
@@ -71,13 +72,13 @@ class SyncCoordinator {
   }
 
   Future<void> _onTick() async {
-    if (isTorStopped()) return;
+    if (TorRuntimeGate.blocked || isTorStopped()) return;
     await flushAllPending();
   }
 
   /// Flush all outbound pending queues. Returns true if anything was delivered.
   Future<bool> flushAllPending() async {
-    if (isTorStopped() || _flushing) return false;
+    if (TorRuntimeGate.blocked || isTorStopped() || _flushing) return false;
     _flushing = true;
     try {
       await _refreshPendingBacklogFlag();
@@ -163,7 +164,7 @@ class SyncCoordinator {
 
   /// Flush outbound pending queues for one direct peer (wake-hint response).
   Future<bool> flushPendingForPeer(String receiverId) async {
-    if (isTorStopped() || _flushing) return false;
+    if (TorRuntimeGate.blocked || isTorStopped() || _flushing) return false;
 
     final hasPending = await PendingMessageDbHelper.hasOutboundDirectPending(
       userId,

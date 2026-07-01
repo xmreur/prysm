@@ -12,14 +12,7 @@ import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:uuid/uuid.dart';
 
-enum CallState {
-  idle,
-  connecting,
-  ringing,
-  incoming,
-  active,
-  ended,
-}
+enum CallState { idle, connecting, ringing, incoming, active, ended }
 
 class CallSnapshot {
   const CallSnapshot({
@@ -47,10 +40,11 @@ class CallSnapshot {
       state == CallState.active;
 }
 
-typedef CallAudioFactory = CallAudio Function({
-  required CallSession session,
-  required CallAudioSendCallback onSendFrame,
-});
+typedef CallAudioFactory =
+    CallAudio Function({
+      required CallSession session,
+      required CallAudioSendCallback onSendFrame,
+    });
 
 class CallManager extends ChangeNotifier {
   CallManager({
@@ -58,10 +52,10 @@ class CallManager extends ChangeNotifier {
     CallTransport? transport,
     CallKeyResolver? keyResolver,
     CallAudioFactory? audioFactory,
-  })  : _keyManager = keyManager,
-        _transport = transport,
-        _keyResolver = keyResolver,
-        _audioFactory = audioFactory ?? createCallAudio;
+  }) : _keyManager = keyManager,
+       _transport = transport,
+       _keyResolver = keyResolver,
+       _audioFactory = audioFactory ?? createCallAudio;
 
   static CallManager? _instance;
 
@@ -163,10 +157,7 @@ class CallManager extends ChangeNotifier {
     if (BlockService.instance.isBlocked(peerOnion)) return;
 
     _setSnapshot(
-      CallSnapshot(
-        state: CallState.connecting,
-        peerOnion: peerOnion,
-      ),
+      CallSnapshot(state: CallState.connecting, peerOnion: peerOnion),
     );
 
     final transport = _transport!;
@@ -517,10 +508,7 @@ class CallManager extends ChangeNotifier {
     final transport = _transport;
     if (transport == null) return;
 
-    final payload = {
-      'callId': callId,
-      'reason': reason,
-    };
+    final payload = {'callId': callId, 'reason': reason};
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await transport.ensureConnected(peerOnion);

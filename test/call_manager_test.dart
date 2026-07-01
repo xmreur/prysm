@@ -76,9 +76,8 @@ void main() {
       keyManager: keyManager,
       transport: transport,
       keyResolver: keyResolver,
-      audioFactory: ({required session, required onSendFrame}) => _FakeCallAudio(
-        onSendFrame: onSendFrame,
-      ),
+      audioFactory: ({required session, required onSendFrame}) =>
+          _FakeCallAudio(onSendFrame: onSendFrame),
     );
     manager.start();
   });
@@ -103,10 +102,7 @@ void main() {
     unawaited(manager.startCall('peer.onion'));
     await Future<void>.delayed(Duration.zero);
     expect(manager.snapshot.state, CallState.ringing);
-    expect(
-      transport.sentFrames.where((f) => f.op == 'call_offer'),
-      isEmpty,
-    );
+    expect(transport.sentFrames.where((f) => f.op == 'call_offer'), isEmpty);
 
     notifier.applyInbound('peer.onion', 'call_answer', {
       'callId': manager.snapshot.callId,
@@ -129,8 +125,7 @@ void main() {
     await manager.startCall('peer.onion');
     expect(manager.snapshot.state, CallState.ringing);
 
-    final offer = transport.sentFrames
-        .firstWhere((f) => f.op == 'call_offer');
+    final offer = transport.sentFrames.firstWhere((f) => f.op == 'call_offer');
     notifier.applyInbound('peer.onion', 'call_answer', {
       'callId': offer.payload['callId'],
       'sessionId': offer.payload['sessionId'],
@@ -149,10 +144,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -175,10 +167,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
     });
 
     await Future<void>.delayed(Duration.zero);
@@ -196,10 +185,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -207,10 +193,7 @@ void main() {
 
     await manager.endCall();
     expect(manager.snapshot.state, CallState.idle);
-    expect(
-      transport.sentFrames.where((f) => f.op == 'call_end'),
-      isNotEmpty,
-    );
+    expect(transport.sentFrames.where((f) => f.op == 'call_end'), isNotEmpty);
   });
 
   test('foreground session syncs on call state transitions', () async {
@@ -222,10 +205,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
     });
     await Future<void>.delayed(Duration.zero);
     expect(foreground.syncCalls, isNotEmpty);
@@ -245,10 +225,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
     });
     await Future<void>.delayed(Duration.zero);
     expect(manager.snapshot.state, CallState.incoming);
@@ -258,34 +235,33 @@ void main() {
       peerOnion: 'peer.onion',
     );
     expect(manager.snapshot.state, CallState.idle);
-    expect(
-      transport.sentFrames.where((f) => f.op == 'call_end'),
-      isNotEmpty,
-    );
+    expect(transport.sentFrames.where((f) => f.op == 'call_end'), isNotEmpty);
   });
 
-  test('incoming offer from blocked peer is declined without ringing', () async {
-    await BlockService.instance.block('blocked.onion');
+  test(
+    'incoming offer from blocked peer is declined without ringing',
+    () async {
+      await BlockService.instance.block('blocked.onion');
 
-    final caller = CallSession.createOutbound(
-      callId: 'blocked-offer',
-      sessionId: 3,
-      peerOnion: 'local.onion',
-    );
-    notifier.applyInbound('blocked.onion', 'call_offer', {
-      'callId': caller.callId,
-      'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(
-        localKeys,
-        keyManager,
-      ),
-    });
+      final caller = CallSession.createOutbound(
+        callId: 'blocked-offer',
+        sessionId: 3,
+        peerOnion: 'local.onion',
+      );
+      notifier.applyInbound('blocked.onion', 'call_offer', {
+        'callId': caller.callId,
+        'sessionId': caller.sessionId,
+        'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      });
 
-    await Future<void>.delayed(Duration.zero);
-    expect(manager.snapshot.state, CallState.idle);
-    final endFrame = transport.sentFrames.firstWhere((f) => f.op == 'call_end');
-    expect(endFrame.payload['reason'], 'declined');
-  });
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.snapshot.state, CallState.idle);
+      final endFrame = transport.sentFrames.firstWhere(
+        (f) => f.op == 'call_end',
+      );
+      expect(endFrame.payload['reason'], 'declined');
+    },
+  );
 }
 
 class _RecordingForegroundSession implements CallForegroundSessionPort {

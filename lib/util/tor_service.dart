@@ -171,12 +171,12 @@ class TorManager {
       }
 
       return _controlReadMutex.protect(() async {
-        await _ensureControlSession();
-        await _sendAndCollectImpl(
-          'GETINFO version',
-          untilOk: true,
-          timeout: const Duration(seconds: 3),
-        );
+        if (!await _probeSocksPort()) {
+          return const TorHealthStatus(
+            ok: false,
+            reason: 'SOCKS port unreachable',
+          );
+        }
         return TorHealthStatus.healthy;
       });
     } catch (e) {

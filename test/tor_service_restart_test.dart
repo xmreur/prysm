@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/tor_health_status.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
@@ -69,6 +71,22 @@ void main() {
         ),
         isFalse,
       );
+    });
+  });
+
+  group('TorRuntimeGate with lifecycle', () {
+    tearDown(TorRuntimeGate.resetForTest);
+
+    test('blocks while lifecycle is not ready', () {
+      TorRuntimeGate.isTorStopped = () => false;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.restarting);
+      expect(TorRuntimeGate.blocked, isTrue);
+    });
+
+    test('unblocks when lifecycle is ready and Tor is running', () {
+      TorRuntimeGate.isTorStopped = () => false;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
+      expect(TorRuntimeGate.blocked, isFalse);
     });
   });
 }

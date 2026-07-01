@@ -82,7 +82,13 @@ class SettingsService {
   Future<void> migrateUnlockTypeForExistingKeys() async {
     final raw = _prefs?.getString(_settingsKey);
     if (raw == null) return;
-    final json = jsonDecode(raw) as Map<String, dynamic>;
+    Map<String, dynamic> json;
+    try {
+      json = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (e) {
+      print('Error parsing settings for unlock migration: $e');
+      return;
+    }
     if (json.containsKey('unlockType')) return;
     if (!await CryptoKeyStore.isPassphraseSet()) return;
     await setUnlockType(UnlockType.passphrase);

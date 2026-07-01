@@ -128,12 +128,16 @@ class CryptoKeyStore {
   }
 
   static Future<bool> needsCryptoMigration() async {
+    if (await hasLegacyRsaStorage()) return true;
     final gen = await cryptoGeneration();
     if (gen != null && gen >= CryptoConstants.cryptoGeneration) {
       return false;
     }
-    if (await hasLegacyRsaStorage()) return true;
-    return gen == null || gen < CryptoConstants.cryptoGeneration;
+    if (await isPassphraseSet()) {
+      await setCryptoGeneration(CryptoConstants.cryptoGeneration);
+      return false;
+    }
+    return false;
   }
 
   static Future<Map<String, String>> encryptIdentity({

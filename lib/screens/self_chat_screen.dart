@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -21,6 +22,7 @@ import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
+import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/self_chat_service.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/util/chat_scroll.dart';
@@ -37,6 +39,7 @@ class SelfChatScreen extends StatefulWidget {
   final KeyManager keyManager;
   final VoidCallback onCloseChat;
   final VoidCallback reloadSidebar;
+  final DetachedChatClient? detachedClient;
 
   const SelfChatScreen({
     required this.userId,
@@ -45,6 +48,7 @@ class SelfChatScreen extends StatefulWidget {
     required this.keyManager,
     required this.onCloseChat,
     required this.reloadSidebar,
+    this.detachedClient,
     super.key,
   });
 
@@ -63,6 +67,16 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   bool _hasMore = true;
   int? _oldestTimestamp;
   String? _oldestMessageId;
+  StreamSubscription? _detachedInboundSub;
+
+  Future<List<Message>> _decryptForDisplay(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (widget.detachedClient != null) {
+      return widget.detachedClient!.decryptRows(rows);
+    }
+    return _service.decryptMessages(rows);
+  }
 
   @override
   void initState() {
@@ -73,11 +87,27 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       keyManager: widget.keyManager,
     );
     _scrollController.addListener(_onListScroll);
+    if (widget.detachedClient != null) {
+      _detachedInboundSub =
+          widget.detachedClient!.onInboundMessages.listen((messages) {
+        if (!mounted) return;
+        setState(() {
+          final existingIds = _messages.messages.map((m) => m.id).toSet();
+          for (final msg in messages) {
+            if (!existingIds.contains(msg.id)) {
+              _messages.insertMessage(msg, index: _messages.messages.length);
+            }
+          }
+        });
+        _scheduleScrollToBottomAfterSend();
+      });
+    }
     _loadInitialMessages();
   }
 
   @override
   void dispose() {
+    _detachedInboundSub?.cancel();
     _scrollController.removeListener(_onListScroll);
     _scrollController.dispose();
     super.dispose();
@@ -129,7 +159,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
       );
 
-    final decrypted = await _service.decryptMessages(sorted);
+    final decrypted = await _decryptForDisplay(sorted);
 
     if (!mounted) return;
 
@@ -163,6 +193,11 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       );
     });
     _scheduleScrollToBottomAfterSend();
+
+    if (widget.detachedClient != null) {
+      await widget.detachedClient!.sendText(text: text, messageId: messageId);
+      return;
+    }
 
     await _service.sendTextMessage(text, messageId: messageId);
     widget.reloadSidebar();
@@ -207,6 +242,17 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       }
     });
     _scheduleScrollToBottomAfterSend();
+
+    if (widget.detachedClient != null) {
+      await widget.detachedClient!.sendFile(
+        bytes: bytes,
+        fileName: fileName,
+        type: type,
+        messageId: messageId,
+        viewOnce: viewOnce,
+      );
+      return;
+    }
 
     await _service.sendFileMessage(
       bytes,
@@ -300,6 +346,15 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       );
     });
     _scheduleScrollToBottomAfterSend();
+
+    if (widget.detachedClient != null) {
+      await widget.detachedClient!.sendVoice(
+        bytes: bytes,
+        durationMs: durationMs,
+        messageId: messageId,
+      );
+      return;
+    }
 
     await _service.sendFileMessage(
       bytes,

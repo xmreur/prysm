@@ -35,7 +35,6 @@ import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
-import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
@@ -54,6 +53,7 @@ import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
+import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/typing_indicator_service.dart';
@@ -74,6 +74,7 @@ class GroupChatScreen extends StatefulWidget {
   final VoidCallback reloadConversations;
   final VoidCallback? onCloseChat;
   final Widget? torStatusAction;
+  final DetachedChatClient? detachedClient;
 
   const GroupChatScreen({
     required this.userId,
@@ -83,6 +84,7 @@ class GroupChatScreen extends StatefulWidget {
     required this.reloadConversations,
     this.onCloseChat,
     this.torStatusAction,
+    this.detachedClient,
     super.key,
   });
 
@@ -116,6 +118,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
   StreamSubscription? _modifyRefreshSub;
+  StreamSubscription? _detachedInboundSub;
+  StreamSubscription? _detachedStatusSub;
   StreamSubscription? _membershipSub;
   StreamSubscription? _readReceiptRefreshSub;
   Timer? _readReceiptDebounce;
@@ -126,7 +130,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Message? _replyToMessage;
   ReplyPreviewData? _replyDraft;
   final Set<String> selectedMessageIds = {};
-  final Map<String, double> _dragOffsets = {};
+  final ValueNotifier<double> _swipeDragOffset = ValueNotifier(0);
+  String? _swipeDragMessageId;
   late TypingIndicatorService _typingService;
   final _typingTracker = TypingStateTracker();
   StreamSubscription<TypingIndicatorEvent>? _typingSub;
@@ -247,6 +252,30 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _typingTrackerSub = _typingTracker.onChanged.listen((_) {
       if (mounted) setState(() {});
     });
+    if (widget.detachedClient != null) {
+      _detachedInboundSub =
+          widget.detachedClient!.onInboundMessages.listen((messages) {
+        if (!mounted) return;
+        setState(() {
+          final existingIds = _messages.messages.map((m) => m.id).toSet();
+          for (final msg in messages) {
+            if (!existingIds.contains(msg.id)) {
+              _messages.insertMessage(msg, index: _messages.messages.length);
+            }
+          }
+        });
+        _scheduleScrollToBottomAfterSend();
+      });
+      _detachedStatusSub =
+          widget.detachedClient!.onStatusUpdates.listen((update) {
+        _handleStatusUpdate(
+          GroupMessageStatusUpdate(
+            update['messageId'] as String,
+            update['status'] as String,
+          ),
+        );
+      });
+    }
     _init();
   }
 
@@ -278,6 +307,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _reactionSub?.cancel();
     _reactionRefreshSub?.cancel();
     _modifyRefreshSub?.cancel();
+    _detachedInboundSub?.cancel();
+    _detachedStatusSub?.cancel();
     _membershipSub?.cancel();
     _readReceiptRefreshSub?.cancel();
     _readReceiptDebounce?.cancel();
@@ -334,8 +365,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _waitForGroupKey();
     }
 
-    _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
-    _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+    if (widget.detachedClient == null) {
+      _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
+      _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+    }
     _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
     _reactionRefreshSub =
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
@@ -348,9 +381,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     await _loadMoreMessages();
     _restoreReplyDraft();
     await _markInboundAsRead();
-    _chatService.startPolling();
-    _chatService.startSendQueue();
-    _chatService.pinMembersForWebSocket();
+    if (widget.detachedClient == null) {
+      _chatService.startPolling();
+      _chatService.startSendQueue();
+      _chatService.pinMembersForWebSocket();
+    }
 
     if (mounted && _messages.messages.isNotEmpty) {
       _stickToBottom = true;
@@ -713,7 +748,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   void _handleNewMessages(List<Map<String, dynamic>> raw) async {
     if (!mounted) return;
-    final decrypted = await _decryptBatch(raw);
+    final decrypted = await _decryptForDisplay(raw);
+    if (!mounted) return;
     setState(() {
       final existing = _messages.messages.map((m) => m.id).toSet();
       for (final msg in decrypted) {
@@ -839,6 +875,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     return ImageAttachmentCache.sniffImageMimeType(bytes);
   }
 
+  Future<List<Message>> _decryptForDisplay(List<Map<String, dynamic>> raw) async {
+    if (widget.detachedClient != null) {
+      return widget.detachedClient!.decryptRows(raw);
+    }
+    return _decryptBatch(raw);
+  }
+
   Future<List<Message>> _decryptBatch(List<Map<String, dynamic>> raw) async {
     final groupKey = await _groupService.getDecryptedGroupKey(widget.group.id);
     if (groupKey == null) return [];
@@ -925,35 +968,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             ));
           }
         } else if (type == groupFileType || type == groupAudioType) {
-          final bytes = await GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
-          if (type == groupAudioType) {
-            final cacheDir = await getTemporaryDirectory();
-            final cachePath = '${cacheDir.path}/group_voice_$id.wav';
-            await File(cachePath).writeAsBytes(bytes);
-            final durationMs = WaveformExtractor.estimateDurationMs(bytes);
-            final peaks = WaveformExtractor.extractPeaks(bytes);
-            result.add(FileMessage(
-              id: id,
-              authorId: authorId,
-              createdAt: createdAt,
-              replyToMessageId: replyTo,
-              name: msg['fileName'] as String? ?? 'voice_message.wav',
-              size: bytes.length,
-              source: 'audio:$durationMs:$cachePath',
-              metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
-            ));
-          } else {
-            final fileName = msg['fileName'] as String? ?? 'file';
-            result.add(FileMessage(
-              id: id,
-              authorId: authorId,
-              createdAt: createdAt,
-              replyToMessageId: replyTo,
-              name: fileName,
-              size: bytes.length,
-              source: base64Encode(bytes),
-            ));
-          }
+          final fileName = msg['fileName'] as String? ??
+              (type == groupAudioType ? 'voice_message.wav' : 'file');
+          result.add(FileMessage(
+            id: id,
+            authorId: authorId,
+            createdAt: createdAt,
+            replyToMessageId: replyTo,
+            name: fileName,
+            size: (msg['fileSize'] as num?)?.toInt() ?? 0,
+            source: wire as String,
+            metadata: meta.isEmpty ? null : meta,
+          ));
         }
       } catch (_) {
         if ((msg['senderId'] as String) != widget.userId) {
@@ -1050,7 +1076,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _chatService.seedNewestTimestamp(newestTs);
     }
 
-    final decrypted = await _decryptBatch(sorted);
+    final decrypted = await _decryptForDisplay(sorted);
+    if (!mounted) {
+      _loading = false;
+      return;
+    }
 
     setState(() {
       _messages.insertAllMessages(decrypted, index: 0);
@@ -1081,6 +1111,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     });
     MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
+    if (widget.detachedClient != null) {
+      final sentId = await widget.detachedClient!.sendText(
+        text: text,
+        replyToId: replyToId,
+        messageId: messageId,
+      );
+      if (sentId == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not send message — group key unavailable')),
+        );
+      }
+      return;
+    }
     final sentId = await _chatService.sendTextMessage(
       text,
       messageId: messageId,
@@ -1135,6 +1178,23 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     });
     MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
+
+    if (widget.detachedClient != null) {
+      final sentId = await widget.detachedClient!.sendFile(
+        bytes: bytes,
+        fileName: fileName,
+        type: type,
+        replyToId: replyToId,
+        messageId: messageId,
+        viewOnce: viewOnce,
+      );
+      if (sentId == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not send file — group key unavailable')),
+        );
+      }
+      return;
+    }
 
     final sentId = await _chatService.sendFileMessage(
       bytes,
@@ -1235,6 +1295,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
+    if (widget.detachedClient != null) {
+      await widget.detachedClient!.sendVoice(
+        bytes: bytes,
+        durationMs: durationMs,
+        messageId: messageId,
+      );
+      return;
+    }
+
     await _chatService.sendFileMessage(
       bytes,
       'voice_message.wav',
@@ -1330,6 +1399,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _teardown();
     _typingTracker.dispose();
     _highlightTimer?.cancel();
+    _swipeDragOffset.dispose();
     _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
     super.dispose();
@@ -1622,6 +1692,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe: isSentByMe,
             timeString: timeString,
             tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+            decryptAudio: message.source.startsWith('audio:')
+                ? null
+                : (_) async {
+                    final rows = await MessagesDb.getMessageById(
+                      message.id,
+                      groupId: widget.group.id,
+                    );
+                    if (rows.isEmpty) return null;
+                    return _decryptGroupFileBytes(rows.first);
+                  },
           ),
         ],
       );
@@ -1639,7 +1719,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           isSentByMe: isSentByMe,
           tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
           header: _senderLabel(message.authorId, isSentByMe),
-          resolveBytes: () => FileAttachmentResolver.resolve(message),
+          resolveBytes: () async {
+            final rows = await MessagesDb.getMessageById(
+              message.id,
+              groupId: widget.group.id,
+            );
+            if (rows.isEmpty) return Uint8List(0);
+            return _decryptGroupFileBytes(rows.first);
+          },
         ),
       ],
     );
@@ -1803,40 +1890,42 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                 }
                               : null,
                           onHorizontalDragUpdate: (details) {
-                            setState(() {
-                              double delta = details.delta.dx;
-                              if (isSentByMe) delta = -delta;
-                              _dragOffsets[message.id] =
-                                  (_dragOffsets[message.id] ?? 0) + delta;
-                              if (_dragOffsets[message.id]! < 0) {
-                                _dragOffsets[message.id] = 0;
-                              }
-                              if (_dragOffsets[message.id]! > 100) {
-                                _dragOffsets[message.id] = 100;
-                              }
-                            });
+                            _swipeDragMessageId = message.id;
+                            var delta = details.delta.dx;
+                            if (isSentByMe) delta = -delta;
+                            var next = _swipeDragOffset.value + delta;
+                            if (next < 0) next = 0;
+                            if (next > 100) next = 100;
+                            _swipeDragOffset.value = next;
                           },
                           onHorizontalDragEnd: (details) {
                             final shouldReply =
-                                (_dragOffsets[message.id] ?? 0) > 50;
-                            setState(() {
-                              if (shouldReply) {
+                                _swipeDragMessageId == message.id &&
+                                    _swipeDragOffset.value > 50;
+                            _swipeDragOffset.value = 0;
+                            _swipeDragMessageId = null;
+                            if (shouldReply) {
+                              setState(() {
                                 _replyToMessage = message;
                                 _replyDraft = null;
-                              }
-                              _dragOffsets[message.id] = 0;
-                            });
-                            if (shouldReply) {
+                              });
                               _persistReplyDraft();
                             }
                           },
-                          child: Transform.translate(
-                            offset: Offset(
-                              isSentByMe
-                                  ? -(_dragOffsets[message.id] ?? 0)
-                                  : (_dragOffsets[message.id] ?? 0),
-                              0,
-                            ),
+                          child: ValueListenableBuilder<double>(
+                            valueListenable: _swipeDragOffset,
+                            builder: (context, dragValue, translatedChild) {
+                              final offset = _swipeDragMessageId == message.id
+                                  ? dragValue
+                                  : 0.0;
+                              return Transform.translate(
+                                offset: Offset(
+                                  isSentByMe ? -offset : offset,
+                                  0,
+                                ),
+                                child: translatedChild,
+                              );
+                            },
                             child: SizeTransition(
                               sizeFactor: animation,
                               child: Container(

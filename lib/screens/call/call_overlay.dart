@@ -61,7 +61,7 @@ class _CallOverlayState extends State<CallOverlay> {
 
     final peer = manager.snapshot.peerOnion;
     if (peer == null) {
-      if (_peer != null) {
+      if (_peer != null && mounted) {
         setState(() {
           _peer = null;
           _loadedPeerOnion = null;
@@ -74,7 +74,7 @@ class _CallOverlayState extends State<CallOverlay> {
       _loadedPeerOnion = peer;
       unawaited(_loadPeer(peer));
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadPeer(String peerOnion) async {

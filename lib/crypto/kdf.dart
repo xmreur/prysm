@@ -40,10 +40,7 @@ class CryptoKdf {
     List<int>? salt,
     int outputLength = CryptoConstants.aeadKeyLength,
   }) async {
-    final hkdf = Hkdf(
-      hmac: Hmac.sha256(),
-      outputLength: outputLength,
-    );
+    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: outputLength);
     return hkdf.deriveKey(
       secretKey: SecretKey(Uint8List.fromList(sharedSecret)),
       info: info,
@@ -57,10 +54,7 @@ class CryptoKdf {
     List<int>? salt,
     int outputLength = CryptoConstants.aeadKeyLength,
   }) async {
-    final hkdf = Hkdf(
-      hmac: Hmac.sha256(),
-      outputLength: outputLength,
-    );
+    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: outputLength);
     return hkdf.deriveKey(
       secretKey: secretKey,
       info: info,

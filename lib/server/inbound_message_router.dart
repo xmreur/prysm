@@ -34,21 +34,15 @@ class InboundHandleResult {
   static InboundHandleResult ok(Map<String, dynamic> body) =>
       InboundHandleResult(statusCode: 200, jsonBody: body);
 
-  static InboundHandleResult badRequest(String message) => InboundHandleResult(
-        statusCode: 400,
-        jsonBody: {'error': message},
-      );
+  static InboundHandleResult badRequest(String message) =>
+      InboundHandleResult(statusCode: 400, jsonBody: {'error': message});
 
-  static InboundHandleResult forbidden(String message) => InboundHandleResult(
-        statusCode: 403,
-        jsonBody: {'error': message},
-      );
+  static InboundHandleResult forbidden(String message) =>
+      InboundHandleResult(statusCode: 403, jsonBody: {'error': message});
 
-  static InboundHandleResult internalError([String message = 'Processing failed']) =>
-      InboundHandleResult(
-        statusCode: 500,
-        jsonBody: {'error': message},
-      );
+  static InboundHandleResult internalError([
+    String message = 'Processing failed',
+  ]) => InboundHandleResult(statusCode: 500, jsonBody: {'error': message});
 }
 
 /// Shared inbound routing for HTTP and WebSocket transports.
@@ -67,10 +61,7 @@ class InboundMessageRouter {
 
   Future<InboundHandleResult> buildPublicKey() async {
     final body = await _publicIdentityBody();
-    return InboundHandleResult(
-      statusCode: 200,
-      plainTextBody: body,
-    );
+    return InboundHandleResult(statusCode: 200, plainTextBody: body);
   }
 
   Future<InboundHandleResult> buildProfile({
@@ -176,14 +167,13 @@ class InboundMessageRouter {
     }
 
     if (isGroupMessageType(type) && data['groupId'] == null) {
-      return InboundHandleResult.badRequest('groupId required for group messages');
+      return InboundHandleResult.badRequest(
+        'groupId required for group messages',
+      );
     }
 
     if (isGroupControlType(type)) {
-      return _validateAddressedToLocal(
-        data,
-        controlMessage: true,
-      );
+      return _validateAddressedToLocal(data, controlMessage: true);
     }
 
     if (isMessageModifyType(type)) {
@@ -219,7 +209,9 @@ class InboundMessageRouter {
 
   /// Async processing after [validateMessage] returns null.
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
-    print('InboundMessageRouter: Received ${data['type']} from ${data['senderId']}');
+    print(
+      'InboundMessageRouter: Received ${data['type']} from ${data['senderId']}',
+    );
 
     if (_isBlockedDm(data)) {
       return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -273,9 +265,9 @@ class InboundMessageRouter {
 
   /// Optimistic ack body for fast WebSocket ack before async processing.
   Map<String, dynamic> optimisticAckBody(Map<String, dynamic> data) => {
-        'status': 'received',
-        'id': data['id'],
-      };
+    'status': 'received',
+    'id': data['id'],
+  };
 
   Future<InboundHandleResult> _handleGroupControl(
     Map<String, dynamic> data,
@@ -296,7 +288,9 @@ class InboundMessageRouter {
       );
     } catch (e) {
       print('InboundMessageRouter: group control handling failed: $e');
-      return InboundHandleResult.internalError('Group control processing failed');
+      return InboundHandleResult.internalError(
+        'Group control processing failed',
+      );
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -326,7 +320,9 @@ class InboundMessageRouter {
       );
     } catch (e) {
       print('InboundMessageRouter: message modify handling failed: $e');
-      return InboundHandleResult.internalError('Message modify processing failed');
+      return InboundHandleResult.internalError(
+        'Message modify processing failed',
+      );
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -357,7 +353,9 @@ class InboundMessageRouter {
       );
     } catch (e) {
       print('InboundMessageRouter: read receipt handling failed: $e');
-      return InboundHandleResult.internalError('Read receipt processing failed');
+      return InboundHandleResult.internalError(
+        'Read receipt processing failed',
+      );
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -448,7 +446,8 @@ class InboundMessageRouter {
 
     if (settings.enableNotifications) {
       final appState = WidgetsBinding.instance.lifecycleState;
-      final isBackground = appState == AppLifecycleState.paused ||
+      final isBackground =
+          appState == AppLifecycleState.paused ||
           appState == AppLifecycleState.inactive ||
           appState == AppLifecycleState.detached;
       if (isBackground) {
@@ -460,11 +459,13 @@ class InboundMessageRouter {
             : muteService.isMuted(MuteTarget.user, senderId);
         if (!muted) {
           final contact = await DBHelper.getUserById(senderId);
-          final senderName = contact?['customName'] as String? ??
+          final senderName =
+              contact?['customName'] as String? ??
               contact?['name'] as String? ??
               'Unknown contact';
-          final groupRow =
-              groupId != null ? await DBHelper.getGroupById(groupId) : null;
+          final groupRow = groupId != null
+              ? await DBHelper.getGroupById(groupId)
+              : null;
           final groupName = groupRow?['name'] as String?;
           final viewOnce = data['viewOnce'] == true || data['viewOnce'] == 1;
           final title = notificationTitleForInbound(

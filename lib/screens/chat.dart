@@ -59,7 +59,8 @@ import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/battery_saver_service.dart';
-import 'package:prysm/services/chat_service.dart'; // ✅ ADD THIS
+import 'package:prysm/services/detached_chat_client.dart';
+import 'package:prysm/services/chat_service.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/services/typing_indicator_service.dart';
 import 'package:prysm/services/typing_state_tracker.dart';
@@ -91,6 +92,7 @@ class ChatScreen extends StatefulWidget {
 
   final Function()? onCloseChat;
   final Widget? torStatusAction;
+  final DetachedChatClient? detachedClient;
 
   const ChatScreen({
     required this.userId,
@@ -106,6 +108,7 @@ class ChatScreen extends StatefulWidget {
     required this.reloadUsers,
     this.onCloseChat,
     this.torStatusAction,
+    this.detachedClient,
     super.key,
   });
 
@@ -141,7 +144,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Set<String> selectedMessageIds = {};
   Message? _replyToMessage;
   ReplyPreviewData? _replyDraft;
-  final Map<String, double> _dragOffsets = {};
+  final ValueNotifier<double> _swipeDragOffset = ValueNotifier(0);
+  String? _swipeDragMessageId;
 
   Key _chatKey = UniqueKey();
   final ScrollController _listScrollController = ScrollController();
@@ -155,6 +159,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _reactionSub;
   StreamSubscription? _reactionRefreshSub;
   StreamSubscription? _modifyRefreshSub;
+  StreamSubscription? _detachedInboundSub;
+  StreamSubscription? _detachedStatusSub;
   StreamSubscription? _readReceiptRefreshSub;
   Timer? _readReceiptDebounce;
   late MessageModifyService _modifyService;
@@ -270,15 +276,13 @@ class _ChatScreenState extends State<ChatScreen> {
       peerId: widget.peerId,
       settings: _settings,
     );
-    _typingSub = TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
-    _typingTrackerSub = _typingTracker.onChanged.listen((_) {
-      if (mounted) setState(() {});
-    });
+    _setupTypingSubscriptions();
 
     _presenceTracker = PeerPresenceTracker();
     _listScrollController.addListener(_onListScroll);
-    _initializeChat(); // ✅ NEW METHOD
+    _initializeChat();
     _initPeerPresence();
+    _setupDetachedClientSubscriptions();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
       if (mounted) {
         _startPresenceStaleTimer();
@@ -357,6 +361,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceStaleTimer = Timer.periodic(
       BatterySaverPolicy.presenceStaleCheckInterval(),
       (_) {
+        if (!mounted) return;
         if (_isNetworkAvailable) {
           _syncPeerPresenceFromWs();
         } else {
@@ -379,12 +384,14 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // ✅ Listen to ChatService streams
-    _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
-    _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
-    _reachableSub = _chatService.onPeerReachable.listen((_) {
-      if (mounted) _recordPeerActivity();
-    });
+    // ✅ Listen to ChatService streams (main window only)
+    if (widget.detachedClient == null) {
+      _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
+      _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
+      _reachableSub = _chatService.onPeerReachable.listen((_) {
+        if (mounted) _recordPeerActivity();
+      });
+    }
     _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
     _reactionRefreshSub =
         ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
@@ -403,11 +410,13 @@ class _ChatScreenState extends State<ChatScreen> {
       scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
     }
 
-    // ✅ Start ChatService background tasks
-    _chatService.startPolling();
-    _chatService.startSendQueue();
-    if (TransportProvider.isConfigured) {
-      TransportProvider.instance.pinPeer(widget.peerId);
+    // ✅ Start ChatService background tasks (main window only)
+    if (widget.detachedClient == null) {
+      _chatService.startPolling();
+      _chatService.startSendQueue();
+      if (TransportProvider.isConfigured) {
+        TransportProvider.instance.pinPeer(widget.peerId);
+      }
     }
   }
 
@@ -444,10 +453,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     try {
-      final decrypted = await decryptMessagesDeferred(
-        rawMessages,
-        widget.keyManager,
-      );
+      final decrypted = await _decryptForDisplay(rawMessages);
+      if (!mounted) return;
 
       setState(() {
         final existingIds = _messages.messages.map((m) => m.id).toSet();
@@ -502,6 +509,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _readReceiptDebounce?.cancel();
     _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
+      if (!mounted) return;
       if (_settings.sendReadReceipts) {
         await _readReceiptService.sendWaterline(waterline);
       }
@@ -543,29 +551,84 @@ class _ChatScreenState extends State<ChatScreen> {
     if (anyNewlyRead) _recordPeerActivity();
   }
 
+  void _cancelChatSubscriptions() {
+    _newMessagesSub?.cancel();
+    _newMessagesSub = null;
+    _statusSub?.cancel();
+    _statusSub = null;
+    _reachableSub?.cancel();
+    _reachableSub = null;
+    _reactionSub?.cancel();
+    _reactionSub = null;
+    _reactionRefreshSub?.cancel();
+    _reactionRefreshSub = null;
+    _modifyRefreshSub?.cancel();
+    _modifyRefreshSub = null;
+    _detachedInboundSub?.cancel();
+    _detachedInboundSub = null;
+    _detachedStatusSub?.cancel();
+    _detachedStatusSub = null;
+    _readReceiptRefreshSub?.cancel();
+    _readReceiptRefreshSub = null;
+    _typingSub?.cancel();
+    _typingSub = null;
+    _typingTrackerSub?.cancel();
+    _typingTrackerSub = null;
+    _wsPresenceSub?.cancel();
+    _wsPresenceSub = null;
+    _batterySaverSub?.cancel();
+    _batterySaverSub = null;
+    _readReceiptDebounce?.cancel();
+    _readReceiptDebounce = null;
+    _presenceStaleTimer?.cancel();
+    _presenceStaleTimer = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _highlightTimer?.cancel();
+    _highlightTimer = null;
+  }
+
+  void _setupDetachedClientSubscriptions() {
+    final client = widget.detachedClient;
+    if (client == null) return;
+    _detachedInboundSub = client.onInboundMessages.listen((messages) {
+      if (!mounted) return;
+      setState(() {
+        final existingIds = _messages.messages.map((m) => m.id).toSet();
+        for (final msg in messages) {
+          if (!existingIds.contains(msg.id)) {
+            _messages.insertMessage(msg, index: _messages.messages.length);
+          }
+        }
+      });
+      _scheduleScrollToBottomIfNeeded();
+    });
+    _detachedStatusSub = client.onStatusUpdates.listen((update) {
+      _handleStatusUpdate(
+        MessageStatusUpdate(
+          update['messageId'] as String,
+          update['status'] as String,
+        ),
+      );
+    });
+  }
+
+  void _setupTypingSubscriptions() {
+    _typingSub =
+        TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
+    _typingTrackerSub = _typingTracker.onChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void dispose() {
     _typingService.dispose();
-    _typingSub?.cancel();
-    _typingTrackerSub?.cancel();
     _typingTracker.dispose();
-    // ✅ DISPOSE ChatService
     _chatService.dispose();
     _reactionService.dispose();
-    _newMessagesSub?.cancel();
-    _statusSub?.cancel();
-    _reachableSub?.cancel();
-    _reactionSub?.cancel();
-    _reactionRefreshSub?.cancel();
-    _modifyRefreshSub?.cancel();
-    _readReceiptRefreshSub?.cancel();
-    _readReceiptDebounce?.cancel();
-    _highlightTimer?.cancel();
-    _wsPresenceSub?.cancel();
-    _presenceStaleTimer?.cancel();
-    _batterySaverSub?.cancel();
-
-    _debounceTimer?.cancel();
+    _cancelChatSubscriptions();
+    _swipeDragOffset.dispose();
     _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
     if (TransportProvider.isConfigured) {
@@ -642,31 +705,37 @@ class _ChatScreenState extends State<ChatScreen> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.peerId != widget.peerId) {
-      // ✅ REINITIALIZE ChatService on peer change
+      if (TransportProvider.isConfigured) {
+        TransportProvider.instance.unpinPeer(oldWidget.peerId);
+      }
+      _cancelChatSubscriptions();
       _chatService.dispose();
-      _newMessagesSub?.cancel();
-      _statusSub?.cancel();
-      _reachableSub?.cancel();
-      _wsPresenceSub?.cancel();
-      _presenceStaleTimer?.cancel();
+      _reactionService.dispose();
+      _typingService.dispose();
+      _typingTracker.clearConversation(oldWidget.peerId);
 
       _presenceTracker = PeerPresenceTracker();
-      setState(() {
-        resetChatState();
-        _chatKey = UniqueKey();
-        _peerName = widget.peerName;
-        _peerAvatarBase64 = widget.peerAvatarBase64;
-        _peerOnline = null;
-      });
+      if (mounted) {
+        setState(() {
+          resetChatState();
+          _chatKey = UniqueKey();
+          _peerName = widget.peerName;
+          _peerAvatarBase64 = widget.peerAvatarBase64;
+          _peerOnline = null;
+        });
+      }
 
       _chatService = ChatService(
         userId: widget.userId,
         peerId: widget.peerId,
         keyManager: widget.keyManager,
       );
-      _reactionService.dispose();
-      _modifyRefreshSub?.cancel();
       _reactionService = ReactionService.direct(
+        userId: widget.userId,
+        keyManager: widget.keyManager,
+        peerId: widget.peerId,
+      );
+      _readReceiptService = ReadReceiptService.direct(
         userId: widget.userId,
         keyManager: widget.keyManager,
         peerId: widget.peerId,
@@ -676,13 +745,18 @@ class _ChatScreenState extends State<ChatScreen> {
         keyManager: widget.keyManager,
         peerId: widget.peerId,
       );
-      _typingService.dispose();
-      _typingTracker.clearConversation(oldWidget.peerId);
       _typingService = TypingIndicatorService.direct(
         userId: widget.userId,
         peerId: widget.peerId,
         settings: _settings,
       );
+      _setupTypingSubscriptions();
+      _setupDetachedClientSubscriptions();
+      _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
+        if (mounted) {
+          _startPresenceStaleTimer();
+        }
+      });
 
       _initializeChat();
       _initPeerPresence();
@@ -1067,6 +1141,23 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, dynamic> msg,
     KeyManager keyManager,
   ) async {
+    if (widget.detachedClient != null) {
+      final messages = await widget.detachedClient!.decryptRows([msg]);
+      if (messages.isEmpty) {
+        throw StateError('Failed to decrypt file');
+      }
+      final decrypted = messages.first;
+      if (decrypted is FileMessage) {
+        if (decrypted.source.startsWith('audio:')) {
+          final parts = decrypted.source.split(':');
+          if (parts.length >= 3) {
+            return File(parts[2]).readAsBytes();
+          }
+        }
+        return base64Decode(decrypted.source);
+      }
+      throw StateError('Unexpected decrypted type for file');
+    }
     return FileAttachmentResolver.decryptEncryptedSource(
       msg['message'] as String,
       keyManager,
@@ -1078,6 +1169,26 @@ class _ChatScreenState extends State<ChatScreen> {
     if (rows.isEmpty) {
       throw StateError('Image message not found: $messageId');
     }
+    if (widget.detachedClient != null) {
+      final messages = await widget.detachedClient!.decryptRows(rows);
+      if (messages.isEmpty) {
+        throw StateError('Failed to decrypt image: $messageId');
+      }
+      final msg = messages.first;
+      if (msg is ImageMessage && msg.source.isNotEmpty) {
+        if (msg.source.startsWith('data:')) {
+          final comma = msg.source.indexOf(',');
+          if (comma >= 0) {
+            return base64Decode(msg.source.substring(comma + 1));
+          }
+        }
+        return base64Decode(msg.source);
+      }
+      if (msg is FileMessage && msg.source.isNotEmpty) {
+        return base64Decode(msg.source);
+      }
+      throw StateError('Unexpected decrypted type for image: $messageId');
+    }
     final row = rows.first;
     final wire = row['message'] as String?;
     if (wire == null || wire.isEmpty) {
@@ -1088,6 +1199,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _mimeTypeForImageBytes(Uint8List bytes) {
     return ImageAttachmentCache.sniffImageMimeType(bytes);
+  }
+
+  Future<List<Message>> _decryptForDisplay(
+    List<Map<String, dynamic>> rawMessages,
+  ) async {
+    if (widget.detachedClient != null) {
+      return widget.detachedClient!.decryptRows(rawMessages);
+    }
+    return decryptMessagesDeferred(rawMessages, widget.keyManager);
   }
 
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
@@ -1121,10 +1241,7 @@ class _ChatScreenState extends State<ChatScreen> {
       (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
     );
 
-    final newMessages = await decryptMessagesDeferred(
-      modifiableList,
-      widget.keyManager,
-    );
+    final newMessages = await _decryptForDisplay(modifiableList);
 
     if (!mounted) return;
 
@@ -1173,6 +1290,26 @@ class _ChatScreenState extends State<ChatScreen> {
     _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background (non-blocking)
+    if (widget.detachedClient != null) {
+      widget.detachedClient!
+          .sendText(
+            text: text,
+            replyToId: replyToId,
+            messageId: messageId,
+          )
+          .then((sentId) {
+            if (sentId == null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Message queued. Will send when peer is available.',
+                  ),
+                ),
+              );
+            }
+          });
+      return;
+    }
     _chatService
         .sendTextMessage(text, replyToId: replyToId, messageId: messageId)
         .then((sentId) {
@@ -1236,6 +1373,27 @@ class _ChatScreenState extends State<ChatScreen> {
     _scheduleScrollToBottomAfterSend();
 
     // ✅ NOW send in background
+    if (widget.detachedClient != null) {
+      widget.detachedClient!
+          .sendFile(
+            bytes: bytes,
+            fileName: fileName,
+            type: type,
+            replyToId: replyToId,
+            messageId: messageId,
+            viewOnce: viewOnce,
+          )
+          .then((sentId) {
+            if (sentId == null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('File queued. Will send when peer is available.'),
+                ),
+              );
+            }
+          });
+      return;
+    }
     _chatService
         .sendFileMessage(
           bytes,
@@ -1355,6 +1513,25 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
+
+    if (widget.detachedClient != null) {
+      widget.detachedClient!
+          .sendVoice(
+            bytes: bytes,
+            durationMs: durationMs,
+            messageId: messageId,
+          )
+          .then((sentId) {
+            if (sentId == null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Voice message queued. Will send when peer is available.'),
+                ),
+              );
+            }
+          });
+      return;
+    }
 
     _chatService
         .sendFileMessage(
@@ -1499,7 +1676,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     if (result is Contact) {
-      setState(() => _peerName = result.displayName);
+      if (mounted) setState(() => _peerName = result.displayName);
     } else if (result is String) {
       await _scrollToMessage(result);
     }
@@ -1649,6 +1826,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await MessagesDb.deleteMessageById(message.id);
     await MessageReactionsDb.deleteReactionsForMessage(message.id);
     _messageCache.remove(message.id);
+    if (!mounted) return;
     setState(() {
       _messages.removeMessage(message);
       selectedMessageIds.remove(message.id);
@@ -1989,30 +2167,25 @@ class _ChatScreenState extends State<ChatScreen> {
                                     }
                                   : null,
                               onHorizontalDragUpdate: (details) {
-                                setState(() {
-                                  double delta = details.delta.dx;
-                                  if (isSentByMe) delta = -delta;
-                                  _dragOffsets[message.id] =
-                                      (_dragOffsets[message.id] ?? 0) + delta;
-                                  if (_dragOffsets[message.id]! < 0) {
-                                    _dragOffsets[message.id] = 0;
-                                  }
-                                  if (_dragOffsets[message.id]! > 100) {
-                                    _dragOffsets[message.id] = 100;
-                                  }
-                                });
+                                _swipeDragMessageId = message.id;
+                                var delta = details.delta.dx;
+                                if (isSentByMe) delta = -delta;
+                                var next = _swipeDragOffset.value + delta;
+                                if (next < 0) next = 0;
+                                if (next > 100) next = 100;
+                                _swipeDragOffset.value = next;
                               },
                               onHorizontalDragEnd: (details) {
                                 final shouldReply =
-                                    (_dragOffsets[message.id] ?? 0) > 50;
-                                setState(() {
-                                  if (shouldReply) {
+                                    _swipeDragMessageId == message.id &&
+                                        _swipeDragOffset.value > 50;
+                                _swipeDragOffset.value = 0;
+                                _swipeDragMessageId = null;
+                                if (shouldReply) {
+                                  setState(() {
                                     _replyToMessage = message;
                                     _replyDraft = null;
-                                  }
-                                  _dragOffsets[message.id] = 0;
-                                });
-                                if (shouldReply) {
+                                  });
                                   _persistReplyDraft();
                                 }
                               },
@@ -2031,13 +2204,21 @@ class _ChatScreenState extends State<ChatScreen> {
                                   _showMessageMenu(context, message, details.globalPosition);
                                 }
                               },
-                              child: Transform.translate(
-                                offset: Offset(
-                                  isSentByMe
-                                      ? -(_dragOffsets[message.id] ?? 0)
-                                      : (_dragOffsets[message.id] ?? 0),
-                                  0,
-                                ),
+                              child: ValueListenableBuilder<double>(
+                                valueListenable: _swipeDragOffset,
+                                builder: (context, dragValue, translatedChild) {
+                                  final offset =
+                                      _swipeDragMessageId == message.id
+                                          ? dragValue
+                                          : 0.0;
+                                  return Transform.translate(
+                                    offset: Offset(
+                                      isSentByMe ? -offset : offset,
+                                      0,
+                                    ),
+                                    child: translatedChild,
+                                  );
+                                },
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color:

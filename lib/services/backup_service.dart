@@ -121,8 +121,9 @@ class BackupService {
 
     final databases = manifest['databases'] as Map<String, dynamic>? ?? {};
     for (final entry in databases.entries) {
-      await File(p.join(prysmDir, entry.key))
-          .writeAsBytes(base64Decode(entry.value as String));
+      await File(
+        p.join(prysmDir, entry.key),
+      ).writeAsBytes(base64Decode(entry.value as String));
     }
 
     final secureKeys = manifest['secureKeys'] as Map<String, dynamic>? ?? {};

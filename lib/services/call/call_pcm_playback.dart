@@ -8,10 +8,7 @@ import 'package:prysm/services/call/pcm_jitter_buffer.dart';
 
 /// Plays live PCM16 audio received during a call.
 abstract class CallPcmPlayback {
-  Future<void> start({
-    required int sampleRate,
-    required int channels,
-  });
+  Future<void> start({required int sampleRate, required int channels});
 
   void playPcm(Uint8List pcm);
 
@@ -34,10 +31,7 @@ class _FlutterPcmPlayback implements CallPcmPlayback {
   bool _running = false;
 
   @override
-  Future<void> start({
-    required int sampleRate,
-    required int channels,
-  }) async {
+  Future<void> start({required int sampleRate, required int channels}) async {
     _buffer = PcmJitterBuffer(
       sampleRate: sampleRate,
       channels: channels,
@@ -98,20 +92,11 @@ class _JustAudioPcmPlayback implements CallPcmPlayback {
   bool _playbackStarted = false;
 
   @override
-  Future<void> start({
-    required int sampleRate,
-    required int channels,
-  }) async {
+  Future<void> start({required int sampleRate, required int channels}) async {
     _playbackStarted = false;
-    _buffer = PcmJitterBuffer(
-      sampleRate: sampleRate,
-      channels: channels,
-    );
+    _buffer = PcmJitterBuffer(sampleRate: sampleRate, channels: channels);
     _player = AudioPlayer();
-    _source = _LivePcmSource(
-      sampleRate: sampleRate,
-      channels: channels,
-    );
+    _source = _LivePcmSource(sampleRate: sampleRate, channels: channels);
     await _player!.setAudioSource(_source!);
   }
 
@@ -158,10 +143,7 @@ class _LinuxPipePcmPlayback implements CallPcmPlayback {
   PcmJitterBuffer? _buffer;
 
   @override
-  Future<void> start({
-    required int sampleRate,
-    required int channels,
-  }) async {
+  Future<void> start({required int sampleRate, required int channels}) async {
     final command = await _playbackCommand();
     final args = _buildArgs(command, sampleRate, channels);
     _process = await Process.start(command, args);
@@ -260,10 +242,7 @@ class _LinuxPipePcmPlayback implements CallPcmPlayback {
 
 // ignore: experimental_member_use
 class _LivePcmSource extends StreamAudioSource {
-  _LivePcmSource({
-    required this.sampleRate,
-    required this.channels,
-  });
+  _LivePcmSource({required this.sampleRate, required this.channels});
 
   final int sampleRate;
   final int channels;

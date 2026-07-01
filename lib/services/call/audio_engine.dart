@@ -22,8 +22,7 @@ Future<void> chainAudioSend(
   Future<void> chain,
   Future<Uint8List> Function() encrypt,
   CallAudioSendCallback send,
-) =>
-    chain.then((_) async => send(await encrypt()));
+) => chain.then((_) async => send(await encrypt()));
 
 abstract class CallAudio {
   Future<bool> start();
@@ -40,8 +39,8 @@ class AudioEngine implements CallAudio {
     required this.onSendFrame,
     OpusCodec? codec,
     CallPcmPlayback? playback,
-  })  : _codec = codec,
-        _playback = playback ?? createCallPcmPlayback();
+  }) : _codec = codec,
+       _playback = playback ?? createCallPcmPlayback();
 
   static String? lastStartError;
 
@@ -233,5 +232,4 @@ class AudioEngine implements CallAudio {
 CallAudio createCallAudio({
   required CallSession session,
   required CallAudioSendCallback onSendFrame,
-}) =>
-    AudioEngine(session: session, onSendFrame: onSendFrame);
+}) => AudioEngine(session: session, onSendFrame: onSendFrame);

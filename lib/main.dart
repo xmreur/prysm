@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
@@ -14,6 +16,7 @@ import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/screens/unlock_screen.dart';
 import 'package:prysm/screens/crypto_migration_screen.dart';
+import 'package:prysm/screens/startup_fatal_error_screen.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
@@ -43,15 +46,24 @@ import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:prysm/models/detached_chat_launch.dart';
+import 'package:prysm/screens/detached_chat_app.dart';
+import 'package:prysm/services/detached_chat_bridge.dart';
+import 'package:prysm/services/detached_chat_host.dart';
+import 'package:prysm/services/detached_chat_window_registry.dart';
+import 'package:prysm/screens/widgets/conversation_context_menu.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/app_bootstrap.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:prysm/util/tor_service.dart'; // Updated Tor service
 import 'package:prysm/util/tor_downloader.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_supervisor.dart';
 import 'package:prysm/screens/profile_screen.dart';
@@ -85,6 +97,9 @@ File? _lockFile;
 
 Future<void> quitApp({TorManager? torManager}) async {
   if (!Platform.isAndroid && !Platform.isIOS) {
+    await DetachedChatHost.instance.notifyMainClosing();
+    await DetachedChatWindowRegistry.instance.closeAll();
+    await DetachedChatHost.instance.stop();
     await TrayService.instance.destroy();
     final tm = torManager ?? _globalTorManager;
     if (tm != null) {
@@ -113,10 +128,43 @@ Future<bool> _isProcessRunning(int pid) async {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  ensureSqflitePlatformInitialized();
+void main(List<String> args) {
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      ensureSqflitePlatformInitialized();
 
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint('FlutterError: ${details.exception}\n${details.stack}');
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        debugPrint('Uncaught async error: $error\n$stack');
+        return true;
+      };
+
+      await bootstrapApp(
+        isDesktop: isDesktopPlatform,
+        readEngineArguments: () async {
+          final windowController = await WindowController.fromCurrentEngine();
+          return windowController.arguments;
+        },
+        runMainApp: _runMainApp,
+        runDetachedApp: _runDetachedApp,
+      );
+    },
+    (error, stack) {
+      debugPrint('Zone error: $error\n$stack');
+    },
+  );
+}
+
+Future<void> _runDetachedApp(DetachedChatLaunch launch) async {
+  await SettingsService().init();
+  runApp(DetachedChatApp(launch: launch));
+}
+
+Future<void> _runMainApp() async {
   // Prevent multiple instances on desktop
   if (!Platform.isAndroid && !Platform.isIOS) {
     final docDir = await getApplicationDocumentsDirectory();
@@ -151,17 +199,35 @@ void main() async {
   await PeerTransportRegistry.instance.load();
   await BatterySaverService.instance.init();
   await NotificationMuteService.instance.init();
-  await BlockService.instance.init();
+
+  String? startupError;
+  try {
+    await BlockService.instance.init();
+  } catch (e, st) {
+    debugPrint('BlockService init failed: $e\n$st');
+    startupError = e.toString();
+  }
 
   final keyManager = KeyManager();
 
   // Start early so Tor peers can connect during bootstrap / unlock screen.
   final messageServer = PrysmServer(port: 12345, keyManager: keyManager);
-  messageServer.start();
-  LocalOnionAddress.provider =
-      () => PrysmServer.instance?.localOnionAddress;
+  var serverBindFailed = false;
+  try {
+    await messageServer.start();
+  } catch (e, st) {
+    debugPrint('PrysmServer start failed: $e\n$st');
+    serverBindFailed = true;
+  }
+  LocalOnionAddress.provider = () => PrysmServer.instance?.localOnionAddress;
 
-  runApp(MyApp(keyManager: keyManager));
+  runApp(
+    MyApp(
+      keyManager: keyManager,
+      startupError: startupError,
+      serverBindFailed: serverBindFailed,
+    ),
+  );
 
   if (!Platform.isAndroid && !Platform.isIOS) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -191,7 +257,8 @@ void main() async {
       final settings = SettingsService();
       final androidConfig = FlutterBackgroundAndroidConfig(
         notificationTitle: "${settings.name} Chat is running",
-        notificationText: "${settings.name} chat is actively waiting for new messages",
+        notificationText:
+            "${settings.name} chat is actively waiting for new messages",
         notificationImportance: AndroidNotificationImportance.normal,
         notificationIcon: AndroidResource(name: "icon", defType: "drawable"),
       );
@@ -220,8 +287,12 @@ Future<void> runDesktopUpdaterCheck() async {
 
 Future<String> _resolveTorDataDir() async {
   final documentsDir = await getApplicationDocumentsDirectory();
-  final dataDirPath =
-      p.join(documentsDir.path, 'prysm', 'tor_executable', 'tor_data');
+  final dataDirPath = p.join(
+    documentsDir.path,
+    'prysm',
+    'tor_executable',
+    'tor_data',
+  );
   final dataDir = Directory(dataDirPath);
   if (!dataDir.existsSync()) {
     dataDir.createSync(recursive: true);
@@ -302,11 +373,12 @@ Future<bool> isNewerVersion(String current, String latest) async {
   return latestNums.length > currNums.length;
 }
 
-
 const String currentVersion = SettingsService.appVersion;
 
 Future<void> checkForUpdatesAndLaunchUpdater() async {
-  final url = Uri.parse('https://api.github.com/repos/xmreur/prysm/releases/latest');
+  final url = Uri.parse(
+    'https://api.github.com/repos/xmreur/prysm/releases/latest',
+  );
 
   try {
     final response = await http.get(url);
@@ -316,17 +388,10 @@ Future<void> checkForUpdatesAndLaunchUpdater() async {
       final latestVersion = jsonData['tag_name'] as String;
 
       if (await isNewerVersion(currentVersion, latestVersion)) {
-
-        
         final updaterPath = await UpdaterDownloader().getOrDownloadUpdater();
 
-
         print('Launching updater process...');
-        await Process.start(
-          updaterPath,
-          [],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start(updaterPath, [], mode: ProcessStartMode.detached);
 
         // Exit app to allow updater to proceed
         exit(0);
@@ -334,7 +399,9 @@ Future<void> checkForUpdatesAndLaunchUpdater() async {
         print('Already at latest version $currentVersion');
       }
     } else {
-      print('Failed to fetch latest release info. Status: ${response.statusCode}');
+      print(
+        'Failed to fetch latest release info. Status: ${response.statusCode}',
+      );
     }
   } catch (e) {
     print('Error checking updates: $e');
@@ -367,11 +434,14 @@ class MyWindowListener extends WindowListener {
 }
 
 class MyApp extends StatefulWidget {
-
   final KeyManager keyManager;
+  final String? startupError;
+  final bool serverBindFailed;
 
   const MyApp({
     required this.keyManager,
+    this.startupError,
+    this.serverBindFailed = false,
     super.key,
   });
 
@@ -380,14 +450,14 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  static final settings = SettingsService();
 
-    static final settings = SettingsService();
-    
   bool unlocked = false;
   bool _keysChecked = false;
   bool _keysExist = false;
   bool _needsMigration = false;
   bool _migrationChecked = false;
+  String? _startupError;
   bool _panicDecoySession = false;
   int _currentTheme = 0;
 
@@ -421,6 +491,7 @@ class _MyAppState extends State<MyApp> {
               keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
           contactCount: (await DBHelper.getUsers()).length,
         );
+        if (!mounted) return true;
         setState(() {
           unlocked = true;
           _keysExist = true;
@@ -443,6 +514,7 @@ class _MyAppState extends State<MyApp> {
         keyManager.lock();
       }
       await keyManager.loadEphemeralKeys();
+      if (!mounted) return true;
       setState(() {
         unlocked = true;
         _keysExist = true;
@@ -462,6 +534,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    _startupError = widget.startupError;
     _loadSavedTheme();
     _checkMigration();
     _checkKeysExist();
@@ -638,13 +711,23 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (_startupError != null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeManager.getTheme(_currentTheme),
+        home: StartupFatalErrorScreen(
+          error: _startupError!,
+          keyManager: widget.keyManager,
+          onResetComplete: () => setState(() => _startupError = null),
+        ),
+      );
+    }
+
     if (!_migrationChecked) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeManager.getTheme(_currentTheme),
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
 
@@ -665,9 +748,7 @@ class _MyAppState extends State<MyApp> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeManager.getTheme(_currentTheme),
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
 
@@ -682,8 +763,9 @@ class _MyAppState extends State<MyApp> {
           onionAddress: _onionAddress ?? '',
           torReady: _torReady,
           offlineMode: _offlineMode,
-          torBootstrapProgress:
-              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+          torBootstrapProgress: _torBootstrapProgress > 0
+              ? _torBootstrapProgress
+              : null,
           onComplete: () {
             if (mounted) {
               setState(() {
@@ -705,8 +787,9 @@ class _MyAppState extends State<MyApp> {
           usePin: settings.unlockType == UnlockType.pin,
           onVerify: onVerifyUnlock,
           isUnlockSet: widget.keyManager.isPassphraseSet(),
-          torBootstrapProgress:
-              _torBootstrapProgress > 0 ? _torBootstrapProgress : null,
+          torBootstrapProgress: _torBootstrapProgress > 0
+              ? _torBootstrapProgress
+              : null,
         ),
       );
     }
@@ -721,7 +804,11 @@ class _MyAppState extends State<MyApp> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (_torFailed)
-                  Icon(Icons.wifi_off, size: 48, color: Theme.of(context).colorScheme.error)
+                  Icon(
+                    Icons.wifi_off,
+                    size: 48,
+                    color: Theme.of(context).colorScheme.error,
+                  )
                 else
                   const CircularProgressIndicator(),
                 const SizedBox(height: 24),
@@ -730,7 +817,10 @@ class _MyAppState extends State<MyApp> {
                   child: Text(
                     _torStatus,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -738,15 +828,20 @@ class _MyAppState extends State<MyApp> {
                   _torFailed
                       ? 'You can use Prysm offline or retry when you have a connection.'
                       : _torBootstrapProgress > 0
-                          ? 'Tor bootstrap: $_torBootstrapProgress%'
-                          : 'Setting up secure connection...',
-                  style: TextStyle(fontSize: 13, color: Theme.of(context).hintColor),
+                      ? 'Tor bootstrap: $_torBootstrapProgress%'
+                      : 'Setting up secure connection...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).hintColor,
+                  ),
                 ),
                 if (!_torFailed && _torBootstrapProgress > 0) ...[
                   const SizedBox(height: 12),
                   SizedBox(
                     width: 200,
-                    child: LinearProgressIndicator(value: _torBootstrapProgress / 100),
+                    child: LinearProgressIndicator(
+                      value: _torBootstrapProgress / 100,
+                    ),
                   ),
                 ],
                 if (_torFailed) ...[
@@ -772,8 +867,7 @@ class _MyAppState extends State<MyApp> {
     final onionAddress = _panicDecoySession
         ? DecoySessionData.identityOnion
         : (_onionAddress ?? '');
-    final showOnboarding =
-        !_panicDecoySession && !settings.onboardingCompleted;
+    final showOnboarding = !_panicDecoySession && !settings.onboardingCompleted;
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -834,8 +928,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-
-    static final settings = SettingsService();
+  static final settings = SettingsService();
 
   List<Contact> contacts = [];
   List<Group> groups = [];
@@ -849,7 +942,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _selfChatLastTimestamp;
   String? _selfChatLastPreview;
   bool isLoading = true;
-  int currentTheme = 0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
+  int currentTheme =
+      0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   String _searchQuery = '';
   Map<String, String> _lastMessagePreviews = {};
   Map<String, int> _unreadCounts = {};
@@ -869,8 +963,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
 
-  int get _archivedCount =>
-      conversations.where((c) => _conversationPrefs[c.id]?.isArchived ?? false).length;
+  int get _archivedCount => conversations
+      .where((c) => _conversationPrefs[c.id]?.isArchived ?? false)
+      .length;
 
   int get _archivedUnreadCount => conversations
       .where(
@@ -882,9 +977,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   int get _blockedCount => conversations
       .where(
-        (c) =>
-            c is DirectConversation &&
-            BlockService.instance.isBlocked(c.id),
+        (c) => c is DirectConversation && BlockService.instance.isBlocked(c.id),
       )
       .length;
 
@@ -936,18 +1029,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _updateDecoyConversationPref(ConversationPreferences pref) {
     setState(() {
-      _conversationPrefs = Map.of(_conversationPrefs)..[pref.conversationId] = pref;
-      ConversationPreferencesService.sortConversations(conversations, _conversationPrefs);
+      _conversationPrefs = Map.of(_conversationPrefs)
+        ..[pref.conversationId] = pref;
+      ConversationPreferencesService.sortConversations(
+        conversations,
+        _conversationPrefs,
+      );
     });
   }
 
   Future<void> _pinConversation(String id) async {
     if (widget.decoyMode) {
-      _updateDecoyConversationPref(ConversationPreferences(
-        conversationId: id,
-        isPinned: true,
-        pinnedAt: DateTime.now().millisecondsSinceEpoch,
-      ));
+      _updateDecoyConversationPref(
+        ConversationPreferences(
+          conversationId: id,
+          isPinned: true,
+          pinnedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
       return;
     }
     await ConversationPreferencesService.instance.pin(id);
@@ -956,9 +1055,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _unpinConversation(String id) async {
     if (widget.decoyMode) {
-      _updateDecoyConversationPref(ConversationPreferences(
-        conversationId: id,
-      ));
+      _updateDecoyConversationPref(ConversationPreferences(conversationId: id));
       return;
     }
     await ConversationPreferencesService.instance.unpin(id);
@@ -967,11 +1064,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _archiveConversation(String id) async {
     if (widget.decoyMode) {
-      _updateDecoyConversationPref(ConversationPreferences(
-        conversationId: id,
-        isArchived: true,
-        archivedAt: DateTime.now().millisecondsSinceEpoch,
-      ));
+      _updateDecoyConversationPref(
+        ConversationPreferences(
+          conversationId: id,
+          isArchived: true,
+          archivedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
       if (selectedConversation?.id == id) {
         clearChat();
       }
@@ -992,9 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _unarchiveConversation(String id) async {
     if (widget.decoyMode) {
-      _updateDecoyConversationPref(ConversationPreferences(
-        conversationId: id,
-      ));
+      _updateDecoyConversationPref(ConversationPreferences(conversationId: id));
       return;
     }
     await ConversationPreferencesService.instance.unarchive(id);
@@ -1043,6 +1140,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _syncCoordinator!.flushPendingForPeer(peerId),
     );
     _torStopped = false;
+    TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
     _torConnectionState = TorConnectionState.disconnected;
     _startTorHealthMonitor();
     unawaited(_onTorReconnected());
@@ -1080,6 +1178,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (widget.offlineMode) {
       _torStopped = true;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
       _torConnectionState = TorConnectionState.disconnected;
       TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
     }
@@ -1099,17 +1198,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    loadUsers().then((_) async {
-      if (mounted && !_torStopped) {
-        final flushed = await _syncCoordinator!.flushAllPending();
-        if (flushed && mounted) {
-          scheduleLoadUsers(light: true);
-        }
-        if (mounted) {
-          unawaited(_maybeBroadcastWakeHints(coldStart: true));
-        }
-      }
-    });
+    loadUsers()
+        .then((_) async {
+          if (mounted && !_torStopped) {
+            final flushed = await _syncCoordinator!.flushAllPending();
+            if (flushed && mounted) {
+              scheduleLoadUsers(light: true);
+            }
+            if (mounted) {
+              unawaited(_maybeBroadcastWakeHints(coldStart: true));
+            }
+          }
+        })
+        .catchError((Object e, StackTrace st) {
+          debugPrint('loadUsers failed: $e\n$st');
+        });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(runDesktopUpdaterCheck());
@@ -1123,12 +1226,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       _restartBackgroundIntervals();
     });
-    _inboundRefreshSub =
-        ConversationRefreshNotifier.instance.onRefresh.listen((_) {
+    _inboundRefreshSub = ConversationRefreshNotifier.instance.onRefresh.listen((
+      _,
+    ) {
       scheduleLoadUsers(light: true);
     });
-    _groupMembershipSub =
-        GroupMembershipNotifier.instance.onRemoved.listen((groupId) {
+    _groupMembershipSub = GroupMembershipNotifier.instance.onRemoved.listen((
+      groupId,
+    ) {
       if (!mounted) return;
       if (selectedConversation is GroupConversation &&
           (selectedConversation as GroupConversation).group.id == groupId) {
@@ -1140,10 +1245,113 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     NotificationService.onCallNotificationTap = _handleCallNotificationAction;
 
     if (!Platform.isAndroid && !Platform.isIOS) {
-      unawaited(TrayService.instance.start(
-        userId: widget.onionAddress,
-      ));
+      unawaited(TrayService.instance.start(userId: widget.onionAddress));
+      _configureDetachedChat();
     }
+  }
+
+  void _configureDetachedChat() {
+    if (!isDesktopPlatform || widget.decoyMode || widget.offlineMode) {
+      DetachedChatWindowRegistry.instance.setCanOpen(false);
+      return;
+    }
+    DetachedChatWindowRegistry.instance.setCanOpen(true);
+    DetachedChatBridge.configure(
+      keyManager: widget.keyManager,
+      userId: widget.onionAddress,
+      appUser: () => appUser,
+      contacts: () => contacts,
+      groupById: (groupId) {
+        try {
+          return groups.firstWhere((g) => g.id == groupId);
+        } catch (_) {
+          return null;
+        }
+      },
+    );
+    unawaited(DetachedChatHost.instance.start());
+  }
+
+  bool get _canOpenDetachedChat =>
+      isDesktopPlatform &&
+      !widget.decoyMode &&
+      !widget.offlineMode &&
+      !_torStopped &&
+      TransportProvider.isConfigured;
+
+  Future<void> _openDetachedFromConversation(Conversation conv) async {
+    if (!_canOpenDetachedChat) return;
+
+    final launch = switch (conv) {
+      DirectConversation(:final contact) => DetachedChatLaunch.detached(
+        chatKind: DetachedChatKind.direct,
+        conversationId: contact.id,
+        title: contact.displayName,
+        userId: appUser.id,
+        userName: appUser.name,
+        avatarBase64: contact.avatarBase64,
+        peerPublicKeyPem: contact.publicKeyPem,
+        themeIndex: currentTheme,
+      ),
+      GroupConversation(:final group) => DetachedChatLaunch.detached(
+        chatKind: DetachedChatKind.group,
+        conversationId: group.id,
+        title: group.name,
+        userId: appUser.id,
+        userName: appUser.name,
+        avatarBase64: group.avatarBase64,
+        themeIndex: currentTheme,
+      ),
+      SelfConversation() => throw UnsupportedError(
+        'Self chat uses dedicated handler',
+      ),
+    };
+
+    try {
+      await DetachedChatWindowRegistry.instance.openOrFocus(launch);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open separate window: $e')),
+      );
+    }
+  }
+
+  Future<void> _openDetachedSelfChat() async {
+    if (!_canOpenDetachedChat) return;
+    final launch = DetachedChatLaunch.detached(
+      chatKind: DetachedChatKind.self,
+      conversationId: DetachedChatLaunch.selfConversationId,
+      title: 'Chat with myself',
+      userId: appUser.id,
+      userName: appUser.name,
+      avatarBase64: appUser.avatarBase64,
+      themeIndex: currentTheme,
+    );
+    try {
+      await DetachedChatWindowRegistry.instance.openOrFocus(launch);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open separate window: $e')),
+      );
+    }
+  }
+
+  void _showConversationContextMenu(Offset position, Conversation conv) {
+    showConversationContextMenu(
+      context: context,
+      position: position,
+      conversation: conv,
+      preferences: _conversationPrefs[conv.id],
+      viewingArchived: _viewingArchived,
+      canOpenDetached: _canOpenDetachedChat,
+      onOpenDetached: () => _openDetachedFromConversation(conv),
+      onPin: () => _pinConversation(conv.id),
+      onUnpin: () => _unpinConversation(conv.id),
+      onArchive: () => _archiveConversation(conv.id),
+      onUnarchive: () => _unarchiveConversation(conv.id),
+    );
   }
 
   void scheduleLoadUsers({bool light = false}) {
@@ -1301,7 +1509,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _startAutoRefresh() {
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(BatterySaverPolicy.homeRefreshInterval(), (timer) async {
+    _refreshTimer = Timer.periodic(BatterySaverPolicy.homeRefreshInterval(), (
+      timer,
+    ) async {
       if (!mounted || _torStopped) return;
       await loadUsers();
       if (!mounted || _torStopped) return;
@@ -1327,83 +1537,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadUsersInProgress = true;
 
     try {
-    final groupService =
-        GroupService(userId: widget.onionAddress, keyManager: widget.keyManager);
-    await groupService.pruneOrphanedGroups();
-    await groupService.discardPendingHistoryRelay();
+      final groupService = GroupService(
+        userId: widget.onionAddress,
+        keyManager: widget.keyManager,
+      );
+      await groupService.pruneOrphanedGroups();
+      await groupService.discardPendingHistoryRelay();
 
-    late final List<Map<String, dynamic>> userMaps;
-    late final Map<String, int> timestamps;
-    late final List<Group> newGroups;
-    late final Map<String, ConversationPreferences> prefs;
-    Map<String, String> previews = _lastMessagePreviews;
-    Map<String, int> unread = _unreadCounts;
+      late final List<Map<String, dynamic>> userMaps;
+      late final Map<String, int> timestamps;
+      late final List<Group> newGroups;
+      late final Map<String, ConversationPreferences> prefs;
+      Map<String, String> previews = _lastMessagePreviews;
+      Map<String, int> unread = _unreadCounts;
 
-    if (light) {
-      final results = await Future.wait([
-        DBHelper.getUsers(),
-        MessagesDb.getLastMessageTimestampsForAllUsers(),
-        groupService.getGroups(),
-        MessagesDb.getLastMessagePreviews(widget.onionAddress),
-        MessagesDb.getUnreadCounts(widget.onionAddress),
-        ConversationPreferencesService.instance.getAll(),
-        SelfMessagesDb.getLastTimestamp(),
-        SelfMessagesDb.getLastPreview(),
-      ]);
-      if (!mounted) return;
-      userMaps = results[0] as List<Map<String, dynamic>>;
-      timestamps = results[1] as Map<String, int>;
-      newGroups = results[2] as List<Group>;
-      previews = results[3] as Map<String, String>;
-      unread = results[4] as Map<String, int>;
-      prefs = results[5] as Map<String, ConversationPreferences>;
-      _selfChatLastTimestamp = results[6] as int?;
-      _selfChatLastPreview = results[7] as String?;
-    } else {
-      final fastResults = await Future.wait([
-        DBHelper.getUsers(),
-        MessagesDb.getLastMessageTimestampsForAllUsers(),
-        groupService.getGroups(),
-        ConversationPreferencesService.instance.getAll(),
-      ]);
-      if (!mounted) return;
-      userMaps = fastResults[0] as List<Map<String, dynamic>>;
-      timestamps = fastResults[1] as Map<String, int>;
-      newGroups = fastResults[2] as List<Group>;
-      prefs = fastResults[3] as Map<String, ConversationPreferences>;
+      if (light) {
+        final results = await Future.wait([
+          DBHelper.getUsers(),
+          MessagesDb.getLastMessageTimestampsForAllUsers(),
+          groupService.getGroups(),
+          MessagesDb.getLastMessagePreviews(widget.onionAddress),
+          MessagesDb.getUnreadCounts(widget.onionAddress),
+          ConversationPreferencesService.instance.getAll(),
+          SelfMessagesDb.getLastTimestamp(),
+          SelfMessagesDb.getLastPreview(),
+        ]);
+        if (!mounted) return;
+        userMaps = results[0] as List<Map<String, dynamic>>;
+        timestamps = results[1] as Map<String, int>;
+        newGroups = results[2] as List<Group>;
+        previews = results[3] as Map<String, String>;
+        unread = results[4] as Map<String, int>;
+        prefs = results[5] as Map<String, ConversationPreferences>;
+        _selfChatLastTimestamp = results[6] as int?;
+        _selfChatLastPreview = results[7] as String?;
+      } else {
+        final fastResults = await Future.wait([
+          DBHelper.getUsers(),
+          MessagesDb.getLastMessageTimestampsForAllUsers(),
+          groupService.getGroups(),
+          ConversationPreferencesService.instance.getAll(),
+        ]);
+        if (!mounted) return;
+        userMaps = fastResults[0] as List<Map<String, dynamic>>;
+        timestamps = fastResults[1] as Map<String, int>;
+        newGroups = fastResults[2] as List<Group>;
+        prefs = fastResults[3] as Map<String, ConversationPreferences>;
 
-      if (isLoading) {
-        _applyLoadedUsers(
-          userMaps: userMaps,
-          timestamps: timestamps,
-          newGroups: newGroups,
-          previews: previews,
-          unread: unread,
-          prefs: prefs,
-        );
+        if (isLoading) {
+          _applyLoadedUsers(
+            userMaps: userMaps,
+            timestamps: timestamps,
+            newGroups: newGroups,
+            previews: previews,
+            unread: unread,
+            prefs: prefs,
+          );
+        }
+
+        final deferred = await Future.wait([
+          MessagesDb.getLastMessagePreviews(widget.onionAddress),
+          MessagesDb.getUnreadCounts(widget.onionAddress),
+          SelfMessagesDb.getLastTimestamp(),
+          SelfMessagesDb.getLastPreview(),
+        ]);
+        if (!mounted) return;
+        previews = deferred[0] as Map<String, String>;
+        unread = deferred[1] as Map<String, int>;
+        _selfChatLastTimestamp = deferred[2] as int?;
+        _selfChatLastPreview = deferred[3] as String?;
       }
 
-      final deferred = await Future.wait([
-        MessagesDb.getLastMessagePreviews(widget.onionAddress),
-        MessagesDb.getUnreadCounts(widget.onionAddress),
-        SelfMessagesDb.getLastTimestamp(),
-        SelfMessagesDb.getLastPreview(),
-      ]);
-      if (!mounted) return;
-      previews = deferred[0] as Map<String, String>;
-      unread = deferred[1] as Map<String, int>;
-      _selfChatLastTimestamp = deferred[2] as int?;
-      _selfChatLastPreview = deferred[3] as String?;
-    }
-
-    _applyLoadedUsers(
-      userMaps: userMaps,
-      timestamps: timestamps,
-      newGroups: newGroups,
-      previews: previews,
-      unread: unread,
-      prefs: prefs,
-    );
+      _applyLoadedUsers(
+        userMaps: userMaps,
+        timestamps: timestamps,
+        newGroups: newGroups,
+        previews: previews,
+        unread: unread,
+        prefs: prefs,
+      );
     } finally {
       _loadUsersInProgress = false;
       if (_loadUsersQueued && mounted) {
@@ -1428,15 +1640,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final newContacts = <Contact>[];
     for (var map in userMaps) {
       final id = map['id'] as String;
-      newContacts.add(Contact(
-        id: id,
-        name: map['name'] as String,
-        avatarUrl: '',
-        avatarBase64: map['avatarBase64'] as String?,
-        customName: map['customName'] as String?,
-        identityJson: (map['identityJson'] as String?) ?? (map['publicKeyPem'] as String?) ?? '',
-        lastMessageTimestamp: timestamps[id],
-      ));
+      newContacts.add(
+        Contact(
+          id: id,
+          name: map['name'] as String,
+          avatarUrl: '',
+          avatarBase64: map['avatarBase64'] as String?,
+          customName: map['customName'] as String?,
+          identityJson:
+              (map['identityJson'] as String?) ??
+              (map['publicKeyPem'] as String?) ??
+              '',
+          lastMessageTimestamp: timestamps[id],
+        ),
+      );
     }
 
     Contact? newAppUser;
@@ -1466,16 +1683,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ];
     ConversationPreferencesService.sortConversations(newConversations, prefs);
 
-    final changed = newContacts.length != contacts.length ||
+    final changed =
+        newContacts.length != contacts.length ||
         newGroups.length != groups.length ||
         !_mapsEqual(previews, _lastMessagePreviews) ||
         !_mapsEqual(unread, _unreadCounts) ||
         !_conversationPrefsEqual(prefs, _conversationPrefs) ||
         !newConversations.every((c) {
           final old = conversations.cast<Conversation?>().firstWhere(
-                (o) => o!.id == c.id,
-                orElse: () => null,
-              );
+            (o) => o!.id == c.id,
+            orElse: () => null,
+          );
           return old != null &&
               old.displayName == c.displayName &&
               formatLastMessageTime(old.lastMessageTimestamp) ==
@@ -1497,15 +1715,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (selectedConversation is DirectConversation) {
             final id = (selectedConversation as DirectConversation).contact.id;
             selectedContact = contacts.cast<Contact?>().firstWhere(
-                  (c) => c?.id == id,
-                  orElse: () => null,
-                );
+              (c) => c?.id == id,
+              orElse: () => null,
+            );
           } else if (selectedConversation is GroupConversation) {
             final id = (selectedConversation as GroupConversation).group.id;
             final g = groups.cast<Group?>().firstWhere(
-                  (gr) => gr?.id == id,
-                  orElse: () => null,
-                );
+              (gr) => gr?.id == id,
+              orElse: () => null,
+            );
             if (g == null) {
               selectedConversation = null;
             } else {
@@ -1544,14 +1762,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return true;
   }
 
-
   void saveAppUser(Contact user) async {
     await DBHelper.insertOrUpdateUser({
       'id': user.id,
       'name': user.name,
       'avatarUrl': user.avatarUrl,
       'avatarBase64': user.avatarBase64,
-      'publicKeyPem': user.publicKeyPem
+      'publicKeyPem': user.publicKeyPem,
     });
   }
 
@@ -1602,10 +1819,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showSelfChat = false;
     });
     _syncActiveConversationTracker();
-    _dismissConversationNotification(
-      groupId: group.id,
-      senderId: group.id,
-    );
+    _dismissConversationNotification(groupId: group.id, senderId: group.id);
   }
 
   void _showCreateGroup() {
@@ -1682,6 +1896,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isEditableFocused()) return;
       action();
     }
+
     return {
       SingleActivator(key, control: true): invoke,
       if (Platform.isMacOS) SingleActivator(key, meta: true): invoke,
@@ -1697,9 +1912,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _showAddUserDialog({String? prefilledId}) async {
     if (widget.offlineMode) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connect to Tor before adding contacts'),
-        ),
+        const SnackBar(content: Text('Connect to Tor before adding contacts')),
       );
       return;
     }
@@ -1770,9 +1983,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Navigator.of(dialogContext).pop();
           final scannedValue = await Navigator.push<String>(
             hostContext,
-            MaterialPageRoute(
-              builder: (_) => const QrScannerScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => const QrScannerScreen()),
           );
           if (scannedValue != null && scannedValue.isNotEmpty) {
             _showAddUserDialog(prefilledId: scannedValue);
@@ -1780,54 +1991,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
 
         return AlertDialog(
-        title: const Text('Add contact'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: idController,
-                    autofocus: prefilledId == null,
-                    decoration: const InputDecoration(
-                      labelText: 'User ID (Base58 Onion URL)',
-                      hintText: 'eg. 51EsbujFRDJLHJ',
+          title: const Text('Add contact'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: idController,
+                      autofocus: prefilledId == null,
+                      decoration: const InputDecoration(
+                        labelText: 'User ID (Base58 Onion URL)',
+                        hintText: 'eg. 51EsbujFRDJLHJ',
+                      ),
                     ),
                   ),
-                ),
-                if (QrPlatform.isScanSupported)
-                  IconButton(
-                    icon: const Icon(Icons.qr_code_scanner),
-                    tooltip: 'Scan QR code',
-                    onPressed: scanQrCode,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameController,
-              autofocus: prefilledId != null,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                hintText: 'eg. Alice',
+                  if (QrPlatform.isScanSupported)
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      tooltip: 'Scan QR code',
+                      onPressed: scanQrCode,
+                    ),
+                ],
               ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => submit(dialogContext),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                autofocus: prefilledId != null,
+                decoration: const InputDecoration(
+                  labelText: 'Display name',
+                  hintText: 'eg. Alice',
+                ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => submit(dialogContext),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => submit(dialogContext),
+              child: const Text('Add'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => submit(dialogContext),
-            child: const Text('Add'),
-          ),
-        ],
         );
       },
     );
@@ -1858,16 +2069,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: ListTile(
-        leading: ContactAvatar(
-          name: appUser.name,
-          avatarBase64: appUser.avatarBase64,
+      child: GestureDetector(
+        onSecondaryTapDown: isDesktopPlatform
+            ? (details) => showConversationContextMenu(
+                context: context,
+                position: details.globalPosition,
+                conversation: SelfConversation(_selfChatLastTimestamp),
+                preferences: null,
+                viewingArchived: false,
+                canOpenDetached: _canOpenDetachedChat,
+                showPinArchive: false,
+                onOpenDetached: _openDetachedSelfChat,
+              )
+            : null,
+        child: ListTile(
+          leading: ContactAvatar(
+            name: appUser.name,
+            avatarBase64: appUser.avatarBase64,
+          ),
+          title: const Text('Chat with myself'),
+          subtitle: Text(subtitle),
+          selected: showSelfChat,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          onTap: onSelectSelfChat,
         ),
-        title: const Text('Chat with myself'),
-        subtitle: Text(subtitle),
-        selected: showSelfChat,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        onTap: onSelectSelfChat,
       ),
     );
   }
@@ -1877,7 +2104,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final dt = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toLocal();
     final now = DateTime.now().toUtc();
 
-    bool isSameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    bool isSameDay =
+        dt.year == now.year && dt.month == now.month && dt.day == now.day;
 
     if (isSameDay) {
       // Format as "HH:mm"
@@ -1888,22 +2116,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
-  Widget buildSidebar() { 
-    
-    final isMobile = MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
+  Widget buildSidebar() {
+    final isMobile =
+        MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
 
     return Container(
-      margin: EdgeInsetsGeometry.only(top: isMobile ? 50 : 0, bottom: isMobile ? 20 : 0),
+      margin: EdgeInsetsGeometry.only(
+        top: isMobile ? 50 : 0,
+        bottom: isMobile ? 20 : 0,
+      ),
       width: 280,
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         border: Border(
           right: BorderSide(
             color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
-            width: 1
-          )
-        )
+            width: 1,
+          ),
+        ),
       ),
       child: Column(
         children: [
@@ -1913,13 +2143,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               border: Border(
                 bottom: BorderSide(
                   color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
-                  width: 1
-                )
-              )
+                  width: 1,
+                ),
+              ),
             ),
             child: Row(
               children: [
-                ContactAvatar(name: appUser.name, radius: 20, avatarBase64: appUser.avatarBase64),
+                ContactAvatar(
+                  name: appUser.name,
+                  radius: 20,
+                  avatarBase64: appUser.avatarBase64,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1930,7 +2164,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
-                        )
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -1949,8 +2183,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onPressed: () {
                     String? fingerprint;
                     try {
-                      final parsed = jsonDecode(widget.keyManager.publicKeyJson)
-                          as Map<String, dynamic>;
+                      final parsed =
+                          jsonDecode(widget.keyManager.publicKeyJson)
+                              as Map<String, dynamic>;
                       fingerprint = parsed['fingerprint'] as String?;
                     } catch (_) {}
                     showPrysmIdQrDialog(
@@ -2040,9 +2275,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 4
-                  )
-                ]
+                    blurRadius: 4,
+                  ),
+                ],
               ),
               child: TextField(
                 onChanged: (value) {
@@ -2052,14 +2287,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   hintText: _viewingArchived
                       ? 'Search archived...'
                       : _viewingBlocked
-                          ? 'Search blocked...'
-                          : 'Search chats...',
+                      ? 'Search blocked...'
+                      : 'Search chats...',
                   hintStyle: const TextStyle(fontSize: 14),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
-                    vertical: 12
+                    vertical: 12,
                   ),
                 ),
               ),
@@ -2078,7 +2313,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   final showArchivedFooter = _archivedCount > 0;
                   if (showArchivedFooter && footerIndex == 0) {
                     return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       child: ListTile(
                         leading: Icon(
                           Icons.archive_outlined,
@@ -2113,7 +2351,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     );
                   }
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     child: ListTile(
                       leading: Icon(
                         Icons.block_outlined,
@@ -2144,12 +2385,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                 final unreadCount = _unreadCounts[conv.id] ?? 0;
                 final preview = _lastMessagePreviews[conv.id];
-                final timeLabel = formatLastMessageTime(conv.lastMessageTimestamp);
+                final timeLabel = formatLastMessageTime(
+                  conv.lastMessageTimestamp,
+                );
 
                 if (conv is DirectConversation) {
                   final contact = conv.contact;
-                  final isBlockedContact =
-                      BlockService.instance.isBlocked(conv.id);
+                  final isBlockedContact = BlockService.instance.isBlocked(
+                    conv.id,
+                  );
                   leading = ContactAvatar(
                     name: contact.displayName,
                     avatarBase64: contact.avatarBase64,
@@ -2157,8 +2401,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   if (isBlockedContact) {
                     subtitle = timeLabel;
                   } else {
-                    subtitle =
-                        preview != null ? '$preview · $timeLabel' : timeLabel;
+                    subtitle = preview != null
+                        ? '$preview · $timeLabel'
+                        : timeLabel;
                   }
                 } else {
                   final group = (conv as GroupConversation).group;
@@ -2172,7 +2417,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 }
 
                 Widget? trailing;
-                final isBlockedContact = conv is DirectConversation &&
+                final isBlockedContact =
+                    conv is DirectConversation &&
                     BlockService.instance.isBlocked(conv.id);
                 if (unreadCount > 0 && !isBlockedContact) {
                   trailing = CircleAvatar(
@@ -2201,54 +2447,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 }
 
                 return Padding(
-                  key: ValueKey('${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount'),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  child: ListTile(
-                    leading: leading,
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            conv.displayName,
-                            style: TextStyle(
-                              fontWeight: unreadCount > 0 || isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
+                  key: ValueKey(
+                    '${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount',
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  child: GestureDetector(
+                    onSecondaryTapDown: isDesktopPlatform
+                        ? (details) => _showConversationContextMenu(
+                            details.globalPosition,
+                            conv,
+                          )
+                        : null,
+                    child: ListTile(
+                      leading: leading,
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              conv.displayName,
+                              style: TextStyle(
+                                fontWeight: unreadCount > 0 || isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        if (isArchived &&
-                            !_viewingArchived &&
-                            !_viewingBlocked &&
-                            _searchQuery.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4),
-                            child: Icon(
-                              Icons.archive_outlined,
-                              size: 14,
-                              color: Theme.of(context).hintColor,
+                          if (isArchived &&
+                              !_viewingArchived &&
+                              !_viewingBlocked &&
+                              _searchQuery.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Icon(
+                                Icons.archive_outlined,
+                                size: 14,
+                                color: Theme.of(context).hintColor,
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
+                      subtitle: Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: trailing,
+                      selected: isSelected,
+                      selectedTileColor: Theme.of(
+                        context,
+                      ).primaryColor.withValues(alpha: 0.1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      onTap: () {
+                        if (conv is DirectConversation) {
+                          onSelectContact(conv.contact);
+                        } else if (conv is GroupConversation) {
+                          onSelectGroup(conv.group);
+                        }
+                      },
+                      onLongPress: () => _showConversationActions(conv),
                     ),
-                    subtitle: Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: trailing,
-                    selected: isSelected,
-                    selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    onTap: () {
-                      if (conv is DirectConversation) {
-                        onSelectContact(conv.contact);
-                      } else if (conv is GroupConversation) {
-                        onSelectGroup(conv.group);
-                      }
-                    },
-                    onLongPress: () => _showConversationActions(conv),
                   ),
                 );
               },
@@ -2261,9 +2524,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               border: Border(
                 top: BorderSide(
                   color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
-                  width: 1
+                  width: 1,
                 ),
-              )
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -2348,7 +2611,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _torConnectionState = TorConnectionState.connected;
       TorConnectionNotifier.instance.update(TorConnectionState.connected);
     }
-    _torHealthTimer = Timer.periodic(BatterySaverPolicy.torHealthInterval(), (_) {
+    _torHealthTimer = Timer.periodic(BatterySaverPolicy.torHealthInterval(), (
+      _,
+    ) {
       _checkTorHealth();
     });
     _checkTorHealth();
@@ -2385,7 +2650,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : TorConnectionState.disconnected;
     }
 
-    if (!mounted) return;
+    if (!mounted ||
+        _torStopped ||
+        _torRestartInProgress ||
+        TorLifecycleNotifier.instance.blocked) {
+      return;
+    }
 
     final stateChanged = next != _torConnectionState;
     final attentionChanged = needsAttention != _torNeedsAttention;
@@ -2451,6 +2721,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _torRestartInProgress = true;
     _torHealthTimer?.cancel();
     _torStopped = true;
+    TorLifecycleNotifier.instance.update(TorLifecycleState.restarting);
+
+    if (!widget.decoyMode && TransportProvider.isConfigured) {
+      TransportProvider.instance.wsManager.prepareForTorReconnect();
+    }
 
     setState(() {
       _torConnectionState = TorConnectionState.connecting;
@@ -2464,8 +2739,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await Future.delayed(TorManager.restartSettleDelay);
       }
       TorBootstrapNotifier.instance.reset();
-      _torStopped = false;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.bootstrapping);
       await widget.torManager.startTor();
+      _torStopped = false;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
       final onion = await widget.torManager.getOnionAddress();
       if (onion != null && onion.isNotEmpty) {
         PrysmServer.instance?.localOnionAddress = onion;
@@ -2484,6 +2761,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       _torStopped = true;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
       if (!mounted) return;
       setState(() {
         _torConnectionState = TorConnectionState.disconnected;
@@ -2491,9 +2769,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       if (userInitiated) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Tor restart failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Tor restart failed: $e')));
       }
     } finally {
       _torRestartInProgress = false;
@@ -2528,8 +2806,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   'Tor needs attention — automatic recovery paused. '
                   'Try Restart Tor manually.',
                   style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(ctx).colorScheme.error,
-                      ),
+                    color: Theme.of(ctx).colorScheme.error,
+                  ),
                 ),
               ],
               if (_torSupervisor?.lastHealthFailureReason != null) ...[
@@ -2539,7 +2817,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               ],
-              if (_torSupervisor != null && _torSupervisor!.autoRestartCount > 0) ...[
+              if (_torSupervisor != null &&
+                  _torSupervisor!.autoRestartCount > 0) ...[
                 const SizedBox(height: 4),
                 Text(
                   'Auto-restarts: ${_torSupervisor!.autoRestartCount}',
@@ -2570,7 +2849,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               if (_torSupervisor != null &&
                   _torSupervisor!.recentStderrLines.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Recent Tor log', style: Theme.of(ctx).textTheme.labelLarge),
+                Text(
+                  'Recent Tor log',
+                  style: Theme.of(ctx).textTheme.labelLarge,
+                ),
                 const SizedBox(height: 4),
                 Container(
                   width: double.infinity,
@@ -2584,9 +2866,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: Text(
                       _torSupervisor!.recentStderrLines.join('\n'),
                       style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                          ),
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
                     ),
                   ),
                 ),
@@ -2612,7 +2894,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: _torConnectionState == TorConnectionState.connecting ||
+                    onPressed:
+                        _torConnectionState == TorConnectionState.connecting ||
                             _torRestartInProgress
                         ? null
                         : () {
@@ -2627,18 +2910,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      final ok = await widget.torManager.refreshCircuit();
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            ok ? 'New Tor circuit requested' : 'Circuit refresh failed',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: _torRestartInProgress
+                        ? null
+                        : () async {
+                            Navigator.pop(ctx);
+                            final ok = await widget.torManager.refreshCircuit();
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'New Tor circuit requested'
+                                      : 'Circuit refresh failed',
+                                ),
+                              ),
+                            );
+                          },
                     icon: const Icon(Icons.swap_horiz),
                     label: const Text('New circuit'),
                   ),
@@ -2695,10 +2982,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Color _torStatusColor(TorConnectionState state) => switch (state) {
-        TorConnectionState.connected => Colors.green,
-        TorConnectionState.connecting => Colors.orange,
-        TorConnectionState.disconnected => Colors.red,
-      };
+    TorConnectionState.connected => Colors.green,
+    TorConnectionState.connecting => Colors.orange,
+    TorConnectionState.disconnected => Colors.red,
+  };
 
   Widget _torStatusDot(TorConnectionState state, {double size = 10}) {
     return Container(
@@ -2798,8 +3085,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildEmptyHomeState() {
     final theme = Theme.of(context);
     final prysmId = encodeOnionToBase58(appUser.id);
-    final contactCount =
-        contacts.where((c) => c.id != widget.onionAddress).length;
+    final contactCount = contacts
+        .where((c) => c.id != widget.onionAddress)
+        .length;
     final groupCount = groups.length;
     final displayName = appUser.name.isNotEmpty ? appUser.name : 'there';
 
@@ -2836,7 +3124,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.35,
+                        ),
                         blurRadius: 32,
                         offset: const Offset(0, 12),
                       ),
@@ -2867,81 +3157,84 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 28),
                 Material(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.6,
+                  ),
                   borderRadius: BorderRadius.circular(16),
                   child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 14,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.fingerprint_outlined,
-                            color: theme.colorScheme.primary,
-                            size: 22,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Your Prysm ID',
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: theme.hintColor,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _truncateId(prysmId),
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    fontFamily: 'monospace',
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.copy_rounded,
-                              size: 20,
-                              color: theme.colorScheme.primary,
-                            ),
-                            tooltip: 'Copy ID',
-                            onPressed: _copyPrysmId,
-                          ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.qr_code,
-                              color: theme.colorScheme.primary,
-                            ),
-                            tooltip: 'Show full QR code',
-                            onPressed: () => showPrysmIdQrDialog(context, prysmId),
-                          ),
-                          if (QrPlatform.isScanSupported)
-                            IconButton(
-                              icon: Icon(
-                                Icons.qr_code_scanner,
-                                color: theme.colorScheme.primary,
-                              ),
-                              tooltip: 'Scan a QR code',
-                              onPressed: () async {
-                                final scanned = await Navigator.push<String>(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const QrScannerScreen(),
-                                  ),
-                                );
-                                if (scanned != null && scanned.isNotEmpty) {
-                                  _showAddUserDialog(prefilledId: scanned);
-                                }
-                              },
-                            ),
-                        ],
-                      ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 14,
                     ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.fingerprint_outlined,
+                          color: theme.colorScheme.primary,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Your Prysm ID',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: theme.hintColor,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _truncateId(prysmId),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.copy_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                          tooltip: 'Copy ID',
+                          onPressed: _copyPrysmId,
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.qr_code,
+                            color: theme.colorScheme.primary,
+                          ),
+                          tooltip: 'Show full QR code',
+                          onPressed: () =>
+                              showPrysmIdQrDialog(context, prysmId),
+                        ),
+                        if (QrPlatform.isScanSupported)
+                          IconButton(
+                            icon: Icon(
+                              Icons.qr_code_scanner,
+                              color: theme.colorScheme.primary,
+                            ),
+                            tooltip: 'Scan a QR code',
+                            onPressed: () async {
+                              final scanned = await Navigator.push<String>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const QrScannerScreen(),
+                                ),
+                              );
+                              if (scanned != null && scanned.isNotEmpty) {
+                                _showAddUserDialog(prefilledId: scanned);
+                              }
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -2992,9 +3285,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.dividerColor.withValues(alpha: 0.15),
-        ),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.15)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -3039,6 +3330,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _shutdownTor() async {
     if (!_torStopped) {
       _torStopped = true;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
       _torHealthTimer?.cancel();
       await widget.torManager.stopTor();
       print('Tor process stopped gracefully.');
@@ -3110,8 +3402,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         keyManager: widget.keyManager,
         reloadConversations: () => loadUsers(),
         onCloseChat: () => clearChat(),
-        torStatusAction:
-            widget.decoyMode ? null : _buildTorAppBarAction(),
+        torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
       );
     }
     if (selectedContact != null) {
@@ -3140,8 +3431,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         clearChat: () => clearChat(),
         reloadUsers: () => loadUsers(),
         onCloseChat: () => clearChat(),
-        torStatusAction:
-            widget.decoyMode ? null : _buildTorAppBarAction(),
+        torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
       );
     }
     return _buildEmptyHomeState();
@@ -3149,79 +3439,79 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
+    final isMobile =
+        MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
 
     if (isLoading) {
       return const Material(child: Center(child: CircularProgressIndicator()));
     }
 
-    
     if (isMobile) {
-       return Scaffold(
-        appBar: selectedConversation == null &&
+      return Scaffold(
+        appBar:
+            selectedConversation == null &&
                 !showProfile &&
                 !showSettings &&
                 !showSelfChat
             ? AppBar(
-          toolbarHeight: 70,
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                toolbarHeight: 70,
+                title: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).primaryColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Image.asset(
+                        'assets/logo.png',
+                        height: 40.0,
+                        width: 40.0,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '${settings.name} Chat',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
-                child: Image.asset(
-                  'assets/logo.png',
-                  height: 40.0,
-                  width: 40.0,
-                  fit: BoxFit.contain,
+                leading: Builder(
+                  builder: (context) => IconButton(
+                    icon: const Icon(Icons.menu),
+                    onPressed: () => Scaffold.of(context).openDrawer(),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '${settings.name} Chat',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          leading: Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () => Scaffold.of(context).openDrawer(),
-            )
-          ),
-          actions: [
-            _buildTorAppBarAction(),
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Settings',
-              onPressed: () => setState(() {
-                showSettings = true;
-                showSelfChat = false;
-              }),
-            ),
-          ],
-          elevation: 2,
-          shadowColor: Colors.black.withValues(alpha: 0.1),
-        )
+                actions: [
+                  _buildTorAppBarAction(),
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined),
+                    tooltip: 'Settings',
+                    onPressed: () => setState(() {
+                      showSettings = true;
+                      showSelfChat = false;
+                    }),
+                  ),
+                ],
+                elevation: 2,
+                shadowColor: Colors.black.withValues(alpha: 0.1),
+              )
             : null,
-        drawer: Drawer(
-          child: buildSidebar(),
-        ),
+        drawer: Drawer(child: buildSidebar()),
         body: Column(
           children: [
             _buildOfflineBanner(),
             Expanded(
-              child: Row(
-                children: [
-                  Expanded(child: _buildChatBody()),
-                ],
-              ),
+              child: Row(children: [Expanded(child: _buildChatBody())]),
             ),
           ],
         ),
@@ -3236,54 +3526,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 70,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Image.asset(
-                'assets/logo.png',
-                height: 40.0,
-                width: 40.0,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '${settings.name} Chat',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          _buildTorAppBarAction(),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: _desktopShortcutTooltip('Settings', 'I'),
-            onPressed: onShowSettings,
-          ),
-        ],
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
-      ),
-      body: Column(
-        children: [
-          _buildOfflineBanner(),
-          Expanded(
-            child: Row(
+          appBar: AppBar(
+            toolbarHeight: 70,
+            title: Row(
               children: [
-                buildSidebar(),
-                Expanded(child: _buildChatBody()),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).primaryColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    height: 40.0,
+                    width: 40.0,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '${settings.name} Chat',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
+            actions: [
+              _buildTorAppBarAction(),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined),
+                tooltip: _desktopShortcutTooltip('Settings', 'I'),
+                onPressed: onShowSettings,
+              ),
+            ],
+            elevation: 2,
+            shadowColor: Colors.black.withValues(alpha: 0.1),
           ),
-        ],
-      ),
+          body: Column(
+            children: [
+              _buildOfflineBanner(),
+              Expanded(
+                child: Row(
+                  children: [
+                    buildSidebar(),
+                    Expanded(child: _buildChatBody()),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

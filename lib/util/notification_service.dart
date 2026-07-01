@@ -31,10 +31,7 @@ class NotificationService {
   FlutterLocalNotificationsPlugin get notificationsPlugin =>
       _notificationsPlugin;
 
-  static int notificationIdFor({
-    String? groupId,
-    required String senderId,
-  }) {
+  static int notificationIdFor({String? groupId, required String senderId}) {
     return (groupId ?? senderId).hashCode & 0x7fffffff;
   }
 
@@ -53,19 +50,19 @@ class NotificationService {
 
     const WindowsInitializationSettings initializationSettingsWindows =
         WindowsInitializationSettings(
-      appName: 'Prysm',
-      appUserModelId: 'com.xmreur.prysm',
-      guid: '02fe3791-c87d-4b3c-8549-1cf0b68cd91d',
-    );
+          appName: 'Prysm',
+          appUserModelId: 'com.xmreur.prysm',
+          guid: '02fe3791-c87d-4b3c-8549-1cf0b68cd91d',
+        );
 
     final InitializationSettings initializationSettings =
         InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsDarwin,
-      macOS: initializationSettingsDarwin,
-      linux: initializationSettingsLinux,
-      windows: initializationSettingsWindows,
-    );
+          android: initializationSettingsAndroid,
+          iOS: initializationSettingsDarwin,
+          macOS: initializationSettingsDarwin,
+          linux: initializationSettingsLinux,
+          windows: initializationSettingsWindows,
+        );
 
     await _notificationsPlugin.initialize(
       initializationSettings,
@@ -81,7 +78,8 @@ class NotificationService {
     if (!Platform.isAndroid) return;
     final androidImpl = _notificationsPlugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidImpl == null) return;
 
     await androidImpl.createNotificationChannel(
@@ -111,8 +109,8 @@ class NotificationService {
     if (!Platform.isAndroid && !Platform.isIOS) return;
 
     try {
-      final launchDetails =
-          await _notificationsPlugin.getNotificationAppLaunchDetails();
+      final launchDetails = await _notificationsPlugin
+          .getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp == true) {
         final response = launchDetails?.notificationResponse;
         final call = response != null
@@ -203,10 +201,7 @@ class NotificationService {
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       return;
     }
-    await cancelConversationNotification(
-      groupId: groupId,
-      senderId: senderId,
-    );
+    await cancelConversationNotification(groupId: groupId, senderId: senderId);
   }
 
   Future<void> cancelNotification(int id) async {
@@ -356,13 +351,15 @@ class NotificationService {
     bool? granted;
     final androidImpl = notificationsPlugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     granted = await androidImpl?.requestNotificationsPermission();
     await androidImpl?.requestFullScreenIntentPermission();
 
     final iosImpl = notificationsPlugin
         .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
+          IOSFlutterLocalNotificationsPlugin
+        >();
     final iosGranted = await iosImpl?.requestPermissions(
       alert: true,
       badge: true,
@@ -374,7 +371,8 @@ class NotificationService {
 
     final macImpl = notificationsPlugin
         .resolvePlatformSpecificImplementation<
-            MacOSFlutterLocalNotificationsPlugin>();
+          MacOSFlutterLocalNotificationsPlugin
+        >();
     final macGranted = await macImpl?.requestPermissions(
       alert: true,
       badge: true,

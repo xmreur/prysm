@@ -1,4 +1,4 @@
-
+import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
@@ -95,6 +95,17 @@ class DBHelper {
   }
 
   static Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    try {
+      await _onUpgradeImpl(db, oldVersion, newVersion);
+    } catch (e, st) {
+      debugPrint(
+        'chat_app.db migration failed v$oldVersion->$newVersion: $e\n$st',
+      );
+      rethrow;
+    }
+  }
+
+  static Future _onUpgradeImpl(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       final cols = await db.rawQuery('PRAGMA table_info(users)');
       final colNames = cols.map((c) => c['name'] as String).toSet();

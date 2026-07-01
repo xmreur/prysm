@@ -336,7 +336,7 @@ Future<TorManager> createTorManager({bool allowDownload = true}) async {
 
 Future<String?> loadCachedOnionAddress() async {
   final manager = await createTorManager(allowDownload: false);
-  return manager.getOnionAddress();
+  return manager.getCachedOnionAddress();
 }
 
 Future<TorInitResult> initializeTor() async {
@@ -554,7 +554,7 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _enterOfflineMode() async {
     final manager = await createTorManager(allowDownload: false);
-    final cachedOnion = await manager.getOnionAddress();
+    final cachedOnion = await manager.getCachedOnionAddress();
     if (!mounted) return;
     setState(() {
       _torManager = manager;

@@ -50,6 +50,10 @@ class TorChannelHandler(
                 }
             }
 
+            "getCachedOnionAddress" -> {
+                result.success(torController.getCachedOnionAddress())
+            }
+
             "getOnionAddress" -> {
                 torController.getOnionAddressAsync { onionAddress ->
                     if (onionAddress != null && onionAddress.endsWith(".onion")) {

@@ -75,6 +75,20 @@ class TorManager {
     });
   }
 
+  Future<String?> getCachedOnionAddress() async {
+    if (Platform.isAndroid) {
+      try {
+        return await _channel.invokeMethod<String>("getCachedOnionAddress");
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final hostnameFile = File('$dataDir/hidden_service/hostname');
+    if (!hostnameFile.existsSync()) return null;
+    return hostnameFile.readAsStringSync().trim();
+  }
+
   Future<String?> getOnionAddress() async {
     if (Platform.isAndroid) {
       try {

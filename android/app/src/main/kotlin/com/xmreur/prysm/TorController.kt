@@ -157,6 +157,8 @@ class TorController(private val context: Context) {
         }
     }
 
+    fun getCachedOnionAddress(): String? = readOnionAddressFromFile()
+
     fun getOnionAddressAsync(onResult: (String?) -> Unit) {
         scope.launch {
             var address: String? = null

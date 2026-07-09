@@ -29,12 +29,9 @@ import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
-import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
-import 'package:prysm/ui/chat/prysm_chat_viewport.dart';
-import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_theme.dart';
@@ -162,7 +159,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final ValueNotifier<double> _swipeDragOffset = ValueNotifier(0);
   String? _swipeDragMessageId;
 
-  Key _chatKey = UniqueKey();
   final ScrollController _listScrollController = ScrollController();
   bool _stickToBottom = true;
   Timer? _debounceTimer;
@@ -190,16 +186,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final atBottom = isChatScrolledToBottom(_listScrollController);
     if (atBottom == _stickToBottom) return;
     setState(() => _stickToBottom = atBottom);
-  }
-
-  void _jumpToBottom() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: true,
-      isMounted: () => mounted,
-    );
-    setState(() {});
   }
 
   String get _draftKey => 'dm:${widget.peerId}';
@@ -731,7 +717,6 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         setState(() {
           resetChatState();
-          _chatKey = UniqueKey();
           _peerName = widget.peerName;
           _peerAvatarBase64 = widget.peerAvatarBase64;
           _peerOnline = null;
@@ -1452,14 +1437,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _handleSend(dynamic message) {
-    if (message is TextMessage && message.text.isNotEmpty) {
-      _handleSendText(message.text);
-    } else if (message is String && message.isNotEmpty) {
-      _handleSendText(message);
-    }
-  }
-
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
     if (!mounted) return;
 
@@ -1612,7 +1589,6 @@ class _ChatScreenState extends State<ChatScreen> {
             resetChatState();
             setState(() {
               _messages = InMemoryChatController();
-              _chatKey = UniqueKey();
             });
             MessageDraftStore.instance.setReply(_draftKey, null);
             _loadInitialMessages();
@@ -1623,7 +1599,6 @@ class _ChatScreenState extends State<ChatScreen> {
             resetChatState();
             setState(() {
               _messages = InMemoryChatController();
-              _chatKey = UniqueKey();
             });
             MessageDraftStore.instance.setReply(_draftKey, null);
             widget.clearChat();

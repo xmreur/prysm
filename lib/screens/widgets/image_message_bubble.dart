@@ -10,7 +10,6 @@ import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/screens/widgets/image_viewer_screen.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
-import 'package:prysm/ui/prysm_scaffold.dart';
 
 /// Stable image bubble with async decrypt, aspect ratio, and fullscreen tap.
 class ImageMessageBubble extends StatefulWidget {

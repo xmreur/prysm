@@ -60,7 +60,7 @@ class PrysmPage extends StatelessWidget {
                             ),
                             child: Row(
                               children: [
-                                if (leading != null) leading!,
+                                ?leading,
                                 if (titleWidget != null)
                                   Expanded(child: titleWidget!)
                                 else if (title != null)
@@ -94,7 +94,7 @@ class PrysmPage extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (bottom != null) bottom!,
+                        ?bottom,
                         Container(height: 1, color: tokens.divider),
                       ],
                     ),

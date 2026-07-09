@@ -1,5 +1,4 @@
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 

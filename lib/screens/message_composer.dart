@@ -17,7 +17,6 @@ import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/waveform_extractor.dart';
-import 'package:prysm/theme/prysm_style_scope.dart';
 
 class MessageComposer extends StatefulWidget {
   final Function(String) onSendText;

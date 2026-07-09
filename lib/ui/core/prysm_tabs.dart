@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
-import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
 
 class PrysmTabController extends ChangeNotifier {
@@ -20,10 +19,7 @@ class PrysmTabController extends ChangeNotifier {
     notifyListeners();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
+
 }
 
 class PrysmTabBar extends StatelessWidget {

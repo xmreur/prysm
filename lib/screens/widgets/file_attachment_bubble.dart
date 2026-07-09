@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
-import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:typed_data';
 
 import 'package:pdfx/pdfx.dart';

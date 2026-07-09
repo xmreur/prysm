@@ -66,7 +66,7 @@ class ChatMediaGrid extends StatelessWidget {
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: const PrysmProgressIndicator(size: 20),
+                child: PrysmProgressIndicator(size: 20),
               ),
             ),
           );

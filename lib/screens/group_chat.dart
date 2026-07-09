@@ -27,7 +27,6 @@ import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
-import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
@@ -110,7 +109,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late ReactionService _reactionService;
   late ReadReceiptService _readReceiptService;
   late MessageModifyService _modifyService;
-  late String _localUserId;
   final _settings = SettingsService();
 
   var _messages = InMemoryChatController();
@@ -160,16 +158,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final atBottom = isChatScrolledToBottom(_listScrollController);
     if (atBottom == _stickToBottom) return;
     setState(() => _stickToBottom = atBottom);
-  }
-
-  void _jumpToBottom() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: true,
-      isMounted: () => mounted,
-    );
-    setState(() {});
   }
 
   String get _draftKey => 'group:${widget.group.id}';

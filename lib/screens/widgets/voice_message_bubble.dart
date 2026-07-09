@@ -1,14 +1,12 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
-import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/screens/widgets/voice_waveform_scrubber.dart';
 import 'package:prysm/services/settings_service.dart';

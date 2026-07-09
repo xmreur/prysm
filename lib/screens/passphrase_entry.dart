@@ -3,7 +3,6 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
-import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/screens/widgets/unlock_lockout_banner.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/ui/core/prysm_button.dart';

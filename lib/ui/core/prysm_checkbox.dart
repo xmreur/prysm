@@ -47,7 +47,7 @@ class PrysmCheckboxRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (secondary != null) secondary!,
+            ?secondary,
           ],
         ),
       ),

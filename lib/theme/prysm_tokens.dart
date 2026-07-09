@@ -1,6 +1,5 @@
 import 'dart:ui';
 
-import 'package:flutter/painting.dart' show TextStyle, FontWeight;
 class PrysmTokens {
   const PrysmTokens({
     required this.background,

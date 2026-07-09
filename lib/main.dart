@@ -10,8 +10,6 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -2414,7 +2412,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 final isSelected = selectedConversation?.id == conv.id;
                 final prefs = _conversationPrefs[conv.id];
                 final isPinned = prefs?.isPinned ?? false;
-                final isArchived = prefs?.isArchived ?? false;
                 final Widget leading;
                 final String subtitle;
 

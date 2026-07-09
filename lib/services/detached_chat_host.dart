@@ -4,7 +4,6 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/util/detached_message_codec.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';

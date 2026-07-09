@@ -9,8 +9,6 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
@@ -126,16 +124,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     final atBottom = isChatScrolledToBottom(_scrollController);
     if (atBottom == _stickToBottom) return;
     setState(() => _stickToBottom = atBottom);
-  }
-
-  void _jumpToBottom() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: true,
-      isMounted: () => mounted,
-    );
-    setState(() {});
   }
 
   Future<void> _loadInitialMessages() async {

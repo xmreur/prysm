@@ -116,7 +116,7 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
             child: SizedBox(
               width: 20,
               height: 20,
-              child: const PrysmProgressIndicator(size: 20),
+              child: PrysmProgressIndicator(size: 20),
             ),
           ),
         );
@@ -205,9 +205,9 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(PrysmIcons.filter1, size: 12, color: const Color(0xFFFFFFFF)),
+            Icon(PrysmIcons.filter1, size: 12, color: Color(0xFFFFFFFF)),
             SizedBox(width: 2),
-            Icon(PrysmIcons.visibility, size: 12, color: const Color(0xFFFFFFFF)),
+            Icon(PrysmIcons.visibility, size: 12, color: Color(0xFFFFFFFF)),
           ],
         ),
       ),

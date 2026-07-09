@@ -19,7 +19,6 @@ class PrysmBubbleRenderer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
-    final tokens = style.tokens;
     final radius =
         isSentByMe ? style.bubbleSentRadius : style.bubbleReceivedRadius;
     final background = prysmBubbleBackground(context, isSentByMe: isSentByMe);

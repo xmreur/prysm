@@ -1,5 +1,4 @@
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 
 /// JSON transport for chat messages across detached window IPC.
 class DetachedMessageCodec {

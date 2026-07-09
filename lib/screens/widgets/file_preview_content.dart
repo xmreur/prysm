@@ -11,9 +11,7 @@ import 'package:prysm/services/file_preview_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/pdf_system_open.dart';
 import 'package:prysm/util/readable_file_policy.dart';
-import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
-import 'package:prysm/ui/core/prysm_divider.dart';
 
 class FilePreviewContent extends StatefulWidget {
   final FilePreviewData preview;

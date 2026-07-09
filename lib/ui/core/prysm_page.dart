@@ -48,7 +48,7 @@ class PrysmPage extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            if (leading != null) leading!,
+                            ?leading,
                             if (title != null)
                               Expanded(
                                 child: Column(

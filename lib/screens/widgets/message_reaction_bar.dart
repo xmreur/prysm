@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
 
@@ -14,7 +13,6 @@ Message applyReactionsToMessage(
     TextMessage m => m.copyWith(reactions: reactions),
     ImageMessage m => m.copyWith(reactions: reactions),
     FileMessage m => m.copyWith(reactions: reactions),
-    _ => message,
   };
 }
 

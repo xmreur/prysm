@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
-import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';

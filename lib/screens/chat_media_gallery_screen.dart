@@ -19,7 +19,6 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
-import 'package:prysm/theme/prysm_style_scope.dart';
 
 class ChatMediaGalleryScreen extends StatefulWidget {
   final String title;

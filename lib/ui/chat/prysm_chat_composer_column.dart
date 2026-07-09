@@ -35,8 +35,8 @@ class PrysmChatComposerColumn extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (topBanner != null) topBanner!,
-        if (replyPreview != null) replyPreview!,
+        ?topBanner,
+        ?replyPreview,
         if (typingTypistNames.isNotEmpty)
           TypingIndicatorBar(typistNames: typingTypistNames),
         MessageComposer(

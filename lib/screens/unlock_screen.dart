@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
-import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/passphrase_entry.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';

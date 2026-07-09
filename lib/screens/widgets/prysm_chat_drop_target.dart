@@ -50,11 +50,13 @@ class _PrysmChatDropTargetState extends State<PrysmChatDropTarget> {
         if (path.isEmpty) return;
 
         if (await FileSystemEntity.type(path) == FileSystemEntityType.directory) {
+          if (!context.mounted) return;
           showPrysmToast(context, "Folders can't be sent");
           return;
         }
 
         final name = file.name.isNotEmpty ? file.name : path.split(Platform.pathSeparator).last;
+        if (!context.mounted) return;
         await widget.onFileDropped(path, name);
       },
       child: Stack(
@@ -77,7 +79,7 @@ class _PrysmChatDropTargetState extends State<PrysmChatDropTarget> {
                       const SizedBox(height: 12),
                       Text(
                         'Drop to send',
-                        style: context.prysmStyle.titleStyle?.copyWith(
+                        style: context.prysmStyle.titleStyle.copyWith(
                               color: context.prysmStyle.tokens.accent,
                             ),
                       ),

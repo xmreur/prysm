@@ -98,7 +98,6 @@ abstract final class PrysmIcons {
   static const infoOutlined = CupertinoIcons.info_circle;
   static const insertDriveFile = CupertinoIcons.doc_text;
   static const insertDriveFileOutlined = CupertinoIcons.doc_text;
-  static const insertDriveFile_outlined = CupertinoIcons.doc_text;
   static const keyboardArrowDown = CupertinoIcons.chevron_down;
   static const keyboardArrowDownOutlined = CupertinoIcons.chevron_down;
   static const keyIcon = CupertinoIcons.lock;
@@ -106,7 +105,6 @@ abstract final class PrysmIcons {
   static const lightMode = CupertinoIcons.sun_max;
   static const link = CupertinoIcons.link;
   static const linkOutlined = CupertinoIcons.link;
-  static const link_outlined = CupertinoIcons.link;
   static const localShipping = CupertinoIcons.cube_box;
   static const localShippingOutlined = CupertinoIcons.cube_box;
   static const lock = CupertinoIcons.lock;
@@ -114,7 +112,6 @@ abstract final class PrysmIcons {
   static const mic = CupertinoIcons.mic;
   static const micOff = CupertinoIcons.mic_slash;
   static const micOutlined = CupertinoIcons.mic;
-  static const mic_outlined = CupertinoIcons.mic;
   static const minimize = CupertinoIcons.minus;
   static const minimizeOutlined = CupertinoIcons.minus;
   static const more = CupertinoIcons.ellipsis;
@@ -133,7 +130,6 @@ abstract final class PrysmIcons {
   static const pause = CupertinoIcons.pause;
   static const pauseCircle = CupertinoIcons.pause_circle;
   static const pauseRounded = CupertinoIcons.pause_fill;
-  static const pause_rounded = CupertinoIcons.pause_fill;
   static const person = CupertinoIcons.person;
   static const personAdd = CupertinoIcons.person_add;
   static const personAddAlt = CupertinoIcons.person_add;
@@ -152,7 +148,6 @@ abstract final class PrysmIcons {
   static const play = CupertinoIcons.play;
   static const playArrow = CupertinoIcons.play_fill;
   static const playArrowRounded = CupertinoIcons.play_fill;
-  static const playArrow_rounded = CupertinoIcons.play_fill;
   static const playCircle = CupertinoIcons.play_circle;
   static const playCircleFill = CupertinoIcons.play_circle_fill;
   static const preview = CupertinoIcons.eye;
@@ -161,14 +156,12 @@ abstract final class PrysmIcons {
   static const privacyTipOutlined = CupertinoIcons.hand_raised;
   static const pushPin = CupertinoIcons.pin;
   static const pushPinOutlined = CupertinoIcons.pin;
-  static const pushPin_outlined = CupertinoIcons.pin;
   static const qr = CupertinoIcons.qrcode;
   static const qrCode = CupertinoIcons.qrcode;
   static const qrScan = CupertinoIcons.qrcode_viewfinder;
   static const qrCodeScanner = CupertinoIcons.qrcode_viewfinder;
   static const refresh = CupertinoIcons.refresh;
   static const refreshOutlined = CupertinoIcons.refresh;
-  static const refresh_outlined = CupertinoIcons.refresh;
   static const removeRedEye = CupertinoIcons.eye;
   static const reply = CupertinoIcons.arrowshape_turn_up_left;
   static const restore = CupertinoIcons.arrow_counterclockwise;
@@ -208,9 +201,7 @@ abstract final class PrysmIcons {
   static const videocamOutlined = CupertinoIcons.videocam;
   static const visibility = CupertinoIcons.eye;
   static const visibilityOff = CupertinoIcons.eye_slash;
-  static const visibility_off = CupertinoIcons.eye_slash;
   static const visibilityOutlined = CupertinoIcons.eye;
-  static const visibility_outlined = CupertinoIcons.eye;
   static const volumeOff = CupertinoIcons.speaker_slash;
   static const volumeUp = CupertinoIcons.speaker_2;
   static const warning = CupertinoIcons.exclamationmark_triangle;
@@ -218,6 +209,5 @@ abstract final class PrysmIcons {
   static const waterDrop = CupertinoIcons.drop;
   static const whatshot = CupertinoIcons.flame;
   static const wifiOff = CupertinoIcons.wifi_slash;
-  static const code_outlined = codeOutlined;
-  static const delete_sweep_outlined = deleteSweepOutlined;
+
 }

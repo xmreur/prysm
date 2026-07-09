@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';

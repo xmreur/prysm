@@ -56,9 +56,11 @@ Future<bool> performBackup(BuildContext context, String password) async {
     final file = await DownloadLocation.uniqueFile(fileName);
     await BackupService.createBackup(file.path, password);
 
+    if (!context.mounted) return false;
     showPrysmToast(context, 'Backup saved to ${file.path}');
     return true;
   } catch (e) {
+    if (!context.mounted) return false;
     showPrysmToast(context, 'Backup failed: $e');
     return false;
   }

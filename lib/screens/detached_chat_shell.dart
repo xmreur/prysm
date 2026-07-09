@@ -13,7 +13,6 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
-import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:window_manager/window_manager.dart';
 
 class DetachedChatShell extends StatefulWidget {

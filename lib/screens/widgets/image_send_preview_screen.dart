@@ -1,6 +1,11 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'dart:typed_data';
-
-import 'package:flutter/material.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_switch.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 /// Preview picked image before sending, with optional view-once toggle.
 class ImageSendPreviewScreen extends StatefulWidget {
@@ -15,9 +20,8 @@ class ImageSendPreviewScreen extends StatefulWidget {
   static Future<bool?> open(BuildContext context, Uint8List bytes) {
     return Navigator.push<bool>(
       context,
-      MaterialPageRoute<bool>(
-        fullscreenDialog: true,
-        builder: (_) => ImageSendPreviewScreen(bytes: bytes),
+      PrysmPageRoute<bool>(
+        page: ImageSendPreviewScreen(bytes: bytes),
       ),
     );
   }
@@ -33,23 +37,19 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = context.prysmStyle.tokens;
 
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        title: const Text('Send photo'),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.pop(context),
-        ),
+    return PrysmPage(
+      title: 'Send photo',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        onPressed: () => Navigator.pop(context),
       ),
       body: Column(
         children: [
           Expanded(
-            child: Container(
-              width: double.infinity,
-              color: theme.colorScheme.surfaceContainerHighest,
+            child: ColoredBox(
+              color: tokens.surfaceElevated,
               child: InteractiveViewer(
                 minScale: 0.5,
                 maxScale: 4,
@@ -61,9 +61,17 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
               ),
             ),
           ),
-          Material(
-            elevation: 8,
-            color: theme.colorScheme.surface,
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: tokens.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF000000).withValues(alpha: 0.12),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
             child: SafeArea(
               top: false,
               child: Padding(
@@ -72,24 +80,17 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: Icon(
-                        Icons.visibility_outlined,
-                        color: theme.colorScheme.primary,
-                      ),
-                      title: const Text('View once'),
-                      subtitle: const Text(
-                        'Photo disappears after the recipient opens it',
-                      ),
+                    PrysmSwitchRow(
+                      title: 'View once',
+                      subtitle:
+                          'Photo disappears after the recipient opens it',
                       value: _viewOnce,
                       onChanged: (value) => setState(() => _viewOnce = value),
                     ),
                     const SizedBox(height: 8),
-                    FilledButton.icon(
+                    PrysmButton(
+                      label: _viewOnce ? 'Send view once' : 'Send photo',
                       onPressed: _send,
-                      icon: const Icon(Icons.send),
-                      label: Text(_viewOnce ? 'Send view once' : 'Send photo'),
                     ),
                   ],
                 ),

@@ -1,4 +1,4 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/outbound_read_status_refresh.dart';
 

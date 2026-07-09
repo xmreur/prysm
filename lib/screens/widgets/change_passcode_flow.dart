@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -160,7 +161,5 @@ Future<bool> runUnlockMethodChange(
 }
 
 void _showSnack(BuildContext context, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(message)),
-  );
+  showPrysmToast(context, message);
 }

@@ -1,7 +1,9 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 
@@ -16,32 +18,20 @@ class FileDownloadHelper {
   }) async {
     if (bytes.isEmpty) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('File not ready to download')),
-      );
+      showPrysmToast(context, 'File not ready to download');
       return;
     }
 
     if (ReadableFilePolicy.requiresDownloadWarning(category)) {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showPrysmConfirmDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Download risky file?'),
-          content: Text(
-            '$fileName may be harmful to your device. '
-            'Only download if you trust the sender.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Download anyway'),
-            ),
-          ],
+        title: 'Download risky file?',
+        content: Text(
+          '$fileName may be harmful to your device. '
+          'Only download if you trust the sender.',
         ),
+        confirmLabel: 'Download anyway',
+        cancelLabel: 'Cancel',
       );
       if (confirmed != true || !context.mounted) return;
     }
@@ -49,18 +39,13 @@ class FileDownloadHelper {
     try {
       final file = await DownloadLocation.saveBytes(bytes, fileName);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Saved ${file.path.split(Platform.pathSeparator).last}',
-          ),
-        ),
+      showPrysmToast(
+        context,
+        'Saved ${file.path.split(Platform.pathSeparator).last}',
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $e')),
-      );
+      showPrysmToast(context, 'Download failed: $e');
     }
   }
 }

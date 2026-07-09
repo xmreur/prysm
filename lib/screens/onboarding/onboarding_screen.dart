@@ -1,4 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/screens/widgets/backup_flow.dart';
@@ -10,6 +14,13 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_chip.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/theme/prysm_style_resolver.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final String onionAddress;
@@ -160,9 +171,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    showPrysmToast(context, message);
   }
 
   void _copyPrysmId() {
@@ -259,32 +268,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final style = context.prysmStyle;
+    final tokens = style.tokens;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.isInitialSetup
-              ? 'Set up Prysm'
-              : widget.isReplay
-                  ? 'Getting started'
-                  : 'Welcome to Prysm',
-        ),
-        automaticallyImplyLeading: widget.isReplay,
-        leading: widget.isReplay
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              )
-            : null,
-        actions: [
-          if (!widget.isReplay && !widget.isInitialSetup)
-            TextButton(
-              onPressed: _skipTour,
-              child: const Text('Skip tour'),
-            ),
-        ],
-      ),
+    return PrysmPage(
+      title: widget.isInitialSetup
+          ? 'Set up Prysm'
+          : widget.isReplay
+              ? 'Getting started'
+              : 'Welcome to Prysm',
+      leading: widget.isReplay
+          ? PrysmIconButton(
+              icon: PrysmIcons.close,
+              onPressed: () => Navigator.of(context).pop(),
+            )
+          : null,
+      actions: [
+        if (!widget.isReplay && !widget.isInitialSetup)
+          PrysmTextButton(label: 'Skip tour', onPressed: _skipTour),
+      ],
       body: Column(
         children: [
           Padding(
@@ -293,8 +295,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Text(
                   'Step ${_currentPage + 1} of $_stepCount',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.hintColor,
+                  style: style.captionStyle.copyWith(
+                    color: tokens.textMuted,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -309,8 +311,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               EdgeInsets.only(right: i < _stepCount - 1 ? 4 : 0),
                           decoration: BoxDecoration(
                             color: active
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.surfaceContainerHighest,
+                                ? tokens.accent
+                                : tokens.surfaceElevated,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -326,38 +328,38 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
               onPageChanged: (i) => setState(() => _currentPage = i),
-              children: _buildPages(theme),
+              children: _buildPages(style),
             ),
           ),
-          _bottomBar(theme),
+          _bottomBar(style),
         ],
       ),
     );
   }
 
-  List<Widget> _buildPages(ThemeData theme) {
+  List<Widget> _buildPages(PrysmResolvedStyle style) {
     if (widget.isInitialSetup) {
       return [
-        _welcomeStep(theme),
-        _unlockSetupStep(theme),
-        _torStep(theme),
-        _unlockInfoStep(theme),
-        _backupStep(theme),
-        _addContactStep(theme),
-        _onionIdStep(theme),
+        _welcomeStep(style),
+        _unlockSetupStep(style),
+        _torStep(style),
+        _unlockInfoStep(style),
+        _backupStep(style),
+        _addContactStep(style),
+        _onionIdStep(style),
       ];
     }
     return [
-      _welcomeStep(theme),
-      _torStep(theme),
-      _unlockInfoStep(theme),
-      _backupStep(theme),
-      _addContactStep(theme),
-      _onionIdStep(theme),
+      _welcomeStep(style),
+      _torStep(style),
+      _unlockInfoStep(style),
+      _backupStep(style),
+      _addContactStep(style),
+      _onionIdStep(style),
     ];
   }
 
-  Widget _bottomBar(ThemeData theme) {
+  Widget _bottomBar(PrysmResolvedStyle style) {
     final isLast = _currentPage == _stepCount - 1;
     final isFirst = _currentPage == 0;
 
@@ -368,23 +370,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Row(
           children: [
             if (!isFirst)
-              TextButton(
-                onPressed: _previousPage,
-                child: const Text('Back'),
-              )
+              PrysmTextButton(label: 'Back', onPressed: _previousPage)
             else
               const SizedBox(width: 64),
             const Spacer(),
             if (isLast)
-              FilledButton(
-                onPressed: () => _finish(),
-                child: const Text('Get started'),
-              )
+              PrysmButton(label: 'Get started', onPressed: () => _finish())
             else
-              FilledButton(
-                onPressed: _canAdvance ? _nextPage : null,
-                child: const Text('Next'),
-              ),
+              PrysmButton(label: 'Next', onPressed: _canAdvance ? _nextPage : null),
           ],
         ),
       ),
@@ -392,13 +385,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _stepScaffold({
-    required ThemeData theme,
+    required PrysmResolvedStyle style,
     required IconData icon,
     required String title,
     required String body,
     List<String>? bullets,
     Widget? extra,
   }) {
+    final tokens = style.tokens;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -407,22 +401,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              color: tokens.accent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, size: 40, color: theme.colorScheme.primary),
+            child: Icon(icon, size: 40, color: tokens.accent),
           ),
           const SizedBox(height: 24),
           Text(
             title,
-            style: theme.textTheme.headlineSmall?.copyWith(
+            style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 12),
           Text(
             body,
-            style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+            style: style.bodyStyle.copyWith(height: 1.5),
           ),
           if (bullets != null) ...[
             const SizedBox(height: 16),
@@ -432,8 +426,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('• ', style: theme.textTheme.bodyLarge),
-                    Expanded(child: Text(b, style: theme.textTheme.bodyLarge)),
+                    Text('• ', style: style.bodyStyle),
+                    Expanded(child: Text(b, style: style.bodyStyle)),
                   ],
                 ),
               ),
@@ -448,7 +442,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _welcomeStep(ThemeData theme) {
+  Widget _welcomeStep(PrysmResolvedStyle style) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -458,7 +452,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 32),
           Text(
             widget.isInitialSetup ? 'Welcome to Prysm' : 'Welcome to Prysm',
-            style: theme.textTheme.headlineMedium?.copyWith(
+            style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
             textAlign: TextAlign.center,
@@ -470,24 +464,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     'This setup is required before you can use the app.'
                 : 'Private messaging over Tor. This short tour covers the '
                     'essentials so you can start chatting confidently.',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.hintColor,
+            style: style.bodyStyle.copyWith(
+              color: style.tokens.textMuted,
               height: 1.5,
             ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
           if (!widget.isReplay && !widget.isInitialSetup)
-            OutlinedButton(
-              onPressed: _skipTour,
-              child: const Text('Skip tour'),
-            ),
+            PrysmButton(label: 'Skip tour', onPressed: _skipTour),
         ],
       ),
     );
   }
 
-  Widget _unlockSetupStep(ThemeData theme) {
+  Widget _unlockSetupStep(PrysmResolvedStyle style) {
+    final tokens = style.tokens;
     final pinConfirm = _setupPendingPin != null;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -496,50 +488,63 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           Text(
             'Choose your unlock method',
-            style: theme.textTheme.headlineSmall?.copyWith(
+            style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Pick one method. You can change it later in Settings.',
-            style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
+            style: style.bodyStyle.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: 16),
-          SegmentedButton<UnlockType>(
-            segments: const [
-              ButtonSegment(
-                value: UnlockType.pin,
-                label: Text('6-digit PIN'),
-                icon: Icon(Icons.pin_outlined),
-              ),
-              ButtonSegment(
-                value: UnlockType.passphrase,
-                label: Text('Passphrase'),
-                icon: Icon(Icons.password_outlined),
-              ),
-            ],
-            selected: {_selectedUnlockType},
-            onSelectionChanged: _unlockSetupComplete
-                ? null
-                : (selection) {
+          Row(
+            children: [
+              Expanded(
+                child: PrysmChip(
+                  label: '6-digit PIN',
+                  selected: _selectedUnlockType == UnlockType.pin,
+                  onSelected: (_) {
+                    if (_unlockSetupComplete) return;
                     setState(() {
-                      _selectedUnlockType = selection.first;
+                      _selectedUnlockType = UnlockType.pin;
                       _setupError = null;
                       _setupPin = '';
                       _setupPendingPin = null;
                     });
                   },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: PrysmChip(
+                  label: 'Passphrase',
+                  selected: _selectedUnlockType == UnlockType.passphrase,
+                  onSelected: (_) {
+                    if (_unlockSetupComplete) return;
+                    setState(() {
+                      _selectedUnlockType = UnlockType.passphrase;
+                      _setupError = null;
+                      _setupPin = '';
+                      _setupPendingPin = null;
+                    });
+                  },
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
           if (_unlockSetupComplete)
-            Card(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: tokens.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline, color: Colors.green),
+                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
                     SizedBox(width: 8),
                     Expanded(child: Text('Unlock method configured')),
                   ],
@@ -549,12 +554,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           else if (_selectedUnlockType == UnlockType.pin) ...[
             Text(
               pinConfirm ? 'Confirm your PIN' : 'Create your PIN',
-              style: theme.textTheme.titleMedium,
+              style: style.titleStyle,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             if (_setupLoading)
-              const Center(child: CircularProgressIndicator())
+              const Center(child: PrysmProgressIndicator())
             else
               Center(child: PinDots(filledCount: _setupPin.length)),
             if (_setupError != null) ...[
@@ -562,57 +567,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Text(
                 _setupError!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.error),
+                style: TextStyle(color: tokens.danger),
               ),
             ],
             const SizedBox(height: 24),
             PinKeypad(onKeyPress: _onSetupPinKey),
           ] else ...[
-            TextField(
+            PrysmTextField(
               controller: _passphraseController,
+              labelText: 'Passphrase',
               obscureText: _passphraseObscure,
               enabled: !_setupLoading,
-              decoration: InputDecoration(
-                labelText: 'Passphrase',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _passphraseObscure
-                        ? Icons.visibility
-                        : Icons.visibility_off,
-                  ),
-                  onPressed: () =>
-                      setState(() => _passphraseObscure = !_passphraseObscure),
-                ),
+              suffixIcon: PrysmIconButton(
+                icon: _passphraseObscure
+                    ? PrysmIcons.visibility
+                    : PrysmIcons.visibilityOff,
+                onPressed: () =>
+                    setState(() => _passphraseObscure = !_passphraseObscure),
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
+            PrysmTextField(
               controller: _passphraseConfirmController,
+              labelText: 'Confirm passphrase',
               obscureText: _passphraseObscure,
               enabled: !_setupLoading,
-              decoration: const InputDecoration(
-                labelText: 'Confirm passphrase',
-                border: OutlineInputBorder(),
-              ),
             ),
             if (_setupError != null) ...[
               const SizedBox(height: 12),
               Text(
                 _setupError!,
-                style: TextStyle(color: theme.colorScheme.error),
+                style: TextStyle(color: tokens.danger),
               ),
             ],
             const SizedBox(height: 16),
-            FilledButton(
+            PrysmButton(
+              label: 'Save passphrase',
               onPressed: _setupLoading ? null : _submitPassphraseSetup,
-              child: _setupLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save passphrase'),
             ),
           ],
           if (widget.torBootstrapProgress != null) ...[
@@ -620,7 +611,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Text(
               'Tor: ${widget.torBootstrapProgress}%',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
+              style: style.captionStyle,
             ),
           ],
         ],
@@ -628,12 +619,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _torStep(ThemeData theme) {
+  Widget _torStep(PrysmResolvedStyle style) {
     final connected = widget.torReady;
     final offline = widget.offlineMode && !connected;
     return _stepScaffold(
-      theme: theme,
-      icon: Icons.shield_outlined,
+      style: style,
+      icon: PrysmIcons.shieldOutlined,
       title: 'Built on Tor',
       body:
           'Prysm routes all traffic through the Tor network. Your messages '
@@ -643,7 +634,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         'The Tor status in the app bar shows your connection',
         'Tor must be connected before you can message anyone',
       ],
-      extra: Card(
+      extra: DecoratedBox(
+        decoration: BoxDecoration(
+          color: style.tokens.surface,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -654,10 +649,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: connected
-                      ? Colors.green
+                      ? const Color(0xFF4CAF50)
                       : offline
-                          ? Colors.red
-                          : Colors.orange,
+                          ? style.tokens.danger
+                          : const Color(0xFFFF9800),
                 ),
               ),
               const SizedBox(width: 12),
@@ -668,7 +663,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       : offline
                           ? 'Offline — connect later to get your Prysm ID'
                           : 'Tor is connecting…',
-                  style: theme.textTheme.titleMedium,
+                  style: style.titleStyle,
                 ),
               ),
             ],
@@ -678,11 +673,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _unlockInfoStep(ThemeData theme) {
+  Widget _unlockInfoStep(PrysmResolvedStyle style) {
     final isPin = _settings.unlockType == UnlockType.pin;
     return _stepScaffold(
-      theme: theme,
-      icon: Icons.lock_outline,
+      style: style,
+      icon: PrysmIcons.lock,
       title: isPin
           ? 'Your PIN protects your keys'
           : 'Your passphrase protects your keys',
@@ -702,10 +697,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _backupStep(ThemeData theme) {
+  Widget _backupStep(PrysmResolvedStyle style) {
     return _stepScaffold(
-      theme: theme,
-      icon: Icons.backup_outlined,
+      style: style,
+      icon: PrysmIcons.backupOutlined,
       title: 'Back up your account',
       body:
           'A backup saves your chats, contacts, and encrypted keys. Without '
@@ -720,13 +715,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_backupCreated)
-            Card(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: style.tokens.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline, color: Colors.green),
+                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
                     SizedBox(width: 8),
                     Expanded(child: Text('Backup created')),
                   ],
@@ -734,26 +732,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
           if (_backupCreated) const SizedBox(height: 12),
-          FilledButton.icon(
+          PrysmButton(
+            label: _backupCreated ? 'Create another backup' : 'Create backup now',
             onPressed: _createBackup,
-            icon: const Icon(Icons.backup_outlined),
-            label: Text(
-              _backupCreated ? 'Create another backup' : 'Create backup now',
-            ),
           ),
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),
-            TextButton(
-              onPressed: _nextPage,
-              child: const Text('Skip for now'),
-            ),
+            PrysmTextButton(label: 'Skip for now', onPressed: _nextPage),
           ],
         ],
       ),
     );
   }
 
-  Widget _addContactStep(ThemeData theme) {
+  Widget _addContactStep(PrysmResolvedStyle style) {
+    final tokens = style.tokens;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -762,19 +755,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              color: tokens.accent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(
-              Icons.person_add_alt_1_outlined,
+              PrysmIcons.personAddAlt1Outlined,
               size: 40,
-              color: theme.colorScheme.primary,
+              color: tokens.accent,
             ),
           ),
           const SizedBox(height: 24),
           Text(
             'Add your first contact',
-            style: theme.textTheme.headlineSmall?.copyWith(
+            style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -785,17 +778,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     'add friends later from the main app.'
                 : 'Ask a friend for their Prysm ID (a Base58 code or QR). '
                     'They must be online on Tor for the first connection.',
-            style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+            style: style.bodyStyle.copyWith(height: 1.5),
           ),
           const SizedBox(height: 24),
           if (_contactAdded)
-            Card(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: tokens.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline, color: Colors.green),
+                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
                     SizedBox(width: 8),
                     Expanded(child: Text('Contact added successfully')),
                   ],
@@ -807,25 +803,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: TextField(
+                child: PrysmTextField(
                   controller: _contactIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Prysm ID (Base58)',
-                    hintText: 'eg. 51EsbujFRDJLHJ',
-                    border: OutlineInputBorder(),
-                  ),
+                  labelText: 'Prysm ID (Base58)',
+                  hintText: 'eg. 51EsbujFRDJLHJ',
                 ),
               ),
               if (QrPlatform.isScanSupported)
-                IconButton(
-                  icon: const Icon(Icons.qr_code_scanner),
+                PrysmIconButton(
+                  icon: PrysmIcons.qrCodeScanner,
                   tooltip: 'Scan QR code',
                   onPressed: () async {
                     final scanned = await Navigator.push<String>(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => const QrScannerScreen(),
-                      ),
+                      PrysmPageRoute(page: const QrScannerScreen()),
                     );
                     if (scanned != null && scanned.isNotEmpty) {
                       _contactIdController.text = scanned;
@@ -835,37 +826,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          TextField(
+          PrysmTextField(
             controller: _contactNameController,
-            decoration: const InputDecoration(
-              labelText: 'Display name',
-              border: OutlineInputBorder(),
-            ),
+            labelText: 'Display name',
           ),
           const SizedBox(height: 16),
-          FilledButton(
+          PrysmButton(
+            label: 'Add contact',
             onPressed: widget.offlineMode || _addingContact ? null : _addContact,
-            child: _addingContact
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Add contact'),
           ),
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),
-            TextButton(
-              onPressed: _nextPage,
-              child: const Text('Skip for now'),
-            ),
+            PrysmTextButton(label: 'Skip for now', onPressed: _nextPage),
           ],
         ],
       ),
     );
   }
 
-  Widget _onionIdStep(ThemeData theme) {
+  Widget _onionIdStep(PrysmResolvedStyle style) {
+    final tokens = style.tokens;
     final hasId = _prysmId.isNotEmpty;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -875,19 +855,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              color: tokens.accent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(
-              Icons.fingerprint_outlined,
+              PrysmIcons.fingerprintOutlined,
               size: 40,
-              color: theme.colorScheme.primary,
+              color: tokens.accent,
             ),
           ),
           const SizedBox(height: 24),
           Text(
             'Your Prysm ID',
-            style: theme.textTheme.headlineSmall?.copyWith(
+            style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -895,7 +875,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Text(
             'This is your unique address on Tor. Friends use it to add you. '
             'It is a Base58 encoding of your .onion hidden service address.',
-            style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+            style: style.bodyStyle.copyWith(height: 1.5),
           ),
           const SizedBox(height: 24),
           if (hasId) ...[
@@ -903,7 +883,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: PrysmIdQrCode(data: _prysmId, size: 160),
             ),
             const SizedBox(height: 16),
-            Card(
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: tokens.surface,
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Row(
@@ -911,19 +895,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Expanded(
                       child: Text(
                         _truncateId(_prysmId),
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style: style.bodyStyle.copyWith(
                           fontFamily: 'monospace',
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded),
+                    PrysmIconButton(
+                      icon: PrysmIcons.copyRounded,
                       tooltip: 'Copy ID',
                       onPressed: _copyPrysmId,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.qr_code),
+                    PrysmIconButton(
+                      icon: PrysmIcons.qrCode,
                       tooltip: 'Show full QR',
                       onPressed: () => showPrysmIdQrDialog(context, _prysmId),
                     ),
@@ -932,12 +916,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
           ] else
-            Card(
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: tokens.surface,
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   'Your Prysm ID will appear once Tor finishes connecting.',
-                  style: theme.textTheme.bodyMedium,
+                  style: style.bodyStyle,
                 ),
               ),
             ),
@@ -945,7 +933,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Text(
             'Share this ID or QR so others can message you. You can always '
             'find it in your profile or the sidebar.',
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+            style: style.captionStyle.copyWith(color: tokens.textMuted),
           ),
         ],
       ),

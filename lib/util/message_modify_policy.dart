@@ -1,4 +1,4 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 
 const Duration messageEditWindow = Duration(minutes: 5);
 

@@ -1,6 +1,9 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:prysm/screens/widgets/inline_video_preview.dart';
 import 'package:prysm/screens/widgets/media_preview_player.dart';
@@ -8,6 +11,7 @@ import 'package:prysm/services/file_preview_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/pdf_system_open.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
 
 class FilePreviewContent extends StatefulWidget {
   final FilePreviewData preview;
@@ -62,18 +66,18 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.warning_amber_rounded,
-                size: 48, color: Theme.of(context).colorScheme.error),
+            Icon(PrysmIcons.warningAmberRounded,
+                size: 48, color: context.prysmStyle.tokens.danger),
             const SizedBox(height: 16),
             Text(
               'Preview unavailable',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: context.prysmStyle.headlineStyle,
             ),
             const SizedBox(height: 8),
             Text(
               '${widget.fileName} may be harmful. Download only if you trust the sender.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).hintColor),
+              style: TextStyle(color: context.prysmStyle.tokens.textMuted),
             ),
           ],
         ),
@@ -88,17 +92,17 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.insert_drive_file, size: 48),
+            const Icon(PrysmIcons.insertDriveFile, size: 48),
             const SizedBox(height: 16),
             Text(
               'No preview available',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: context.prysmStyle.headlineStyle,
             ),
             const SizedBox(height: 8),
             Text(
               widget.fileName,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).hintColor),
+              style: TextStyle(color: context.prysmStyle.tokens.textMuted),
             ),
           ],
         ),
@@ -113,7 +117,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: SelectableText(
+      child: Text(
         text,
         style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
       ),
@@ -129,20 +133,38 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
       scrollDirection: Axis.horizontal,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(8),
-        child: DataTable(
-          columns: List.generate(
-            rows.first.length,
-            (i) => DataColumn(label: Text('Col ${i + 1}')),
+        child: Table(
+          defaultColumnWidth: const IntrinsicColumnWidth(),
+          border: TableBorder.all(
+            color: context.prysmStyle.tokens.divider,
+            width: 0.5,
           ),
-          rows: rows
-              .map(
-                (row) => DataRow(
-                  cells: row
-                      .map((cell) => DataCell(Text(cell, maxLines: 3)))
-                      .toList(),
+          children: [
+            TableRow(
+              children: List.generate(
+                rows.first.length,
+                (i) => Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(
+                    'Col ${i + 1}',
+                    style: context.prysmStyle.titleStyle.copyWith(fontSize: 12),
+                  ),
                 ),
-              )
-              .toList(),
+              ),
+            ),
+            ...rows.map(
+              (row) => TableRow(
+                children: row
+                    .map(
+                      (cell) => Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Text(cell, maxLines: 3),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -154,7 +176,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     }
     return _inAppDownloadFallback(
       context,
-      icon: Icons.picture_as_pdf,
+      icon: PrysmIcons.pictureAsPdf,
       title: 'PDF document',
       subtitle: 'In-app PDF preview is not available on this platform.',
       allowExternalOpen: true,
@@ -168,7 +190,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     if (data?.legacyFormat == true) {
       return _inAppDownloadFallback(
         context,
-        icon: Icons.slideshow,
+        icon: PrysmIcons.slideshow,
         title: 'Presentation',
         subtitle:
             'Slide preview is not supported for this format in Prysm.',
@@ -184,7 +206,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Text(
               '${slides.length} slide${slides.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.titleSmall,
+              style: context.prysmStyle.titleStyle,
             ),
           ),
           Expanded(
@@ -199,12 +221,12 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
                     children: [
                       Text(
                         'Slide ${index + 1}',
-                        style: Theme.of(context).textTheme.titleMedium,
+                        style: context.prysmStyle.titleStyle,
                       ),
                       const SizedBox(height: 12),
                       Expanded(
                         child: SingleChildScrollView(
-                          child: SelectableText(
+                          child: Text(
                             slides[index],
                             style: const TextStyle(fontSize: 14),
                           ),
@@ -227,7 +249,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
             data!.lines.first == 'Could not read presentation')) {
       return _inAppDownloadFallback(
         context,
-        icon: Icons.slideshow,
+        icon: PrysmIcons.slideshow,
         title: 'Presentation',
         subtitle: 'Could not read presentation content in Prysm.',
         allowExternalOpen: true,
@@ -235,7 +257,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: SelectableText(
+      child: Text(
         text,
         style: const TextStyle(fontSize: 14),
       ),
@@ -279,44 +301,28 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
           children: [
             Icon(icon, size: 48),
             const SizedBox(height: 16),
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            Text(title, style: context.prysmStyle.headlineStyle),
             const SizedBox(height: 8),
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).hintColor),
+              style: TextStyle(color: context.prysmStyle.tokens.textMuted),
             ),
             if (bytes != null && bytes.isNotEmpty) ...[
               const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _downloading
-                    ? null
-                    : () => _download(bytes, category),
-                icon: _downloading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.download_outlined),
-                label: Text(_downloading ? 'Downloading…' : 'Download'),
+              PrysmButton(
+                label: _downloading ? 'Downloading…' : 'Download',
+                onPressed: _downloading ? null : () => _download(bytes, category),
               ),
               if (allowExternalOpen) ...[
                 const SizedBox(height: 12),
-                TextButton.icon(
-                  onPressed: _openingExternally
-                      ? null
-                      : () => _openWithSystem(bytes),
-                  icon: _openingExternally
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.open_in_new),
-                  label: Text(
-                    _openingExternally ? 'Opening…' : 'Open with system app',
-                  ),
+                PrysmButton(
+                  label: _openingExternally
+                      ? 'Opening…'
+                      : 'Open with system app',
+                  variant: PrysmButtonVariant.secondary,
+                  onPressed:
+                      _openingExternally ? null : () => _openWithSystem(bytes),
                 ),
               ],
             ],
@@ -346,15 +352,11 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
       final message = await PdfSystemOpen.open(bytes, widget.fileName);
       if (!mounted) return;
       if (message != null && message != 'done') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        showPrysmToast(context, message);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open file: $e')),
-      );
+      showPrysmToast(context, 'Could not open file: $e');
     } finally {
       if (mounted) setState(() => _openingExternally = false);
     }
@@ -375,7 +377,8 @@ class InlineFilePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface.withValues(alpha: 0.35);
+    final surface =
+        context.prysmStyle.tokens.surface.withValues(alpha: 0.35);
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxHeight: 120),
@@ -406,7 +409,7 @@ class InlineFilePreview extends StatelessWidget {
   Widget _textSnippet(TextPreviewData? data, BuildContext context) {
     final lines = data?.lines ?? [];
     if (lines.isEmpty) {
-      return Text('…', style: TextStyle(color: Theme.of(context).hintColor));
+      return Text('…', style: TextStyle(color: context.prysmStyle.tokens.textMuted));
     }
     return Text(
       lines.join('\n'),
@@ -415,7 +418,7 @@ class InlineFilePreview extends StatelessWidget {
       style: TextStyle(
         fontFamily: 'monospace',
         fontSize: 11,
-        color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9),
+        color: context.prysmStyle.tokens.onAccent.withValues(alpha: 0.9),
       ),
     );
   }
@@ -423,7 +426,7 @@ class InlineFilePreview extends StatelessWidget {
   Widget _sheetSnippet(SpreadsheetPreviewData? data, BuildContext context) {
     final rows = data?.rows ?? [];
     if (rows.isEmpty) {
-      return Text('Spreadsheet', style: TextStyle(color: Theme.of(context).hintColor));
+      return Text('Spreadsheet', style: TextStyle(color: context.prysmStyle.tokens.textMuted));
     }
     return Table(
       defaultColumnWidth: const IntrinsicColumnWidth(),
@@ -440,9 +443,7 @@ class InlineFilePreview extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 10,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onPrimary
+                          color: context.prysmStyle.tokens.textPrimary
                               .withValues(alpha: 0.9),
                         ),
                       ),
@@ -465,7 +466,7 @@ class InlineFilePreview extends StatelessWidget {
         ),
       );
     }
-    return _iconLabel(context, Icons.picture_as_pdf, 'PDF document');
+    return _iconLabel(context, PrysmIcons.pictureAsPdf, 'PDF document');
   }
 
   Widget _presentationSnippet(
@@ -473,11 +474,11 @@ class InlineFilePreview extends StatelessWidget {
     BuildContext context,
   ) {
     if (data?.legacyFormat == true) {
-      return _iconLabel(context, Icons.slideshow, 'Presentation');
+      return _iconLabel(context, PrysmIcons.slideshow, 'Presentation');
     }
     final lines = data?.lines ?? [];
     if (lines.isEmpty) {
-      return _iconLabel(context, Icons.slideshow, 'Presentation');
+      return _iconLabel(context, PrysmIcons.slideshow, 'Presentation');
     }
     return Text(
       lines.join('\n'),
@@ -485,13 +486,13 @@ class InlineFilePreview extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 11,
-        color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9),
+        color: context.prysmStyle.tokens.onAccent.withValues(alpha: 0.9),
       ),
     );
   }
 
   Widget _audioSnippet(BuildContext context) {
-    return _iconLabel(context, Icons.audiotrack, 'Audio');
+    return _iconLabel(context, PrysmIcons.audiotrack, 'Audio');
   }
 
   Widget _iconLabel(BuildContext context, IconData icon, String label) {
@@ -500,7 +501,7 @@ class InlineFilePreview extends StatelessWidget {
         Icon(
           icon,
           size: 28,
-          color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9),
+          color: context.prysmStyle.tokens.onAccent.withValues(alpha: 0.9),
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -508,7 +509,7 @@ class InlineFilePreview extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9),
+              color: context.prysmStyle.tokens.onAccent.withValues(alpha: 0.9),
             ),
           ),
         ),

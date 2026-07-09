@@ -1,4 +1,4 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 
 /// JSON transport for chat messages across detached window IPC.
 class DetachedMessageCodec {

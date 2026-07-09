@@ -1,8 +1,14 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/image_download_helper.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 /// Full-screen pinch-zoom image viewer.
 class ImageViewerScreen extends StatefulWidget {
@@ -115,62 +121,51 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.black : Colors.white;
+    final isDark = context.prysmStyle.tokens.brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
     final canSave = _image != null && !_loading;
 
-    return Scaffold(
+    return PrysmPage(
       backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: isDark ? Colors.white : Colors.black87,
-        actions: [
-          if (canSave)
-            IconButton(
-              tooltip: 'Save image',
-              onPressed: _saving ? null : _saveImage,
-              icon: _saving
-                  ? SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    )
-                  : const Icon(Icons.download_outlined),
-            ),
-        ],
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        color: isDark ? const Color(0xFFFFFFFF) : const Color(0x87000000),
+        onPressed: () => Navigator.of(context).pop(),
       ),
+      actions: [
+        if (canSave)
+          PrysmIconButton(
+            icon: PrysmIcons.downloadOutlined,
+            tooltip: 'Save image',
+            color: isDark ? const Color(0xFFFFFFFF) : const Color(0x87000000),
+            onPressed: _saving ? null : _saveImage,
+          ),
+      ],
       body: Center(child: _buildBody(context)),
     );
   }
 
   Widget _buildBody(BuildContext context) {
     if (_loading) {
-      return const CircularProgressIndicator();
+      return const PrysmProgressIndicator();
     }
     if (_error != null) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.broken_image_outlined,
+            PrysmIcons.brokenImageOutlined,
             size: 48,
-            color: Theme.of(context).colorScheme.error,
+            color: context.prysmStyle.tokens.danger,
           ),
           const SizedBox(height: 12),
           Text(
             'Could not load image',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: context.prysmStyle.bodyStyle,
           ),
           if (widget.decryptFromDb != null) ...[
             const SizedBox(height: 12),
-            TextButton(
-              onPressed: _loadDeferred,
-              child: const Text('Retry'),
-            ),
+            PrysmTextButton(label: 'Retry', onPressed: _loadDeferred),
           ],
         ],
       );

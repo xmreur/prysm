@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/passphrase_entry.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 /// Routes to [PinScreen] or [PassphraseScreen] based on [usePin].
 class UnlockScreen extends StatefulWidget {
@@ -86,18 +88,22 @@ class _UnlockScreenState extends State<UnlockScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_initialBiometricCheckDone || _biometricUnlocking) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 24),
-              Text(
-                'Unlocking…',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ],
+      final tokens = context.prysmStyle.tokens;
+      return ColoredBox(
+        color: tokens.background,
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const PrysmProgressIndicator(),
+                const SizedBox(height: 24),
+                Text(
+                  'Unlocking…',
+                  style: context.prysmStyle.titleStyle,
+                ),
+              ],
+            ),
           ),
         ),
       );

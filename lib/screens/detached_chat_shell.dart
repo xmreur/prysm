@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/models/group.dart';
@@ -11,6 +12,7 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/tor_service.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:window_manager/window_manager.dart';
 
 class DetachedChatShell extends StatefulWidget {
@@ -152,14 +154,14 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return const PrysmPage(
+        body: Center(child: PrysmProgressIndicator()),
       );
     }
 
     if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.launch.title)),
+      return PrysmPage(
+        title: widget.launch.title,
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

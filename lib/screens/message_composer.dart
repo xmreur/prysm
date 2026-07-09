@@ -1,13 +1,20 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart' hide Category;
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/services/message_draft_store.dart';
+import 'package:prysm/theme/prysm_theme.dart';
+import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 
@@ -169,15 +176,41 @@ class MessageComposerState extends State<MessageComposer> {
     _notifyTypingFromText(newText);
   }
 
+  void _showAttachmentSheet() {
+    final tokens = context.prysmTokens;
+    showPrysmSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PrysmListRow(
+            leading: Icon(PrysmIcons.image, color: tokens.textSecondary),
+            title: 'Upload Image',
+            onTap: () {
+              Navigator.pop(ctx);
+              widget.onSendImage();
+            },
+          ),
+          PrysmListRow(
+            leading: Icon(PrysmIcons.attach, color: tokens.textSecondary),
+            title: 'Upload File',
+            onTap: () {
+              Navigator.pop(ctx);
+              widget.onSendFile();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _startRecording() async {
     // Only request permission on mobile — desktop has no permission system
     if (Platform.isAndroid || Platform.isIOS) {
       final status = await Permission.microphone.request();
       if (!status.isGranted) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Microphone permission denied')),
-          );
+          showPrysmToast(context, 'Microphone permission denied');
         }
         return;
       }
@@ -256,7 +289,7 @@ class MessageComposerState extends State<MessageComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = context.prysmTokens;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -270,115 +303,79 @@ class MessageComposerState extends State<MessageComposer> {
             ),
           ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          color: theme.scaffoldBackgroundColor,
-          child: _isRecording ? _buildRecordingRow(theme) : _buildNormalRow(theme),
+          padding: const EdgeInsets.symmetric(
+            horizontal: PrysmTokens.spacing8,
+            vertical: PrysmTokens.spacing8,
+          ),
+          color: tokens.composer,
+          child: _isRecording
+              ? _buildRecordingRow(tokens)
+              : _buildNormalRow(tokens),
         ),
       ],
     );
   }
 
-  Widget _buildRecordingRow(ThemeData theme) {
+  Widget _buildRecordingRow(PrysmTokens tokens) {
     return Row(
       children: [
-        IconButton(
-          icon: Icon(Icons.delete_outline, color: Colors.red[400]),
+        PrysmIconButton(
+          icon: PrysmIcons.deleteOutline,
+          color: tokens.danger,
           onPressed: _cancelRecording,
         ),
         const SizedBox(width: 8),
-        Icon(Icons.fiber_manual_record, color: Colors.red, size: 12),
+        Icon(PrysmIcons.offlineBolt, color: tokens.danger, size: 12),
         const SizedBox(width: 8),
         Text(
           _formatDuration(_recordDuration),
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurface,
+            color: tokens.textPrimary,
           ),
         ),
         const Spacer(),
         Text(
           'Recording...',
-          style: TextStyle(
-            color: theme.colorScheme.onSurface.withAlpha(150),
-            fontSize: 14,
-          ),
+          style: TextStyle(color: tokens.textMuted, fontSize: 14),
         ),
         const SizedBox(width: 12),
-        IconButton(
-          icon: Icon(Icons.send_rounded, color: theme.colorScheme.primary),
+        PrysmIconButton(
+          icon: PrysmIcons.send,
+          color: tokens.accent,
           onPressed: _stopAndSendRecording,
         ),
       ],
     );
   }
 
-  Widget _buildNormalRow(ThemeData theme) {
+  Widget _buildNormalRow(PrysmTokens tokens) {
     return Row(
       children: [
-        PopupMenuButton<String>(
-          icon: Icon(
-            Icons.drive_folder_upload,
-            color: theme.iconTheme.color,
-          ),
-          onSelected: (value) {
-            if (value == "image") widget.onSendImage();
-            if (value == "file") widget.onSendFile();
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'image',
-              child: Row(
-                children: [
-                  Icon(Icons.image),
-                  SizedBox(width: 8),
-                  Text("Upload Image"),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'file',
-              child: Row(
-                children: [
-                  Icon(Icons.attach_file),
-                  SizedBox(width: 8),
-                  Text("Upload File"),
-                ],
-              ),
-            ),
-          ],
+        PrysmIconButton(
+          icon: PrysmIcons.addCircle,
+          color: tokens.textSecondary,
+          onPressed: _showAttachmentSheet,
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: TextField(
+          child: PrysmTextField(
             focusNode: _inputFocusNode,
             controller: _textController,
+            hintText: 'Message',
             onChanged: (text) {
               setState(() => currentText = text);
               _persistDraft();
               _notifyTypingFromText(text);
             },
             onSubmitted: isDesktopPlatform ? null : (_) => _handleSend(),
-            decoration: InputDecoration(
-              hintText: 'Type a message',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 8,
-              ),
-            ),
-            minLines: 1,
-            maxLines: 5,
           ),
         ),
         const SizedBox(width: 8),
-        IconButton(
-          icon: Icon(
-            Icons.emoji_emotions_outlined,
-            color: theme.iconTheme.color,
-          ),
+        PrysmIconButton(
+          icon: PrysmIcons.emoji,
+          color: tokens.textSecondary,
           onPressed: () {
             setState(() {
               showEmojiPicker = !showEmojiPicker;
@@ -393,32 +390,25 @@ class MessageComposerState extends State<MessageComposer> {
         ),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
-          transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+          transitionBuilder: (child, animation) =>
+              ScaleTransition(scale: animation, child: child),
           child: currentText.trim().isEmpty
-              ? GestureDetector(
+              ? PrysmIconButton(
                   key: const ValueKey('mic'),
+                  icon: PrysmIcons.micOutlined,
+                  color: tokens.accent,
+                  onPressed: () {
+                    showPrysmToast(
+                      context,
+                      'Hold to record a voice message',
+                    );
+                  },
                   onLongPressStart: (_) => _startRecording(),
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.mic_outlined,
-                      color: theme.colorScheme.primary,
-                    ),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Hold to record a voice message'),
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
                 )
-              : IconButton(
+              : PrysmIconButton(
                   key: const ValueKey('send'),
-                  icon: Icon(
-                    Icons.send_rounded,
-                    color: theme.colorScheme.primary,
-                  ),
+                  icon: PrysmIcons.send,
+                  color: tokens.accent,
                   onPressed: _handleSend,
                 ),
         ),

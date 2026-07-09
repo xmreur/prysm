@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_tabs.dart';
 
 /// Overlays a small jump-to-bottom FAB above [child] (e.g. chat list).
 class JumpToBottomFabOverlay extends StatelessWidget {
@@ -34,10 +36,9 @@ class JumpToBottomFabOverlay extends StatelessWidget {
               child: AnimatedScale(
                 scale: visible ? 1 : 0.8,
                 duration: _duration,
-                child: FloatingActionButton.small(
+                child: PrysmFab(
+                  icon: PrysmIcons.keyboardArrowDown,
                   onPressed: onPressed,
-                  tooltip: 'Jump to bottom',
-                  child: const Icon(Icons.keyboard_arrow_down),
                 ),
               ),
             ),

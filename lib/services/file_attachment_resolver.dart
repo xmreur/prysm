@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/key_manager.dart';
 

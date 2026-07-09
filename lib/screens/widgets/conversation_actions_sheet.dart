@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/conversation_preferences.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 Future<void> showConversationActionsSheet({
   required BuildContext context,
@@ -15,7 +18,7 @@ Future<void> showConversationActionsSheet({
   final isPinned = preferences?.isPinned ?? false;
   final isArchived = preferences?.isArchived ?? false;
 
-  return showModalBottomSheet<void>(
+  return showPrysmSheet<void>(
     context: context,
     builder: (ctx) => SafeArea(
       child: Column(
@@ -25,17 +28,17 @@ Future<void> showConversationActionsSheet({
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Text(
               conversation.displayName,
-              style: Theme.of(ctx).textTheme.titleMedium,
+              style: ctx.prysmStyle.titleStyle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           if (!viewingArchived && !isArchived)
-            ListTile(
+            PrysmListRow(
               leading: Icon(
-                isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                isPinned ? PrysmIcons.pushPinOutlined : PrysmIcons.pushPin,
               ),
-              title: Text(isPinned ? 'Unpin chat' : 'Pin chat'),
+              title: isPinned ? 'Unpin chat' : 'Pin chat',
               onTap: () async {
                 Navigator.pop(ctx);
                 if (isPinned) {
@@ -45,11 +48,11 @@ Future<void> showConversationActionsSheet({
                 }
               },
             ),
-          ListTile(
-            leading: const Icon(Icons.archive_outlined),
-            title: Text(
-              viewingArchived || isArchived ? 'Unarchive chat' : 'Archive chat',
-            ),
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.archive),
+            title: viewingArchived || isArchived
+                ? 'Unarchive chat'
+                : 'Archive chat',
             onTap: () async {
               Navigator.pop(ctx);
               if (viewingArchived || isArchived) {

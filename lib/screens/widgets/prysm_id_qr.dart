@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prysm/crypto/qr_payload.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
 
 /// A [CustomPainter] that paints a pre-generated [QrImage] once.
 /// No mask search or data encoding — pure rendering.
@@ -24,7 +27,7 @@ class _CachedQrPainter extends CustomPainter {
     final inner = px * count + gapTotal;
     final inset = (container - inner) / 2;
 
-    final dark = Paint()..color = Colors.black;
+    final dark = Paint()..color = const Color(0xFF000000);
 
     for (var y = 0; y < count; y++) {
       for (var x = 0; x < count; x++) {
@@ -96,7 +99,7 @@ class _PrysmIdQrCodeState extends State<PrysmIdQrCode> {
         height: widget.size,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: const Color(0xFFFFFFFF),
           borderRadius: BorderRadius.circular(12),
         ),
         child: CustomPaint(painter: _painter),
@@ -113,49 +116,39 @@ void showPrysmIdQrDialog(
   final qrData = fingerprint != null && fingerprint.isNotEmpty
       ? QrPayload(onion: encodedId, fingerprint: fingerprint).encode()
       : encodedId;
-  showDialog<void>(
+  showPrysmDialog<void>(
     context: context,
-    useRootNavigator: true,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('My QR Code'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Share this QR code with others so they can add you as a contact.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14),
+    title: 'My QR Code',
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Share this QR code with others so they can add you as a contact.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          PrysmIdQrCode(data: qrData, size: 200),
+          PrysmTextButton(
+            label: 'Copy ID',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: qrData));
+              showPrysmToast(context, 'ID copied to clipboard');
+            },
+          ),
+          const SizedBox(height: 8),
+          Text(
+            qrData,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
             ),
-            const SizedBox(height: 16),
-            PrysmIdQrCode(data: qrData, size: 200),
-            const SizedBox(height: 12),
-            SelectableText(
-              qrData,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Clipboard.setData(ClipboardData(text: qrData));
-            ScaffoldMessenger.of(dialogContext).showSnackBar(
-              const SnackBar(content: Text('ID copied to clipboard')),
-            );
-          },
-          child: const Text('Copy ID'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Close'),
-        ),
-      ],
     ),
+    cancelLabel: 'Close',
   );
 }

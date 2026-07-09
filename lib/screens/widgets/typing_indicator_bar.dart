@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 class TypingIndicatorBar extends StatelessWidget {
   final List<String> typistNames;
@@ -12,24 +13,24 @@ class TypingIndicatorBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (typistNames.isEmpty) return const SizedBox.shrink();
 
+    final style = context.prysmStyle;
+    final tokens = style.tokens;
     final label = _labelFor(typistNames);
-    final theme = Theme.of(context);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Row(
         children: [
-          _TypingDots(color: theme.colorScheme.primary),
+          _TypingDots(color: tokens.accent),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant,
+              style: style.captionStyle.copyWith(
                 fontStyle: FontStyle.italic,
+                color: tokens.textSecondary,
               ),
             ),
           ),

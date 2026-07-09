@@ -1,9 +1,11 @@
+import 'package:flutter/widgets.dart';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/models/link_preview.dart';
 import 'package:prysm/services/link_unfurl_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
 
 class LinkUnfurlPreview extends StatefulWidget {
   final String url;
@@ -61,9 +63,8 @@ class _LinkUnfurlPreviewState extends State<LinkUnfurlPreview> {
         padding: const EdgeInsets.only(top: 8),
         child: SizedBox(
           height: 4,
-          child: LinearProgressIndicator(
-            color: widget.textColor.withValues(alpha: 0.5),
-            backgroundColor: widget.textColor.withValues(alpha: 0.15),
+          child: PrysmLinearProgressIndicator(
+            value: null,
           ),
         ),
       );
@@ -75,10 +76,12 @@ class _LinkUnfurlPreviewState extends State<LinkUnfurlPreview> {
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Material(
-        color: widget.textColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: widget.textColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: PrysmPressable(
           onTap: widget.onOpen,
           borderRadius: BorderRadius.circular(8),
           child: Column(

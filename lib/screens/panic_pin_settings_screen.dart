@@ -1,9 +1,18 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_radio.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 class PanicPinSettingsScreen extends StatefulWidget {
   final KeyManager keyManager;
@@ -112,104 +121,109 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
   }
 
   Future<void> _pickAction() async {
-    final selected = await showModalBottomSheet<PanicAction>(
+    var selected = _action;
+    final picked = await showPrysmSheet<PanicAction>(
       context: context,
       builder: (ctx) => SafeArea(
-        child: RadioGroup<PanicAction>(
-          groupValue: _action,
-          onChanged: (value) => Navigator.pop(ctx, value),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: PanicAction.values.map((action) {
-              return RadioListTile<PanicAction>(
-                value: action,
-                title: Text(action.label),
-                subtitle: Text(action.description),
-              );
-            }).toList(),
-          ),
+        child: StatefulBuilder(
+          builder: (context, setModalState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final action in PanicAction.values)
+                  PrysmRadioRow<PanicAction>(
+                    value: action,
+                    groupValue: selected,
+                    title: action.label,
+                    subtitle: action.description,
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setModalState(() => selected = value);
+                      Navigator.pop(ctx, value);
+                    },
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
-    if (selected == null) return;
-    await _settings.setPanicAction(selected);
+    if (picked == null) return;
+    await _settings.setPanicAction(picked);
     if (!mounted) return;
-    setState(() => _action = selected);
+    setState(() => _action = picked);
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    showPrysmToast(context, message);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Panic mode'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onClose,
-        ),
+    final tokens = context.prysmStyle.tokens;
+    return PrysmPage(
+      title: 'Panic mode',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: widget.onClose,
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: PrysmProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Card(
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.surface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
                       'A panic PIN is a second passcode. Entering it at unlock '
                       'never reveals your real chats. Configure what happens '
                       'when it is used.',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: context.prysmStyle.bodyStyle,
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                ListTile(
+                PrysmListRow(
                   leading: Icon(
-                    _configured ? Icons.shield_outlined : Icons.shield,
-                    color: _configured
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).hintColor,
+                    _configured ? PrysmIcons.shieldOutlined : PrysmIcons.shield,
+                    color: _configured ? tokens.accent : tokens.textMuted,
                   ),
-                  title: Text(_configured ? 'Panic PIN is set' : 'Panic PIN not set'),
-                  subtitle: Text(
-                    _configured
-                        ? 'Secondary PIN is active'
-                        : 'Set a panic PIN to enable panic mode',
-                  ),
+                  title: _configured ? 'Panic PIN is set' : 'Panic PIN not set',
+                  subtitle: _configured
+                      ? 'Secondary PIN is active'
+                      : 'Set a panic PIN to enable panic mode',
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.emergency_outlined),
-                  title: const Text('When panic PIN is used'),
-                  subtitle: Text(_action.description),
-                  trailing: const Icon(Icons.chevron_right),
+                const PrysmDivider(),
+                PrysmListRow(
+                  leading: const Icon(PrysmIcons.emergencyOutlined),
+                  title: 'When panic PIN is used',
+                  subtitle: _action.description,
+                  trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: _pickAction,
                 ),
-                const Divider(),
+                const PrysmDivider(),
                 if (!_configured)
-                  ListTile(
-                    leading: const Icon(Icons.add_moderator_outlined),
-                    title: const Text('Set panic PIN'),
+                  PrysmListRow(
+                    leading: const Icon(PrysmIcons.addModeratorOutlined),
+                    title: 'Set panic PIN',
                     onTap: _setPanicPin,
                   )
                 else ...[
-                  ListTile(
-                    leading: const Icon(Icons.pin_outlined),
-                    title: const Text('Change panic PIN'),
+                  PrysmListRow(
+                    leading: const Icon(PrysmIcons.pin),
+                    title: 'Change panic PIN',
                     onTap: _changePanicPin,
                   ),
-                  ListTile(
-                    leading: Icon(Icons.delete_outline, color: Colors.red[400]),
-                    title: Text(
+                  PrysmListRow(
+                    leading: Icon(PrysmIcons.deleteOutline, color: tokens.danger),
+                    titleWidget: Text(
                       'Remove panic PIN',
-                      style: TextStyle(color: Colors.red[400]),
+                      style: TextStyle(color: tokens.danger),
                     ),
                     onTap: _removePanicPin,
                   ),

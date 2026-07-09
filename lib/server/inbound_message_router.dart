@@ -1,6 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/block_service.dart';

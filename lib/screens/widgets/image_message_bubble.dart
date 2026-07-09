@@ -1,11 +1,15 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/screens/widgets/image_viewer_screen.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 
 /// Stable image bubble with async decrypt, aspect ratio, and fullscreen tap.
 class ImageMessageBubble extends StatefulWidget {
@@ -136,8 +140,7 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
     if (image != null) {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => ImageViewerScreen(
+        PrysmPageRoute(page: ImageViewerScreen(
             bytes: image.bytes,
             mimeType: image.mimeType,
           ),
@@ -150,8 +153,7 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
         widget.decryptFromDb != null) {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => ImageViewerScreen.deferred(
+        PrysmPageRoute(page: ImageViewerScreen.deferred(
             messageId: widget.message.id,
             decryptFromDb: widget.decryptFromDb!,
           ),
@@ -177,7 +179,7 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
           children: [
             Text(
               widget.timeString,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 10, color: context.prysmStyle.tokens.textMuted),
             ),
             if (widget.isSentByMe) ...[
               const SizedBox(width: 4),
@@ -229,17 +231,14 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
       width: _maxBubbleWidth,
       height: 160,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: context.prysmStyle.tokens.surfaceElevated,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Center(
         child: SizedBox(
           width: 28,
           height: 28,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: Theme.of(context).colorScheme.primary.withAlpha(180),
-          ),
+          child: const PrysmProgressIndicator(size: 20),
         ),
       ),
     );
@@ -252,22 +251,22 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
         width: _maxBubbleWidth,
         height: 120,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          color: context.prysmStyle.tokens.surfaceElevated,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.broken_image_outlined,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              PrysmIcons.brokenImageOutlined,
+              color: context.prysmStyle.tokens.textSecondary,
             ),
             const SizedBox(height: 6),
             Text(
               'Tap to retry',
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: context.prysmStyle.tokens.textSecondary,
               ),
             ),
           ],

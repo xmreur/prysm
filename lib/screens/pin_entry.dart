@@ -1,7 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/screens/widgets/unlock_lockout_banner.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 
 class PinScreen extends StatefulWidget {
   final Future<bool> Function(String pin) onVerifyPin;
@@ -135,13 +139,14 @@ class _PinScreenState extends State<PinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.prysmStyle.tokens;
     final inputDisabled = _lockedOut && !_isSetup;
 
     return PinKeyboardListener(
       onKeyPress: inputDisabled ? (_) {} : _onKeyPress,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: SafeArea(
+      child: ColoredBox(
+        color: tokens.background,
+        child: SafeArea(
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -149,7 +154,7 @@ class _PinScreenState extends State<PinScreen> {
                 Text(
                   _title,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
+                    color: tokens.textPrimary,
                     fontWeight: FontWeight.w500,
                     fontSize: 30,
                   ),
@@ -158,21 +163,21 @@ class _PinScreenState extends State<PinScreen> {
                     !_isSetup &&
                     widget.onTryBiometric != null) ...[
                   const SizedBox(height: 16),
-                  IconButton(
-                    icon: const Icon(Icons.fingerprint, size: 48),
+                  PrysmIconButton(
+                    icon: PrysmIcons.fingerprint,
                     tooltip: 'Unlock with biometrics',
                     onPressed: widget.onTryBiometric,
                   ),
                 ],
                 const SizedBox(height: 30),
                 isLoading
-                    ? const CircularProgressIndicator()
+                    ? const PrysmProgressIndicator()
                     : PinDots(filledCount: _pin.length),
                 if (error != null) ...[
                   const SizedBox(height: 12),
                   Text(
                     error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(color: tokens.danger),
                   ),
                 ],
                 UnlockLockoutStatus(
@@ -185,10 +190,7 @@ class _PinScreenState extends State<PinScreen> {
                     'Tor: ${widget.torBootstrapProgress}%',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withAlpha(160),
+                      color: tokens.textPrimary.withValues(alpha: 0.6),
                     ),
                   ),
                 ],

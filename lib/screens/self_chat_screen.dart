@@ -1,23 +1,25 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
-import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
-import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
-import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
-import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
 import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
@@ -25,6 +27,11 @@ import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/self_chat_service.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
+import 'package:prysm/theme/prysm_theme.dart';
+import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/prysm_date_header.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_modify_policy.dart';
@@ -58,7 +65,7 @@ class SelfChatScreen extends StatefulWidget {
 
 class _SelfChatScreenState extends State<SelfChatScreen> {
   late final SelfChatService _service;
-  late final User _user;
+  
   final _messages = InMemoryChatController();
   final _scrollController = ScrollController();
 
@@ -81,7 +88,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   @override
   void initState() {
     super.initState();
-    _user = User(id: widget.userId);
+    
     _service = SelfChatService(
       userId: widget.userId,
       keyManager: widget.keyManager,
@@ -117,16 +124,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     final atBottom = isChatScrolledToBottom(_scrollController);
     if (atBottom == _stickToBottom) return;
     setState(() => _stickToBottom = atBottom);
-  }
-
-  void _jumpToBottom() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: true,
-      isMounted: () => mounted,
-    );
-    setState(() {});
   }
 
   Future<void> _loadInitialMessages() async {
@@ -184,7 +181,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     setState(() {
       _messages.insertMessage(
         TextMessage(
-          authorId: _user.id,
+          authorId: widget.userId,
           createdAt: DateTime.now(),
           id: messageId,
           text: text,
@@ -217,7 +214,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       if (type == 'file') {
         _messages.insertMessage(
           FileMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             name: fileName,
@@ -229,7 +226,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       } else if (type == 'image') {
         _messages.insertMessage(
           ImageMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             size: bytes.length,
@@ -312,9 +309,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not read dropped file: $e')),
-        );
+        showPrysmToast(context, 'Could not read dropped file: $e');
       }
     }
   }
@@ -334,7 +329,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     setState(() {
       _messages.insertMessage(
         FileMessage(
-          authorId: _user.id,
+          authorId: widget.userId,
           createdAt: DateTime.now(),
           id: messageId,
           name: 'voice_message.wav',
@@ -377,22 +372,20 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   void _showMessageMenu(BuildContext context, Message message) {
     if (isMessageDeleted(message)) return;
 
-    showModalBottomSheet<void>(
+    showPrysmSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteMessage(message);
-              },
-            ),
-          ],
-        ),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.deleteOutline),
+            title: 'Delete',
+            onTap: () {
+              Navigator.pop(ctx);
+              _deleteMessage(message);
+            },
+          ),
+        ],
       ),
     );
   }
@@ -418,18 +411,18 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     TextMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final msgDate = message.createdAt ?? DateTime.now();
     final timeString =
         '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
 
+    final tokens = context.prysmTokens;
     return IntrinsicWidth(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary.withAlpha(225),
-          borderRadius: BorderRadius.circular(12),
+          color: tokens.bubbleSent,
+          borderRadius: prysmBubbleBorderRadius(isSentByMe: true),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -437,7 +430,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           children: [
             LinkedMessageText(
               text: message.text,
-              textColor: Theme.of(context).colorScheme.onPrimary,
+              textColor: tokens.onAccent,
               fontSize: 14,
               onOpenUrl: _openUrl,
             ),
@@ -448,7 +441,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                 timeString,
                 style: TextStyle(
                   fontSize: 10,
-                  color: Theme.of(context).colorScheme.onPrimary.withAlpha(200),
+                  color: tokens.onAccent.withValues(alpha: 0.75),
                 ),
               ),
             ),
@@ -463,7 +456,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     ImageMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final msgDate = message.createdAt ?? DateTime.now();
     final timeString =
@@ -472,6 +464,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     final isViewed = message.metadata?['viewed'] == true;
 
     if (isViewOnce && isViewed) {
+      final muted = context.prysmStyle.tokens.textMuted;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -479,18 +472,18 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
             width: 200,
             height: 60,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              color: context.prysmStyle.tokens.surfaceElevated,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.timer_off, size: 20, color: Colors.grey[500]),
+                Icon(PrysmIcons.timerOff, size: 20, color: muted),
                 const SizedBox(width: 8),
                 Text(
                   'Opened',
                   style: TextStyle(
-                    color: Colors.grey[500],
+                    color: muted,
                     fontStyle: FontStyle.italic,
                     fontSize: 14,
                   ),
@@ -499,7 +492,13 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+          Text(
+            timeString,
+            style: TextStyle(
+              fontSize: 10,
+              color: context.prysmStyle.tokens.textSecondary,
+            ),
+          ),
         ],
       );
     }
@@ -516,9 +515,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                 if (!context.mounted) return;
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        _ViewOnceScreen(imageBytes: decryptedBytes),
+                  PrysmPageRoute(page: _ViewOnceScreen(imageBytes: decryptedBytes),
                   ),
                 );
                 await SelfMessagesDb.markViewOnceViewed(message.id);
@@ -540,21 +537,21 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
               width: 200,
               height: 120,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withAlpha(40),
+                color: context.prysmStyle.tokens.accent.withAlpha(40),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.remove_red_eye,
-                    color: Theme.of(context).colorScheme.primary,
+                    PrysmIcons.visibility,
+                    color: context.prysmStyle.tokens.accent,
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'View once',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: context.prysmStyle.tokens.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -563,7 +560,13 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+          Text(
+            timeString,
+            style: TextStyle(
+              fontSize: 10,
+              color: context.prysmStyle.tokens.textSecondary,
+            ),
+          ),
         ],
       );
     }
@@ -582,7 +585,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     FileMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     if (message.name.contains('voice_message') ||
         message.source.startsWith('audio:')) {
@@ -623,141 +625,87 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onCloseChat,
-        ),
-        title: Row(
-          children: [
-            ContactAvatar(
-              name: widget.userName,
-              avatarBase64: widget.avatarBase64,
-              radius: 18,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Chat with myself',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    'Notes to yourself',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).hintColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+    return PrysmPage(
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: widget.onCloseChat,
       ),
-      body: SafeArea(
-        child: PrysmChatDropTarget(
-          onFileDropped: _handleDroppedFile,
-          child: JumpToBottomFabOverlay(
-          visible: !_stickToBottom && _messages.messages.isNotEmpty,
-          onPressed: _jumpToBottom,
-          child: Chat(
-          chatController: _messages,
-          currentUserId: widget.userId,
-          theme: ChatTheme.fromThemeData(Theme.of(context)),
-          resolveUser: (_) async => _user,
-          onMessageSend: _handleSendText,
-          builders: Builders(
-            chatAnimatedListBuilder: (context, itemBuilder) {
-              return ChatAnimatedList(
+      title: 'Chat with myself',
+      subtitle: 'Notes to yourself',
+      body: PrysmChatDropTarget(
+        onFileDropped: _handleDroppedFile,
+        child: Column(
+          children: [
+            Expanded(
+              child: PrysmChatList(
+                controller: _messages,
                 scrollController: _scrollController,
-                bottomPadding: 0,
-                handleSafeArea: false,
-                initialScrollToEndMode: InitialScrollToEndMode.none,
-                itemBuilder: itemBuilder,
-                onEndReached: () async {
-                  await _loadMoreMessages();
+                onLoadMore: _loadMoreMessages,
+                onStickToBottomChanged: (atBottom) {
+                  _stickToBottom = atBottom;
                 },
-              );
-            },
-            chatMessageBuilder: (
-              context,
-              message,
-              index,
-              animation,
-              child, {
-              bool? isRemoved,
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
-              final msgDate = message.createdAt ?? DateTime.now();
-              final currentDay =
-                  DateTime(msgDate.year, msgDate.month, msgDate.day);
+                itemBuilder: (context, message, index) {
+                  final showHeader = shouldShowChatDateHeader(
+                    _messages.messages,
+                    index,
+                  );
+                  final msgDate = message.createdAt ?? DateTime.now();
+                  Widget child;
+                  if (message is TextMessage) {
+                    child = _textMessageBuilder(
+                      context,
+                      message,
+                      index,
+                      isSentByMe: true,
+                    );
+                  } else if (message is ImageMessage) {
+                    child = _imageMessageBuilder(
+                      context,
+                      message,
+                      index,
+                      isSentByMe: true,
+                    );
+                  } else if (message is FileMessage) {
+                    child = _fileMessageBuilder(
+                      context,
+                      message,
+                      index,
+                      isSentByMe: true,
+                    );
+                  } else {
+                    child = const SizedBox.shrink();
+                  }
 
-              DateTime? prevDay;
-              if (index > 0 && index - 1 < _messages.messages.length) {
-                final prevMsg = _messages.messages[index - 1];
-                final prevDate = prevMsg.createdAt ?? DateTime.now();
-                prevDay = DateTime(prevDate.year, prevDate.month, prevDate.day);
-              }
-
-              final showDateHeader = index == 0 ||
-                  prevDay == null ||
-                  !currentDay.isAtSameMomentAs(prevDay);
-
-              return Column(
-                children: [
-                  if (showDateHeader)
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '${msgDate.day}/${msgDate.month}/${msgDate.year}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ),
-                  GestureDetector(
-                    onLongPress: () => _showMessageMenu(context, message),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      child: SizeTransition(
-                        sizeFactor: animation,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Flexible(
-                              child: _displayChildForMessage(message, child),
-                            ),
-                          ],
+                  return Column(
+                    children: [
+                      if (showHeader) PrysmDateHeader(date: msgDate),
+                      GestureDetector(
+                        onLongPress: () => _showMessageMenu(context, message),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Flexible(
+                                child: _displayChildForMessage(message, child),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
-              );
-            },
-            fileMessageBuilder: _fileMessageBuilder,
-            imageMessageBuilder: _imageMessageBuilder,
-            textMessageBuilder: _textMessageBuilder,
-            composerBuilder: (context) {
-              return PrysmChatComposerOverlay(
-                draftKey: 'self:${widget.userId}',
-                onSendText: _handleSendText,
-                onSendImage: _handleSendImage,
-                onSendFile: _handleSendFile,
-                onSendVoice: _handleSendVoice,
-              );
-            },
-          ),
-        ),
-        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            PrysmChatComposerColumn(
+              draftKey: 'self:${widget.userId}',
+              onSendText: _handleSendText,
+              onSendImage: _handleSendImage,
+              onSendFile: _handleSendFile,
+              onSendVoice: _handleSendVoice,
+            ),
+          ],
         ),
       ),
     );
@@ -771,11 +719,12 @@ class _ViewOnceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
+    return PrysmPage(
+      backgroundColor: const Color(0xFF000000),
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        color: const Color(0xB3FFFFFF),
+        onPressed: () => Navigator.of(context).pop(),
       ),
       body: Center(
         child: InteractiveViewer(

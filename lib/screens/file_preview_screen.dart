@@ -1,10 +1,15 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:prysm/screens/widgets/file_preview_content.dart';
 import 'package:prysm/services/file_preview_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 
 class FilePreviewScreen extends StatefulWidget {
@@ -118,22 +123,21 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.fileName,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download_outlined),
-            tooltip: 'Download',
-            onPressed: _loading ? null : _download,
-          ),
-        ],
+    return PrysmPage(
+      title: widget.fileName,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: () => Navigator.of(context).pop(),
       ),
+      actions: [
+        PrysmIconButton(
+          icon: PrysmIcons.downloadOutlined,
+          tooltip: 'Download',
+          onPressed: _loading ? null : _download,
+        ),
+      ],
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: PrysmProgressIndicator())
           : _tooLarge
               ? Center(
                   child: Padding(
@@ -141,18 +145,18 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.insert_drive_file, size: 48),
+                        const Icon(PrysmIcons.insertDriveFile, size: 48),
                         const SizedBox(height: 16),
                         Text(
                           'File too large to preview',
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: context.prysmStyle.headlineStyle,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           '${widget.fileName} exceeds the '
                           '${ReadableFilePolicy.maxPreviewBytes ~/ (1024 * 1024)} MB preview limit.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Theme.of(context).hintColor),
+                          style: TextStyle(color: context.prysmStyle.tokens.textMuted),
                         ),
                       ],
                     ),

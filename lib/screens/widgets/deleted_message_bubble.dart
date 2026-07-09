@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 class DeletedMessageBubble extends StatelessWidget {
   final bool isSentByMe;
@@ -17,9 +19,9 @@ class DeletedMessageBubble extends StatelessWidget {
     final timeString =
         '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
     final baseColor = isSentByMe
-        ? Theme.of(context).colorScheme.primary.withAlpha(120)
-        : Theme.of(context).colorScheme.secondary.withAlpha(120);
-    final textColor = Theme.of(context).colorScheme.onSurface.withAlpha(140);
+        ? context.prysmStyle.tokens.accent.withAlpha(120)
+        : context.prysmStyle.tokens.accentMuted.withAlpha(120);
+    final textColor = context.prysmStyle.tokens.textPrimary.withAlpha(140);
 
     return IntrinsicWidth(
       child: Container(
@@ -28,13 +30,13 @@ class DeletedMessageBubble extends StatelessWidget {
           color: baseColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).dividerColor.withAlpha(80),
+            color: context.prysmStyle.tokens.divider.withAlpha(80),
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.block, size: 14, color: textColor),
+            Icon(PrysmIcons.block, size: 14, color: textColor),
             const SizedBox(width: 6),
             Text(
               'Deleted',

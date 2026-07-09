@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:prysm/crypto/wire.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/database/messages.dart';

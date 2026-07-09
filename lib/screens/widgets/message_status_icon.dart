@@ -1,6 +1,44 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/util/message_status_mapper.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+
+/// Overlapping checkmarks (Telegram-style read receipt).
+class PrysmDoubleCheckIcon extends StatelessWidget {
+  const PrysmDoubleCheckIcon({
+    required this.size,
+    required this.color,
+    super.key,
+  });
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final offset = size * 0.42;
+    return SizedBox(
+      width: size + offset,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            child: Icon(PrysmIcons.done, size: size, color: color),
+          ),
+          Positioned(
+            left: offset,
+            top: 0,
+            child: Icon(PrysmIcons.done, size: size, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Tick / clock / failed status for outgoing messages.
 class MessageStatusIcon extends StatelessWidget {
@@ -19,41 +57,53 @@ class MessageStatusIcon extends StatelessWidget {
     super.key,
   });
 
+  static const _iconSize = 14.0;
+
   @override
   Widget build(BuildContext context) {
     if (!isSentByMe) return const SizedBox.shrink();
 
-    final isFailed = message.metadata?['failed'] == true;
-    if (isFailed) {
-      return GestureDetector(
-        onTap: onRetry,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red[400]),
-            const SizedBox(width: 2),
-            Text(
-              'Tap to retry',
-              style: TextStyle(fontSize: 9, color: Colors.red[400]),
-            ),
-          ],
+    final state = outboundTickState(
+      message,
+      readReceiptsEnabled: readReceiptsEnabled,
+    );
+
+    return switch (state) {
+      OutboundTickState.failed => GestureDetector(
+          onTap: onRetry,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                PrysmIcons.warningAmberRounded,
+                size: _iconSize,
+                color: context.prysmStyle.tokens.danger,
+              ),
+              const SizedBox(width: 2),
+              Text(
+                'Tap to retry',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: context.prysmStyle.tokens.danger,
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-    }
-
-    final isRead = readReceiptsEnabled && message.seenAt != null;
-    if (isRead) {
-      return Icon(Icons.done_all, size: 14, color: tickColor);
-    }
-
-    if (message.sentAt != null) {
-      return Icon(Icons.done, size: 14, color: tickColor.withAlpha(140));
-    }
-
-    if (isOutboundPending(message)) {
-      return Icon(Icons.schedule, size: 14, color: tickColor.withAlpha(120));
-    }
-
-    return const SizedBox.shrink();
+      OutboundTickState.pending => Icon(
+          PrysmIcons.schedule,
+          size: _iconSize,
+          color: tickColor,
+        ),
+      OutboundTickState.delivered => Icon(
+          PrysmIcons.done,
+          size: _iconSize,
+          color: tickColor,
+        ),
+      OutboundTickState.read => PrysmDoubleCheckIcon(
+          size: _iconSize,
+          color: tickColor,
+        ),
+    };
   }
 }

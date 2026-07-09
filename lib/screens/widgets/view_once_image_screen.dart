@@ -1,7 +1,10 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 /// Full-screen view-once image viewer with screenshot blocking on Android.
 class ViewOnceImageScreen extends StatefulWidget {
@@ -46,23 +49,13 @@ class _ViewOnceImageScreenState extends State<ViewOnceImageScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.timer, size: 16, color: Colors.white70),
-            SizedBox(width: 6),
-            Text(
-              'View Once',
-              style: TextStyle(fontSize: 16, color: Colors.white70),
-            ),
-          ],
-        ),
-        centerTitle: true,
+    return PrysmPage(
+      backgroundColor: const Color(0xFF000000),
+      title: 'View once',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        color: const Color(0xFFFFFFFF),
+        onPressed: () => Navigator.of(context).pop(),
       ),
       body: Center(
         child: InteractiveViewer(

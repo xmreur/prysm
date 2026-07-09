@@ -1,5 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:flutter/services.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 /// Full-screen numpad PIN entry (same UX as unlock / first-time setup).
 Future<String?> showPinPad({
@@ -9,9 +15,8 @@ Future<String?> showPinPad({
   Future<String?> Function(String pin)? validatePin,
 }) {
   return Navigator.of(context).push<String>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (ctx) => PinPadScreen(
+    PrysmPageRoute(
+      page: PinPadScreen(
         title: title,
         subtitle: subtitle,
         validatePin: validatePin,
@@ -29,9 +34,8 @@ Future<String?> showPinSetupPad({
   Future<String?> Function(String pin)? validatePin,
 }) {
   return Navigator.of(context).push<String>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (ctx) => PinPadScreen(
+    PrysmPageRoute(
+      page: PinPadScreen(
         title: title,
         confirmTitle: confirmTitle,
         subtitle: subtitle,
@@ -157,15 +161,11 @@ class _PinPadScreenState extends State<PinPadScreen> {
   Widget build(BuildContext context) {
     return PinKeyboardListener(
       onKeyPress: _onKeyPress,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
+      child: PrysmPage(
+        backgroundColor: context.prysmStyle.tokens.background,
+        leading: PrysmIconButton(
+          icon: PrysmIcons.close,
+          onPressed: () => Navigator.pop(context),
         ),
         body: SafeArea(
           child: Center(
@@ -176,7 +176,7 @@ class _PinPadScreenState extends State<PinPadScreen> {
                 _currentTitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: context.prysmStyle.tokens.textPrimary,
                   fontWeight: FontWeight.w500,
                   fontSize: 30,
                 ),
@@ -190,17 +190,14 @@ class _PinPadScreenState extends State<PinPadScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 15,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withAlpha(180),
+                      color: context.prysmStyle.tokens.textSecondary,
                     ),
                   ),
                 ),
               ],
               const SizedBox(height: 30),
               _isLoading
-                  ? const CircularProgressIndicator()
+                  ? const PrysmProgressIndicator()
                   : PinDots(filledCount: _pin.length),
               if (_error != null) ...[
                 const SizedBox(height: 12),
@@ -210,7 +207,7 @@ class _PinPadScreenState extends State<PinPadScreen> {
                     _error!,
                     textAlign: TextAlign.center,
                     style:
-                        TextStyle(color: Theme.of(context).colorScheme.error),
+                        TextStyle(color: context.prysmStyle.tokens.danger),
                   ),
                 ),
               ],
@@ -338,8 +335,8 @@ class PinDots extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: filled
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.onSurface.withAlpha(40),
+                ? context.prysmStyle.tokens.accent
+                : context.prysmStyle.tokens.textPrimary.withAlpha(40),
           ),
         );
       }),
@@ -379,9 +376,9 @@ class PinKeypad extends StatelessWidget {
                     width: 80,
                     height: 80,
                     child: Icon(
-                      Icons.backspace_outlined,
+                      PrysmIcons.backspaceOutlined,
                       size: 28,
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: context.prysmStyle.tokens.textPrimary,
                     ),
                   ),
                 );
@@ -415,14 +412,14 @@ class _KeyButton extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.onSurface.withAlpha(15),
+          color: context.prysmStyle.tokens.textPrimary.withAlpha(15),
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
         child: Text(
           value,
           style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
+            color: context.prysmStyle.tokens.textPrimary,
             fontSize: 32,
             fontWeight: FontWeight.w400,
           ),

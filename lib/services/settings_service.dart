@@ -1,7 +1,9 @@
 // lib/services/settings_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/crypto/key_store.dart';
+import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/settings.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -27,6 +29,13 @@ class SettingsService {
   SharedPreferences? _prefs;
   bool _settingsExistedAtLaunch = false;
 
+  /// Bumped when theme palette or appearance prefs change (live UI refresh).
+  final ValueNotifier<int> styleRevision = ValueNotifier<int>(0);
+
+  void _notifyStyleChanged() {
+    styleRevision.value++;
+  }
+
   // Getters for easy access
   Settings get settings => _settings;
 
@@ -50,6 +59,7 @@ class SettingsService {
 
   // Theme
   int get themeMode => _settings.themeMode;
+  AppearanceSettings get appearance => _settings.appearance;
 
   // Profile
   String? get avatar => _settings.avatar;
@@ -212,6 +222,21 @@ class SettingsService {
   Future<void> setThemeMode(int value) async {
     _settings = _settings.copyWith(themeMode: value);
     await save();
+    _notifyStyleChanged();
+  }
+
+  Future<void> setAppearance(AppearanceSettings value) async {
+    _settings = _settings.copyWith(appearance: value.clamped());
+    await save();
+    _notifyStyleChanged();
+  }
+
+  Future<void> updateAppearance(
+    AppearanceSettings Function(AppearanceSettings current) update,
+  ) async {
+    _settings = _settings.copyWith(appearance: update(_settings.appearance).clamped());
+    await save();
+    _notifyStyleChanged();
   }
 
   // Profile Settings

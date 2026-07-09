@@ -1,5 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
 
 class BlockUserTile extends StatefulWidget {
   final String peerId;
@@ -21,24 +26,15 @@ class _BlockUserTileState extends State<BlockUserTile> {
   void _refresh() => setState(() {});
 
   Future<void> _confirmBlock() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Block contact'),
-        content: const Text(
-          'You will no longer receive messages, calls, or profile updates from this contact.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Block', style: TextStyle(color: Colors.red)),
-          ),
-        ],
+      title: 'Block contact',
+      content: const Text(
+        'You will no longer receive messages, calls, or profile updates from this contact.',
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Block',
+      confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
 
@@ -48,24 +44,14 @@ class _BlockUserTileState extends State<BlockUserTile> {
   }
 
   Future<void> _confirmUnblock() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Unblock contact'),
-        content: const Text(
-          'This contact will be able to message and call you again.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Unblock'),
-          ),
-        ],
+      title: 'Unblock contact',
+      content: const Text(
+        'This contact will be able to message and call you again.',
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Unblock',
     );
     if (confirmed != true || !mounted) return;
 
@@ -76,22 +62,22 @@ class _BlockUserTileState extends State<BlockUserTile> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.prysmStyle.tokens;
     final blocked = BlockService.instance.isBlocked(widget.peerId);
 
-    return ListTile(
+    return PrysmListRow(
       leading: Icon(
-        blocked ? Icons.block : Icons.block_outlined,
-        color: blocked ? Colors.red : null,
+        blocked ? PrysmIcons.block : PrysmIcons.blockOutlined,
+        color: blocked ? tokens.danger : null,
       ),
-      title: Text(
+      title: blocked ? 'Unblock contact' : 'Block contact',
+      titleWidget: Text(
         blocked ? 'Unblock contact' : 'Block contact',
-        style: TextStyle(color: blocked ? Colors.red : null),
+        style: TextStyle(color: blocked ? tokens.danger : null),
       ),
-      subtitle: Text(
-        blocked
-            ? 'Tap to allow messages and calls again'
-            : 'Stop messages, calls, and profile updates',
-      ),
+      subtitle: blocked
+          ? 'Tap to allow messages and calls again'
+          : 'Stop messages, calls, and profile updates',
       onTap: blocked ? _confirmUnblock : _confirmBlock,
     );
   }

@@ -1,13 +1,22 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
-import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -18,8 +27,10 @@ import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
-import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
-import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
+import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
+import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
@@ -98,7 +109,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late ReactionService _reactionService;
   late ReadReceiptService _readReceiptService;
   late MessageModifyService _modifyService;
-  late User _user;
   final _settings = SettingsService();
 
   var _messages = InMemoryChatController();
@@ -148,16 +158,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final atBottom = isChatScrolledToBottom(_listScrollController);
     if (atBottom == _stickToBottom) return;
     setState(() => _stickToBottom = atBottom);
-  }
-
-  void _jumpToBottom() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: true,
-      isMounted: () => mounted,
-    );
-    setState(() {});
   }
 
   String get _draftKey => 'group:${widget.group.id}';
@@ -216,7 +216,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _bootstrapForGroup() {
-    _user = User(id: widget.userId);
+    
     _groupService = GroupService(userId: widget.userId, keyManager: widget.keyManager);
     _chatService = GroupChatService(
       userId: widget.userId,
@@ -321,9 +321,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (!mounted) return;
     widget.onCloseChat?.call();
     widget.reloadConversations();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('You are no longer in this group')),
-    );
+    showPrysmToast(context, 'You are no longer in this group');
   }
 
   Future<void> _init() async {
@@ -359,9 +357,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final ok = await _chatService.initialize();
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for group key…')),
-      );
+      showPrysmToast(context, 'Waiting for group key…');
       _waitForGroupKey();
     }
 
@@ -429,10 +425,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         : _senderNames[data.authorId];
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        color: context.prysmStyle.tokens.surfaceElevated,
         border: Border(
           left: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
+            color: context.prysmStyle.tokens.accent,
             width: 3,
           ),
         ),
@@ -449,9 +445,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 authorName: authorName,
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close),
-              visualDensity: VisualDensity.compact,
+            PrysmIconButton(
+              icon: PrysmIcons.close,
               onPressed: () => setState(_clearReplyState),
             ),
           ],
@@ -475,42 +470,42 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
       actionTiles: [
         if (canEditMessage(message, widget.userId))
-          ListTile(
-            leading: const Icon(Icons.edit_outlined),
-            title: const Text('Edit'),
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.editOutlined),
+            title: 'Edit',
             onTap: () {
               Navigator.pop(context);
               _editMessage(message);
             },
           ),
         if (isSentByMe)
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Info'),
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.infoOutline),
+            title: 'Info',
             onTap: () {
               Navigator.pop(context);
               _openMessageInfo(message);
             },
           ),
-        ListTile(
-          leading: const Icon(Icons.reply),
-          title: const Text('Reply'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.reply),
+          title: 'Reply',
           onTap: () {
             Navigator.pop(context);
             _setReplyToMessage(message);
           },
         ),
-        ListTile(
-          leading: const Icon(Icons.select_all),
-          title: const Text('Select'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.selectAll),
+          title: 'Select',
           onTap: () {
             Navigator.pop(context);
             setState(() => selectedMessageIds.add(message.id));
           },
         ),
-        ListTile(
-          leading: const Icon(Icons.delete_outline),
-          title: Text(isSentByMe ? 'Delete for everyone' : 'Delete'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.deleteOutline),
+          title: isSentByMe ? 'Delete for everyone' : 'Delete',
           onTap: () async {
             Navigator.pop(context);
             await _deleteMessage(message);
@@ -556,37 +551,27 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Future<void> _editMessage(Message message) async {
     if (message is! TextMessage) return;
     final controller = TextEditingController(text: message.text);
-    final newText = await showDialog<String>(
+    String? newText;
+    await showPrysmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit message'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 4,
-          minLines: 1,
-          decoration: const InputDecoration(
-            hintText: 'Message',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
+      title: 'Edit message',
+      content: PrysmTextField(
+        controller: controller,
+        autofocus: true,
+        maxLines: 4,
+        minLines: 1,
+        hintText: 'Message',
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Save',
+      onConfirm: () => newText = controller.text.trim(),
     );
-    if (newText == null || newText.isEmpty || newText == message.text) return;
+    if (newText == null || newText!.isEmpty || newText == message.text) return;
+    final editedText = newText!;
 
     final ok = await _modifyService.editTextMessage(
       targetMessageId: message.id,
-      newText: newText,
+      newText: editedText,
     );
     if (!mounted) return;
     if (ok) {
@@ -594,15 +579,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _messages.updateMessage(
           message,
           message.copyWith(
-            text: newText,
+            text: editedText,
             metadata: {...?message.metadata, 'edited': true},
           ),
         );
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not edit message')),
-      );
+      showPrysmToast(context, 'Could not edit message');
     }
   }
 
@@ -641,7 +624,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ? _buildStatusWidget(
               message,
               isSentByMe,
-              Theme.of(context).colorScheme.onSurface.withAlpha(180),
+              context.prysmStyle.tokens.textPrimary.withAlpha(180),
             )
           : null,
     );
@@ -1097,7 +1080,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _messages.insertMessage(
         messageWithPendingStatus(
           TextMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             text: text,
@@ -1118,9 +1101,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         messageId: messageId,
       );
       if (sentId == null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not send message — group key unavailable')),
-        );
+        showPrysmToast(context, 'Could not send message — group key unavailable');
       }
       return;
     }
@@ -1130,9 +1111,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       replyToId: replyToId,
     );
     if (sentId == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not send message — group key unavailable')),
-      );
+      showPrysmToast(context, 'Could not send message — group key unavailable');
     }
     widget.reloadConversations();
   }
@@ -1145,7 +1124,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _messages.insertMessage(
           messageWithPendingStatus(
             FileMessage(
-              authorId: _user.id,
+              authorId: widget.userId,
               createdAt: DateTime.now(),
               id: messageId,
               replyToMessageId: replyToId,
@@ -1160,7 +1139,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _messages.insertMessage(
           messageWithPendingStatus(
             ImageMessage(
-              authorId: _user.id,
+              authorId: widget.userId,
               createdAt: DateTime.now(),
               id: messageId,
               replyToMessageId: replyToId,
@@ -1189,9 +1168,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         viewOnce: viewOnce,
       );
       if (sentId == null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not send file — group key unavailable')),
-        );
+        showPrysmToast(context, 'Could not send file — group key unavailable');
       }
       return;
     }
@@ -1205,9 +1182,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       replyToId: replyToId,
     );
     if (sentId == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message queued. Will send when members are reachable.')),
-      );
+      showPrysmToast(context, 'Message queued. Will send when members are reachable.');
     }
     widget.reloadConversations();
   }
@@ -1256,9 +1231,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not read dropped file: $e')),
-        );
+        showPrysmToast(context, 'Could not read dropped file: $e');
       }
     }
   }
@@ -1277,7 +1250,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _messages.insertMessage(
         messageWithPendingStatus(
           FileMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             replyToMessageId: replyToId,
@@ -1324,7 +1297,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Theme.of(context).colorScheme.primary,
+          color: context.prysmStyle.tokens.accent,
         ),
       ),
     );
@@ -1332,8 +1305,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   void _openSettings() async {
     final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => GroupSettingsScreen(
+      PrysmPageRoute(page: GroupSettingsScreen(
           group: widget.group,
           userId: widget.userId,
           contacts: widget.contacts,
@@ -1388,9 +1360,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message not found in loaded history')),
-      );
+      showPrysmToast(context, 'Message not found in loaded history');
     }
   }
 
@@ -1441,7 +1411,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     TextMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
@@ -1450,8 +1419,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
 
     final tickColor = isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-        : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
+        ? context.prysmStyle.tokens.onAccent.withAlpha(200)
+        : context.prysmStyle.tokens.textPrimary.withAlpha(200);
 
     return Column(
       crossAxisAlignment:
@@ -1462,9 +1431,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: isSentByMe
-                  ? Theme.of(context).colorScheme.primary.withAlpha(225)
-                  : Theme.of(context).colorScheme.secondary.withAlpha(225),
+              color: prysmBubbleBackground(context, isSentByMe: isSentByMe),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -1475,8 +1442,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 LinkedMessageText(
                   text: message.text,
                   textColor: isSentByMe
-                      ? Theme.of(context).colorScheme.onPrimary
-                      : Theme.of(context).colorScheme.onSecondary,
+                      ? context.prysmStyle.tokens.onAccent
+                      : context.prysmStyle.tokens.textPrimary,
                   fontSize: 16,
                   onOpenUrl: _openUrl,
                 ),
@@ -1521,7 +1488,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     ImageMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final isViewOnce = message.metadata?['viewOnce'] == true;
     final isViewed = message.metadata?['viewed'] == true;
@@ -1534,7 +1500,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ? _buildStatusWidget(
             message,
             isSentByMe,
-            Colors.white.withAlpha(220),
+            context.prysmStyle.tokens.onAccent.withAlpha(220),
           )
         : const SizedBox.shrink();
 
@@ -1549,7 +1515,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             width: 200,
             height: 60,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              color: context.prysmStyle.tokens.surfaceElevated,
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Center(
@@ -1581,8 +1547,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       if (!context.mounted) return;
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => _GroupViewOnceScreen(imageBytes: bytes),
+                        PrysmPageRoute(page: _GroupViewOnceScreen(imageBytes: bytes),
                         ),
                       );
                       await MessagesDb.markViewOnceViewed(
@@ -1607,10 +1572,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               width: 200,
               height: 200,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: context.prysmStyle.tokens.surfaceElevated,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withAlpha(100),
+                  color: context.prysmStyle.tokens.accent.withAlpha(100),
                   width: 2,
                 ),
               ),
@@ -1618,15 +1583,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.visibility,
+                    PrysmIcons.visibility,
                     size: 40,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.prysmStyle.tokens.accent,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     isSentByMe ? 'View Once Photo' : 'Tap to View',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: context.prysmStyle.tokens.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1638,7 +1603,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+              Text(
+                timeString,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: context.prysmStyle.tokens.textSecondary,
+                ),
+              ),
               if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
             ],
           ),
@@ -1668,7 +1639,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     FileMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
@@ -1676,8 +1646,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final timeString =
         '${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}';
     final tickColor = isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-        : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
+        ? context.prysmStyle.tokens.onAccent.withAlpha(200)
+        : context.prysmStyle.tokens.textPrimary.withAlpha(200);
 
     if (message.name.contains('voice_message') ||
         message.source.startsWith('audio:')) {
@@ -1732,282 +1702,186 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
 
+  Widget _buildGroupTitle() {
+    final style = context.prysmStyle;
+    return Row(
+      children: [
+        ContactAvatar(
+          name: widget.group.name,
+          radius: 20,
+          avatarBase64: widget.group.avatarBase64,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                widget.group.name,
+                style: style.titleStyle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$_memberCount members',
+                style: style.captionStyle.copyWith(
+                  color: style.tokens.textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 70,
-        leading: IconButton(
-          icon: const Icon(Icons.chevron_left, size: 30),
-          onPressed: () {
-            if (widget.onCloseChat != null) {
-              widget.onCloseChat!();
-            } else {
-              Navigator.of(context).maybePop();
-            }
-          },
+    return PrysmPage(
+      headerHeight: 70,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.chevronLeft,
+        onPressed: () {
+          if (widget.onCloseChat != null) {
+            widget.onCloseChat!();
+          } else {
+            Navigator.of(context).maybePop();
+          }
+        },
+      ),
+      titleWidget: _buildGroupTitle(),
+      actions: [
+        if (widget.torStatusAction != null) widget.torStatusAction!,
+        if (selectedMessageIds.isNotEmpty)
+          PrysmIconButton(
+            icon: PrysmIcons.deleteOutline,
+            onPressed: _deleteSelectedMessages,
+          ),
+        PrysmIconButton(
+          icon: PrysmIcons.settingsOutlined,
+          onPressed: _openSettings,
         ),
-        title: Row(
+      ],
+      body: PrysmChatDropTarget(
+        onFileDropped: _handleDroppedFile,
+        child: Column(
           children: [
-            ContactAvatar(
-              name: widget.group.name,
-              radius: 20,
-              avatarBase64: widget.group.avatarBase64,
-            ),
-            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.group.name,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$_memberCount members',
-                    style: TextStyle(
-                      color: Theme.of(context).hintColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+              child: PrysmChatList(
+                controller: _messages,
+                scrollController: _listScrollController,
+                onLoadMore: _loadMoreMessages,
+                showJumpToBottom: selectedMessageIds.isEmpty,
+                onStickToBottomChanged: (atBottom) {
+                  _stickToBottom = atBottom;
+                },
+                itemBuilder: _buildGroupChatListItem,
               ),
+            ),
+            PrysmChatComposerColumn(
+              draftKey: _draftKey,
+              replyPreview: _replyToMessage != null || _replyDraft != null
+                  ? _buildReplyPreview()
+                  : null,
+              typingTypistNames: _typingTypistNames(),
+              onSendText: _handleSendText,
+              onSendImage: _handleSendImage,
+              onSendFile: _handleSendFile,
+              onSendVoice: _handleSendVoice,
+              onTypingChanged: _onComposerTypingChanged,
             ),
           ],
         ),
-        actions: [
-          if (widget.torStatusAction != null) widget.torStatusAction!,
-          if (selectedMessageIds.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _deleteSelectedMessages,
-            ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: _openSettings,
-          ),
+      ),
+    );
+  }
+
+  Widget _groupMessageChildFor(
+    BuildContext context,
+    Message message,
+    int index,
+    bool isSentByMe,
+  ) {
+    if (message is TextMessage) {
+      return _groupTextMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    if (message is ImageMessage) {
+      return _groupImageMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    if (message is FileMessage) {
+      return _groupFileMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildGroupChatListItem(
+    BuildContext context,
+    Message message,
+    int index,
+  ) {
+    final isSentByMe = message.authorId == widget.userId;
+    final isSelected = selectedMessageIds.contains(message.id);
+    final child = _groupMessageChildFor(context, message, index, isSentByMe);
+
+    return PrysmMessageRow(
+      message: message,
+      index: index,
+      messages: _messages.messages,
+      localUserId: widget.userId,
+      swipeDragOffset: _swipeDragOffset,
+      swipeDragMessageId: _swipeDragMessageId,
+      onSwipeMessageIdChanged: (id) => _swipeDragMessageId = id,
+      isSelected: isSelected,
+      isHighlighted: _highlightedMessageId == message.id,
+      selectionActive: selectedMessageIds.isNotEmpty,
+      onToggleSelect: () {
+        setState(() {
+          if (isSelected) {
+            selectedMessageIds.remove(message.id);
+          } else {
+            selectedMessageIds.add(message.id);
+          }
+        });
+      },
+      onReply: () {
+        setState(() {
+          _replyToMessage = message;
+          _replyDraft = null;
+        });
+        _persistReplyDraft();
+      },
+      onLongPressMenu: (_) => _showMessageMenu(message),
+      displayChild: Column(
+        crossAxisAlignment:
+            isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isMessageDeleted(message))
+            _senderLabel(message.authorId, isSentByMe),
+          _displayChildForMessage(message, child, isSentByMe),
         ],
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
       ),
-      body: SafeArea(
-        child: PrysmChatDropTarget(
-          onFileDropped: _handleDroppedFile,
-          child: JumpToBottomFabOverlay(
-          visible: !_stickToBottom &&
-              _messages.messages.isNotEmpty &&
-              selectedMessageIds.isEmpty,
-          onPressed: _jumpToBottom,
-          child: Chat(
-          currentUserId: _user.id,
-          resolveUser: (id) async => User(id: id),
-          chatController: _messages,
-          theme: ChatTheme.fromThemeData(Theme.of(context)),
-          onMessageSend: _handleSendText,
-          builders: Builders(
-            chatAnimatedListBuilder: (context, itemBuilder) {
-              return ChatAnimatedList(
-                scrollController: _listScrollController,
-                bottomPadding: 0,
-                handleSafeArea: false,
-                initialScrollToEndMode: InitialScrollToEndMode.none,
-                itemBuilder: itemBuilder,
-                onEndReached: () async {
-                  await _loadMoreMessages();
-                },
-              );
-            },
-                  chatMessageBuilder: (
-                    BuildContext context,
-                    Message message,
-                    int index,
-                    Animation<double> animation,
-                    Widget child, {
-                    bool? isRemoved,
-                    required bool isSentByMe,
-                    MessageGroupStatus? groupStatus,
-                  }) {
-                    final msgDate = DateTime.fromMillisecondsSinceEpoch(
-                      message.createdAt!.millisecondsSinceEpoch,
-                    );
-                    final currentDay = DateTime(
-                      msgDate.year,
-                      msgDate.month,
-                      msgDate.day,
-                    );
-
-                    DateTime? prevDay;
-                    if (index > 0 && index - 1 < _messages.messages.length) {
-                      final prevMsg = _messages.messages[index - 1];
-                      final prevDate = DateTime.fromMillisecondsSinceEpoch(
-                        prevMsg.createdAt!.millisecondsSinceEpoch,
-                      );
-                      prevDay = DateTime(
-                        prevDate.year,
-                        prevDate.month,
-                        prevDate.day,
-                      );
-                    }
-
-                    final showDateHeader = index == 0 ||
-                        prevDay == null ||
-                        !currentDay.isAtSameMomentAs(prevDay);
-
-                    final isSelected = selectedMessageIds.contains(message.id);
-
-                    return Column(
-                      children: [
-                        if (showDateHeader)
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            alignment: Alignment.center,
-                            child: Text(
-                              '${msgDate.day}/${msgDate.month}/${msgDate.year}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onLongPress: () => _showMessageMenu(message),
-                          onTap: selectedMessageIds.isNotEmpty
-                              ? () {
-                                  setState(() {
-                                    if (isSelected) {
-                                      selectedMessageIds.remove(message.id);
-                                    } else {
-                                      selectedMessageIds.add(message.id);
-                                    }
-                                  });
-                                }
-                              : null,
-                          onHorizontalDragUpdate: (details) {
-                            _swipeDragMessageId = message.id;
-                            var delta = details.delta.dx;
-                            if (isSentByMe) delta = -delta;
-                            var next = _swipeDragOffset.value + delta;
-                            if (next < 0) next = 0;
-                            if (next > 100) next = 100;
-                            _swipeDragOffset.value = next;
-                          },
-                          onHorizontalDragEnd: (details) {
-                            final shouldReply =
-                                _swipeDragMessageId == message.id &&
-                                    _swipeDragOffset.value > 50;
-                            _swipeDragOffset.value = 0;
-                            _swipeDragMessageId = null;
-                            if (shouldReply) {
-                              setState(() {
-                                _replyToMessage = message;
-                                _replyDraft = null;
-                              });
-                              _persistReplyDraft();
-                            }
-                          },
-                          child: ValueListenableBuilder<double>(
-                            valueListenable: _swipeDragOffset,
-                            builder: (context, dragValue, translatedChild) {
-                              final offset = _swipeDragMessageId == message.id
-                                  ? dragValue
-                                  : 0.0;
-                              return Transform.translate(
-                                offset: Offset(
-                                  isSentByMe ? -offset : offset,
-                                  0,
-                                ),
-                                child: translatedChild,
-                              );
-                            },
-                            child: SizeTransition(
-                              sizeFactor: animation,
-                              child: Container(
-                                decoration: isSelected
-                                    ? BoxDecoration(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withAlpha(40),
-                                      )
-                                    : _highlightedMessageId == message.id
-                                        ? BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .tertiary
-                                                .withAlpha(60),
-                                          )
-                                    : null,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 4,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: isSentByMe
-                                        ? MainAxisAlignment.end
-                                        : MainAxisAlignment.start,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Flexible(
-                                        child: Column(
-                                          crossAxisAlignment: isSentByMe
-                                              ? CrossAxisAlignment.end
-                                              : CrossAxisAlignment.start,
-                                          children: [
-                                            if (isMessageDeleted(message))
-                                              _senderLabel(
-                                                message.authorId,
-                                                isSentByMe,
-                                              ),
-                                            _displayChildForMessage(
-                                              message,
-                                              child,
-                                              isSentByMe,
-                                            ),
-                                            if (!isMessageDeleted(message))
-                                              _reactionBarFor(message, isSentByMe),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                  textMessageBuilder: _groupTextMessageBuilder,
-                  imageMessageBuilder: _groupImageMessageBuilder,
-                  fileMessageBuilder: _groupFileMessageBuilder,
-            composerBuilder: (context) {
-              return PrysmChatComposerOverlay(
-                draftKey: _draftKey,
-                replyPreview: _replyToMessage != null || _replyDraft != null
-                    ? _buildReplyPreview()
-                    : null,
-                typingTypistNames: _typingTypistNames(),
-                onSendText: _handleSendText,
-                onSendImage: _handleSendImage,
-                onSendFile: _handleSendFile,
-                onSendVoice: _handleSendVoice,
-                onTypingChanged: _onComposerTypingChanged,
-              );
-            },
-          ),
-        ),
-        ),
-        ),
-      ),
+      reactionBar: isMessageDeleted(message)
+          ? const SizedBox.shrink()
+          : _reactionBarFor(message, isSentByMe),
     );
   }
 }
@@ -2019,9 +1893,13 @@ class _GroupViewOnceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black),
+    return PrysmPage(
+      backgroundColor: const Color(0xFF000000),
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        color: const Color(0xB3FFFFFF),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
       body: Center(
         child: InteractiveViewer(
           child: Image.memory(imageBytes),

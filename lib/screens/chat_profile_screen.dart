@@ -1,6 +1,9 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:convert';
 import 'package:bs58/bs58.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
@@ -12,6 +15,12 @@ import 'widgets/block_user_tile.dart';
 import 'widgets/contact_avatar.dart';
 import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 
 class ChatProfileScreen extends StatefulWidget {
   final Contact peer;
@@ -103,85 +112,57 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   }
 
   void _confirmDeleteChat() {
-    showDialog(
+    showPrysmConfirmDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Delete Chat'),
-          content: const Text(
-            'Are you sure you want to delete all messages in this chat? This cannot be undone.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                widget.onDeleteChat();
-                widget.onClose();
-              },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
+      title: 'Delete Chat',
+      content: const Text(
+        'Are you sure you want to delete all messages in this chat? This cannot be undone.',
+      ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Delete',
+      confirmVariant: PrysmButtonVariant.danger,
+    ).then((confirmed) {
+      if (confirmed != true) return;
+      widget.onDeleteChat();
+      widget.onClose();
+    });
   }
 
   void _confirmDeleteContact() {
-    showDialog(
+    showPrysmConfirmDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Delete Contact'),
-          content: const Text(
-            'Are you sure you want to delete this contact? This cannot be undone.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                widget.onDeleteContact();
-                widget.onClose();
-              },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
+      title: 'Delete Contact',
+      content: const Text(
+        'Are you sure you want to delete this contact? This cannot be undone.',
+      ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Delete',
+      confirmVariant: PrysmButtonVariant.danger,
+    ).then((confirmed) {
+      if (confirmed != true) return;
+      widget.onDeleteContact();
+      widget.onClose();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 70,
-        title: const Text(
-          'Contact Info',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onClose,
-        ),
-        actions: [
-          if (!_isBlocked)
-            IconButton(
-              icon: const Icon(Icons.save_outlined),
-              onPressed: _saveName,
-              tooltip: 'Save',
-            ),
-        ],
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
+    final tokens = context.prysmStyle.tokens;
+    return PrysmPage(
+      title: 'Contact Info',
+      headerHeight: 70,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: widget.onClose,
       ),
+      actions: [
+        if (!_isBlocked)
+          PrysmIconButton(
+            icon: PrysmIcons.saveOutlined,
+            tooltip: 'Save',
+            onPressed: _saveName,
+          ),
+      ],
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -191,11 +172,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -223,9 +204,9 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.block,
+                            PrysmIcons.block,
                             size: 16,
-                            color: Theme.of(context).hintColor,
+                            color: context.prysmStyle.tokens.textMuted,
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -233,23 +214,15 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
-                              color: Theme.of(context).hintColor,
+                              color: context.prysmStyle.tokens.textMuted,
                             ),
                           ),
                         ],
                       ),
                     ] else ...[
-                      TextField(
+                      PrysmTextField(
                         controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Display Name',
-                          border: OutlineInputBorder(),
-                        ),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        labelText: 'Display Name',
                       ),
                       const SizedBox(height: 8),
                       if (widget.isOnline == null)
@@ -258,7 +231,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: Theme.of(context).hintColor,
+                            color: context.prysmStyle.tokens.textMuted,
                           ),
                         )
                       else
@@ -271,11 +244,8 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: widget.isOnline!
-                                    ? Colors.green
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withAlpha(100),
+                                    ? const Color(0xFF4CAF50)
+                                    : tokens.textMuted.withValues(alpha: 0.4),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -285,8 +255,8 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
                                 color: widget.isOnline!
-                                    ? Colors.green
-                                    : Theme.of(context).hintColor,
+                                    ? const Color(0xFF4CAF50)
+                                    : context.prysmStyle.tokens.textMuted,
                               ),
                             ),
                           ],
@@ -300,11 +270,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               // Profile details
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -312,10 +282,10 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    ListTile(
-                      leading: const Icon(Icons.key_outlined),
-                      title: const Text('User ID'),
-                      subtitle: SelectableText(
+                    PrysmListRow(
+                      leading: const Icon(PrysmIcons.keyOutlined),
+                      title: 'User ID',
+                      subtitleWidget: Text(
                         encodeOnionToBase58(widget.peer.id),
                         style: const TextStyle(
                           fontSize: 12,
@@ -324,12 +294,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       ),
                       onTap: () {
                         Clipboard.setData(ClipboardData(text: widget.peer.id));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('ID copied to clipboard'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
+                        showPrysmToast(context, 'ID copied to clipboard');
                       },
                     ),
                   ],
@@ -338,25 +303,24 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-                child: ListTile(
-                  leading: const Icon(Icons.photo_library_outlined),
-                  title: const Text('Shared Media'),
-                  trailing: const Icon(Icons.chevron_right),
+                child: PrysmListRow(
+                  leading: const Icon(PrysmIcons.photoLibraryOutlined),
+                  title: 'Shared Media',
+                  trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: () async {
                     final messageId = await Navigator.push<String>(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatMediaGalleryScreen.direct(
+                      PrysmPageRoute(page: ChatMediaGalleryScreen.direct(
                           peer: widget.peer,
                           userId: widget.userId,
                           keyManager: widget.keyManager,
@@ -372,11 +336,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -391,11 +355,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -411,11 +375,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               ],
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -436,11 +400,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -448,16 +412,16 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    ListTile(
-                      leading: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
+                    PrysmListRow(
+                      leading: Icon(
+                        PrysmIcons.deleteOutline,
+                        color: tokens.danger,
                       ),
-                      title: const Text(
+                      titleWidget: Text(
                         'Delete Chat',
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(color: tokens.danger),
                       ),
-                      subtitle: const Text('Delete all messages in this chat'),
+                      subtitle: 'Delete all messages in this chat',
                       onTap: _confirmDeleteChat,
                     ),
                   ],
@@ -467,11 +431,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               // Action buttons
               Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
+                  color: context.prysmStyle.tokens.surface,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -479,18 +443,17 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    ListTile(
-                      leading: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
+                    PrysmListRow(
+                      leading: Icon(
+                        PrysmIcons.deleteOutline,
+                        color: tokens.danger,
                       ),
-                      title: const Text(
+                      titleWidget: Text(
                         'Delete Contact',
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(color: tokens.danger),
                       ),
-                      subtitle: const Text(
-                        'Delete this contact from your list. Cannot be undone.',
-                      ),
+                      subtitle:
+                          'Delete this contact from your list. Cannot be undone.',
                       onTap: _confirmDeleteContact,
                     ),
                   ],

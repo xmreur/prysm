@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
 
 /// Shown once when upgrading from legacy crypto to v2.
 class CryptoMigrationScreen extends StatelessWidget {
@@ -21,8 +23,10 @@ class CryptoMigrationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
+    final tokens = context.prysmStyle.tokens;
+    return ColoredBox(
+      color: tokens.background,
+      child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -30,7 +34,7 @@ class CryptoMigrationScreen extends StatelessWidget {
             children: [
               Text(
                 'Crypto upgrade required',
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: context.prysmStyle.headlineStyle,
               ),
               const SizedBox(height: 16),
               const Text(
@@ -39,9 +43,9 @@ class CryptoMigrationScreen extends StatelessWidget {
                 'All peers must upgrade. You will need to re-add contacts via QR after setup.',
               ),
               const Spacer(),
-              FilledButton(
+              PrysmButton(
+                label: 'Wipe local data and continue',
                 onPressed: () => _wipe(context),
-                child: const Text('Wipe local data and continue'),
               ),
             ],
           ),

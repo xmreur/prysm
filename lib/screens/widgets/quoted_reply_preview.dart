@@ -1,5 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/models/reply_preview_data.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/theme/prysm_style_resolver.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
 
 class QuotedReplyPreview extends StatelessWidget {
   final ReplyPreviewData data;
@@ -19,7 +23,7 @@ class QuotedReplyPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = context.prysmStyle;
     final colors = _QuoteColors.resolve(
       theme: theme,
       compact: compact,
@@ -106,30 +110,27 @@ class QuotedReplyPreview extends StatelessWidget {
       return content;
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: content,
-      ),
+    return PrysmPressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: content,
     );
   }
 
   IconData _iconForKind(ReplyPreviewKind kind) {
     switch (kind) {
       case ReplyPreviewKind.image:
-        return Icons.image_outlined;
+        return PrysmIcons.imageOutlined;
       case ReplyPreviewKind.voice:
-        return Icons.mic_outlined;
+        return PrysmIcons.micOutlined;
       case ReplyPreviewKind.file:
-        return Icons.attach_file;
+        return PrysmIcons.attachFile;
       case ReplyPreviewKind.deleted:
-        return Icons.block;
+        return PrysmIcons.block;
       case ReplyPreviewKind.unavailable:
-        return Icons.help_outline;
+        return PrysmIcons.helpOutline;
       case ReplyPreviewKind.text:
-        return Icons.chat_bubble_outline;
+        return PrysmIcons.chatBubbleOutline;
     }
   }
 }
@@ -146,22 +147,23 @@ class _QuoteColors {
   });
 
   static _QuoteColors resolve({
-    required ThemeData theme,
+    required PrysmResolvedStyle theme,
     required bool compact,
     required bool isSentByMe,
     required bool isUnavailable,
   }) {
-    final scheme = theme.colorScheme;
+    final tokens = theme.tokens;
 
     if (compact) {
       return _QuoteColors(
-        accent: scheme.primary,
-        body: scheme.onSurfaceVariant,
-        background: Colors.transparent,
+        accent: tokens.accent,
+        body: tokens.textSecondary,
+        background: const Color(0x00000000),
       );
     }
 
-    final foreground = isSentByMe ? scheme.onPrimary : scheme.onSecondary;
+    final foreground =
+        isSentByMe ? tokens.onAccent : tokens.textPrimary;
     return _QuoteColors(
       accent: foreground.withValues(alpha: 0.95),
       body: foreground.withValues(alpha: isUnavailable ? 0.65 : 0.82),

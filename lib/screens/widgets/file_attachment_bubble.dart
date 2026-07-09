@@ -1,6 +1,8 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:prysm/screens/file_preview_screen.dart';
 import 'package:prysm/screens/widgets/file_preview_content.dart';
@@ -8,6 +10,9 @@ import 'package:prysm/services/file_preview_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 
 class FileAttachmentBubble extends StatefulWidget {
   final String fileName;
@@ -125,8 +130,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   void _openFullPreview() {
     if (!SettingsService().enableFilePreview) return;
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FilePreviewScreen(
+      PrysmPageRoute(page: FilePreviewScreen(
           fileName: widget.fileName,
           fileSize: widget.fileSize,
           bytesFuture: widget.resolveBytes(),
@@ -171,8 +175,14 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   @override
   Widget build(BuildContext context) {
     final maxWidth = MediaQuery.of(context).size.width * 0.55;
-    final bubbleColor = Theme.of(context).colorScheme.primary.withAlpha(225);
-    final onPrimary = Theme.of(context).colorScheme.onPrimary;
+    final bubbleColor = prysmBubbleBackground(
+      context,
+      isSentByMe: widget.isSentByMe,
+    );
+    final onPrimary = prysmBubbleTextColor(
+      context,
+      isSentByMe: widget.isSentByMe,
+    );
 
     return Column(
       crossAxisAlignment:
@@ -195,7 +205,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded,
+                        Icon(PrysmIcons.warningAmberRounded,
                             size: 18, color: onPrimary.withValues(alpha: 0.9)),
                         const SizedBox(width: 6),
                         Expanded(
@@ -217,10 +227,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                       child: SizedBox(
                         width: 22,
                         height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: onPrimary,
-                        ),
+                        child: PrysmProgressIndicator(size: 20),
                       ),
                     ),
                   )
@@ -240,7 +247,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Row(
                       children: [
-                        Icon(Icons.insert_drive_file, color: onPrimary),
+                        Icon(PrysmIcons.insertDriveFile, color: onPrimary),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -259,22 +266,13 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                 else
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: Icon(Icons.insert_drive_file, color: onPrimary),
+                    child: Icon(PrysmIcons.insertDriveFile, color: onPrimary),
                   ),
                 Row(
                   children: [
-                    IconButton(
-                      icon: Icon(
-                        Icons.download_outlined,
-                        color: onPrimary,
-                        size: 20,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      visualDensity: VisualDensity.compact,
+                    PrysmIconButton(
+                      icon: PrysmIcons.downloadOutlined,
+                      color: onPrimary,
                       tooltip: 'Download',
                       onPressed: _loading ? null : _download,
                     ),

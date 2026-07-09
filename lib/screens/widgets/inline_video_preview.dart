@@ -1,10 +1,13 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/util/temp_file_helper.dart';
 import 'package:prysm/util/video_preview_support.dart';
 import 'package:video_player/video_player.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 
 /// Inline chat bubble video preview: thumbnail image, first video frame, or icon.
 class InlineVideoPreview extends StatefulWidget {
@@ -72,7 +75,7 @@ class _InlineVideoPreviewState extends State<InlineVideoPreview> {
 
   @override
   Widget build(BuildContext context) {
-    final onPrimary = Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9);
+    final onPrimary = context.prysmStyle.tokens.onAccent.withValues(alpha: 0.9);
 
     if (widget.thumbnailBytes != null && widget.thumbnailBytes!.isNotEmpty) {
       return _playOverlay(
@@ -91,7 +94,7 @@ class _InlineVideoPreviewState extends State<InlineVideoPreview> {
         child: SizedBox(
           width: 22,
           height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: const PrysmProgressIndicator(size: 20),
         ),
       );
     }
@@ -120,7 +123,7 @@ class _InlineVideoPreviewState extends State<InlineVideoPreview> {
 
     return Row(
       children: [
-        Icon(Icons.videocam, size: 28, color: onPrimary),
+        Icon(PrysmIcons.videocam, size: 28, color: onPrimary),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -138,9 +141,9 @@ class _InlineVideoPreviewState extends State<InlineVideoPreview> {
       children: [
         child,
         Icon(
-          Icons.play_circle_fill,
+          PrysmIcons.playCircleFill,
           size: 36,
-          color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.95),
+          color: context.prysmStyle.tokens.onAccent.withValues(alpha: 0.95),
         ),
       ],
     );

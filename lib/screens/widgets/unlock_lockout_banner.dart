@@ -1,6 +1,7 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 
 String formatLockoutDuration(Duration duration) {
@@ -80,7 +81,7 @@ class UnlockLockoutStatusState extends State<UnlockLockoutStatus> {
         child: Text(
           'Too many attempts. Try again in ${formatLockoutDuration(_remaining!)}.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
+          style: TextStyle(color: context.prysmStyle.tokens.danger),
         ),
       );
     }
@@ -94,7 +95,7 @@ class UnlockLockoutStatusState extends State<UnlockLockoutStatus> {
           '$_attemptsRemaining attempt${_attemptsRemaining == 1 ? '' : 's'} remaining',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface.withAlpha(180),
+            color: context.prysmStyle.tokens.textPrimary.withAlpha(180),
           ),
         ),
       );

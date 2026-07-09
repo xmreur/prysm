@@ -1,10 +1,14 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/screens/widgets/voice_waveform_scrubber.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -13,6 +17,11 @@ import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/util/voice_playback_coordinator.dart';
 import 'package:prysm/util/voice_player.dart';
 import 'package:prysm/util/waveform_extractor.dart';
+import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
 
 /// Shared voice message bubble with waveform scrubbing (1:1 and group chats).
 class VoiceMessageBubble extends StatefulWidget {
@@ -108,13 +117,9 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 
     if (!SettingsService().enableVoiceTranscription) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+        showPrysmToast(context, 
               'Enable Voice transcription in Settings → Data to transcribe locally',
-            ),
-          ),
-        );
+            );
       }
       return;
     }
@@ -129,13 +134,9 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     if (SettingsService().enableBatterySaving && !_batterySavingHintShown) {
       _batterySavingHintShown = true;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+        showPrysmToast(context, 
               'Transcription uses extra CPU while battery saving is on',
-            ),
-          ),
-        );
+            );
       }
     }
 
@@ -144,9 +145,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
       final wavPath = await _resolvePath();
       if (wavPath == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Voice message cache expired')),
-          );
+          showPrysmToast(context, 'Voice message cache expired');
         }
         return;
       }
@@ -158,9 +157,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 
       if (!mounted) return;
       if (transcript == null || transcript.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not transcribe voice message')),
-        );
+        showPrysmToast(context, 'Could not transcribe voice message');
         return;
       }
 
@@ -170,16 +167,12 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
       });
     } on VoiceTranscriptionException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
+        showPrysmToast(context, e.message);
       }
     } catch (err) {
       debugPrint('Voice transcription error: $err');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to transcribe voice message')),
-        );
+        showPrysmToast(context, 'Failed to transcribe voice message');
       }
     } finally {
       if (mounted) setState(() => _isTranscribing = false);
@@ -314,9 +307,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     final playPath = await _resolvePath();
     if (playPath == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Voice message cache expired')),
-        );
+        showPrysmToast(context, 'Voice message cache expired');
       }
       return;
     }
@@ -358,9 +349,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     } catch (err) {
       debugPrint('Voice playback error: $err');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to play voice message')),
-        );
+        showPrysmToast(context, 'Failed to play voice message');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -399,12 +388,14 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
   @override
   Widget build(BuildContext context) {
     final maxWidth = math.min(MediaQuery.of(context).size.width * 0.52, 220.0);
-    final bubbleColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.primary.withAlpha(225)
-        : Theme.of(context).colorScheme.secondary.withAlpha(225);
-    final contentColor = widget.isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondary;
+    final bubbleColor = prysmBubbleBackground(
+      context,
+      isSentByMe: widget.isSentByMe,
+    );
+    final contentColor = prysmBubbleTextColor(
+      context,
+      isSentByMe: widget.isSentByMe,
+    );
     final metaStyle = TextStyle(
       fontSize: 9,
       color: contentColor.withAlpha(170),
@@ -433,27 +424,17 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _isLoading
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 26,
                         height: 26,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(contentColor),
-                        ),
+                        child: PrysmProgressIndicator(size: 20),
                       )
-                    : IconButton(
-                        icon: Icon(
-                          _isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          color: contentColor,
-                          size: 22,
-                        ),
+                    : PrysmIconButton(
+                        icon: _isPlaying
+                            ? PrysmIcons.pauseRounded
+                            : PrysmIcons.playArrowRounded,
+                        color: contentColor,
                         onPressed: _togglePlayback,
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        constraints:
-                            const BoxConstraints(minWidth: 26, minHeight: 26),
                       ),
                 const SizedBox(width: 4),
                 Expanded(
@@ -508,39 +489,38 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                           alignment: widget.isSentByMe
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _isTranscribing ? null : _onTranscribeTap,
-                            icon: Icon(
-                              Icons.subtitles_outlined,
-                              size: 14,
-                              color: contentColor.withAlpha(210),
-                            ),
-                            label: Text(
-                              _cachedTranscript != null
-                                  ? (_showTranscript
-                                      ? 'Hide transcript'
-                                      : 'Show transcript')
-                                  : 'Transcribe (${SttModelManager.supportedLanguageLabel})',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: contentColor.withAlpha(210),
-                              ),
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              visualDensity: VisualDensity.compact,
+                          child: PrysmLinkButton(
+                            onPressed:
+                                _isTranscribing ? null : _onTranscribeTap,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  PrysmIcons.subtitlesOutlined,
+                                  size: 14,
+                                  color: contentColor.withValues(alpha: 0.82),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _cachedTranscript != null
+                                      ? (_showTranscript
+                                          ? 'Hide transcript'
+                                          : 'Show transcript')
+                                      : 'Transcribe (${SttModelManager.supportedLanguageLabel})',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: contentColor.withValues(alpha: 0.82),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                         if (_isTranscribing)
                           Padding(
                             padding: const EdgeInsets.only(top: 2, bottom: 2),
-                            child: LinearProgressIndicator(
+                            child: const PrysmLinearProgressIndicator(
                               minHeight: 2,
-                              color: contentColor.withAlpha(180),
-                              backgroundColor: contentColor.withAlpha(40),
                             ),
                           ),
                         if (_showTranscript && _cachedTranscript != null)

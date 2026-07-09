@@ -1,7 +1,7 @@
 // lib/screens/settings_screen.dart
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/screens/widgets/backup_flow.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
@@ -21,11 +21,28 @@ import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'blocked_contacts_screen.dart';
-import 'package:flutter/foundation.dart';
+import 'package:prysm/screens/widgets/appearance_settings_section.dart';
+import 'package:prysm/theme/prysm_theme.dart';
+import 'package:prysm/theme/prysm_themes.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_switch.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_radio.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
   final Function(int) onThemeChanged;
+  final VoidCallback? onAppearanceChanged;
   final dynamic torManager;
   final KeyManager? keyManager;
   final String? onionAddress;
@@ -36,6 +53,7 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     required this.onClose,
     required this.onThemeChanged,
+    this.onAppearanceChanged,
     this.torManager,
     this.keyManager,
     this.onionAddress,
@@ -143,7 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final current = settings.unlockType;
   UnlockType? selected = current;
 
-    final picked = await showModalBottomSheet<UnlockType>(
+    final picked = await showPrysmSheet<UnlockType>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
@@ -157,37 +175,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text(
                       'Unlock method',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: context.prysmStyle.headlineStyle,
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Switching methods requires setting a new unlock code.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: context.prysmStyle.captionStyle,
                     ),
                     const SizedBox(height: 16),
-                    RadioGroup<UnlockType>(
+                    PrysmRadioRow<UnlockType>(
+                      title: '6-digit PIN',
+                      value: UnlockType.pin,
                       groupValue: selected,
                       onChanged: (v) => setModalState(() => selected = v),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          RadioListTile<UnlockType>(
-                            title: const Text('6-digit PIN'),
-                            value: UnlockType.pin,
-                          ),
-                          RadioListTile<UnlockType>(
-                            title: const Text('Passphrase (12+ characters)'),
-                            value: UnlockType.passphrase,
-                          ),
-                        ],
-                      ),
+                    ),
+                    PrysmRadioRow<UnlockType>(
+                      title: 'Passphrase (12+ characters)',
+                      value: UnlockType.passphrase,
+                      groupValue: selected,
+                      onChanged: (v) => setModalState(() => selected = v),
                     ),
                     const SizedBox(height: 8),
-                    FilledButton(
+                    PrysmButton(
+                      label: 'Continue',
                       onPressed: selected == null || selected == current
                           ? null
                           : () => Navigator.pop(ctx, selected),
-                      child: const Text('Continue'),
                     ),
                   ],
                 ),
@@ -240,17 +253,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLinuxInputDeviceSheet() {
-    showModalBottomSheet<void>(
+    showPrysmSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.settings_input_component_outlined),
-              title: const Text('System default'),
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.settingsInputComponentOutlined),
+              title: 'System default',
               trailing: _linuxSelectedDeviceId == null
-                  ? const Icon(Icons.check)
+                  ? const Icon(PrysmIcons.check)
                   : null,
               onTap: () async {
                 await LinuxAudioSettings.setSelectedDeviceId(null);
@@ -264,14 +277,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             for (final device in _linuxInputDevices)
-              ListTile(
-                leading: const Icon(Icons.mic_outlined),
-                title: Text(device.name),
-                subtitle: device.isDefault
-                    ? const Text('Default input')
-                    : null,
+              PrysmListRow(
+                leading: const Icon(PrysmIcons.micOutlined),
+                title: device.name,
+                subtitle: device.isDefault ? 'Default input' : null,
                 trailing: _linuxSelectedDeviceId == device.id
-                    ? const Icon(Icons.check)
+                    ? const Icon(PrysmIcons.check)
                     : null,
                 onTap: () async {
                   await LinuxAudioSettings.setSelectedDeviceId(device.id);
@@ -290,7 +301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showDownloadLocationSheet() {
-    showModalBottomSheet<void>(
+    showPrysmSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Padding(
@@ -302,28 +313,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
                 child: Text(
                   _downloadLocationDisplay,
-                  style: Theme.of(ctx).textTheme.bodySmall,
+                  style: ctx.prysmStyle.captionStyle,
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.folder_open_outlined),
-                title: const Text('Choose folder'),
+              PrysmListRow(
+                leading: const Icon(PrysmIcons.folderOpenOutlined),
+                title: 'Choose folder',
                 onTap: () async {
                   Navigator.pop(ctx);
                   await _pickDownloadLocation();
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.restore_outlined),
-                title: const Text('Use system default'),
+              PrysmListRow(
+                leading: const Icon(PrysmIcons.restoreOutlined),
+                title: 'Use system default',
                 onTap: () async {
                   Navigator.pop(ctx);
                   await settings.clearCustomDownloadPath();
                   await _loadDownloadLocationDisplay();
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Download location reset to default')),
-                    );
+                    showPrysmToast(context, 'Download location reset to default');
                   }
                 },
               ),
@@ -343,9 +352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final dir = Directory(path);
     if (!await dir.exists()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selected folder does not exist')),
-        );
+        showPrysmToast(context, 'Selected folder does not exist');
       }
       return;
     }
@@ -353,9 +360,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settings.setCustomDownloadPath(path);
     await _loadDownloadLocationDisplay();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Downloads will be saved to $path')),
-      );
+      showPrysmToast(context, 'Downloads will be saved to $path');
     }
   }
 
@@ -397,26 +402,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _onVoiceTranscriptionToggle(bool value) async {
     if (value) {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showPrysmConfirmDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Enable voice transcription?'),
-          content: const Text(
-            'Prysm will download an on-device English speech model (~110 MB). '
-            'Only English voice messages can be transcribed for now. '
-            'Transcripts stay on this device and are never sent to contacts.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Enable'),
-            ),
-          ],
+        title: 'Enable voice transcription?',
+        content: const Text(
+          'Prysm will download an on-device English speech model (~110 MB). '
+          'Only English voice messages can be transcribed for now. '
+          'Transcripts stay on this device and are never sent to contacts.',
         ),
+        cancelLabel: 'Cancel',
+        confirmLabel: 'Enable',
       );
       if (confirmed != true || !mounted) return;
 
@@ -440,9 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _enableVoiceTranscription = false;
             _isDownloadingSttModel = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to download speech model: $e')),
-          );
+          showPrysmToast(context, 'Failed to download speech model: $e');
         }
         return;
       }
@@ -464,53 +457,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAboutDialog() {
-    showAboutDialog(
+    showPrysmDialog(
       context: context,
-      applicationName: settings.name,
-      applicationVersion: settings.version,
-      applicationIcon: const Icon(Icons.privacy_tip, size: 48),
-      children: [
-        Text(settings.description),
-        const SizedBox(height: 16),
-        const Text('Features:'),
-        const Text('• End-to-end encryption'),
-        const Text('• Tor network routing'),
-        const Text('• No central servers'),
-        const Text('• Open source'),
-      ],
+      title: 'About ${settings.name}',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Version ${settings.version}'),
+          const SizedBox(height: 16),
+          Text(settings.description),
+          const SizedBox(height: 16),
+          const Text('Features:'),
+          const Text('• End-to-end encryption'),
+          const Text('• Tor network routing'),
+          const Text('• No central servers'),
+          const Text('• Open source'),
+        ],
+      ),
+      confirmLabel: 'OK',
     );
   }
 
   void _showResetDialog() {
-    showDialog(
+    showPrysmConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset All Settings?'),
-        content: const Text(
-          'This will restore all settings to their default values. This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await settings.reset();
-              _loadSettings();
-              widget.onThemeChanged(0); // Reset to light theme
-              if (!context.mounted) return;
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Settings reset to defaults')),
-              );
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Reset'),
-          ),
-        ],
+      title: 'Reset All Settings?',
+      content: const Text(
+        'This will restore all settings to their default values. This action cannot be undone.',
       ),
-    );
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Reset',
+      confirmVariant: PrysmButtonVariant.danger,
+    ).then((confirmed) async {
+      if (confirmed != true || !mounted) return;
+      await settings.reset();
+      _loadSettings();
+      widget.onThemeChanged(0);
+      if (mounted) {
+        showPrysmToast(context, 'Settings reset to defaults');
+      }
+    });
   }
 
   void _showBackupDialog() => showCreateBackupDialog(context);
@@ -519,8 +506,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final onion = widget.onionAddress;
     if (onion == null) return;
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OnboardingScreen(
+      PrysmPageRoute(page: OnboardingScreen(
           onionAddress: onion,
           torReady: true,
           isReplay: true,
@@ -532,46 +518,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showRestoreDialog() {
     final passwordController = TextEditingController();
-    showDialog(
+    showPrysmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Restore Backup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This will replace all current data with the backup. The app will restart after restore.',
-              style: TextStyle(fontSize: 14, color: Colors.red),
+      title: 'Restore Backup',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'This will replace all current data with the backup. The app will restart after restore.',
+            style: TextStyle(
+              fontSize: 14,
+              color: context.prysmStyle.tokens.danger,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Backup Password',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock_outline),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () async {
-              final password = passwordController.text;
-              Navigator.pop(context);
-              await _performRestore(password);
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Restore'),
+          const SizedBox(height: 16),
+          PrysmTextField(
+            controller: passwordController,
+            labelText: 'Backup Password',
+            obscureText: true,
+            prefixIcon: const Icon(PrysmIcons.lock),
           ),
         ],
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Restore',
+      onConfirm: () async {
+        final password = passwordController.text;
+        Navigator.pop(context);
+        await _performRestore(password);
+      },
     );
   }
 
@@ -591,21 +567,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (files.isEmpty) {
           final location = await DownloadLocation.displayPath();
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No backup files found in $location')),
-          );
+          showPrysmToast(context, 'No backup files found in $location');
           return;
         }
 
         if (!mounted) return;
-        final chosen = await showDialog<File>(
+        final chosen = await showPrysmSheet<File>(
           context: context,
-          builder: (context) => SimpleDialog(
-            title: const Text('Select Backup'),
-            children: files.map((f) => SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, f),
-              child: Text(p.basename(f.path), style: const TextStyle(fontSize: 14)),
-            )).toList(),
+          builder: (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Select Backup',
+                    style: context.prysmStyle.headlineStyle,
+                  ),
+                ),
+                for (final f in files)
+                  PrysmListRow(
+                    title: p.basename(f.path),
+                    onTap: () => Navigator.pop(context, f),
+                  ),
+              ],
+            ),
           ),
         );
         if (chosen == null) return;
@@ -615,43 +601,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ok = await BackupService.restoreBackup(filePath, password);
       if (mounted) {
         if (ok) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Backup restored! Please restart the app.')),
-          );
+          showPrysmToast(context, 'Backup restored! Please restart the app.');
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Restore failed — wrong password or corrupt file')),
-          );
+          showPrysmToast(context, 'Restore failed — wrong password or corrupt file');
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Restore failed: $e')),
-        );
+        showPrysmToast(context, 'Restore failed: $e');
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 70,
-        title: const Text(
-          'Settings',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onClose,
-        ),
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
-      ),
+    return PrysmScaffold(
+      title: 'Settings',
+      leading: PrysmIconButton(icon: PrysmIcons.arrowBack, onPressed: widget.onClose),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -659,21 +628,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('Appearance'),
               const SizedBox(height: 12),
               _buildCard([
-                _buildThemeOption('Light Mode', Icons.light_mode_outlined, 0),
-                const Divider(height: 1),
-                _buildThemeOption('Dark Mode', Icons.dark_mode_outlined, 1),
-                const Divider(height: 1),
-                _buildThemeOption('Pink Mode', Icons.auto_awesome_outlined, 2),
-                const Divider(height: 1),
-                _buildThemeOption('Cyan Mode', Icons.water_drop_outlined, 3),
-                const Divider(height: 1),
+                _buildThemeOption('Light Mode', PrysmIcons.lightMode, 0),
+                const PrysmDivider(),
+                _buildThemeOption('Dark Mode', PrysmIcons.darkMode, 1),
+                const PrysmDivider(),
+                _buildThemeOption('Pink Mode', PrysmIcons.autoAwesome, 2),
+                const PrysmDivider(),
+                _buildThemeOption('Cyan Mode', PrysmIcons.waterDrop, 3),
+                const PrysmDivider(),
                 _buildThemeOption(
                   'Purple Mode',
-                  Icons.auto_fix_high_outlined,
+                  PrysmIcons.autoAwesome,
                   4,
                 ),
-                const Divider(height: 1),
-                _buildThemeOption('Orange Mode', Icons.whatshot_outlined, 5),
+                const PrysmDivider(),
+                _buildThemeOption('Orange Mode', PrysmIcons.whatshot, 5),
+              ]),
+              const SizedBox(height: 16),
+              _buildCard([
+                AppearanceSettingsSection(
+                  onChanged: () => widget.onAppearanceChanged?.call(),
+                ),
               ]),
 
               const SizedBox(height: 30),
@@ -685,56 +660,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (widget.keyManager != null) ...[
                   _buildNavigationTile(
                     'Unlock method',
-                    Icons.lock_outline,
+                    PrysmIcons.lock,
                     _showUnlockMethodPicker,
                     subtitle: settings.unlockType == UnlockType.pin
                         ? '6-digit PIN'
                         : 'Passphrase (12+ characters)',
                   ),
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   _buildNavigationTile(
                     'Change passcode',
-                    Icons.pin_outlined,
+                    PrysmIcons.pin,
                     () => runChangePasscodeFlow(context, widget.keyManager!),
                     subtitle: settings.unlockType == UnlockType.pin
                         ? 'Update your unlock PIN without changing your identity'
                         : 'Update your unlock passphrase without changing your identity',
                   ),
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   if (Platform.isAndroid && _biometricsAvailable) ...[
                     _buildSwitchTile(
                       'Unlock with biometrics',
                       'Skip PIN or passphrase using fingerprint or face',
-                      Icons.fingerprint,
+                      PrysmIcons.fingerprint,
                       _biometricsEnabled,
                       _onBiometricsToggled,
                     ),
-                    const Divider(height: 1),
+                    const PrysmDivider(),
                   ],
                 ],
                 _buildNavigationTile(
                   'Blocked contacts',
-                  Icons.block_outlined,
+                  PrysmIcons.blockOutlined,
                   () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => BlockedContactsScreen(
+                      PrysmPageRoute(page: BlockedContactsScreen(
                           onClose: () => Navigator.of(context).pop(),
                         ),
                       ),
                     );
                   },
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildNavigationTile(
                   'Advanced Privacy',
-                  Icons.privacy_tip_outlined,
+                  PrysmIcons.privacyTip,
                   () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => PrivacySettingsScreen(
+                      PrysmPageRoute(page: PrivacySettingsScreen(
                           onClose: () => Navigator.of(context).pop(),
                           keyManager: widget.keyManager,
                         ),
@@ -753,7 +726,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (widget.offlineMode) ...[
                   _buildNavigationTile(
                     widget.torConnecting ? 'Connecting to Tor…' : 'Connect Tor',
-                    Icons.link,
+                    PrysmIcons.link,
                     widget.torConnecting
                         ? null
                         : () => widget.onConnectTor?.call(),
@@ -762,19 +735,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ] else ...[
                   _buildNavigationTile(
                     'Refresh Tor Circuit',
-                    Icons.sync,
+                    PrysmIcons.sync,
                     () async {
                       if (widget.torManager == null) return;
                       final ok = await widget.torManager.refreshCircuit();
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(ok
-                                ? 'New Tor circuit requested'
-                                : 'Failed to refresh circuit'),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
+                      showPrysmToast(
+                        context,
+                        ok
+                            ? 'New Tor circuit requested'
+                            : 'Failed to refresh circuit',
+                      );
                     },
                     subtitle: 'Request a new circuit when connections are stuck',
                   ),
@@ -783,7 +754,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildSwitchTile(
                     'Enable Relay Server',
                     'COMING SOON, NOT WORKING', //'Use relay for offline message delivery',
-                    Icons.cloud_outlined,
+                    PrysmIcons.cloudOutlined,
                     _enableRelay,
                     (bool value) {
                       return true;
@@ -791,19 +762,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ]
                 // if (_enableRelay) ...[
-                //   const Divider(height: 1),
+                //   const PrysmDivider(),
                 //   _buildNavigationTile(
                 //     'Relay Address',
-                //     Icons.dns_outlined,
+                //     PrysmIcons.dnsOutlined,
                 //     _showRelayAddressDialog,
                 //     subtitle: _relayAddress ?? 'Not configured',
                 //   ),
                 // ],
-                // const Divider(height: 1),
+                // const PrysmDivider(),
                 // _buildSwitchTile(
                 //   'Aggressive Retry',
                 //   'Retry sending messages more frequently',
-                //   Icons.refresh_outlined,
+                //   PrysmIcons.refreshOutlined,
                 //   _aggressiveRetry,
                 //   _onAggressiveRetryToggle,
                 // ),
@@ -818,62 +789,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSwitchTile(
                   'Notifications',
                   'Show notifications for new messages',
-                  Icons.notifications_outlined,
+                  PrysmIcons.notificationsOutlined,
                   _notificationsEnabled,
                   _onNotificationToggle,
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildSwitchTile(
                   'Battery saving',
                   BatterySaverService.instance.statusSubtitle,
-                  Icons.battery_saver_outlined,
+                  PrysmIcons.batterySaverOutlined,
                   BatterySaverService.instance.isActive,
                   _onBatterySavingToggle,
                 ),
                 if (widget.onionAddress != null) ...[
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   _buildNavigationTile(
                     'Getting started',
-                    Icons.tour_outlined,
+                    PrysmIcons.tourOutlined,
                     _openOnboardingReplay,
                     subtitle: 'Replay the setup tour',
                   ),
                 ],
                 if (!Platform.isAndroid && !Platform.isIOS) ...[
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   _buildSwitchTile(
                     'Minimize to system tray on close',
                     'Keep Prysm running in the tray when closing the window',
-                    Icons.minimize_outlined,
+                    PrysmIcons.minimizeOutlined,
                     _minimizeToTray,
                     _onMinimizeToTrayToggle,
                   ),
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   _buildSwitchTile(
                     'Minimize to tray when minimizing window',
                     'Hide to tray when clicking the minimize button',
-                    Icons.keyboard_arrow_down_outlined,
+                    PrysmIcons.keyboardArrowDownOutlined,
                     _minimizeOnMinimizeButton,
                     _onMinimizeOnMinimizeButtonToggle,
                   ),
                 ],
                 if (!kIsWeb && Platform.isLinux) ...[
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   _buildNavigationTile(
                     'Call microphone',
-                    Icons.mic_outlined,
+                    PrysmIcons.micOutlined,
                     _showLinuxInputDeviceSheet,
                     subtitle: _linuxSelectedDeviceLabel,
                   ),
                 ],
-                // const Divider(height: 1),
+                // const PrysmDivider(),
                 // _buildNavigationTile(
                 //   'Data & Storage',
-                //   Icons.storage_outlined,
+                //   PrysmIcons.storageOutlined,
                 //   () {
                 //     Navigator.push(
                 //       context,
-                //       MaterialPageRoute(
+                //       PrysmPageRoute(page: 
                 //         builder: (context) => DataStorageScreen(
                 //           onClose: () => Navigator.of(context).pop(),
                 //         ),
@@ -881,10 +852,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 //     );
                 //   },
                 // ),
-                // const Divider(height: 1),
+                // const PrysmDivider(),
                 // _buildNavigationTile(
                 //   'Message Retention',
-                //   Icons.delete_sweep_outlined,
+                //   PrysmIcons.deleteSweepOutlined,
                 //   _showRetentionDialog,
                 //   subtitle: '$_messageRetentionDays days',
                 // ),
@@ -899,28 +870,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSwitchTile(
                   'File previews',
                   'Show inline previews for documents, images, and media in chat',
-                  Icons.preview_outlined,
+                  PrysmIcons.previewOutlined,
                   _enableFilePreview,
                   _onFilePreviewToggle,
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildSwitchTile(
                   'Link previews',
                   'Fetch titles and images for URLs in messages via Tor',
-                  Icons.link_outlined,
+                  PrysmIcons.linkOutlined,
                   _enableLinkUnfurling,
                   _onLinkUnfurlingToggle,
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildSwitchTile(
                   'Voice transcription',
                   'Transcribe English voice messages on this device. Text stays local and is never sent to contacts.',
-                  Icons.subtitles_outlined,
+                  PrysmIcons.subtitlesOutlined,
                   _enableVoiceTranscription,
                   _onVoiceTranscriptionToggle,
                 ),
                 if (_isDownloadingSttModel) ...[
-                  const Divider(height: 1),
+                  const PrysmDivider(),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                     child: Column(
@@ -928,10 +899,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Text(
                           'Downloading speech model…',
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: context.prysmStyle.captionStyle,
                         ),
                         const SizedBox(height: 6),
-                        LinearProgressIndicator(
+                        PrysmLinearProgressIndicator(
                           value: _sttModelDownloadProgress > 0
                               ? _sttModelDownloadProgress
                               : null,
@@ -940,24 +911,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildNavigationTile(
                   'Download Location',
-                  Icons.download_outlined,
+                  PrysmIcons.downloadOutlined,
                   _showDownloadLocationSheet,
                   subtitle: _downloadLocationDisplay,
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildNavigationTile(
                   'Create Backup',
-                  Icons.backup_outlined,
+                  PrysmIcons.backupOutlined,
                   _showBackupDialog,
                   subtitle: 'Export encrypted backup file',
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildNavigationTile(
                   'Restore Backup',
-                  Icons.restore_outlined,
+                  PrysmIcons.restoreOutlined,
                   _showRestoreDialog,
                   subtitle: 'Import from backup file',
                 ),
@@ -971,14 +942,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildCard([
                 _buildNavigationTile(
                   'About ${settings.name}',
-                  Icons.info_outlined,
+                  PrysmIcons.infoOutlined,
                   _showAboutDialog,
                   subtitle: 'Version ${settings.version}',
                 ),
-                const Divider(height: 1),
+                const PrysmDivider(),
                 _buildNavigationTile(
                   'Source Code',
-                  Icons.code_outlined,
+                  PrysmIcons.codeOutlined,
                   () async {
                     await launchUrl(
                       Uri.parse('https://github.com/xmreur/prysm'),
@@ -992,15 +963,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== DANGER ZONE ====================
-              _buildSectionHeader('Danger Zone', color: Colors.red),
+              _buildSectionHeader('Danger Zone', color: context.prysmStyle.tokens.danger),
               const SizedBox(height: 12),
               _buildCard([
                 _buildNavigationTile(
                   'Reset Settings',
-                  Icons.restore_outlined,
+                  PrysmIcons.restoreOutlined,
                   _showResetDialog,
                   subtitle: 'Restore default settings',
-                  textColor: Colors.red,
+                  textColor: context.prysmStyle.tokens.danger,
                 ),
               ]),
 
@@ -1015,24 +986,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ==================== WIDGET BUILDERS ====================
 
   Widget _buildSectionHeader(String title, {Color? color}) {
-    return Text(
-      title,
-      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+    final tokens = context.prysmTokens;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: color ?? tokens.textMuted,
+        ),
+      ),
     );
   }
 
   Widget _buildCard(List<Widget> children) {
+    final tokens = context.prysmTokens;
     return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: tokens.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
@@ -1040,38 +1015,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildThemeOption(String title, IconData icon, int themeIndex) {
     final bool isSelected = _selectedTheme == themeIndex;
+    final themeAccent = PrysmThemes.forIndex(themeIndex).tokens.accent;
+    final tokens = context.prysmTokens;
 
     Color getTextColor() {
-      if (isSelected) {
-        switch (themeIndex) {
-          case 0:
-            return Colors.teal;
-          case 1:
-            return Colors.white;
-          case 2:
-            return Colors.pink;
-          case 3:
-            return Colors.cyan;
-          case 4:
-            return Colors.purple;
-          case 5:
-            return Colors.orange;
-          default:
-            return Theme.of(context).primaryColor;
-        }
-      } else {
-        return Theme.of(context).brightness == Brightness.dark
-            ? Colors.white
-            : Colors.black87;
-      }
+      if (isSelected) return themeAccent;
+      return tokens.textPrimary;
     }
 
-    return ListTile(
+    return PrysmListRow(
       leading: Icon(
         icon,
-        color: isSelected ? getTextColor() : Theme.of(context).iconTheme.color,
+        color: isSelected ? getTextColor() : context.prysmStyle.tokens.textSecondary,
       ),
-      title: Text(
+      titleWidget: Text(
         title,
         style: TextStyle(
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -1084,18 +1041,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
-            color: isSelected ? getTextColor() : Theme.of(context).dividerColor,
+            color: isSelected ? getTextColor() : context.prysmStyle.tokens.divider,
             width: 2,
           ),
-          color: isSelected ? getTextColor() : Colors.transparent,
+          color: isSelected ? getTextColor() : const Color(0x00000000),
         ),
         child: isSelected
             ? Icon(
-                Icons.check,
+                PrysmIcons.check,
                 size: 16,
                 color: (themeIndex == 1 || themeIndex == 4 || themeIndex == 5)
-                    ? Colors.black87
-                    : Colors.white,
+                    ? const Color(0x87000000)
+                    : const Color(0xFFFFFFFF),
               )
             : null,
       ),
@@ -1110,14 +1067,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool value,
     Function(bool) onChanged,
   ) {
-    return ListTile(
+    return PrysmListRow(
       leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
-      ),
-      trailing: Switch(
+      title: title,
+      subtitle: subtitle,
+      trailing: PrysmSwitch(
         value: value,
         onChanged: onChanged,
       ),
@@ -1132,16 +1086,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String? subtitle,
     Color? textColor,
   }) {
-    return ListTile(
+    return PrysmListRow(
       leading: Icon(icon, color: textColor),
-      title: Text(title, style: TextStyle(color: textColor)),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
-            )
+      title: textColor == null ? title : null,
+      titleWidget: textColor != null
+          ? Text(title, style: TextStyle(color: textColor))
           : null,
-      trailing: Icon(Icons.arrow_forward_ios, size: 16, color: textColor),
+      subtitle: subtitle,
+      trailing: Icon(PrysmIcons.arrowForwardIos, size: 16, color: textColor),
       onTap: onTap,
     );
   }

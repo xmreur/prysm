@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
 
 /// Attach reactions map to any supported chat message type.
 Message applyReactionsToMessage(
@@ -72,13 +75,15 @@ class _ReactionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: highlighted
-          ? scheme.primaryContainer.withAlpha(200)
-          : scheme.surfaceContainerHighest.withAlpha(220),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
+    final tokens = context.prysmStyle.tokens;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: highlighted
+            ? Color.lerp(tokens.accent, tokens.surface, 0.65)!
+            : tokens.surfaceElevated,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: PrysmPressable(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -93,7 +98,7 @@ class _ReactionChip extends StatelessWidget {
                   '$count',
                   style: TextStyle(
                     fontSize: 11,
-                    color: scheme.onSurface.withAlpha(180),
+                    color: tokens.textSecondary,
                   ),
                 ),
               ],

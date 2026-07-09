@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/screens/widgets/notification_mute_sheet.dart';
 import 'package:prysm/services/notification_mute_service.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
 
 class NotificationMuteTile extends StatefulWidget {
   final MuteTarget target;
@@ -26,13 +28,13 @@ class _NotificationMuteTileState extends State<NotificationMuteTile> {
     final info = NotificationMuteService.instance.muteInfo(widget.target, widget.id);
     final isMuted = info != null;
 
-    return ListTile(
+    return PrysmListRow(
       leading: Icon(
-        isMuted ? Icons.notifications_off_outlined : Icons.notifications_outlined,
+        isMuted ? PrysmIcons.notificationsOffOutlined : PrysmIcons.notificationsOutlined,
       ),
-      title: Text(isMuted ? 'Notifications muted' : 'Mute notifications'),
-      subtitle: Text(formatMuteSubtitle(info)),
-      trailing: const Icon(Icons.chevron_right),
+      title: isMuted ? 'Notifications muted' : 'Mute notifications',
+      subtitle: formatMuteSubtitle(info),
+      trailing: const Icon(PrysmIcons.chevronRight),
       onTap: () => showNotificationMuteSheet(
         context: context,
         target: widget.target,

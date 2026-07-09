@@ -1,12 +1,18 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/material.dart';
 import 'package:prysm/util/pdf_system_open.dart';
 import 'package:prysm/util/temp_file_helper.dart';
 import 'package:prysm/util/video_preview_support.dart';
 import 'package:video_player/video_player.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_slider.dart';
 
 class FullScreenVideoPlayer extends StatefulWidget {
   final Uint8List bytes;
@@ -72,15 +78,11 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
       final message = await PdfSystemOpen.open(widget.bytes, widget.fileName);
       if (!mounted) return;
       if (message != null && message != 'done') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        showPrysmToast(context, message);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open video: $e')),
-      );
+      showPrysmToast(context, 'Could not open video: $e');
     } finally {
       if (mounted) setState(() => _openingExternally = false);
     }
@@ -93,30 +95,23 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.videocam, size: 48),
+            const Icon(PrysmIcons.videocam, size: 48),
             const SizedBox(height: 16),
             Text(
               'Video',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: context.prysmStyle.headlineStyle,
             ),
             const SizedBox(height: 8),
             Text(
               reason ??
                   'In-app video playback is not available on this platform.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).hintColor),
+              style: TextStyle(color: context.prysmStyle.tokens.textMuted),
             ),
             const SizedBox(height: 24),
-            FilledButton.icon(
+            PrysmButton(
+              label: _openingExternally ? 'Opening…' : 'Open with system player',
               onPressed: _openingExternally ? null : _openWithSystem,
-              icon: _openingExternally
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.open_in_new),
-              label: Text(_openingExternally ? 'Opening…' : 'Open with system player'),
             ),
           ],
         ),
@@ -131,7 +126,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
     }
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: PrysmProgressIndicator());
     }
 
     if (_error != null || _controller == null || !_controller!.value.isInitialized) {
@@ -159,11 +154,10 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            IconButton(
-              iconSize: 40,
-              icon: Icon(
-                controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
-              ),
+            PrysmIconButton(
+              icon: controller.value.isPlaying
+                  ? PrysmIcons.pause
+                  : PrysmIcons.playArrow,
               onPressed: () {
                 setState(() {
                   if (controller.value.isPlaying) {
@@ -253,7 +247,7 @@ class _FullScreenAudioPlayerState extends State<FullScreenAudioPlayer> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: PrysmProgressIndicator());
     }
     if (_error != null) {
       return Center(child: Text(_error!));
@@ -265,25 +259,26 @@ class _FullScreenAudioPlayerState extends State<FullScreenAudioPlayer> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.audiotrack, size: 64),
+            const Icon(PrysmIcons.audiotrack, size: 64),
             const SizedBox(height: 24),
             Text(
               widget.fileName,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: context.prysmStyle.titleStyle,
             ),
             const SizedBox(height: 24),
-            Slider(
+            PrysmSlider(
               value: _duration.inMilliseconds == 0
                   ? 0
                   : _position.inMilliseconds
                       .clamp(0, _duration.inMilliseconds)
                       .toDouble(),
+              min: 0,
               max: _duration.inMilliseconds == 0
                   ? 1
                   : _duration.inMilliseconds.toDouble(),
               onChanged: _duration.inMilliseconds == 0
-                  ? null
+                  ? (_) {}
                   : (value) => _player.seek(
                         Duration(milliseconds: value.round()),
                       ),
@@ -296,9 +291,8 @@ class _FullScreenAudioPlayerState extends State<FullScreenAudioPlayer> {
               ],
             ),
             const SizedBox(height: 8),
-            IconButton(
-              iconSize: 48,
-              icon: Icon(_playing ? Icons.pause_circle : Icons.play_circle),
+            PrysmIconButton(
+              icon: _playing ? PrysmIcons.pauseCircle : PrysmIcons.playCircle,
               onPressed: () async {
                 if (_playing) {
                   await _player.pause();

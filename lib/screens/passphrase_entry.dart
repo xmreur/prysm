@@ -1,6 +1,13 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/screens/widgets/unlock_lockout_banner.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 class PassphraseScreen extends StatefulWidget {
   final Future<bool> Function(String passphrase) onVerifyPassphrase;
@@ -128,26 +135,12 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.prysmStyle.tokens;
     final inputDisabled = _lockedOut && !_isSetup;
 
-    final field = TextField(
-      controller: _isConfirmingSetup ? _confirmController : _controller,
-      obscureText: obscure,
-      autofocus: true,
-      enabled: !inputDisabled,
-      onSubmitted: (_) => _onSubmitPressed(),
-      decoration: InputDecoration(
-        labelText: _isConfirmingSetup ? 'Confirm passphrase' : 'Passphrase',
-        border: const OutlineInputBorder(),
-        suffixIcon: IconButton(
-          icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
-          onPressed: () => setState(() => obscure = !obscure),
-        ),
-      ),
-    );
-
-    return Scaffold(
-      body: SafeArea(
+    return ColoredBox(
+      color: tokens.background,
+      child: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
@@ -158,14 +151,14 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                 children: [
                   Text(
                     _title,
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    style: context.prysmStyle.headlineStyle,
                   ),
                   if (widget.showBiometricButton &&
                       !_isSetup &&
                       widget.onTryBiometric != null) ...[
                     const SizedBox(height: 16),
-                    IconButton(
-                      icon: const Icon(Icons.fingerprint, size: 48),
+                    PrysmIconButton(
+                      icon: PrysmIcons.fingerprint,
                       tooltip: 'Unlock with biometrics',
                       onPressed: widget.onTryBiometric,
                     ),
@@ -174,18 +167,31 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                     const SizedBox(height: 8),
                     Text(
                       'Minimum 12 characters',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: context.prysmStyle.captionStyle,
                     ),
                   ],
                   const SizedBox(height: 24),
-                  field,
+                  PrysmTextField(
+                    controller:
+                        _isConfirmingSetup ? _confirmController : _controller,
+                    labelText: _isConfirmingSetup
+                        ? 'Confirm passphrase'
+                        : 'Passphrase',
+                    obscureText: obscure,
+                    enabled: !inputDisabled,
+                    suffixIcon: PrysmIconButton(
+                      icon: obscure
+                          ? PrysmIcons.visibility
+                          : PrysmIcons.visibilityOff,
+                      onPressed: () => setState(() => obscure = !obscure),
+                    ),
+                    onSubmitted: (_) => _onSubmitPressed(),
+                  ),
                   if (error != null) ...[
                     const SizedBox(height: 12),
                     Text(
                       error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                      style: TextStyle(color: tokens.danger),
                     ),
                   ],
                   UnlockLockoutStatus(
@@ -194,11 +200,11 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                   ),
                   const SizedBox(height: 24),
                   if (isLoading)
-                    const CircularProgressIndicator()
+                    const PrysmProgressIndicator()
                   else
-                    FilledButton(
+                    PrysmButton(
+                      label: _isSetup ? 'Continue' : 'Unlock',
                       onPressed: inputDisabled ? null : _onSubmitPressed,
-                      child: Text(_isSetup ? 'Continue' : 'Unlock'),
                     ),
                   if (widget.torBootstrapProgress != null) ...[
                     const SizedBox(height: 16),
@@ -223,15 +229,25 @@ Future<String?> showPassphraseDialog({
   int minLength = 12,
   Future<String?> Function(String value)? validate,
 }) {
-  return showDialog<String>(
+  return showGeneralDialog<String>(
     context: context,
-    builder: (dialogContext) => _PassphraseDialog(
-      title: title,
-      subtitle: subtitle,
-      confirm: confirm,
-      minLength: minLength,
-      validate: validate,
-    ),
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss',
+    barrierColor: const Color(0x80000000),
+    pageBuilder: (context, animation, secondaryAnimation) {
+      return Center(
+        child: _PassphraseDialog(
+          title: title,
+          subtitle: subtitle,
+          confirm: confirm,
+          minLength: minLength,
+          validate: validate,
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(opacity: animation, child: child);
+    },
   );
 }
 
@@ -270,7 +286,9 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
   Future<void> _submit() async {
     final value = _controller.text;
     if (value.length < widget.minLength) {
-      setState(() => _error = 'Must be at least ${widget.minLength} characters');
+      setState(
+        () => _error = 'Must be at least ${widget.minLength} characters',
+      );
       return;
     }
     if (widget.confirm && value != _confirmController.text) {
@@ -290,56 +308,42 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
+    final tokens = context.prysmStyle.tokens;
+    return PrysmDialog(
+      title: widget.title,
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(widget.subtitle),
           const SizedBox(height: 12),
-          TextField(
+          PrysmTextField(
             controller: _controller,
+            labelText: 'Passphrase',
             obscureText: _obscure,
-            autocorrect: false,
-            decoration: InputDecoration(
-              labelText: 'Passphrase',
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscure ? Icons.visibility : Icons.visibility_off,
-                ),
-                onPressed: () => setState(() => _obscure = !_obscure),
-              ),
+            suffixIcon: PrysmIconButton(
+              icon: _obscure ? PrysmIcons.visibility : PrysmIcons.visibilityOff,
+              onPressed: () => setState(() => _obscure = !_obscure),
             ),
             onSubmitted: (_) => _submit(),
           ),
           if (widget.confirm) ...[
             const SizedBox(height: 8),
-            TextField(
+            PrysmTextField(
               controller: _confirmController,
+              labelText: 'Confirm passphrase',
               obscureText: _obscure,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                labelText: 'Confirm passphrase',
-              ),
               onSubmitted: (_) => _submit(),
             ),
           ],
           if (_error != null) ...[
             const SizedBox(height: 8),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+            Text(_error!, style: TextStyle(color: tokens.danger)),
           ],
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Continue'),
-        ),
-      ],
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Continue',
+      onConfirm: _submit,
     );
   }
 }

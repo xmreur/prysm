@@ -1,13 +1,21 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_chat_ui/flutter_chat_ui.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/models/reply_preview_data.dart';
@@ -22,7 +30,14 @@ import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
-import 'package:prysm/screens/widgets/prysm_chat_composer_overlay.dart';
+import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
+import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/prysm_chat_viewport.dart';
+import 'package:prysm/ui/chat/prysm_date_header.dart';
+import 'package:prysm/ui/chat/prysm_message_row.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
@@ -125,7 +140,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   var _messages = InMemoryChatController();
   final Map<String, Message> _messageCache = {};
-  late final User _user;
+  
   bool _loading = false;
   bool _hasMore = true;
   int? _oldestTimestamp;
@@ -248,7 +263,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _currentTheme = widget.currentTheme;
     _peerName = widget.peerName;
     _peerAvatarBase64 = widget.peerAvatarBase64;
-    _user = User(id: widget.userId);
+    
 
     // ✅ INITIALIZE ChatService
     _chatService = ChatService(
@@ -376,11 +391,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final success = await _chatService.initialize(widget.peerPublicKeyPem);
 
     if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not connect to peer. Messages will be queued.'),
-          duration: Duration(seconds: 2),
-        ),
+      showPrysmToast(
+        context,
+        'Could not connect to peer. Messages will be queued.',
       );
     }
 
@@ -840,7 +853,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (msg['type'] == 'text') {
           messages.add(
             TextMessage(
-              authorId: User(id: msg['senderId']).id,
+              authorId: msg['senderId'] as String,
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               id: msg['id'],
               replyToMessageId: msg['replyTo'],
@@ -854,7 +867,7 @@ class _ChatScreenState extends State<ChatScreen> {
           messages.add(
             FileMessage(
               id: msgId,
-              authorId: User(id: msg['senderId']).id,
+              authorId: msg['senderId'] as String,
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               replyToMessageId: msg['replyTo'],
               name: fileName,
@@ -866,7 +879,7 @@ class _ChatScreenState extends State<ChatScreen> {
           messages.add(
             FileMessage(
               id: msg['id'],
-              authorId: User(id: msg['senderId']).id,
+              authorId: msg['senderId'] as String,
               createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
               replyToMessageId: msg['replyTo'],
               name: msg['fileName'] ?? 'voice_message.wav',
@@ -883,7 +896,7 @@ class _ChatScreenState extends State<ChatScreen> {
             messages.add(
               ImageMessage(
                 id: msg['id'],
-                authorId: User(id: msg['senderId']).id,
+                authorId: msg['senderId'] as String,
                 createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                 replyToMessageId: msg['replyTo'],
                 size: 0,
@@ -896,7 +909,7 @@ class _ChatScreenState extends State<ChatScreen> {
             messages.add(
               ImageMessage(
                 id: msgId,
-                authorId: User(id: msg['senderId']).id,
+                authorId: msg['senderId'] as String,
                 createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
                 replyToMessageId: msg['replyTo'],
                 size: msg['fileSize'] ?? 0,
@@ -914,7 +927,7 @@ class _ChatScreenState extends State<ChatScreen> {
         debugPrint('Direct message decrypt failed (${msg['id']}): $e');
         messages.add(
           TextMessage(
-            authorId: User(id: msg['senderId']).id,
+            authorId: msg['senderId'] as String,
             createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
             id: msg['id'],
             replyToMessageId: msg['replyTo'],
@@ -1024,42 +1037,32 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _editMessage(Message message) async {
     if (message is! TextMessage) return;
     final controller = TextEditingController(text: message.text);
-    final newText = await showDialog<String>(
+    String? newText;
+    await showPrysmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit message'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 4,
-          minLines: 1,
-          decoration: const InputDecoration(
-            hintText: 'Message',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
+      title: 'Edit message',
+      content: PrysmTextField(
+        controller: controller,
+        autofocus: true,
+        maxLines: 4,
+        minLines: 1,
+        hintText: 'Message',
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Save',
+      onConfirm: () => newText = controller.text.trim(),
     );
-    if (newText == null || newText.isEmpty || newText == message.text) return;
+    if (newText == null || newText!.isEmpty || newText == message.text) return;
+    final editedText = newText!;
 
     final ok = await _modifyService.editTextMessage(
       targetMessageId: message.id,
-      newText: newText,
+      newText: editedText,
     );
     if (!mounted) return;
     if (ok) {
       final updated = message.copyWith(
-        text: newText,
+        text: editedText,
         metadata: {...?message.metadata, 'edited': true},
       );
       setState(() {
@@ -1067,9 +1070,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messageCache[message.id] = updated;
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not edit message')),
-      );
+      showPrysmToast(context, 'Could not edit message');
     }
   }
 
@@ -1086,7 +1087,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ? _buildStatusWidget(
               message,
               isSentByMe,
-              Theme.of(context).colorScheme.onSurface.withAlpha(180),
+              context.prysmStyle.tokens.textPrimary.withAlpha(180),
             )
           : null,
     );
@@ -1274,7 +1275,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages.insertMessage(
         messageWithPendingStatus(
           TextMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             text: text,
@@ -1299,13 +1300,9 @@ class _ChatScreenState extends State<ChatScreen> {
           )
           .then((sentId) {
             if (sentId == null && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
+              showPrysmToast(context, 
                     'Message queued. Will send when peer is available.',
-                  ),
-                ),
-              );
+                  );
             }
           });
       return;
@@ -1314,13 +1311,9 @@ class _ChatScreenState extends State<ChatScreen> {
         .sendTextMessage(text, replyToId: replyToId, messageId: messageId)
         .then((sentId) {
           if (sentId == null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
+            showPrysmToast(context, 
                   'Message queued. Will send when peer is available.',
-                ),
-              ),
-            );
+                );
           }
         });
   }
@@ -1338,7 +1331,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.insertMessage(
           messageWithPendingStatus(
             FileMessage(
-              authorId: _user.id,
+              authorId: widget.userId,
               createdAt: DateTime.now(),
               id: messageId,
               name: fileName,
@@ -1353,7 +1346,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.insertMessage(
           messageWithPendingStatus(
             ImageMessage(
-              authorId: _user.id,
+              authorId: widget.userId,
               createdAt: DateTime.now(),
               id: messageId,
               size: bytes.length,
@@ -1385,11 +1378,7 @@ class _ChatScreenState extends State<ChatScreen> {
           )
           .then((sentId) {
             if (sentId == null && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('File queued. Will send when peer is available.'),
-                ),
-              );
+              showPrysmToast(context, 'File queued. Will send when peer is available.');
             }
           });
       return;
@@ -1405,11 +1394,7 @@ class _ChatScreenState extends State<ChatScreen> {
         )
         .then((sentId) {
           if (sentId == null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('File queued. Will send when peer is available.'),
-              ),
-            );
+            showPrysmToast(context, 'File queued. Will send when peer is available.');
           }
         });
   }
@@ -1462,9 +1447,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not read dropped file: $e')),
-        );
+        showPrysmToast(context, 'Could not read dropped file: $e');
       }
     }
   }
@@ -1496,7 +1479,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages.insertMessage(
         messageWithPendingStatus(
           FileMessage(
-            authorId: _user.id,
+            authorId: widget.userId,
             createdAt: DateTime.now(),
             id: messageId,
             replyToMessageId: replyToId,
@@ -1523,11 +1506,7 @@ class _ChatScreenState extends State<ChatScreen> {
           )
           .then((sentId) {
             if (sentId == null && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Voice message queued. Will send when peer is available.'),
-                ),
-              );
+              showPrysmToast(context, 'Voice message queued. Will send when peer is available.');
             }
           });
       return;
@@ -1543,9 +1522,7 @@ class _ChatScreenState extends State<ChatScreen> {
         )
         .then((sentId) {
           if (sentId == null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Voice message queued. Will send when peer is available.')),
-            );
+            showPrysmToast(context, 'Voice message queued. Will send when peer is available.');
           }
         });
   }
@@ -1573,9 +1550,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message not found in loaded history')),
-      );
+      showPrysmToast(context, 'Message not found in loaded history');
     }
   }
 
@@ -1600,9 +1575,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await CallManager.instance.startCall(widget.peerId);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not start call: $e')),
-      );
+      showPrysmToast(context, 'Could not start call: $e');
     }
   }
 
@@ -1617,8 +1590,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => ChatProfileScreen(
+      PrysmPageRoute(page: ChatProfileScreen(
           peer: peerContact,
           currentUserName: widget.userName,
           isOnline: _peerOnline,
@@ -1689,10 +1661,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (data == null) return const SizedBox.shrink();
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        color: context.prysmStyle.tokens.surfaceElevated,
         border: Border(
           left: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
+            color: context.prysmStyle.tokens.accent,
             width: 3,
           ),
         ),
@@ -1708,9 +1680,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 compact: true,
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close),
-              visualDensity: VisualDensity.compact,
+            PrysmIconButton(
+              icon: PrysmIcons.close,
               onPressed: () {
                 setState(_clearReplyState);
               },
@@ -1739,62 +1710,55 @@ class _ChatScreenState extends State<ChatScreen> {
     if (isMessageDeleted(message)) return;
     final text = _getMessageText(message);
     final isSentByMe = message.authorId == widget.userId;
+    final danger = context.prysmStyle.tokens.danger;
     final tiles = <Widget>[
       if (text.isNotEmpty)
-        ListTile(
-          leading: const Icon(Icons.copy),
-          title: const Text('Copy'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.copy),
+          title: 'Copy',
           onTap: () {
             Navigator.pop(context);
             Clipboard.setData(ClipboardData(text: text));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Copied to clipboard'),
-                duration: Duration(seconds: 1),
-              ),
-            );
+            showPrysmToast(context, 'Copied to clipboard');
           },
         ),
       if (canEditMessage(message, widget.userId))
-        ListTile(
-          leading: const Icon(Icons.edit_outlined),
-          title: const Text('Edit'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.editOutlined),
+          title: 'Edit',
           onTap: () {
             Navigator.pop(context);
             _editMessage(message);
           },
         ),
       if (isSentByMe)
-        ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: const Text('Info'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.infoOutline),
+          title: 'Info',
           onTap: () {
             Navigator.pop(context);
             _openMessageInfo(message);
           },
         ),
-      ListTile(
-        leading: const Icon(Icons.reply),
-        title: const Text('Reply'),
+      PrysmListRow(
+        leading: const Icon(PrysmIcons.reply),
+        title: 'Reply',
         onTap: () {
           Navigator.pop(context);
           _setReplyToMessage(message);
         },
       ),
-      ListTile(
-        leading: const Icon(Icons.select_all),
-        title: const Text('Select'),
+      PrysmListRow(
+        leading: const Icon(PrysmIcons.selectAll),
+        title: 'Select',
         onTap: () {
           Navigator.pop(context);
           setState(() => selectedMessageIds.add(message.id));
         },
       ),
-      ListTile(
-        leading: Icon(Icons.delete_outline, color: Colors.red[400]),
-        title: Text(
-          isSentByMe ? 'Delete for everyone' : 'Delete',
-          style: TextStyle(color: Colors.red[400]),
-        ),
+      PrysmListRow(
+        leading: Icon(PrysmIcons.deleteOutline, color: danger),
+        title: isSentByMe ? 'Delete for everyone' : 'Delete',
         onTap: () {
           Navigator.pop(context);
           _deleteMessage(message);
@@ -1900,426 +1864,274 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ==================== BUILD METHOD (KEEP EXACTLY AS-IS) ====================
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 70,
-        leading: IconButton(
-          icon: const Icon(Icons.chevron_left, size: 30),
-          onPressed: () {
-            if (widget.onCloseChat != null) {
-              widget.onCloseChat!();
-            } else {
-              Navigator.of(context).maybePop();
-            }
-          },
-        ),
-        title: GestureDetector(
-          onTap: () {
-            showModalBottomSheet(
-              context: context,
-              builder: (BuildContext context) {
-                return Container(
-                  height: 200,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20),
+  void _showProfileSheet() {
+    showPrysmSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PrysmListRow(
+            leading: ContactAvatar(
+              name: _peerName,
+              radius: 20,
+              avatarBase64: _peerAvatarBase64,
+            ),
+            title: _peerName,
+            subtitle: _isPeerBlocked ? 'Blocked · View profile' : 'View profile',
+            onTap: () {
+              Navigator.pop(ctx);
+              _openChatProfile();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatTitle() {
+    final tokens = context.prysmStyle.tokens;
+    final style = context.prysmStyle;
+    return GestureDetector(
+      onTap: _showProfileSheet,
+      child: Row(
+        children: [
+          RepaintBoundary(
+            child: ContactAvatar(
+              name: _peerName,
+              radius: 20,
+              avatarBase64: _peerAvatarBase64,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _peerName,
+                  style: style.titleStyle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                if (_isPeerBlocked)
+                  Text(
+                    'Blocked',
+                    style: style.captionStyle.copyWith(
+                      color: tokens.textMuted,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ),
-                  child: Column(
+                  )
+                else if (_peerOnline == null)
+                  Text(
+                    'Checking...',
+                    style: style.captionStyle.copyWith(
+                      color: tokens.textMuted,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  )
+                else
+                  Row(
                     children: [
                       Container(
-                        margin: const EdgeInsets.all(16),
-                        height: 4,
-                        width: 40,
+                        width: 8,
+                        height: 8,
                         decoration: BoxDecoration(
-                          color: Theme.of(context).dividerColor,
-                          borderRadius: BorderRadius.circular(2),
+                          shape: BoxShape.circle,
+                          color: _peerOnline!
+                              ? tokens.accent
+                              : tokens.textPrimary.withAlpha(100),
                         ),
                       ),
-                      ListTile(
-                        leading: ContactAvatar(
-                          name: _peerName,
-                          radius: 20,
-                          avatarBase64: _peerAvatarBase64,
+                      const SizedBox(width: 6),
+                      Text(
+                        _peerOnline! ? 'Online' : 'Offline',
+                        style: style.captionStyle.copyWith(
+                          color: _peerOnline!
+                              ? tokens.accent
+                              : tokens.textMuted,
+                          fontWeight: FontWeight.w500,
                         ),
-                        title: Text(
-                          _peerName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(
-                          _isPeerBlocked ? 'Blocked · View profile' : 'View profile',
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _openChatProfile();
-                        },
                       ),
                     ],
                   ),
-                );
-              },
-            );
-          },
-          child: Row(
-            children: [
-              RepaintBoundary(
-                child: ContactAvatar(
-                  name: _peerName,
-                  radius: 20,
-                  avatarBase64: _peerAvatarBase64,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _peerName,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  if (_isPeerBlocked)
-                    Text(
-                      'Blocked',
-                      style: TextStyle(
-                        color: Theme.of(context).hintColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    )
-                  else if (_peerOnline == null)
-                    Text(
-                      'Checking...',
-                      style: TextStyle(
-                        color: Theme.of(context).hintColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    )
-                  else
-                    Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _peerOnline!
-                                ? Colors.green
-                                : Theme.of(context).colorScheme.onSurface.withAlpha(100),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _peerOnline! ? 'Online' : 'Offline',
-                          style: TextStyle(
-                            color: _peerOnline!
-                                ? Colors.green
-                                : Theme.of(context).hintColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        actions: selectedMessageIds.isNotEmpty
-            ? [
-                if (widget.torStatusAction != null) widget.torStatusAction!,
-                IconButton(
-                  icon: Icon(Icons.delete),
-                  onPressed: deleteSelectedMessages,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: _openChatProfile,
-                ),
-              ]
-            : [
-                if (widget.torStatusAction != null) widget.torStatusAction!,
-                IconButton(
-                  icon: const Icon(Icons.phone),
-                  tooltip: 'Audio call',
-                  onPressed: _canStartCall ? _startAudioCall : null,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: _openChatProfile,
-                ),
               ],
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
+            ),
+          ),
+        ],
       ),
-      body: SafeArea(
-        child: PrysmChatDropTarget(
-          enabled: !_isPeerBlocked,
-          onFileDropped: _handleDroppedFile,
-          child: JumpToBottomFabOverlay(
-          visible: !_stickToBottom &&
-              _messages.messages.isNotEmpty &&
-              selectedMessageIds.isEmpty,
-          onPressed: _jumpToBottom,
-          child: Chat(
-          key: _chatKey,
-                chatController: _messages,
-                currentUserId: widget.userId,
-                theme: ChatTheme.fromThemeData(Theme.of(context)),
-                resolveUser: (_) async => _user,
-                onMessageSend: (message) {
-                  _handleSend(message);
+    );
+  }
+
+  List<Widget> _buildAppBarActions() {
+    if (selectedMessageIds.isNotEmpty) {
+      return [
+        if (widget.torStatusAction != null) widget.torStatusAction!,
+        PrysmIconButton(
+          icon: PrysmIcons.delete,
+          onPressed: deleteSelectedMessages,
+        ),
+        PrysmIconButton(
+          icon: PrysmIcons.moreVert,
+          onPressed: _openChatProfile,
+        ),
+      ];
+    }
+    return [
+      if (widget.torStatusAction != null) widget.torStatusAction!,
+      PrysmIconButton(
+        icon: PrysmIcons.phone,
+        onPressed: _canStartCall ? _startAudioCall : null,
+      ),
+      PrysmIconButton(
+        icon: PrysmIcons.moreVert,
+        onPressed: _openChatProfile,
+      ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PrysmPage(
+      headerHeight: 70,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.chevronLeft,
+        onPressed: () {
+          if (widget.onCloseChat != null) {
+            widget.onCloseChat!();
+          } else {
+            Navigator.of(context).maybePop();
+          }
+        },
+      ),
+      titleWidget: _buildChatTitle(),
+      actions: _buildAppBarActions(),
+      body: PrysmChatDropTarget(
+        enabled: !_isPeerBlocked,
+        onFileDropped: _handleDroppedFile,
+        child: Column(
+          children: [
+            Expanded(
+              child: PrysmChatList(
+                controller: _messages,
+                scrollController: _listScrollController,
+                onLoadMore: _loadMoreMessages,
+                showJumpToBottom: selectedMessageIds.isEmpty,
+                onStickToBottomChanged: (atBottom) {
+                  _stickToBottom = atBottom;
                 },
-                builders: Builders(
-                  chatAnimatedListBuilder: (context, itemBuilder) {
-                    return ChatAnimatedList(
-                      scrollController: _listScrollController,
-                      bottomPadding: 0,
-                      handleSafeArea: false,
-                      initialScrollToEndMode: InitialScrollToEndMode.none,
-                      itemBuilder: itemBuilder,
-                      onEndReached: () async {
-                        await _loadMoreMessages();
-                      },
-                    );
-                  },
-                  chatMessageBuilder:
-                      (
-                        BuildContext context,
-                        Message message,
-                        int index,
-                        Animation<double> animation,
-                        Widget child, {
-                        bool? isRemoved,
-                        required bool isSentByMe,
-                        MessageGroupStatus? groupStatus,
-                      }) {
-                        final msgDate = DateTime.fromMillisecondsSinceEpoch(
-                          message.createdAt!.millisecondsSinceEpoch,
-                        );
-                        final currentDay = DateTime(
-                          msgDate.year,
-                          msgDate.month,
-                          msgDate.day,
-                        );
-
-                        DateTime? prevDay;
-                        if (index > 0 &&
-                            index - 1 < _messages.messages.length) {
-                          final prevMsg = _messages.messages[index - 1];
-                          final prevDate = DateTime.fromMillisecondsSinceEpoch(
-                            prevMsg.createdAt!.millisecondsSinceEpoch,
-                          );
-                          prevDay = DateTime(
-                            prevDate.year,
-                            prevDate.month,
-                            prevDate.day,
-                          );
-                        }
-
-                        bool showDateHeader =
-                            index == 0 ||
-                            prevDay == null ||
-                            !currentDay.isAtSameMomentAs(prevDay);
-
-                        bool isSelected = selectedMessageIds.contains(
-                          message.id,
-                        );
-
-                        return Column(
-                          children: [
-                            if (showDateHeader)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  "${msgDate.day}/${msgDate.month}/${msgDate.year}",
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTap: selectedMessageIds.isNotEmpty
-                                  ? () {
-                                      setState(() {
-                                        if (isSelected) {
-                                          selectedMessageIds.remove(message.id);
-                                        } else {
-                                          selectedMessageIds.add(message.id);
-                                        }
-                                      });
-                                    }
-                                  : null,
-                              onHorizontalDragUpdate: (details) {
-                                _swipeDragMessageId = message.id;
-                                var delta = details.delta.dx;
-                                if (isSentByMe) delta = -delta;
-                                var next = _swipeDragOffset.value + delta;
-                                if (next < 0) next = 0;
-                                if (next > 100) next = 100;
-                                _swipeDragOffset.value = next;
-                              },
-                              onHorizontalDragEnd: (details) {
-                                final shouldReply =
-                                    _swipeDragMessageId == message.id &&
-                                        _swipeDragOffset.value > 50;
-                                _swipeDragOffset.value = 0;
-                                _swipeDragMessageId = null;
-                                if (shouldReply) {
-                                  setState(() {
-                                    _replyToMessage = message;
-                                    _replyDraft = null;
-                                  });
-                                  _persistReplyDraft();
-                                }
-                              },
-                              onLongPressStart: (details) {
-                                if (selectedMessageIds.isNotEmpty) {
-                                  // Multi-select mode: toggle selection
-                                  setState(() {
-                                    if (isSelected) {
-                                      selectedMessageIds.remove(message.id);
-                                    } else {
-                                      selectedMessageIds.add(message.id);
-                                    }
-                                  });
-                                } else {
-                                  // Single message: show context menu
-                                  _showMessageMenu(context, message, details.globalPosition);
-                                }
-                              },
-                              child: ValueListenableBuilder<double>(
-                                valueListenable: _swipeDragOffset,
-                                builder: (context, dragValue, translatedChild) {
-                                  final offset =
-                                      _swipeDragMessageId == message.id
-                                          ? dragValue
-                                          : 0.0;
-                                  return Transform.translate(
-                                    offset: Offset(
-                                      isSentByMe ? -offset : offset,
-                                      0,
-                                    ),
-                                    child: translatedChild,
-                                  );
-                                },
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color:
-                                        selectedMessageIds.contains(message.id)
-                                        ? Theme.of(context).colorScheme.primary.withAlpha(40)
-                                        : _highlightedMessageId == message.id
-                                            ? Theme.of(context).colorScheme.tertiary.withAlpha(60)
-                                        : Colors.transparent,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 4,
-                                    ),
-                                    child: SizeTransition(
-                                      sizeFactor: animation,
-                                      child: Row(
-                                        mainAxisAlignment: isSentByMe
-                                            ? MainAxisAlignment.end
-                                            : MainAxisAlignment.start,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Flexible(
-                                            child: Column(
-                                              crossAxisAlignment: isSentByMe
-                                                  ? CrossAxisAlignment.end
-                                                  : CrossAxisAlignment.start,
-                                              children: [
-                                                _displayChildForMessage(
-                                                  message,
-                                                  child,
-                                                  isSentByMe,
-                                                ),
-                                                if (!isMessageDeleted(message))
-                                                  _reactionBarFor(
-                                                    message,
-                                                    isSentByMe,
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                  fileMessageBuilder: fileMessageBuilder,
-                  imageMessageBuilder: myImageMessageBuilder,
-                  textMessageBuilder: textMessageBuilder,
-
-                  composerBuilder: (context) {
-                    if (_isPeerBlocked) {
-                      return Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                            border: Border(
-                              top: BorderSide(
-                                color: Theme.of(context).dividerColor,
-                              ),
-                            ),
-                          ),
-                          child: Text(
-                            'Unblock to send messages',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Theme.of(context).hintColor),
-                          ),
-                        ),
-                      );
-                    }
-                    return PrysmChatComposerOverlay(
-                      draftKey: _draftKey,
-                      replyPreview: _replyToMessage != null || _replyDraft != null
-                          ? _buildReplyPreview()
-                          : null,
-                      typingTypistNames: _typingTypistNames(),
-                      onSendText: _handleSendText,
-                      onSendImage: _handleSendImage,
-                      onSendFile: _handleSendFile,
-                      onSendVoice: _handleSendVoice,
-                      onTypingChanged: _onComposerTypingChanged,
-                    );
-                  },
+                itemBuilder: _buildChatListItem,
+              ),
+            ),
+            if (_isPeerBlocked)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
                 ),
-        ),
-        ),
+                decoration: BoxDecoration(
+                  color: context.prysmTokens.surfaceElevated,
+                  border: Border(
+                    top: BorderSide(color: context.prysmTokens.divider),
+                  ),
+                ),
+                child: Text(
+                  'Unblock to send messages',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: context.prysmTokens.textMuted),
+                ),
+              )
+            else
+              PrysmChatComposerColumn(
+                draftKey: _draftKey,
+                replyPreview: _replyToMessage != null || _replyDraft != null
+                    ? _buildReplyPreview()
+                    : null,
+                typingTypistNames: _typingTypistNames(),
+                onSendText: _handleSendText,
+                onSendImage: _handleSendImage,
+                onSendFile: _handleSendFile,
+                onSendVoice: _handleSendVoice,
+                onTypingChanged: _onComposerTypingChanged,
+              ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _messageChildFor(
+    BuildContext context,
+    Message message,
+    int index,
+    bool isSentByMe,
+  ) {
+    if (message is TextMessage) {
+      return textMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    if (message is ImageMessage) {
+      return myImageMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    if (message is FileMessage) {
+      return fileMessageBuilder(
+        context,
+        message,
+        index,
+        isSentByMe: isSentByMe,
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildChatListItem(BuildContext context, Message message, int index) {
+    final isSentByMe = message.authorId == widget.userId;
+    final isSelected = selectedMessageIds.contains(message.id);
+    final child = _messageChildFor(context, message, index, isSentByMe);
+
+    return PrysmMessageRow(
+      message: message,
+      index: index,
+      messages: _messages.messages,
+      localUserId: widget.userId,
+      swipeDragOffset: _swipeDragOffset,
+      swipeDragMessageId: _swipeDragMessageId,
+      onSwipeMessageIdChanged: (id) => _swipeDragMessageId = id,
+      isSelected: isSelected,
+      isHighlighted: _highlightedMessageId == message.id,
+      selectionActive: selectedMessageIds.isNotEmpty,
+      onToggleSelect: () {
+        setState(() {
+          if (isSelected) {
+            selectedMessageIds.remove(message.id);
+          } else {
+            selectedMessageIds.add(message.id);
+          }
+        });
+      },
+      onReply: () {
+        setState(() {
+          _replyToMessage = message;
+          _replyDraft = null;
+        });
+        _persistReplyDraft();
+      },
+      onLongPressMenu: (position) =>
+          _showMessageMenu(context, message, position),
+      displayChild: _displayChildForMessage(message, child, isSentByMe),
+      reactionBar: isMessageDeleted(message)
+          ? const SizedBox.shrink()
+          : _reactionBarFor(message, isSentByMe),
     );
   }
 
@@ -2330,7 +2142,6 @@ class _ChatScreenState extends State<ChatScreen> {
     ImageMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final isViewOnce = message.metadata?['viewOnce'] == true;
     final isViewed = message.metadata?['viewed'] == true;
@@ -2344,11 +2155,16 @@ class _ChatScreenState extends State<ChatScreen> {
     // ✅ Determine tick status
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
-      tickWidget = _buildStatusWidget(message, isSentByMe, Colors.white.withAlpha(220));
+      tickWidget = _buildStatusWidget(
+        message,
+        isSentByMe,
+        context.prysmStyle.tokens.onAccent.withAlpha(220),
+      );
     }
 
     // View-once: already viewed → show "Opened" placeholder
     if (isViewOnce && isViewed) {
+      final muted = context.prysmStyle.tokens.textMuted;
       return _wrapWithReplyQuote(
         message,
         isSentByMe,
@@ -2359,18 +2175,18 @@ class _ChatScreenState extends State<ChatScreen> {
             width: 200,
             height: 60,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              color: context.prysmStyle.tokens.surfaceElevated,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.timer_off, size: 20, color: Colors.grey[500]),
+                Icon(PrysmIcons.timerOff, size: 20, color: muted),
                 const SizedBox(width: 8),
                 Text(
                   'Opened',
                   style: TextStyle(
-                    color: Colors.grey[500],
+                    color: muted,
                     fontStyle: FontStyle.italic,
                     fontSize: 14,
                   ),
@@ -2382,7 +2198,13 @@ class _ChatScreenState extends State<ChatScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+              Text(
+                timeString,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: context.prysmStyle.tokens.textSecondary,
+                ),
+              ),
               if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
             ],
           ),
@@ -2410,8 +2232,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (!context.mounted) return;
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => _ViewOnceScreen(imageBytes: decryptedBytes),
+                  PrysmPageRoute(page: _ViewOnceScreen(imageBytes: decryptedBytes),
                   ),
                 );
                 // After closing viewer, mark as viewed and wipe content
@@ -2435,10 +2256,10 @@ class _ChatScreenState extends State<ChatScreen> {
               width: 200,
               height: 200,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: context.prysmStyle.tokens.surfaceElevated,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withAlpha(100),
+                  color: context.prysmStyle.tokens.accent.withAlpha(100),
                   width: 2,
                 ),
               ),
@@ -2446,15 +2267,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.visibility,
+                    PrysmIcons.visibility,
                     size: 40,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.prysmStyle.tokens.accent,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     isSentByMe ? 'View Once Photo' : 'Tap to View',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: context.prysmStyle.tokens.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -2463,7 +2284,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     '🔒 Disappears after viewing',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey[500],
+                      color: context.prysmStyle.tokens.textMuted,
                     ),
                   ),
                 ],
@@ -2474,9 +2295,19 @@ class _ChatScreenState extends State<ChatScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.timer, size: 12, color: Colors.grey[500]),
+              Icon(
+                PrysmIcons.timer,
+                size: 12,
+                color: context.prysmStyle.tokens.textMuted,
+              ),
               const SizedBox(width: 2),
-              Text(timeString, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+              Text(
+                timeString,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: context.prysmStyle.tokens.textSecondary,
+                ),
+              ),
               if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
             ],
           ),
@@ -2503,7 +2334,6 @@ class _ChatScreenState extends State<ChatScreen> {
     FileMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     if (message.name.contains('voice_message') ||
         message.source.startsWith('audio:')) {
@@ -2523,7 +2353,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
-      final tickColor = Theme.of(context).colorScheme.onPrimary;
+      final tickColor = context.prysmStyle.tokens.onAccent;
       tickWidget =
           _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
     }
@@ -2550,7 +2380,6 @@ class _ChatScreenState extends State<ChatScreen> {
     TextMessage message,
     int index, {
     required bool isSentByMe,
-    MessageGroupStatus? groupStatus,
   }) {
     final msgDate = DateTime.fromMillisecondsSinceEpoch(
       message.createdAt!.millisecondsSinceEpoch,
@@ -2561,21 +2390,17 @@ class _ChatScreenState extends State<ChatScreen> {
     // ✅ Determine tick status
     Widget tickWidget = const SizedBox.shrink();
     if (isSentByMe) {
-      final tickColor = isSentByMe
-          ? Theme.of(context).colorScheme.onPrimary.withAlpha(200)
-          : Theme.of(context).colorScheme.onSecondary.withAlpha(200);
+      final tickColor = prysmBubbleMetaColor(context, isSentByMe: isSentByMe);
       tickWidget = _buildStatusWidget(message, isSentByMe, tickColor);
     }
 
+    final textColor = prysmBubbleTextColor(context, isSentByMe: isSentByMe);
+    final metaColor = prysmBubbleMetaColor(context, isSentByMe: isSentByMe);
+    final bodyStyle = context.prysmStyle.bodyStyle.copyWith(color: textColor);
+
     return IntrinsicWidth(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSentByMe
-              ? Theme.of(context).colorScheme.primary.withAlpha(225)
-              : Theme.of(context).colorScheme.secondary.withAlpha(225),
-          borderRadius: BorderRadius.circular(12),
-        ),
+      child: PrysmBubbleRenderer(
+        isSentByMe: isSentByMe,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -2583,14 +2408,11 @@ class _ChatScreenState extends State<ChatScreen> {
             _replyQuoteFor(message, isSentByMe),
             LinkedMessageText(
               text: message.text,
-              textColor: isSentByMe
-                  ? Theme.of(context).colorScheme.onPrimary
-                  : Theme.of(context).colorScheme.onSecondary,
-              fontSize: 14,
+              textColor: textColor,
+              fontSize: bodyStyle.fontSize ?? 15,
               onOpenUrl: _openUrl,
             ),
             const SizedBox(height: 4),
-            // ✅ Time and ticks aligned to the right
             Align(
               alignment: Alignment.centerRight,
               child: Row(
@@ -2599,26 +2421,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (message.metadata?['edited'] == true) ...[
                     Text(
                       'edited',
-                      style: TextStyle(
-                        fontSize: 10,
+                      style: context.prysmStyle.captionStyle.copyWith(
                         fontStyle: FontStyle.italic,
-                        color: isSentByMe
-                            ? Theme.of(context).colorScheme.onPrimary.withAlpha(160)
-                            : Theme.of(context)
-                                .colorScheme
-                                .onSecondary
-                                .withAlpha(160),
+                        color: metaColor,
                       ),
                     ),
                     const SizedBox(width: 4),
                   ],
                   Text(
                     timeString,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isSentByMe
-                          ? Theme.of(context).colorScheme.onPrimary.withAlpha(180)
-                          : Theme.of(context).colorScheme.onSecondary.withAlpha(180),
+                    style: context.prysmStyle.captionStyle.copyWith(
+                      color: metaColor,
                     ),
                   ),
                   if (isSentByMe) ...[const SizedBox(width: 4), tickWidget],
@@ -2644,8 +2457,8 @@ class _ChatScreenState extends State<ChatScreen> {
         "${msgDate.hour.toString().padLeft(2, '0')}:${msgDate.minute.toString().padLeft(2, '0')}";
 
     final tickColor = isSentByMe
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondary;
+        ? context.prysmStyle.tokens.onAccent
+        : context.prysmStyle.tokens.textPrimary;
     Widget tickWidget = _buildStatusWidget(message, isSentByMe, tickColor.withAlpha(220));
 
     return _wrapWithReplyQuote(
@@ -2714,23 +2527,14 @@ class _ViewOnceScreenState extends State<_ViewOnceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.timer, size: 16, color: Colors.white70),
-            const SizedBox(width: 6),
-            const Text(
-              'View Once',
-              style: TextStyle(fontSize: 16, color: Colors.white70),
-            ),
-          ],
-        ),
-        centerTitle: true,
+    const overlay = Color(0xB3FFFFFF);
+    return PrysmPage(
+      backgroundColor: const Color(0xFF000000),
+      title: 'View Once',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        color: overlay,
+        onPressed: () => Navigator.of(context).pop(),
       ),
       body: Center(
         child: InteractiveViewer(

@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/models/contact.dart';
@@ -12,6 +14,12 @@ import 'package:prysm/services/chat_media_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/ui/core/prysm_tabs.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 
 class ChatMediaGalleryScreen extends StatefulWidget {
   final String title;
@@ -80,11 +88,10 @@ class ChatMediaGalleryScreen extends StatefulWidget {
   State<ChatMediaGalleryScreen> createState() => _ChatMediaGalleryScreenState();
 }
 
-class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
-    with SingleTickerProviderStateMixin {
+class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen> {
   static const _pageSize = 50;
 
-  late final TabController _tabController;
+  late final PrysmTabController _tabController;
   final Map<ChatMediaFilter, ScrollController> _scrollControllers = {};
   final Map<ChatMediaFilter, List<ChatMediaItem>> _itemsByFilter = {};
   final Map<ChatMediaFilter, bool> _hasMoreByFilter = {};
@@ -93,7 +100,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = PrysmTabController(length: 4);
     for (final filter in ChatMediaFilter.values) {
       final controller = ScrollController();
       controller.addListener(() => _onScroll(filter));
@@ -103,9 +110,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
       _loadingByFilter[filter] = false;
     }
     _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        _ensureLoaded(_currentFilter);
-      }
+      _ensureLoaded(_currentFilter);
     });
     _ensureLoaded(ChatMediaFilter.all);
   }
@@ -190,8 +195,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
         if (!mounted) return;
         await Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => ViewOnceImageScreen(imageBytes: bytes),
+          PrysmPageRoute(page: ViewOnceImageScreen(imageBytes: bytes),
           ),
         );
         await MessagesDb.markViewOnceViewed(
@@ -202,17 +206,14 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
         _removeItem(item);
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open image: $e')),
-        );
+        showPrysmToast(context, 'Could not open image: $e');
       }
       return;
     }
 
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ImageViewerScreen.deferred(
+      PrysmPageRoute(page: ImageViewerScreen.deferred(
           messageId: item.id,
           decryptFromDb: widget.mediaService.decryptCallbackForItem(item),
         ),
@@ -225,8 +226,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
     final category = ReadableFilePolicy.categorize(fileName);
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => FilePreviewScreen(
+      PrysmPageRoute(page: FilePreviewScreen(
           fileName: fileName,
           fileSize: item.fileSize,
           category: category,
@@ -241,9 +241,8 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
       final playback = await widget.mediaService.resolveVoicePlayback(item);
       if (!mounted) return;
       final message = widget.mediaService.fileMessageForVoice(item, playback);
-      await showModalBottomSheet<void>(
+      await showPrysmSheet<void>(
         context: context,
-        isScrollControlled: true,
         builder: (ctx) => SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -259,9 +258,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not play voice message: $e')),
-      );
+      showPrysmToast(context, 'Could not play voice message: $e');
     }
   }
 
@@ -282,29 +279,18 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Shared Media'),
-            Text(
-              widget.title,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'All'),
-            Tab(text: 'Photos'),
-            Tab(text: 'Files'),
-            Tab(text: 'Voice'),
-          ],
-        ),
+    return PrysmPage(
+      title: 'Shared Media',
+      subtitle: widget.title,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: () => Navigator.of(context).pop(),
       ),
-      body: TabBarView(
+      bottom: PrysmTabBar(
+        controller: _tabController,
+        tabs: const ['All', 'Photos', 'Files', 'Voice'],
+      ),
+      body: PrysmTabBarView(
         controller: _tabController,
         children: ChatMediaFilter.values.map((filter) {
           return ChatMediaGrid(

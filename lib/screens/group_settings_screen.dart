@@ -1,7 +1,12 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -15,6 +20,12 @@ import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
 import 'package:prysm/screens/widgets/notification_mute_tile.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
   final Group group;
@@ -61,23 +72,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _renameGroup() async {
     if (!_isAdmin) return;
     final controller = TextEditingController(text: _groupName);
-    final newName = await showDialog<String>(
+    final newName = await showPrysmDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename group'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Group name'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
+      title: 'Rename group',
+      content: PrysmTextField(
+        controller: controller,
+        labelText: 'Group name',
+        autofocus: true,
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Save',
+      onConfirm: () => Navigator.pop(context, controller.text.trim()),
     );
     if (newName == null || newName.isEmpty || newName == _groupName) return;
 
@@ -86,13 +91,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       setState(() => _groupName = newName);
       widget.onChanged();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Group renamed')),
-        );
+        showPrysmToast(context, 'Group renamed');
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
@@ -124,13 +127,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       setState(() => _avatarBase64 = encoded);
       widget.onChanged();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Group photo updated')),
-        );
+        showPrysmToast(context, 'Group photo updated');
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
@@ -190,39 +191,43 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         .toList();
 
     if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No contacts available to add')),
-      );
+      showPrysmToast(context, 'No contacts available to add');
       return;
     }
 
     if (_members.length >= maxGroupMembers) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Group is full ($maxGroupMembers members max)')),
+      showPrysmToast(
+        context,
+        'Group is full ($maxGroupMembers members max)',
       );
       return;
     }
 
-    final picked = await showDialog<Contact>(
+    final picked = await showPrysmSheet<Contact>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Add member'),
-        children: available
-            .map((c) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, c),
-                  child: Row(
-                    children: [
-                      ContactAvatar(
-                        name: c.displayName,
-                        avatarBase64: c.avatarBase64,
-                        radius: 18,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(c.displayName),
-                    ],
-                  ),
-                ))
-            .toList(),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Add member',
+                style: ctx.prysmStyle.headlineStyle,
+              ),
+            ),
+            for (final c in available)
+              PrysmListRow(
+                leading: ContactAvatar(
+                  name: c.displayName,
+                  avatarBase64: c.avatarBase64,
+                  radius: 18,
+                ),
+                title: c.displayName,
+                onTap: () => Navigator.pop(ctx, c),
+              ),
+          ],
+        ),
       ),
     );
 
@@ -233,33 +238,26 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       await _load();
       widget.onChanged();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+        showPrysmToast(context, 
               'Added ${picked.displayName}. '
               'They will receive an invite when online.',
-            ),
-          ),
-        );
+            );
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
 
   Future<void> _removeMember(GroupMember member) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove member'),
-        content: Text('Remove ${_displayNameFor(member.memberId)} from the group?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove')),
-        ],
-      ),
+      title: 'Remove member',
+      content: Text('Remove ${_displayNameFor(member.memberId)} from the group?'),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Remove',
+      confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
 
@@ -269,22 +267,19 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       widget.onChanged();
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
 
   Future<void> _leaveGroup() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Leave group'),
-        content: const Text('Leave this group?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Leave')),
-        ],
-      ),
+      title: 'Leave group',
+      content: const Text('Leave this group?'),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Leave',
+      confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
 
@@ -294,22 +289,19 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (mounted) Navigator.of(context).pop();
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
 
   Future<void> _deleteGroup() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete group'),
-        content: const Text('Delete this group for everyone? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-        ],
-      ),
+      title: 'Delete group',
+      content: const Text('Delete this group for everyone? This cannot be undone.'),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Delete',
+      confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
 
@@ -319,17 +311,22 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (mounted) Navigator.of(context).pop();
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_groupName)),
+    final tokens = context.prysmStyle.tokens;
+    return PrysmPage(
+      title: _groupName,
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: PrysmProgressIndicator())
           : ListView(
               children: [
                 Center(
@@ -348,7 +345,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             const SizedBox(height: 8),
                             Text(
                               'Tap to change group photo',
-                              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: tokens.textMuted,
+                              ),
                             ),
                           ],
                         ],
@@ -357,52 +357,54 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   ),
                 ),
                 if (_isAdmin)
-                  ListTile(
-                    leading: const Icon(Icons.edit_outlined),
-                    title: Text(_groupName),
-                    subtitle: const Text('Tap to rename'),
+                  PrysmListRow(
+                    leading: const Icon(PrysmIcons.editOutlined),
+                    title: _groupName,
+                    subtitle: 'Tap to rename',
                     onTap: _renameGroup,
                   )
                 else
-                  ListTile(
-                    title: Text(_groupName),
-                    subtitle: const Text('Member'),
+                  PrysmListRow(
+                    title: _groupName,
+                    subtitle: 'Member',
                   ),
-                ListTile(
-                  title: Text('${_members.length} / $maxGroupMembers members'),
-                  subtitle: Text(_isAdmin ? 'You are admin' : 'Member'),
+                PrysmListRow(
+                  title: '${_members.length} / $maxGroupMembers members',
+                  subtitle: _isAdmin ? 'You are admin' : 'Member',
                 ),
-                const Divider(),
+                const PrysmDivider(),
                 ..._members.map((m) {
                   final isSelf = m.memberId == widget.userId;
-                  return ListTile(
+                  return PrysmListRow(
                     leading: ContactAvatar(
                       name: _displayNameFor(m.memberId),
                       avatarBase64: _avatarByMemberId[m.memberId],
                     ),
-                    title: Text(isSelf ? '${_displayNameFor(m.memberId)} (you)' : _displayNameFor(m.memberId)),
-                    subtitle: Text(m.role == GroupRole.admin ? 'Admin' : 'Member'),
+                    title: isSelf
+                        ? '${_displayNameFor(m.memberId)} (you)'
+                        : _displayNameFor(m.memberId),
+                    subtitle: m.role == GroupRole.admin ? 'Admin' : 'Member',
                     trailing: _isAdmin && !isSelf && m.role != GroupRole.admin
-                        ? IconButton(
-                            icon: const Icon(Icons.person_remove_outlined),
+                        ? PrysmIconButton(
+                            icon: PrysmIcons.personRemoveOutlined,
                             onPressed: () => _removeMember(m),
                           )
                         : null,
                   );
                 }),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_outlined),
-                  title: const Text('Shared Media'),
-                  trailing: const Icon(Icons.chevron_right),
+                const PrysmDivider(),
+                PrysmListRow(
+                  leading: const Icon(PrysmIcons.photoLibraryOutlined),
+                  title: 'Shared Media',
+                  trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: () async {
                     final navigator = Navigator.of(context);
                     final joinedAt = await _groupService
                         .joinedAtForCurrentUser(widget.group.id);
                     if (!mounted) return;
                     final messageId = await navigator.push<String>(
-                      MaterialPageRoute(
-                        builder: (_) => ChatMediaGalleryScreen.group(
+                      PrysmPageRoute(
+                        page: ChatMediaGalleryScreen.group(
                           group: widget.group,
                           userId: widget.userId,
                           keyManager: widget.keyManager,
@@ -417,35 +419,41 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     }
                   },
                 ),
-                const Divider(),
+                const PrysmDivider(),
                 ConversationPrefsTiles(
                   conversationId: widget.group.id,
                   onChanged: widget.onChanged,
                   onArchived: widget.onArchived,
                 ),
-                const Divider(),
+                const PrysmDivider(),
                 NotificationMuteTile(
                   target: MuteTarget.group,
                   id: widget.group.id,
                   label: _groupName,
                 ),
-                const Divider(),
+                const PrysmDivider(),
                 if (_isAdmin && _members.length < maxGroupMembers)
-                  ListTile(
-                    leading: const Icon(Icons.person_add_outlined),
-                    title: const Text('Add member'),
+                  PrysmListRow(
+                    leading: const Icon(PrysmIcons.personAddOutlined),
+                    title: 'Add member',
                     onTap: _addMember,
                   ),
                 if (_isAdmin)
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Colors.red),
-                    title: const Text('Delete group', style: TextStyle(color: Colors.red)),
+                  PrysmListRow(
+                    leading: Icon(PrysmIcons.deleteOutline, color: tokens.danger),
+                    titleWidget: Text(
+                      'Delete group',
+                      style: TextStyle(color: tokens.danger),
+                    ),
                     onTap: _deleteGroup,
                   ),
                 if (!_isAdmin)
-                  ListTile(
-                    leading: const Icon(Icons.exit_to_app, color: Colors.red),
-                    title: const Text('Leave group', style: TextStyle(color: Colors.red)),
+                  PrysmListRow(
+                    leading: Icon(PrysmIcons.exitToApp, color: tokens.danger),
+                    titleWidget: Text(
+                      'Leave group',
+                      style: TextStyle(color: tokens.danger),
+                    ),
                     onTap: _leaveGroup,
                   ),
               ],

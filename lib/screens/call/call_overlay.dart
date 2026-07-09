@@ -1,13 +1,19 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/services/call/linux_mic_capture.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_tabs.dart';
 
 class CallOverlay extends StatefulWidget {
   const CallOverlay({super.key, required this.child});
@@ -54,9 +60,7 @@ class _CallOverlayState extends State<CallOverlay> {
     final error = manager.snapshot.error;
     if (error != null && error != _lastShownError && mounted) {
       _lastShownError = error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      showPrysmToast(context, error);
     }
 
     final peer = manager.snapshot.peerOnion;
@@ -135,8 +139,8 @@ class _CallOverlayState extends State<CallOverlay> {
             ?child,
             if (showOverlay)
               Positioned.fill(
-                child: Material(
-                  color: Theme.of(context).colorScheme.surface,
+                child: ColoredBox(
+                  color: context.prysmStyle.tokens.surface,
                   child: SafeArea(
                     child: snapshot.state == CallState.incoming
                         ? _IncomingCallView(
@@ -192,28 +196,23 @@ class _IncomingCallView extends StatelessWidget {
         const SizedBox(height: 24),
         Text(
           'Incoming call',
-          style: Theme.of(context).textTheme.titleLarge,
+          style: context.prysmStyle.headlineStyle,
         ),
         const SizedBox(height: 8),
-        Text(peerLabel, style: Theme.of(context).textTheme.headlineSmall),
+        Text(peerLabel, style: context.prysmStyle.headlineStyle),
         const SizedBox(height: 48),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            FloatingActionButton.extended(
-              heroTag: 'decline_call',
-              backgroundColor: Colors.red,
+            PrysmButton(
+              label: 'Decline',
+              variant: PrysmButtonVariant.danger,
               onPressed: onDecline,
-              icon: const Icon(Icons.call_end),
-              label: const Text('Decline'),
             ),
             const SizedBox(width: 24),
-            FloatingActionButton.extended(
-              heroTag: 'accept_call',
-              backgroundColor: Colors.green,
+            PrysmButton(
+              label: 'Accept',
               onPressed: onAccept,
-              icon: const Icon(Icons.call),
-              label: const Text('Accept'),
             ),
           ],
         ),
@@ -327,20 +326,20 @@ class _ActiveCallViewState extends State<_ActiveCallView> {
         const SizedBox(height: 24),
         Text(
           widget.peerLabel,
-          style: Theme.of(context).textTheme.headlineSmall,
+          style: context.prysmStyle.headlineStyle,
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
         Text(
           _statusLabel(widget.snapshot.state),
-          style: Theme.of(context).textTheme.titleMedium,
+          style: context.prysmStyle.titleStyle,
         ),
         if (widget.snapshot.peerMuted)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(
               'Peer is muted',
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: context.prysmStyle.bodyStyle,
             ),
           ),
         if (!kIsWeb && Platform.isLinux) ...[
@@ -349,15 +348,13 @@ class _ActiveCallViewState extends State<_ActiveCallView> {
             padding: const EdgeInsets.symmetric(horizontal: 48),
             child: Column(
               children: [
-                LinearProgressIndicator(
+                PrysmLinearProgressIndicator(
                   value: widget.snapshot.localMuted ? 0 : _inputLevel,
-                  minHeight: 4,
-                  borderRadius: BorderRadius.circular(2),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   widget.snapshot.localMuted ? 'Muted' : 'Microphone level',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: context.prysmStyle.captionStyle,
                 ),
               ],
             ),
@@ -367,19 +364,17 @@ class _ActiveCallViewState extends State<_ActiveCallView> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            FloatingActionButton(
-              heroTag: 'mute_call',
+            PrysmFab(
+              icon: widget.snapshot.localMuted
+                  ? PrysmIcons.micOff
+                  : PrysmIcons.mic,
               onPressed: widget.onToggleMute,
-              child: Icon(
-                widget.snapshot.localMuted ? Icons.mic_off : Icons.mic,
-              ),
             ),
             const SizedBox(width: 32),
-            FloatingActionButton(
-              heroTag: 'hangup_call',
-              backgroundColor: Colors.red,
+            PrysmFab(
+              icon: PrysmIcons.callEnd,
+              backgroundColor: context.prysmStyle.tokens.danger,
               onPressed: widget.onHangUp,
-              child: const Icon(Icons.call_end),
             ),
           ],
         ),

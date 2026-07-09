@@ -1,9 +1,9 @@
+import 'package:flutter/widgets.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/database/messages.dart';
@@ -268,7 +268,7 @@ class TrayService with TrayListener {
         badgeCenter,
         badgeRadius,
         Paint()
-          ..color = Colors.white
+          ..color = const Color(0xFFFFFFFF)
           ..style = PaintingStyle.stroke
           ..strokeWidth = w * 0.04,
       );
@@ -282,7 +282,7 @@ class TrayService with TrayListener {
           fontWeight: FontWeight.bold,
         ),
       )
-        ..pushStyle(ui.TextStyle(color: Colors.white))
+        ..pushStyle(ui.TextStyle(color: const Color(0xFFFFFFFF)))
         ..addText(label);
       final paragraph = builder.build()
         ..layout(ui.ParagraphConstraints(width: badgeRadius * 2));

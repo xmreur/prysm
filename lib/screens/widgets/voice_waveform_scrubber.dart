@@ -1,6 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 
 /// Tap/drag scrubber showing voice message waveform bars.
 class VoiceWaveformScrubber extends StatelessWidget {

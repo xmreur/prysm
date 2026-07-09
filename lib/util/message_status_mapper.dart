@@ -1,4 +1,4 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
 
 /// Delivery/read state for outgoing message ticks.
 class OutboundMessageStatus {
@@ -94,9 +94,47 @@ bool isOutboundPending(Message message) =>
         message.seenAt == null &&
         message.metadata?['failed'] != true);
 
+bool isOutboundDelivered(Message message) =>
+    !isOutboundPending(message) &&
+    message.metadata?['failed'] != true &&
+    (message.metadata?['deliveryStatus'] == 'sent' || message.sentAt != null);
+
+bool isOutboundRead(Message message, {required bool readReceiptsEnabled}) =>
+    readReceiptsEnabled &&
+    !isOutboundPending(message) &&
+    (message.metadata?['deliveryStatus'] == 'read' || message.seenAt != null);
+
+/// UI tick state for outgoing messages (clock → single tick → double tick).
+enum OutboundTickState { pending, delivered, read, failed }
+
+OutboundTickState outboundTickState(
+  Message message, {
+  required bool readReceiptsEnabled,
+}) {
+  if (message.metadata?['failed'] == true) {
+    return OutboundTickState.failed;
+  }
+  if (isOutboundPending(message)) {
+    return OutboundTickState.pending;
+  }
+  if (isOutboundRead(message, readReceiptsEnabled: readReceiptsEnabled)) {
+    return OutboundTickState.read;
+  }
+  if (isOutboundDelivered(message)) {
+    return OutboundTickState.delivered;
+  }
+  return OutboundTickState.pending;
+}
+
 Message messageWithPendingStatus(Message message) {
   return message.copyWith(
-    metadata: {...?message.metadata, 'deliveryStatus': 'pending'},
+    sentAt: null,
+    seenAt: null,
+    metadata: {
+      ...?message.metadata,
+      'failed': false,
+      'deliveryStatus': 'pending',
+    },
   );
 }
 

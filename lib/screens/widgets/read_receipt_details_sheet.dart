@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
 
 class ReadReceiptMember {
   final String memberId;
@@ -49,9 +54,8 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
     String? directPeerId,
     bool showReadSection = true,
   }) {
-    return showModalBottomSheet<void>(
+    return showPrysmSheet<void>(
       context: context,
-      showDragHandle: true,
       builder: (ctx) => ReadReceiptDetailsSheet(
         messageId: messageId,
         localUserId: localUserId,
@@ -149,27 +153,21 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
           children: [
             Text(
               'Message info',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: context.prysmStyle.titleStyle,
             ),
             const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.local_shipping_outlined, size: 20),
-              title: const Text('Delivery'),
-              trailing: Text(
-                deliveryStatusLabel,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.localShippingOutlined, size: 20),
+              title: 'Delivery',
+              trailingSubtitle: deliveryStatusLabel,
             ),
             if (showReadSection) ...[
-              const Divider(height: 1),
+              const PrysmDivider(),
               Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 4),
                 child: Text(
                   'Read by',
-                  style: Theme.of(context).textTheme.titleSmall,
+                  style: context.prysmStyle.titleStyle,
                 ),
               ),
             ],
@@ -180,7 +178,7 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
                     padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: PrysmProgressIndicator()),
                   );
                 }
                 final members = snapshot.data ?? [];
@@ -194,21 +192,12 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: members.length,
-                    separatorBuilder: (_, index) => const Divider(height: 1),
+                    separatorBuilder: (_, index) => const PrysmDivider(),
                     itemBuilder: (context, index) {
                       final member = members[index];
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(member.displayName),
-                        trailing: Text(
-                          _formatTime(member.readAt),
-                          style: TextStyle(
-                            color: member.isPending
-                                ? Theme.of(context).colorScheme.outline
-                                : null,
-                            fontSize: 13,
-                          ),
-                        ),
+                      return PrysmListRow(
+                        title: member.displayName,
+                        trailingSubtitle: _formatTime(member.readAt),
                       );
                     },
                   ),

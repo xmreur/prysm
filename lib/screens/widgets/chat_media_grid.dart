@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/screens/widgets/chat_media_tile.dart';
 import 'package:prysm/services/chat_media_service.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 
 class ChatMediaGrid extends StatelessWidget {
   final List<ChatMediaItem> items;
@@ -39,7 +41,7 @@ class ChatMediaGrid extends StatelessWidget {
       return Center(
         child: Text(
           'No media in this conversation yet',
-          style: TextStyle(color: Theme.of(context).hintColor),
+          style: TextStyle(color: context.prysmStyle.tokens.textMuted),
         ),
       );
     }
@@ -64,7 +66,7 @@ class ChatMediaGrid extends StatelessWidget {
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: const PrysmProgressIndicator(size: 20),
               ),
             ),
           );

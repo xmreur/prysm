@@ -1,8 +1,11 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
-import 'package:flutter/material.dart';
 import 'package:prysm/util/desktop_platform.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 
 /// Desktop-only drop target for sending files into an open chat.
 class PrysmChatDropTarget extends StatefulWidget {
@@ -39,20 +42,15 @@ class _PrysmChatDropTargetState extends State<PrysmChatDropTarget> {
         if (detail.files.isEmpty) return;
 
         if (detail.files.length > 1 && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Only one file at a time')),
-          );
+          showPrysmToast(context, 'Only one file at a time');
         }
 
         final file = detail.files.first;
         final path = file.path;
         if (path.isEmpty) return;
 
-        final messenger = ScaffoldMessenger.of(context);
         if (await FileSystemEntity.type(path) == FileSystemEntityType.directory) {
-          messenger.showSnackBar(
-            const SnackBar(content: Text('Folders can\'t be sent')),
-          );
+          showPrysmToast(context, "Folders can't be sent");
           return;
         }
 
@@ -66,21 +64,21 @@ class _PrysmChatDropTargetState extends State<PrysmChatDropTarget> {
           if (_dragging)
             IgnorePointer(
               child: ColoredBox(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                color: context.prysmStyle.tokens.accent.withValues(alpha: 0.12),
                 child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.upload_file,
+                        PrysmIcons.uploadFile,
                         size: 48,
-                        color: Theme.of(context).colorScheme.primary,
+                        color: context.prysmStyle.tokens.accent,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         'Drop to send',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
+                        style: context.prysmStyle.titleStyle?.copyWith(
+                              color: context.prysmStyle.tokens.accent,
                             ),
                       ),
                     ],

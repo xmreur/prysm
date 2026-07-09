@@ -1,6 +1,8 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -9,6 +11,11 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_checkbox.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 class CreateGroupScreen extends StatefulWidget {
   final String userId;
@@ -42,15 +49,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   Future<void> _create() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a group name')),
-      );
+      showPrysmToast(context, 'Enter a group name');
       return;
     }
     if (_selectedIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one member')),
-      );
+      showPrysmToast(context, 'Select at least one member');
       return;
     }
 
@@ -68,13 +71,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showPrysmToast(context, e.message);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create group: $e')),
-        );
+        showPrysmToast(context, 'Failed to create group: $e');
       }
     } finally {
       if (mounted) setState(() => _creating = false);
@@ -112,22 +113,20 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create Group'),
-        actions: [
-          TextButton(
-            onPressed: _creating ? null : _create,
-            child: _creating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Create'),
-          ),
-        ],
-      ),
+    return PrysmPage(
+      title: 'Create Group',
+      actions: [
+        _creating
+            ? const SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(child: PrysmProgressIndicator(size: 20)),
+              )
+            : PrysmTextButton(
+                label: 'Create',
+                onPressed: _create,
+              ),
+      ],
       body: Column(
         children: [
           Padding(
@@ -137,14 +136,19 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               child: Column(
                 children: [
                   ContactAvatar(
-                    name: _nameController.text.isNotEmpty ? _nameController.text : 'G',
+                    name: _nameController.text.isNotEmpty
+                        ? _nameController.text
+                        : 'G',
                     avatarBase64: _avatarBase64,
                     radius: 40,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Tap to set group photo',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.prysmStyle.tokens.textMuted,
+                    ),
                   ),
                 ],
               ),
@@ -152,12 +156,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: TextField(
+            child: PrysmTextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Group name',
-                border: OutlineInputBorder(),
-              ),
+              labelText: 'Group name',
+              hintText: 'Group name',
             ),
           ),
           Padding(
@@ -166,12 +168,12 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               children: [
                 Text(
                   '${_selectedIds.length} / $_maxSelectable selected',
-                  style: TextStyle(color: Theme.of(context).hintColor),
+                  style: TextStyle(color: context.prysmStyle.tokens.textMuted),
                 ),
                 const Spacer(),
                 Text(
                   'Max $maxGroupMembers members total',
-                  style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
+                  style: TextStyle(fontSize: 12, color: context.prysmStyle.tokens.textMuted),
                 ),
               ],
             ),
@@ -186,13 +188,13 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       final contact = _availableContacts[i];
                       final selected = _selectedIds.contains(contact.id);
                       final atCap = _selectedIds.length >= _maxSelectable && !selected;
-                      return CheckboxListTile(
+                      return PrysmCheckboxRow(
                         value: selected,
                         onChanged: atCap
                             ? null
                             : (v) {
                                 setState(() {
-                                  if (v == true) {
+                                  if (v) {
                                     _selectedIds.add(contact.id);
                                   } else {
                                     _selectedIds.remove(contact.id);
@@ -203,7 +205,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           name: contact.displayName,
                           avatarBase64: contact.avatarBase64,
                         ),
-                        title: Text(contact.displayName),
+                        title: contact.displayName,
                       );
                     },
                   ),

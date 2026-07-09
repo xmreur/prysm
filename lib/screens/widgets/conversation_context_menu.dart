@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/util/desktop_platform.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
 
 Future<void> showConversationContextMenu({
   required BuildContext context,
@@ -24,49 +27,38 @@ Future<void> showConversationContextMenu({
   final isPinned = preferences?.isPinned ?? false;
   final isArchived = preferences?.isArchived ?? false;
 
-  final value = await showMenu<String>(
+  final value = await showPrysmSheet<String>(
     context: context,
-    position: RelativeRect.fromLTRB(
-      position.dx,
-      position.dy,
-      position.dx,
-      position.dy,
-    ),
-    items: [
-      if (canOpenDetached)
-        const PopupMenuItem<String>(
-          value: 'open_detached',
-          child: ListTile(
-            leading: Icon(Icons.open_in_new),
-            title: Text('Open in a separate window'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          ),
-        ),
-      if (canOpenDetached) const PopupMenuDivider(),
-      if (showPinArchive && !viewingArchived && !isArchived)
-        PopupMenuItem<String>(
-          value: 'pin',
-          child: ListTile(
-            leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin),
-            title: Text(isPinned ? 'Unpin chat' : 'Pin chat'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          ),
-        ),
-      if (showPinArchive)
-        PopupMenuItem<String>(
-          value: 'archive',
-          child: ListTile(
-            leading: const Icon(Icons.archive_outlined),
-            title: Text(
-              viewingArchived || isArchived ? 'Unarchive chat' : 'Archive chat',
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (canOpenDetached)
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.openInNew),
+              title: 'Open in a separate window',
+              onTap: () => Navigator.pop(ctx, 'open_detached'),
             ),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          ),
-        ),
-    ],
+          if (canOpenDetached) const PrysmDivider(),
+          if (showPinArchive && !viewingArchived && !isArchived)
+            PrysmListRow(
+              leading: Icon(
+                isPinned ? PrysmIcons.pushPinOutlined : PrysmIcons.pushPin,
+              ),
+              title: isPinned ? 'Unpin chat' : 'Pin chat',
+              onTap: () => Navigator.pop(ctx, 'pin'),
+            ),
+          if (showPinArchive)
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.archive),
+              title: viewingArchived || isArchived
+                  ? 'Unarchive chat'
+                  : 'Archive chat',
+              onTap: () => Navigator.pop(ctx, 'archive'),
+            ),
+        ],
+      ),
+    ),
   );
 
   switch (value) {

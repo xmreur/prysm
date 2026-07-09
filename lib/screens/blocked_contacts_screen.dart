@@ -1,11 +1,19 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 
 class BlockedContactsScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -79,24 +87,14 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
   }
 
   Future<void> _confirmUnblock(String peerId) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPrysmConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Unblock contact'),
-        content: const Text(
-          'This contact will be able to message and call you again.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Unblock'),
-          ),
-        ],
+      title: 'Unblock contact',
+      content: const Text(
+        'This contact will be able to message and call you again.',
       ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Unblock',
     );
     if (confirmed != true || !mounted) return;
 
@@ -106,51 +104,51 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Blocked contacts'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onClose,
-        ),
+    return PrysmPage(
+      title: 'Blocked contacts',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.arrowBack,
+        onPressed: widget.onClose,
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: PrysmProgressIndicator())
           : _blockedIds.isEmpty
               ? Center(
                   child: Text(
                     'No blocked contacts',
-                    style: TextStyle(color: Theme.of(context).hintColor),
+                    style: TextStyle(
+                      color: context.prysmStyle.tokens.textMuted,
+                    ),
                   ),
                 )
               : ListView.separated(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemCount: _blockedIds.length,
-                  separatorBuilder: (context, index) =>
-                      const Divider(height: 1),
+                  separatorBuilder: (context, index) => const PrysmDivider(),
                   itemBuilder: (context, index) {
                     final peerId = _blockedIds[index];
                     final contact = _contactsById[peerId];
-                    final displayName = contact?.displayName ?? _shortOnion(peerId);
+                    final displayName =
+                        contact?.displayName ?? _shortOnion(peerId);
 
-                    return ListTile(
+                    return PrysmListRow(
                       leading: ContactAvatar(
                         name: displayName,
                         avatarBase64: contact?.avatarBase64,
                       ),
-                      title: Text(displayName),
-                      subtitle: Text(
+                      title: displayName,
+                      subtitleWidget: Text(
                         _shortOnion(peerId),
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
                         ),
                       ),
-                      trailing: TextButton(
+                      trailing: PrysmTextButton(
+                        label: 'Unblock',
                         onPressed: () => _confirmUnblock(peerId),
-                        child: const Text('Unblock'),
                       ),
-                      onTap: () async {
+                      onTap: () {
                         if (contact == null || widget.onOpenChat == null) {
                           return;
                         }

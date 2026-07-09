@@ -1,8 +1,7 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 
-/// Scrolls the chat list until [messageId] is visible, loading older pages as needed.
 Future<bool> scrollToChatMessage({
-  required InMemoryChatController controller,
+  required PrysmChatMessageList controller,
   required String messageId,
   required Future<bool> Function() loadMore,
   int maxAttempts = 40,

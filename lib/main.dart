@@ -1,12 +1,17 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -69,7 +74,15 @@ import 'package:prysm/util/tor_supervisor.dart';
 import 'package:prysm/screens/profile_screen.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/models/contact.dart';
-import 'package:prysm/util/theme_manager.dart';
+import 'package:prysm/theme/prysm_theme.dart';
+import 'package:prysm/screens/home/empty_home_state.dart';
+import 'package:prysm/ui/prysm_list_row.dart';
+import 'package:prysm/ui/prysm_search_field.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
@@ -165,6 +178,10 @@ Future<void> _runDetachedApp(DetachedChatLaunch launch) async {
 }
 
 Future<void> _runMainApp() async {
+  if (Platform.isAndroid || Platform.isIOS) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
   // Prevent multiple instances on desktop
   if (!Platform.isAndroid && !Platform.isIOS) {
     final docDir = await getApplicationDocumentsDirectory();
@@ -709,12 +726,24 @@ class _MyAppState extends State<MyApp> {
     await settings.setThemeMode(themeIndex);
   }
 
+  void updateAppearance() {
+    // Style refresh is driven by SettingsService.styleRevision.
+  }
+
+  Widget _prysmApp({required Widget home, String? title}) {
+    return PrysmApp(
+      key: const ValueKey('prysm_app_root'),
+      themePalette: _currentTheme,
+      appearance: settings.appearance,
+      title: title,
+      home: home,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_startupError != null) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeManager.getTheme(_currentTheme),
+      return _prysmApp(
         home: StartupFatalErrorScreen(
           error: _startupError!,
           keyManager: widget.keyManager,
@@ -724,17 +753,13 @@ class _MyAppState extends State<MyApp> {
     }
 
     if (!_migrationChecked) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeManager.getTheme(_currentTheme),
-        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
+      return _prysmApp(
+        home: const PrysmPage(body: Center(child: PrysmProgressIndicator())),
       );
     }
 
     if (_needsMigration) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeManager.getTheme(_currentTheme),
+      return _prysmApp(
         home: CryptoMigrationScreen(
           keyManager: widget.keyManager,
           onComplete: () => setState(() {
@@ -745,18 +770,14 @@ class _MyAppState extends State<MyApp> {
     }
 
     if (!_keysChecked) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeManager.getTheme(_currentTheme),
-        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
+      return _prysmApp(
+        home: const PrysmPage(body: Center(child: PrysmProgressIndicator())),
       );
     }
 
     if (!_keysExist) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
+      return _prysmApp(
         title: "Setup ${settings.name}",
-        theme: ThemeManager.getTheme(_currentTheme),
         home: OnboardingScreen(
           isInitialSetup: true,
           keyManager: widget.keyManager,
@@ -779,10 +800,8 @@ class _MyAppState extends State<MyApp> {
     }
 
     if (!unlocked) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
+      return _prysmApp(
         title: "Unlock ${settings.name} Chat",
-        theme: ThemeManager.getTheme(_currentTheme),
         home: UnlockScreen(
           usePin: settings.unlockType == UnlockType.pin,
           onVerify: onVerifyUnlock,
@@ -794,23 +813,21 @@ class _MyAppState extends State<MyApp> {
       );
     }
     if (!_torReady && !_offlineMode) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
+      return _prysmApp(
         title: '${settings.name} Chat',
-        theme: ThemeManager.getTheme(_currentTheme),
-        home: Scaffold(
+        home: PrysmPage(
           body: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (_torFailed)
                   Icon(
-                    Icons.wifi_off,
+                    PrysmIcons.wifiOff,
                     size: 48,
-                    color: Theme.of(context).colorScheme.error,
+                    color: context.prysmStyle.tokens.danger,
                   )
                 else
-                  const CircularProgressIndicator(),
+                  const PrysmProgressIndicator(),
                 const SizedBox(height: 24),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -832,30 +849,47 @@ class _MyAppState extends State<MyApp> {
                       : 'Setting up secure connection...',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).hintColor,
+                    color: context.prysmStyle.tokens.textMuted,
                   ),
                 ),
                 if (!_torFailed && _torBootstrapProgress > 0) ...[
                   const SizedBox(height: 12),
                   SizedBox(
                     width: 200,
-                    child: LinearProgressIndicator(
-                      value: _torBootstrapProgress / 100,
+                    height: 4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: context.prysmStyle.tokens.outline,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: FractionallySizedBox(
+                          widthFactor:
+                              (_torBootstrapProgress / 100).clamp(0.0, 1.0),
+                          heightFactor: 1,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: context.prysmStyle.tokens.accent,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
                 if (_torFailed) ...[
                   const SizedBox(height: 24),
-                  ElevatedButton.icon(
+                  PrysmButton(
+                    label: 'Retry',
                     onPressed: _retryTor,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
                   ),
                   const SizedBox(height: 12),
-                  OutlinedButton.icon(
+                  PrysmButton(
+                    label: 'Continue offline',
+                    variant: PrysmButtonVariant.secondary,
                     onPressed: _enterOfflineMode,
-                    icon: const Icon(Icons.offline_bolt),
-                    label: const Text('Continue offline'),
                   ),
                 ],
               ],
@@ -869,10 +903,8 @@ class _MyAppState extends State<MyApp> {
         : (_onionAddress ?? '');
     final showOnboarding = !_panicDecoySession && !settings.onboardingCompleted;
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
+    return _prysmApp(
       title: '${settings.name} Chat',
-      theme: ThemeManager.getTheme(_currentTheme),
       home: showOnboarding
           ? OnboardingScreen(
               onionAddress: onionAddress,
@@ -888,6 +920,7 @@ class _MyAppState extends State<MyApp> {
                 onionAddress: onionAddress,
                 keyManager: widget.keyManager,
                 onThemeChanged: updateTheme,
+                onAppearanceChanged: updateAppearance,
                 currentTheme: _currentTheme,
                 decoyMode: _panicDecoySession,
                 offlineMode: _offlineMode,
@@ -904,6 +937,7 @@ class HomeScreen extends StatefulWidget {
   final String onionAddress;
   final KeyManager keyManager;
   final Function(int)? onThemeChanged;
+  final VoidCallback? onAppearanceChanged;
   final int currentTheme;
   final bool decoyMode;
   final bool offlineMode;
@@ -916,6 +950,7 @@ class HomeScreen extends StatefulWidget {
     required this.keyManager,
     required this.onConnectTor,
     this.onThemeChanged,
+    this.onAppearanceChanged,
     this.currentTheme = 0,
     this.decoyMode = false,
     this.offlineMode = false,
@@ -945,12 +980,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int currentTheme =
       0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   String _searchQuery = '';
+  final _searchController = TextEditingController();
   Map<String, String> _lastMessagePreviews = {};
   Map<String, int> _unreadCounts = {};
   Map<String, ConversationPreferences> _conversationPrefs = {};
   Map<String, List<DecoyMessage>> _decoyMessages = {};
   bool _viewingArchived = false;
   bool _viewingBlocked = false;
+  bool _sidebarOpen = false;
 
   Timer? _refreshTimer;
   Timer? _loadUsersDebounce;
@@ -1311,9 +1348,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await DetachedChatWindowRegistry.instance.openOrFocus(launch);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open separate window: $e')),
-      );
+      showPrysmToast(context, 'Could not open separate window: $e');
     }
   }
 
@@ -1332,9 +1367,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await DetachedChatWindowRegistry.instance.openOrFocus(launch);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open separate window: $e')),
-      );
+      showPrysmToast(context, 'Could not open separate window: $e');
     }
   }
 
@@ -1463,9 +1496,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _closeMobileDrawerIfOpen() {
     if (!mounted) return;
     if (MediaQuery.of(context).size.width >= 600) return;
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
-      navigator.pop();
+    if (_sidebarOpen) {
+      setState(() => _sidebarOpen = false);
     }
   }
 
@@ -1806,6 +1838,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showSettings = false;
       showSelfChat = false;
     });
+    _closeMobileDrawerIfOpen();
     _syncActiveConversationTracker();
     _dismissConversationNotification(senderId: contact.id);
   }
@@ -1818,24 +1851,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showSettings = false;
       showSelfChat = false;
     });
+    _closeMobileDrawerIfOpen();
     _syncActiveConversationTracker();
     _dismissConversationNotification(groupId: group.id, senderId: group.id);
   }
 
   void _showCreateGroup() {
     if (widget.decoyMode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
+      showPrysmToast(context, 
             'Could not create group. Make sure all members are online and try again.',
-          ),
-        ),
-      );
+          );
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CreateGroupScreen(
+      PrysmPageRoute(page: CreateGroupScreen(
           userId: widget.onionAddress,
           contacts: contacts,
           keyManager: widget.keyManager,
@@ -1882,6 +1911,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.onThemeChanged?.call(themeIndex);
   }
 
+  void onAppearanceChanged() {
+    widget.onAppearanceChanged?.call();
+  }
+
   bool _isEditableFocused() {
     final ctx = FocusManager.instance.primaryFocus?.context;
     return ctx?.widget is EditableText;
@@ -1909,11 +1942,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return '$label ($mod+$key)';
   }
 
+  Widget _tooltipIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+  }) {
+    return Semantics(
+      label: tooltip,
+      button: true,
+      child: PrysmIconButton(
+        icon: icon,
+        onPressed: onPressed,
+      ),
+    );
+  }
+
   Future<void> _showAddUserDialog({String? prefilledId}) async {
     if (widget.offlineMode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect to Tor before adding contacts')),
-      );
+      showPrysmToast(context, 'Connect to Tor before adding contacts');
       return;
     }
 
@@ -1945,14 +1991,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (widget.decoyMode) {
         if (!dialogContext.mounted) return;
-        ScaffoldMessenger.of(dialogContext).showSnackBar(
-          const SnackBar(
-            content: Text(
+        showPrysmToast(dialogContext, 
               'Could not reach peer or fetch their public key. '
               'Make sure they are online and try again.',
-            ),
-          ),
-        );
+            );
         return;
       }
       final added = await _addNewUser(
@@ -1962,84 +2004,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       if (!dialogContext.mounted) return;
       if (!added) {
-        ScaffoldMessenger.of(dialogContext).showSnackBar(
-          const SnackBar(
-            content: Text(
+        showPrysmToast(dialogContext, 
               'Could not reach peer or fetch their public key. '
               'Make sure they are online and try again.',
-            ),
-          ),
-        );
+            );
         return;
       }
       await loadUsers();
       if (dialogContext.mounted) Navigator.of(dialogContext).pop();
     }
 
-    await showDialog(
+    await showGeneralDialog<void>(
       context: hostContext,
-      builder: (dialogContext) {
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: const Color(0x80000000),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
         Future<void> scanQrCode() async {
           Navigator.of(dialogContext).pop();
           final scannedValue = await Navigator.push<String>(
             hostContext,
-            MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+            PrysmPageRoute(page: const QrScannerScreen()),
           );
           if (scannedValue != null && scannedValue.isNotEmpty) {
             _showAddUserDialog(prefilledId: scannedValue);
           }
         }
 
-        return AlertDialog(
-          title: const Text('Add contact'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: idController,
-                      autofocus: prefilledId == null,
-                      decoration: const InputDecoration(
-                        labelText: 'User ID (Base58 Onion URL)',
-                        hintText: 'eg. 51EsbujFRDJLHJ',
+        final style = dialogContext.prysmStyle;
+        return Center(
+          child: PrysmDialog(
+            title: 'Add contact',
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'User ID (Base58 Onion URL)',
+                            style: style.captionStyle,
+                          ),
+                          const SizedBox(height: 6),
+                          PrysmTextField(
+                            controller: idController,
+                            autofocus: prefilledId == null,
+                            hintText: 'eg. 51EsbujFRDJLHJ',
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  if (QrPlatform.isScanSupported)
-                    IconButton(
-                      icon: const Icon(Icons.qr_code_scanner),
-                      tooltip: 'Scan QR code',
-                      onPressed: scanQrCode,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: nameController,
-                autofocus: prefilledId != null,
-                decoration: const InputDecoration(
-                  labelText: 'Display name',
-                  hintText: 'eg. Alice',
+                    if (QrPlatform.isScanSupported)
+                      _tooltipIconButton(
+                        icon: PrysmIcons.qrCodeScanner,
+                        tooltip: 'Scan QR code',
+                        onPressed: scanQrCode,
+                      ),
+                  ],
                 ),
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => submit(dialogContext),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text('Display name', style: style.captionStyle),
+                const SizedBox(height: 6),
+                PrysmTextField(
+                  controller: nameController,
+                  autofocus: prefilledId != null,
+                  hintText: 'eg. Alice',
+                  onSubmitted: (_) => submit(dialogContext),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PrysmPressable(
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Text('Cancel', style: style.bodyStyle),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    PrysmButton(
+                      label: 'Add',
+                      onPressed: () => submit(dialogContext),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => submit(dialogContext),
-              child: const Text('Add'),
-            ),
-          ],
         );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
       },
     );
   }
@@ -2082,17 +2143,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 onOpenDetached: _openDetachedSelfChat,
               )
             : null,
-        child: ListTile(
+        child: PrysmListRow(
+          selected: showSelfChat,
           leading: ContactAvatar(
             name: appUser.name,
             avatarBase64: appUser.avatarBase64,
           ),
-          title: const Text('Chat with myself'),
-          subtitle: Text(subtitle),
-          selected: showSelfChat,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          title: 'Chat with myself',
+          subtitle: subtitle,
           onTap: onSelectSelfChat,
         ),
       ),
@@ -2108,31 +2166,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         dt.year == now.year && dt.month == now.month && dt.day == now.day;
 
     if (isSameDay) {
-      // Format as "HH:mm"
-      return DateFormat('HH:mm').format(dt);
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return '$h:$m';
     } else {
-      // Format as "dd/MM/yy - HH:mm"
-      return DateFormat('dd/MM/yy - HH:mm').format(dt);
+      final d = dt.day.toString().padLeft(2, '0');
+      final mo = dt.month.toString().padLeft(2, '0');
+      final y = (dt.year % 100).toString().padLeft(2, '0');
+      final h = dt.hour.toString().padLeft(2, '0');
+      final min = dt.minute.toString().padLeft(2, '0');
+      return '$d/$mo/$y - $h:$min';
     }
   }
 
   Widget buildSidebar() {
     final isMobile =
-        MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
+        MediaQuery.of(context).size.width < 600;
+    final tokens = context.prysmTokens;
+    final safePadding = MediaQuery.paddingOf(context);
 
     return Container(
-      margin: EdgeInsetsGeometry.only(
-        top: isMobile ? 50 : 0,
-        bottom: isMobile ? 20 : 0,
+      margin: EdgeInsets.only(
+        top: isMobile ? safePadding.top : 0,
+        bottom: isMobile ? safePadding.bottom : 0,
       ),
-      width: 280,
+      width: 320,
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: tokens.sidebar,
         border: Border(
-          right: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
-            width: 1,
-          ),
+          right: BorderSide(color: tokens.divider, width: 1),
         ),
       ),
       child: Column(
@@ -2142,7 +2204,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                  color: context.prysmStyle.tokens.divider.withValues(alpha: 0.1),
                   width: 1,
                 ),
               ),
@@ -2171,14 +2233,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         _onionPreview(widget.onionAddress),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Theme.of(context).hintColor,
+                          color: context.prysmStyle.tokens.textMuted,
                         ),
                       ),
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.qr_code, size: 20),
+                _tooltipIconButton(
+                  icon: PrysmIcons.qrCode,
                   tooltip: 'Show my QR code',
                   onPressed: () {
                     String? fingerprint;
@@ -2196,15 +2258,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   },
                 ),
                 if (QrPlatform.isScanSupported)
-                  IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, size: 20),
+                  _tooltipIconButton(
+                    icon: PrysmIcons.qrCodeScanner,
                     tooltip: 'Scan a QR code',
                     onPressed: () async {
                       final scanned = await Navigator.push<String>(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => const QrScannerScreen(),
-                        ),
+                        PrysmPageRoute(page: const QrScannerScreen()),
                       );
                       if (scanned != null && scanned.isNotEmpty) {
                         _showAddUserDialog(prefilledId: scanned);
@@ -2219,12 +2279,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                  _tooltipIconButton(
+                    icon: PrysmIcons.arrowBack,
                     tooltip: 'Back to chats',
                     onPressed: () => setState(() {
                       _viewingArchived = false;
                       _searchQuery = '';
+                      _searchController.clear();
                     }),
                   ),
                   const Expanded(
@@ -2244,12 +2305,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                  _tooltipIconButton(
+                    icon: PrysmIcons.arrowBack,
                     tooltip: 'Back to chats',
                     onPressed: () => setState(() {
                       _viewingBlocked = false;
                       _searchQuery = '';
+                      _searchController.clear();
                     }),
                   ),
                   const Expanded(
@@ -2268,36 +2330,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // Search bar
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: TextField(
-                onChanged: (value) {
-                  setState(() => _searchQuery = value.trim().toLowerCase());
-                },
-                decoration: InputDecoration(
-                  hintText: _viewingArchived
-                      ? 'Search archived...'
-                      : _viewingBlocked
+            child: PrysmSearchField(
+              controller: _searchController,
+              hintText: _viewingArchived
+                  ? 'Search archived...'
+                  : _viewingBlocked
                       ? 'Search blocked...'
                       : 'Search chats...',
-                  hintStyle: const TextStyle(fontSize: 14),
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-              ),
+              onChanged: (value) {
+                setState(() => _searchQuery = value.trim().toLowerCase());
+              },
+              onClear: () {
+                setState(() {
+                  _searchQuery = '';
+                  _searchController.clear();
+                });
+              },
             ),
           ),
           const SizedBox(height: 8),
@@ -2317,32 +2365,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         horizontal: 8,
                         vertical: 2,
                       ),
-                      child: ListTile(
+                      child: PrysmListRow(
                         leading: Icon(
-                          Icons.archive_outlined,
-                          color: Theme.of(context).colorScheme.primary,
+                          PrysmIcons.archive,
+                          color: context.prysmStyle.tokens.accent,
                         ),
-                        title: const Text('Archived'),
-                        subtitle: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('$_archivedCount'),
-                            if (_archivedUnreadCount > 0) ...[
-                              const SizedBox(width: 8),
-                              Container(
+                        title: 'Archived',
+                        subtitle: '$_archivedCount',
+                        trailing: _archivedUnreadCount > 0
+                            ? Container(
                                 width: 8,
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: Theme.of(context).colorScheme.primary,
+                                  color: context.prysmStyle.tokens.accent,
                                   shape: BoxShape.circle,
                                 ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                              )
+                            : null,
                         onTap: () => setState(() {
                           _viewingArchived = true;
                           _viewingBlocked = false;
@@ -2355,18 +2394,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       horizontal: 8,
                       vertical: 2,
                     ),
-                    child: ListTile(
+                    child: PrysmListRow(
                       leading: Icon(
-                        Icons.block_outlined,
-                        color: Theme.of(context).colorScheme.primary,
+                        PrysmIcons.blockOutlined,
+                        color: context.prysmStyle.tokens.accent,
                       ),
-                      title: const Text('Blocked'),
-                      subtitle: Text(
-                        '$_blockedCount contact${_blockedCount == 1 ? '' : 's'}',
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      title: 'Blocked',
+                      subtitle:
+                          '$_blockedCount contact${_blockedCount == 1 ? '' : 's'}',
                       onTap: () => setState(() {
                         _viewingBlocked = true;
                         _viewingArchived = false;
@@ -2416,102 +2451,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       : 'Group · $timeLabel';
                 }
 
-                Widget? trailing;
                 final isBlockedContact =
                     conv is DirectConversation &&
                     BlockService.instance.isBlocked(conv.id);
-                if (unreadCount > 0 && !isBlockedContact) {
-                  trailing = CircleAvatar(
-                    radius: 11,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: Text(
-                      unreadCount > 9 ? '9+' : '$unreadCount',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                    ),
-                  );
-                } else if (isBlockedContact && _viewingBlocked) {
-                  trailing = Icon(
-                    Icons.block,
-                    size: 18,
-                    color: Theme.of(context).hintColor,
-                  );
-                } else if (isPinned && !_viewingArchived && !_viewingBlocked) {
-                  trailing = Icon(
-                    Icons.push_pin,
-                    size: 18,
-                    color: Theme.of(context).hintColor,
-                  );
-                }
 
-                return Padding(
+                return GestureDetector(
                   key: ValueKey(
                     '${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount',
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  child: GestureDetector(
-                    onSecondaryTapDown: isDesktopPlatform
-                        ? (details) => _showConversationContextMenu(
-                            details.globalPosition,
-                            conv,
-                          )
-                        : null,
-                    child: ListTile(
-                      leading: leading,
-                      title: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              conv.displayName,
-                              style: TextStyle(
-                                fontWeight: unreadCount > 0 || isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isArchived &&
-                              !_viewingArchived &&
-                              !_viewingBlocked &&
-                              _searchQuery.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 4),
-                              child: Icon(
-                                Icons.archive_outlined,
-                                size: 14,
-                                color: Theme.of(context).hintColor,
-                              ),
-                            ),
-                        ],
-                      ),
-                      subtitle: Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: trailing,
-                      selected: isSelected,
-                      selectedTileColor: Theme.of(
-                        context,
-                      ).primaryColor.withValues(alpha: 0.1),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      onTap: () {
-                        if (conv is DirectConversation) {
-                          onSelectContact(conv.contact);
-                        } else if (conv is GroupConversation) {
-                          onSelectGroup(conv.group);
-                        }
-                      },
-                      onLongPress: () => _showConversationActions(conv),
+                  onSecondaryTapDown: isDesktopPlatform
+                      ? (details) => _showConversationContextMenu(
+                          details.globalPosition,
+                          conv,
+                        )
+                      : null,
+                  onLongPress: () => _showConversationActions(conv),
+                  child: PrysmListRow(
+                    selected: isSelected,
+                    onTap: () {
+                      if (conv is DirectConversation) {
+                        onSelectContact(conv.contact);
+                      } else if (conv is GroupConversation) {
+                        onSelectGroup(conv.group);
+                      }
+                    },
+                    leading: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: leading,
                     ),
+                    title: conv.displayName,
+                    subtitle: subtitle,
+                    trailingSubtitle: timeLabel.contains(' · ')
+                        ? timeLabel.split(' · ').last
+                        : timeLabel,
+                    trailing: unreadCount > 0 && !isBlockedContact
+                        ? PrysmUnreadBadge(count: unreadCount)
+                        : isBlockedContact && _viewingBlocked
+                            ? Icon(PrysmIcons.block,
+                                size: 18, color: tokens.textMuted)
+                            : isPinned &&
+                                    !_viewingArchived &&
+                                    !_viewingBlocked
+                                ? Icon(PrysmIcons.pushPin,
+                                    size: 16, color: tokens.textMuted)
+                                : null,
                   ),
                 );
               },
@@ -2523,7 +2507,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             decoration: BoxDecoration(
               border: Border(
                 top: BorderSide(
-                  color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                  color: context.prysmStyle.tokens.divider.withValues(alpha: 0.1),
                   width: 1,
                 ),
               ),
@@ -2531,25 +2515,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  onPressed: onShowSettings,
+                _tooltipIconButton(
+                  icon: PrysmIcons.settingsOutlined,
                   tooltip: _desktopShortcutTooltip('Settings', 'I'),
+                  onPressed: onShowSettings,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.person_outline),
-                  onPressed: onShowProfile,
+                _tooltipIconButton(
+                  icon: PrysmIcons.personOutline,
                   tooltip: 'Profile',
+                  onPressed: onShowProfile,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.group_add_outlined),
-                  onPressed: _showCreateGroup,
+                _tooltipIconButton(
+                  icon: PrysmIcons.groupAddOutlined,
                   tooltip: _desktopShortcutTooltip('Create Group', 'G'),
+                  onPressed: _showCreateGroup,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline),
-                  onPressed: _showAddUserDialog,
+                _tooltipIconButton(
+                  icon: PrysmIcons.addCircle,
                   tooltip: _desktopShortcutTooltip('Add Contact', 'N'),
+                  onPressed: _showAddUserDialog,
                 ),
               ],
             ),
@@ -2577,6 +2561,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       NotificationService.onCallNotificationTap = null;
     }
     WidgetsBinding.instance.removeObserver(this);
+    _searchController.dispose();
     _shutdownTor();
     super.dispose();
   }
@@ -2755,9 +2740,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       TorConnectionNotifier.instance.update(TorConnectionState.connected);
       await _onTorReconnected();
       if (userInitiated && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tor restarted successfully')),
-        );
+        showPrysmToast(context, 'Tor restarted successfully');
       }
     } catch (e) {
       _torStopped = true;
@@ -2769,9 +2752,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       if (userInitiated) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Tor restart failed: $e')));
+        showPrysmToast(context, 'Tor restart failed: $e');
       }
     } finally {
       _torRestartInProgress = false;
@@ -2782,22 +2763,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showTorStatusSheet() {
-    showModalBottomSheet<void>(
+    showPrysmSheet<void>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
+      builder: (ctx) {
+        final style = ctx.prysmStyle;
+        final tokens = style.tokens;
+        return Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Tor connection', style: Theme.of(ctx).textTheme.titleLarge),
+              Text('Tor connection', style: style.headlineStyle),
               const SizedBox(height: 12),
               Row(
                 children: [
                   _torStatusDot(_torConnectionState),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(_torStatusLabel(_torConnectionState))),
+                  Expanded(
+                    child: Text(
+                      _torStatusLabel(_torConnectionState),
+                      style: style.bodyStyle,
+                    ),
+                  ),
                 ],
               ),
               if (_torNeedsAttention) ...[
@@ -2805,16 +2793,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Text(
                   'Tor needs attention — automatic recovery paused. '
                   'Try Restart Tor manually.',
-                  style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(ctx).colorScheme.error,
-                  ),
+                  style: style.bodyStyle.copyWith(color: tokens.danger),
                 ),
               ],
               if (_torSupervisor?.lastHealthFailureReason != null) ...[
                 const SizedBox(height: 8),
                 Text(
                   'Last issue: ${_torSupervisor!.lastHealthFailureReason}',
-                  style: Theme.of(ctx).textTheme.bodySmall,
+                  style: style.captionStyle,
                 ),
               ],
               if (_torSupervisor != null &&
@@ -2822,7 +2808,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 4),
                 Text(
                   'Auto-restarts: ${_torSupervisor!.autoRestartCount}',
-                  style: Theme.of(ctx).textTheme.bodySmall,
+                  style: style.captionStyle,
                 ),
               ],
               if (TransportProvider.isConfigured) ...[
@@ -2830,7 +2816,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Text(
                   'Outbound queue depth: '
                   '${TransportProvider.instance.outboundQueueDepth}',
-                  style: Theme.of(ctx).textTheme.bodySmall,
+                  style: style.captionStyle,
                 ),
               ],
               if (!Platform.isAndroid && !Platform.isIOS) ...[
@@ -2838,34 +2824,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Text(
                   'Health check: '
                   '${widget.torManager.lastHealthPollWasLight ? 'light (SOCKS)' : 'full (control)'}',
-                  style: Theme.of(ctx).textTheme.bodySmall,
+                  style: style.captionStyle,
                 ),
               ],
               const SizedBox(height: 8),
               Text(
                 'Onion: ${widget.onionAddress}',
-                style: Theme.of(ctx).textTheme.bodySmall,
+                style: style.captionStyle,
               ),
               if (_torSupervisor != null &&
                   _torSupervisor!.recentStderrLines.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text(
-                  'Recent Tor log',
-                  style: Theme.of(ctx).textTheme.labelLarge,
-                ),
+                Text('Recent Tor log', style: style.titleStyle),
                 const SizedBox(height: 4),
                 Container(
                   width: double.infinity,
                   constraints: const BoxConstraints(maxHeight: 120),
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+                    color: tokens.surfaceElevated,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: SingleChildScrollView(
                     child: Text(
                       _torSupervisor!.recentStderrLines.join('\n'),
-                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      style: style.captionStyle.copyWith(
                         fontFamily: 'monospace',
                         fontSize: 11,
                       ),
@@ -2875,66 +2858,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
               const SizedBox(height: 20),
               if (widget.offlineMode) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: widget.torConnecting
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            widget.onConnectTor();
-                          },
-                    icon: const Icon(Icons.link),
-                    label: Text(
-                      widget.torConnecting ? 'Connecting…' : 'Connect Tor',
-                    ),
-                  ),
+                PrysmButton(
+                  label: widget.torConnecting ? 'Connecting…' : 'Connect Tor',
+                  onPressed: widget.torConnecting
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          widget.onConnectTor();
+                        },
                 ),
               ] else ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed:
-                        _torConnectionState == TorConnectionState.connecting ||
-                            _torRestartInProgress
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            _restartTor();
-                          },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Restart Tor'),
-                  ),
+                PrysmButton(
+                  label: 'Restart Tor',
+                  onPressed:
+                      _torConnectionState == TorConnectionState.connecting ||
+                          _torRestartInProgress
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _restartTor();
+                        },
                 ),
                 const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _torRestartInProgress
-                        ? null
-                        : () async {
-                            Navigator.pop(ctx);
-                            final ok = await widget.torManager.refreshCircuit();
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  ok
-                                      ? 'New Tor circuit requested'
-                                      : 'Circuit refresh failed',
-                                ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.swap_horiz),
-                    label: const Text('New circuit'),
-                  ),
+                PrysmButton(
+                  label: 'New circuit',
+                  variant: PrysmButtonVariant.secondary,
+                  onPressed: _torRestartInProgress
+                      ? null
+                      : () async {
+                          Navigator.pop(ctx);
+                          final ok = await widget.torManager.refreshCircuit();
+                          if (!mounted) return;
+                          showPrysmToast(
+                            context,
+                            ok
+                                ? 'New Tor circuit requested'
+                                : 'Circuit refresh failed',
+                          );
+                        },
                 ),
               ],
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -2947,16 +2914,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildOfflineBanner() {
     if (!widget.offlineMode) return const SizedBox.shrink();
-    return Material(
-      color: Theme.of(context).colorScheme.errorContainer,
+    final tokens = context.prysmStyle.tokens;
+    return ColoredBox(
+      color: tokens.danger.withValues(alpha: 0.15),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             Icon(
-              Icons.wifi_off,
+              PrysmIcons.wifiOff,
               size: 18,
-              color: Theme.of(context).colorScheme.onErrorContainer,
+              color: tokens.danger,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2966,14 +2934,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     : 'Offline — messages will send when Tor connects',
                 style: TextStyle(
                   fontSize: 13,
-                  color: Theme.of(context).colorScheme.onErrorContainer,
+                  color: tokens.danger,
                 ),
               ),
             ),
             if (!widget.torConnecting)
-              TextButton(
-                onPressed: () => widget.onConnectTor(),
-                child: const Text('Connect'),
+              PrysmPressable(
+                onTap: () => widget.onConnectTor(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    'Connect',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: tokens.danger,
+                    ),
+                  ),
+                ),
               ),
           ],
         ),
@@ -2982,9 +2963,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Color _torStatusColor(TorConnectionState state) => switch (state) {
-    TorConnectionState.connected => Colors.green,
-    TorConnectionState.connecting => Colors.orange,
-    TorConnectionState.disconnected => Colors.red,
+    TorConnectionState.connected => const Color(0xFF4CAF50),
+    TorConnectionState.connecting => const Color(0xFFFF9800),
+    TorConnectionState.disconnected => const Color(0xFFF44336),
   };
 
   Widget _torStatusDot(TorConnectionState state, {double size = 10}) {
@@ -3027,14 +3008,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Padding(
       padding: const EdgeInsets.only(right: 4),
-      child: Tooltip(
-        message: 'Tor: ${_torStatusLabel(_torConnectionState)}',
-        child: Material(
-          color: color.withValues(alpha: 0.12),
+      child: Semantics(
+        label: 'Tor: ${_torStatusLabel(_torConnectionState)}',
+        button: true,
+        child: PrysmPressable(
+          onTap: _showTorStatusSheet,
           borderRadius: BorderRadius.circular(20),
-          child: InkWell(
-            onTap: _showTorStatusSheet,
-            borderRadius: BorderRadius.circular(20),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
             child: Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: narrow ? 10 : 12,
@@ -3043,7 +3027,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.shield_outlined, size: 18, color: color),
+                  Icon(PrysmIcons.shieldOutlined, size: 18, color: color),
                   const SizedBox(width: 6),
                   _torStatusDot(_torConnectionState, size: 8),
                   if (!narrow) ...[
@@ -3069,21 +3053,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _copyPrysmId() {
     final id = encodeOnionToBase58(appUser.id);
     Clipboard.setData(ClipboardData(text: id));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Prysm ID copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  String _truncateId(String id, {int head = 12, int tail = 8}) {
-    if (id.length <= head + tail + 3) return id;
-    return '${id.substring(0, head)}…${id.substring(id.length - tail)}';
+    showPrysmToast(context, 'Prysm ID copied to clipboard');
   }
 
   Widget _buildEmptyHomeState() {
-    final theme = Theme.of(context);
     final prysmId = encodeOnionToBase58(appUser.id);
     final contactCount = contacts
         .where((c) => c.id != widget.onionAddress)
@@ -3091,239 +3064,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final groupCount = groups.length;
     final displayName = appUser.name.isNotEmpty ? appUser.name : 'there';
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.surface,
-            theme.colorScheme.primary.withValues(alpha: 0.06),
-            theme.colorScheme.surface,
-          ],
-        ),
-      ),
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        theme.colorScheme.primary,
-                        theme.colorScheme.primary.withValues(alpha: 0.7),
-                      ],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.35,
-                        ),
-                        blurRadius: 32,
-                        offset: const Offset(0, 12),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.chat_bubble_rounded,
-                    size: 56,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  'Welcome back, $displayName',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Pick a conversation from the sidebar or start a new one.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.hintColor,
-                    height: 1.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 28),
-                Material(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.6,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 14,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.fingerprint_outlined,
-                          color: theme.colorScheme.primary,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Your Prysm ID',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.hintColor,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _truncateId(prysmId),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.copy_rounded,
-                            size: 20,
-                            color: theme.colorScheme.primary,
-                          ),
-                          tooltip: 'Copy ID',
-                          onPressed: _copyPrysmId,
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.qr_code,
-                            color: theme.colorScheme.primary,
-                          ),
-                          tooltip: 'Show full QR code',
-                          onPressed: () =>
-                              showPrysmIdQrDialog(context, prysmId),
-                        ),
-                        if (QrPlatform.isScanSupported)
-                          IconButton(
-                            icon: Icon(
-                              Icons.qr_code_scanner,
-                              color: theme.colorScheme.primary,
-                            ),
-                            tooltip: 'Scan a QR code',
-                            onPressed: () async {
-                              final scanned = await Navigator.push<String>(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const QrScannerScreen(),
-                                ),
-                              );
-                              if (scanned != null && scanned.isNotEmpty) {
-                                _showAddUserDialog(prefilledId: scanned);
-                              }
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildHomeActionCard(
-                        icon: Icons.person_add_alt_1_rounded,
-                        title: 'Add contact',
-                        subtitle: 'Connect via their onion ID',
-                        onTap: _showAddUserDialog,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildHomeActionCard(
-                        icon: Icons.groups_rounded,
-                        title: 'Create group',
-                        subtitle: 'Up to 5 members',
-                        onTap: _showCreateGroup,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  '$contactCount ${contactCount == 1 ? 'contact' : 'contacts'} · $groupCount ${groupCount == 1 ? 'group' : 'groups'}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.hintColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHomeActionCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.cardColor,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.15)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: theme.colorScheme.primary, size: 24),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.hintColor,
-                  height: 1.3,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return EmptyHomeState(
+      displayName: displayName,
+      prysmId: prysmId,
+      contactCount: contactCount,
+      groupCount: groupCount,
+      onCopyId: _copyPrysmId,
+      onShowQr: () => showPrysmIdQrDialog(context, prysmId),
+      onAddContact: _showAddUserDialog,
+      onCreateGroup: _showCreateGroup,
+      onScanQr: QrPlatform.isScanSupported
+          ? () async {
+              final scanned = await Navigator.push<String>(
+                context,
+                PrysmPageRoute(page: const QrScannerScreen()),
+              );
+              if (scanned != null && scanned.isNotEmpty) {
+                _showAddUserDialog(prefilledId: scanned);
+              }
+            }
+          : null,
     );
   }
 
@@ -3361,6 +3121,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return SettingsScreen(
         onClose: () => setState(() => showSettings = false),
         onThemeChanged: onThemeChanged,
+        onAppearanceChanged: onAppearanceChanged,
         torManager: widget.torManager,
         keyManager: widget.decoyMode ? null : widget.keyManager,
         onionAddress: widget.decoyMode ? null : widget.onionAddress,
@@ -3437,38 +3198,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return _buildEmptyHomeState();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isMobile =
-        MediaQuery.of(context).size.width < 600; // You can tune this breakpoint
-
-    if (isLoading) {
-      return const Material(child: Center(child: CircularProgressIndicator()));
-    }
-
-    if (isMobile) {
-      return Scaffold(
-        appBar:
-            selectedConversation == null &&
-                !showProfile &&
-                !showSettings &&
-                !showSelfChat
-            ? AppBar(
-                toolbarHeight: 70,
-                title: Row(
+  Widget _buildHomeHeader({
+    required bool showMenuButton,
+    required List<Widget> actions,
+  }) {
+    final tokens = context.prysmStyle.tokens;
+    return ColoredBox(
+      color: tokens.surface,
+      child: SafeArea(
+        bottom: false,
+        left: false,
+        right: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 70,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
                   children: [
+                    if (showMenuButton)
+                      _tooltipIconButton(
+                        icon: PrysmIcons.menu,
+                        tooltip: 'Open menu',
+                        onPressed: () => setState(() => _sidebarOpen = true),
+                      ),
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).primaryColor.withValues(alpha: 0.1),
+                        color: tokens.accent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Image.asset(
                         'assets/logo.png',
-                        height: 40.0,
-                        width: 40.0,
+                        height: 40,
+                        width: 40,
                         fit: BoxFit.contain,
                       ),
                     ),
@@ -3476,47 +3241,114 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Expanded(
                       child: Text(
                         '${settings.name} Chat',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    ...actions,
                   ],
                 ),
-                leading: Builder(
-                  builder: (context) => IconButton(
-                    icon: const Icon(Icons.menu),
-                    onPressed: () => Scaffold.of(context).openDrawer(),
-                  ),
-                ),
-                actions: [
-                  _buildTorAppBarAction(),
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined),
-                    tooltip: 'Settings',
-                    onPressed: () => setState(() {
-                      showSettings = true;
-                      showSelfChat = false;
-                    }),
-                  ),
-                ],
-                elevation: 2,
-                shadowColor: Colors.black.withValues(alpha: 0.1),
-              )
-            : null,
-        drawer: Drawer(child: buildSidebar()),
-        body: Column(
-          children: [
-            _buildOfflineBanner(),
-            Expanded(
-              child: Row(children: [Expanded(child: _buildChatBody())]),
+              ),
             ),
+            Container(height: 1, color: tokens.divider),
           ],
         ),
-      );
+      ),
+    );
+  }
+
+  Widget _buildHomeBody({required bool isMobile}) {
+    final tokens = context.prysmStyle.tokens;
+    final showHomeHeader = isMobile &&
+        selectedConversation == null &&
+        !showProfile &&
+        !showSettings &&
+        !showSelfChat;
+
+    final content = ColoredBox(
+      color: tokens.background,
+      child: Column(
+        children: [
+          if (showHomeHeader)
+            _buildHomeHeader(
+              showMenuButton: true,
+              actions: [
+                if (!widget.decoyMode) _buildTorAppBarAction(),
+                _tooltipIconButton(
+                  icon: PrysmIcons.settingsOutlined,
+                  tooltip: 'Settings',
+                  onPressed: () => setState(() {
+                    showSettings = true;
+                    showSelfChat = false;
+                  }),
+                ),
+              ],
+            )
+          else if (!isMobile)
+            _buildHomeHeader(
+              showMenuButton: false,
+              actions: [
+                if (!widget.decoyMode) _buildTorAppBarAction(),
+                _tooltipIconButton(
+                  icon: PrysmIcons.settingsOutlined,
+                  tooltip: _desktopShortcutTooltip('Settings', 'I'),
+                  onPressed: onShowSettings,
+                ),
+              ],
+            ),
+          _buildOfflineBanner(),
+          Expanded(
+            child: isMobile
+                ? _buildChatBody()
+                : Row(
+                    children: [
+                      buildSidebar(),
+                      Expanded(child: _buildChatBody()),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+
+    if (!isMobile || !_sidebarOpen) {
+      return content;
     }
+
+    return Stack(
+      children: [
+        content,
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => setState(() => _sidebarOpen = false),
+            child: const ColoredBox(color: Color(0x66000000)),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          child: buildSidebar(),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    if (isLoading) {
+      return const PrysmPage(body: Center(child: PrysmProgressIndicator()));
+    }
+
+    if (isMobile) {
+      return _buildHomeBody(isMobile: true);
+    }
+
     return CallbackShortcuts(
       bindings: {
         ..._desktopShortcut(LogicalKeyboardKey.keyN, _showAddUserDialog),
@@ -3525,58 +3357,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
-          appBar: AppBar(
-            toolbarHeight: 70,
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).primaryColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Image.asset(
-                    'assets/logo.png',
-                    height: 40.0,
-                    width: 40.0,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '${settings.name} Chat',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            actions: [
-              _buildTorAppBarAction(),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: _desktopShortcutTooltip('Settings', 'I'),
-                onPressed: onShowSettings,
-              ),
-            ],
-            elevation: 2,
-            shadowColor: Colors.black.withValues(alpha: 0.1),
-          ),
-          body: Column(
-            children: [
-              _buildOfflineBanner(),
-              Expanded(
-                child: Row(
-                  children: [
-                    buildSidebar(),
-                    Expanded(child: _buildChatBody()),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: _buildHomeBody(isMobile: false),
       ),
     );
   }

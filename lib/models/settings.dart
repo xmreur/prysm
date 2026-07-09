@@ -1,4 +1,5 @@
 // lib/models/app_settings.dart
+import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/unlock_type.dart';
 
@@ -23,6 +24,7 @@ class Settings {
 
   // Theme
   final int themeMode; // 0=light, 1=dark, 2=pink, 3=cyan, 4=purple, 5=orange
+  final AppearanceSettings appearance;
 
   // Profile
   final String? avatar; // base64 encoded avatar image
@@ -55,6 +57,7 @@ class Settings {
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.themeMode = 0,
+    this.appearance = const AppearanceSettings(),
     this.avatar,
     this.username,
     this.enableFilePreview = false,
@@ -81,6 +84,7 @@ class Settings {
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'themeMode': themeMode,
+    'appearance': appearance.toJson(),
     'avatar': avatar,
     'username': username,
     'enableFilePreview': enableFilePreview,
@@ -107,6 +111,9 @@ class Settings {
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     themeMode: json['themeMode'] ?? 0,
+    appearance: AppearanceSettings.fromJson(
+      json['appearance'] as Map<String, dynamic>?,
+    ),
     avatar: json['avatar'],
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
@@ -135,6 +142,7 @@ class Settings {
     int? messageRetentionDays,
     PanicAction? panicAction,
     int? themeMode,
+    AppearanceSettings? appearance,
     String? avatar,
     String? username,
     bool? enableFilePreview,
@@ -161,6 +169,7 @@ class Settings {
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     themeMode: themeMode ?? this.themeMode,
+    appearance: appearance ?? this.appearance,
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
@@ -204,6 +213,7 @@ class Settings {
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.themeMode == themeMode &&
+        other.appearance == appearance &&
         other.avatar == avatar &&
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
@@ -230,6 +240,7 @@ class Settings {
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         themeMode.hashCode ^
+        appearance.hashCode ^
         (avatar?.hashCode ?? 0) ^
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^

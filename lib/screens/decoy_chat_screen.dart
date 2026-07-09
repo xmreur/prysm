@@ -1,9 +1,13 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/screens/message_composer.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/jump_to_bottom_fab.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/decoy_session_data.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:uuid/uuid.dart';
 
 /// Read-only-looking chat for panic decoy sessions. Messages stay in memory only.
@@ -84,43 +88,47 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = context.prysmStyle.tokens;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: widget.onCloseChat != null
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: widget.onCloseChat,
-              )
-            : null,
-        title: Row(
-          children: [
-            ContactAvatar(
-              name: widget.avatarName ?? widget.title,
-              avatarBase64: widget.avatarBase64,
-              radius: 18,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis,
+    return PrysmPage(
+      leading: widget.onCloseChat != null
+          ? PrysmIconButton(
+              icon: PrysmIcons.arrowBack,
+              onPressed: widget.onCloseChat,
+            )
+          : null,
+      titleWidget: Row(
+        children: [
+          ContactAvatar(
+            name: widget.avatarName ?? widget.title,
+            avatarBase64: widget.avatarBase64,
+            radius: 18,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
-                  if (widget.isGroup)
-                    Text(
-                      'Group',
-                      style: TextStyle(fontSize: 12, color: theme.hintColor),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (widget.isGroup)
+                  Text(
+                    'Group',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: tokens.textMuted,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -131,11 +139,15 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
               bottom: 16,
               child: ListView.builder(
                 controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final msg = _messages[index];
-                  return _DecoyMessageBubble(message: msg, isGroup: widget.isGroup);
+                  return _DecoyMessageBubble(
+                    message: msg,
+                    isGroup: widget.isGroup,
+                  );
                 },
               ),
             ),
@@ -163,18 +175,15 @@ class _DecoyMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = context.prysmStyle.tokens;
     final isMe = message.isMe;
     final time = DateTime.fromMillisecondsSinceEpoch(message.createdAt);
     final timeString =
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
-    final bubbleColor = isMe
-        ? theme.colorScheme.primary.withAlpha(225)
-        : theme.colorScheme.secondary.withAlpha(225);
-    final textColor = isMe
-        ? theme.colorScheme.onPrimary
-        : theme.colorScheme.onSecondary;
+    final bubbleColor = isMe ? tokens.bubbleSent : tokens.bubbleReceived;
+    final textColor =
+        isMe ? tokens.onAccent : tokens.textPrimary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -195,7 +204,7 @@ class _DecoyMessageBubble extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.primary,
+                        color: tokens.accent,
                       ),
                     ),
                   ),
@@ -221,7 +230,7 @@ class _DecoyMessageBubble extends StatelessWidget {
                           timeString,
                           style: TextStyle(
                             fontSize: 10,
-                            color: textColor.withAlpha(180),
+                            color: textColor.withValues(alpha: 0.7),
                           ),
                         ),
                       ),

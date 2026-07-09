@@ -1,10 +1,14 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/services/chat_media_service.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
 
 class ChatMediaTile extends StatefulWidget {
   final ChatMediaItem item;
@@ -89,10 +93,10 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
     if (widget.item.isImage) {
       if (widget.item.isViewOnce) {
         return ColoredBox(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          color: context.prysmStyle.tokens.surfaceElevated,
           child: Icon(
-            Icons.visibility_outlined,
-            color: Theme.of(context).hintColor,
+            PrysmIcons.visibilityOutlined,
+            color: context.prysmStyle.tokens.textMuted,
             size: 32,
           ),
         );
@@ -107,37 +111,39 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
       }
       if (_loading) {
         return const ColoredBox(
-          color: Colors.black12,
+          color: Color(0x12000000),
           child: Center(
             child: SizedBox(
               width: 20,
               height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: const PrysmProgressIndicator(size: 20),
             ),
           ),
         );
       }
       if (_error != null) {
+        final tokens = context.prysmStyle.tokens;
         return ColoredBox(
-          color: Theme.of(context).colorScheme.errorContainer,
+          color: Color.lerp(tokens.danger, tokens.surface, 0.85)!,
           child: Icon(
-            Icons.broken_image_outlined,
-            color: Theme.of(context).colorScheme.onErrorContainer,
+            PrysmIcons.brokenImageOutlined,
+            color: tokens.danger,
           ),
         );
       }
-      return const ColoredBox(color: Colors.black12);
+      return const ColoredBox(color: Color(0x12000000));
     }
 
     if (widget.item.isVoice) {
+      final tokens = context.prysmStyle.tokens;
       return ColoredBox(
-        color: Theme.of(context).colorScheme.primaryContainer,
+        color: tokens.accentMuted,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.mic,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
+              PrysmIcons.mic,
+              color: tokens.accent,
               size: 28,
             ),
             const SizedBox(height: 4),
@@ -145,7 +151,7 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
               'Voice',
               style: TextStyle(
                 fontSize: 11,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                color: tokens.accent,
               ),
             ),
           ],
@@ -156,8 +162,9 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
     final category = ReadableFilePolicy.categorize(
       widget.item.fileName ?? 'file',
     );
+    final tokens = context.prysmStyle.tokens;
     return ColoredBox(
-      color: Theme.of(context).colorScheme.secondaryContainer,
+      color: tokens.surfaceElevated,
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: Column(
@@ -165,7 +172,7 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
           children: [
             Icon(
               _iconForCategory(category),
-              color: Theme.of(context).colorScheme.onSecondaryContainer,
+              color: tokens.textPrimary,
               size: 28,
             ),
             const SizedBox(height: 6),
@@ -176,7 +183,7 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.onSecondaryContainer,
+                color: tokens.textSecondary,
               ),
             ),
           ],
@@ -192,15 +199,15 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.65),
+          color: const Color(0xFF000000).withValues(alpha: 0.65),
           borderRadius: BorderRadius.circular(10),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.filter_1, size: 12, color: Colors.white),
+            Icon(PrysmIcons.filter1, size: 12, color: const Color(0xFFFFFFFF)),
             SizedBox(width: 2),
-            Icon(Icons.visibility, size: 12, color: Colors.white),
+            Icon(PrysmIcons.visibility, size: 12, color: const Color(0xFFFFFFFF)),
           ],
         ),
       ),
@@ -224,35 +231,35 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
   IconData _iconForCategory(FilePreviewCategory category) {
     switch (category) {
       case FilePreviewCategory.pdf:
-        return Icons.picture_as_pdf_outlined;
+        return PrysmIcons.pictureAsPdfOutlined;
       case FilePreviewCategory.video:
-        return Icons.videocam_outlined;
+        return PrysmIcons.videocamOutlined;
       case FilePreviewCategory.audio:
-        return Icons.audiotrack_outlined;
+        return PrysmIcons.audiotrackOutlined;
       case FilePreviewCategory.spreadsheet:
-        return Icons.table_chart_outlined;
+        return PrysmIcons.tableChartOutlined;
       case FilePreviewCategory.document:
       case FilePreviewCategory.presentation:
-        return Icons.description_outlined;
+        return PrysmIcons.descriptionOutlined;
       case FilePreviewCategory.text:
-        return Icons.article_outlined;
+        return PrysmIcons.articleOutlined;
       case FilePreviewCategory.blocked:
-        return Icons.block_outlined;
+        return PrysmIcons.blockOutlined;
       case FilePreviewCategory.binary:
-        return Icons.insert_drive_file_outlined;
+        return PrysmIcons.insertDriveFileOutlined;
     }
   }
 
   void _showActions(BuildContext context) {
-    showModalBottomSheet<void>(
+    showPrysmSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: const Text('Show in chat'),
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.chatBubbleOutline),
+              title: 'Show in chat',
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onShowInChat();

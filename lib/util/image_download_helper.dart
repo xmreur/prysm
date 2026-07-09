@@ -1,7 +1,8 @@
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/download_location.dart';
@@ -36,9 +37,7 @@ class ImageDownloadHelper {
   }) async {
     if (bytes.isEmpty) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image not ready to save')),
-      );
+      showPrysmToast(context, 'Image not ready to save');
       return;
     }
 
@@ -53,37 +52,26 @@ class ImageDownloadHelper {
         final granted = await Gal.requestAccess();
         if (!granted) {
           if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Gallery access denied')),
-          );
+          showPrysmToast(context, 'Gallery access denied');
           return;
         }
         await Gal.putImageBytes(bytes, name: galleryName);
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+        showPrysmToast(context, 
               Platform.isAndroid ? 'Saved to gallery' : 'Saved to Photos',
-            ),
-          ),
-        );
+            );
         return;
       }
 
       final file = await DownloadLocation.saveBytes(bytes, fileName);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Image saved (${file.path.split(Platform.pathSeparator).last})',
-          ),
-        ),
+      showPrysmToast(
+        context,
+        'Image saved (${file.path.split(Platform.pathSeparator).last})',
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save image: $e')),
-      );
+      showPrysmToast(context, 'Could not save image: $e');
     }
   }
 }

@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 
-/// Scrolls the chat list so the latest message is anchored at the bottom.
 Future<void> scrollChatToBottom(
-  InMemoryChatController controller, {
+  PrysmChatMessageList controller, {
   bool animated = false,
 }) async {
   final messages = controller.messages;
@@ -18,22 +18,20 @@ Future<void> scrollChatToBottom(
   );
 }
 
-/// Waits two frames so bubble layout settles, then scrolls to the bottom.
 void scheduleScrollChatToBottom(
-  InMemoryChatController controller, {
+  PrysmChatMessageList controller, {
   bool animated = false,
   required bool Function() isMounted,
 }) {
-  WidgetsBinding.instance.addPostFrameCallback((_) {
+  SchedulerBinding.instance.addPostFrameCallback((_) {
     if (!isMounted()) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!isMounted()) return;
       unawaited(scrollChatToBottom(controller, animated: animated));
     });
   });
 }
 
-/// Returns true when the list is within [threshold] px of the bottom.
 bool isChatScrolledToBottom(
   ScrollController controller, {
   double threshold = 48,

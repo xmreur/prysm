@@ -1,4 +1,5 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/message_status_mapper.dart';
 
@@ -125,5 +126,50 @@ void main() {
     );
     expect(sent.sentAt, isNotNull);
     expect(sent.seenAt, isNull);
+  });
+
+  test('outboundTickState maps pending, delivered, and read', () {
+    final base = TextMessage(
+      authorId: 'me',
+      createdAt: DateTime.now(),
+      id: '1',
+      text: 'hi',
+    );
+
+    expect(
+      outboundTickState(base, readReceiptsEnabled: true),
+      OutboundTickState.pending,
+    );
+
+    final pending = messageWithPendingStatus(base);
+    expect(
+      outboundTickState(pending, readReceiptsEnabled: true),
+      OutboundTickState.pending,
+    );
+    expect(pending.sentAt, isNull);
+
+    final sent = messageWithDeliveryUpdate(
+      pending,
+      status: 'sent',
+      readReceiptsEnabled: true,
+    );
+    expect(
+      outboundTickState(sent, readReceiptsEnabled: true),
+      OutboundTickState.delivered,
+    );
+
+    final read = messageWithDeliveryUpdate(
+      sent,
+      status: 'read',
+      readReceiptsEnabled: true,
+    );
+    expect(
+      outboundTickState(read, readReceiptsEnabled: true),
+      OutboundTickState.read,
+    );
+    expect(
+      outboundTickState(read, readReceiptsEnabled: false),
+      OutboundTickState.delivered,
+    );
   });
 }

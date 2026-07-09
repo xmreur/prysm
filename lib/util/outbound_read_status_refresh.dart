@@ -1,4 +1,5 @@
-import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/util/message_status_mapper.dart';
 

@@ -1,5 +1,8 @@
+import 'package:flutter/widgets.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
-import 'package:flutter/material.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
 
 /// Quick emoji row + optional full picker for message reactions.
 class MessageReactionPicker extends StatefulWidget {
@@ -31,7 +34,7 @@ class _MessageReactionPickerState extends State<MessageReactionPicker> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               for (final emoji in MessageReactionPicker.quickEmojis)
-                InkWell(
+                PrysmPressable(
                   onTap: () => widget.onEmojiSelected(emoji),
                   borderRadius: BorderRadius.circular(20),
                   child: Padding(
@@ -42,9 +45,9 @@ class _MessageReactionPickerState extends State<MessageReactionPicker> {
             ],
           ),
         ),
-        TextButton(
+        PrysmTextButton(
+          label: _showFullPicker ? 'Hide emoji picker' : 'More reactions…',
           onPressed: () => setState(() => _showFullPicker = !_showFullPicker),
-          child: Text(_showFullPicker ? 'Hide emoji picker' : 'More reactions…'),
         ),
         if (_showFullPicker)
           SizedBox(
@@ -67,7 +70,7 @@ Future<void> showMessageActionsSheet({
   required ValueChanged<String> onReactionSelected,
   required List<Widget> actionTiles,
 }) {
-  return showModalBottomSheet<void>(
+  return showPrysmSheet<void>(
     context: context,
     builder: (ctx) => SafeArea(
       child: Column(
@@ -79,7 +82,7 @@ Future<void> showMessageActionsSheet({
               onReactionSelected(emoji);
             },
           ),
-          const Divider(height: 1),
+          const PrysmDivider(),
           ...actionTiles,
         ],
       ),

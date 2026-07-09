@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/screens/widgets/link_unfurl_preview.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/util/url_detector.dart';
 
 class LinkedMessageText extends StatelessWidget {
@@ -61,12 +62,7 @@ class LinkedMessageText extends StatelessWidget {
           onTap: () => onOpenUrl(url),
           onLongPress: () {
             Clipboard.setData(ClipboardData(text: url));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Link copied'),
-                duration: Duration(seconds: 1),
-              ),
-            );
+            showPrysmToast(context, 'Link copied');
           },
           child: Text(
             url,

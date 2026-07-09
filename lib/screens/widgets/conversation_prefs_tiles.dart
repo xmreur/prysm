@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
 
 class ConversationPrefsTiles extends StatefulWidget {
   final String conversationId;
@@ -64,7 +67,7 @@ class _ConversationPrefsTilesState extends State<ConversationPrefsTiles> {
     if (_loading) {
       return const SizedBox(
         height: 96,
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: PrysmProgressIndicator()),
       );
     }
 
@@ -73,14 +76,14 @@ class _ConversationPrefsTilesState extends State<ConversationPrefsTiles> {
 
     return Column(
       children: [
-        ListTile(
-          leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin),
-          title: Text(isPinned ? 'Unpin chat' : 'Pin chat'),
+        PrysmListRow(
+          leading: Icon(isPinned ? PrysmIcons.pushPinOutlined : PrysmIcons.pushPin),
+          title: isPinned ? 'Unpin chat' : 'Pin chat',
           onTap: _togglePin,
         ),
-        ListTile(
-          leading: const Icon(Icons.archive_outlined),
-          title: Text(isArchived ? 'Unarchive chat' : 'Archive chat'),
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.archive),
+          title: isArchived ? 'Unarchive chat' : 'Archive chat',
           onTap: _toggleArchive,
         ),
       ],

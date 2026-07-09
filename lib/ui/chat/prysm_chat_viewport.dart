@@ -46,10 +46,8 @@ class PrysmChatViewport extends StatelessWidget {
                 itemBuilder: itemBuilder,
               ),
             ),
-            if (blockedBanner != null)
-              blockedBanner!
-            else if (composer != null)
-              composer!,
+            ?blockedBanner,
+            if (blockedBanner == null) ?composer,
           ],
         ),
       ),

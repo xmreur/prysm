@@ -21,6 +21,7 @@ import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'blocked_contacts_screen.dart';
+import 'call_history_screen.dart';
 import 'package:prysm/screens/widgets/appearance_settings_section.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/theme/prysm_themes.dart';
@@ -911,6 +912,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+                const PrysmDivider(),
+                _buildNavigationTile(
+                  'Call History',
+                  PrysmIcons.call,
+                  () {
+                    Navigator.push(
+                      context,
+                      PrysmPageRoute(
+                        page: CallHistoryScreen(
+                          onClose: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 const PrysmDivider(),
                 _buildNavigationTile(
                   'Download Location',

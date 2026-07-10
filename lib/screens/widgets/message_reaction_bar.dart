@@ -13,6 +13,7 @@ Message applyReactionsToMessage(
     TextMessage m => m.copyWith(reactions: reactions),
     ImageMessage m => m.copyWith(reactions: reactions),
     FileMessage m => m.copyWith(reactions: reactions),
+    PrysmCallMessage m => m.copyWith(),
   };
 }
 

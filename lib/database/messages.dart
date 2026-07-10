@@ -18,12 +18,15 @@ class MessagesDb {
   static const _dbVersion = 10;
 
   static const String _directChatTypeFilter =
-      "(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
+      "(type IS NULL OR type IN ('text', 'file', 'image', 'audio', 'call'))";
 
   /// Only rows we can decrypt: our outbound copy or peer deliveries to us.
+  /// Also includes local system rows (e.g. call events) from either side.
   static const String _directConversationFilter =
       "((senderId = ? AND receiverId = ? AND COALESCE(status, '') != 'received') "
-      "OR (senderId = ? AND receiverId = ? AND status = 'received'))";
+      "OR (senderId = ? AND receiverId = ? AND status = 'received') "
+      "OR (senderId = ? AND receiverId = ? AND status = 'system') "
+      "OR (senderId = ? AND receiverId = ? AND status = 'system'))";
 
   /// Return singleton database instance
   static Future<Database> get database async {
@@ -371,7 +374,7 @@ class MessagesDb {
         'messages',
         where:
             'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter',
-        whereArgs: [userId, receiverId, receiverId, userId],
+        whereArgs: [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId],
         orderBy: 'timestamp DESC',
       );
     });
@@ -398,7 +401,7 @@ class MessagesDb {
       final db = await database;
       String where =
           'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter';
-      List<dynamic> whereArgs = [userId, receiverId, receiverId, userId];
+      List<dynamic> whereArgs = [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId];
 
       if (beforeTimestamp != null) {
         where += ' AND timestamp < ?';
@@ -428,7 +431,7 @@ class MessagesDb {
 
       String where =
           'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter';
-      List<dynamic> whereArgs = [userId, receiverId, receiverId, userId];
+      List<dynamic> whereArgs = [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId];
 
       if (beforeTimestamp != null && beforeId != null) {
         where += ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
@@ -461,8 +464,8 @@ class MessagesDb {
       await db.delete(
         'messages',
         where:
-            "groupId IS NULL AND $_directChatTypeFilter AND ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))",
-        whereArgs: [userId, receiverId, receiverId, userId],
+            "groupId IS NULL AND $_directChatTypeFilter AND ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ? AND status = 'system') OR (senderId = ? AND receiverId = ? AND status = 'system'))",
+        whereArgs: [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId],
       );
     });
   }
@@ -746,6 +749,8 @@ class MessagesDb {
       case 'audio':
       case 'group_audio':
         return '🎤 Voice';
+      case 'call':
+        return '📞 Call';
       default:
         return 'Message';
     }
@@ -945,7 +950,7 @@ class MessagesDb {
       final db = await database;
       var where =
           'groupId IS NULL AND $_directMediaTypeFilter AND $_mediaContentFilter AND $_directConversationFilter';
-      final whereArgs = <dynamic>[userId, peerId, peerId, userId];
+      final whereArgs = <dynamic>[userId, peerId, peerId, userId, userId, peerId, peerId, userId];
 
       if (typeFilter != null) {
         where += ' AND type = ?';

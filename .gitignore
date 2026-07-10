@@ -53,3 +53,8 @@ build/
 tor_executable/tor
 tor_executable/tor_data/
 .dart_tool/
+
+# Private / local-only
+*.hprof
+.lock
+stt_models/

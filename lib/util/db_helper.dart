@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/blocked_users_db.dart';
+import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/sqflite_platform.dart';
@@ -37,7 +38,7 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 8, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 9, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   static Future _createDB(Database db, int version) async {
@@ -56,6 +57,7 @@ class DBHelper {
     await _createGroupTables(db);
     await ConversationPreferencesDb.createTable(db);
     await BlockedUsersDb.createTable(db);
+    await CallLogsDb.createTable(db);
     await _createCryptoTables(db);
   }
 
@@ -138,6 +140,9 @@ class DBHelper {
     }
     if (oldVersion < 8) {
       await BlockedUsersDb.createTable(db);
+    }
+    if (oldVersion < 9) {
+      await CallLogsDb.createTable(db);
     }
   }
 

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/database/blocked_users_db.dart';
+import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
@@ -46,6 +47,7 @@ void main() {
         version: 1,
         onCreate: (db, _) async {
           await BlockedUsersDb.createTable(db);
+          await CallLogsDb.createTable(db);
         },
       ),
     );
@@ -154,7 +156,7 @@ void main() {
       'callId': caller.callId,
       'reason': 'hangup',
     });
-    await Future<void>.delayed(Duration.zero);
+    await _waitFor(() => manager.snapshot.state == CallState.idle);
     expect(manager.snapshot.state, CallState.idle);
   });
 
@@ -174,6 +176,33 @@ void main() {
     expect(manager.snapshot.state, CallState.incoming);
     await manager.acceptIncoming();
     expect(manager.snapshot.state, CallState.active);
+  });
+
+  test('endCall persists a completed call log', () async {
+    final caller = CallSession.createOutbound(
+      callId: 'hangup-test',
+      sessionId: 11,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+    });
+    await Future<void>.delayed(Duration.zero);
+    await manager.acceptIncoming();
+    expect(manager.snapshot.state, CallState.active);
+
+    await manager.endCall();
+    expect(manager.snapshot.state, CallState.idle);
+    expect(transport.sentFrames.where((f) => f.op == 'call_end'), isNotEmpty);
+
+    final logs = await CallLogsDb.getLogs();
+    expect(logs.where((log) => log.callId == caller.callId), isNotEmpty);
+    final log = logs.firstWhere((log) => log.callId == caller.callId);
+    expect(log.status, CallLogStatus.completed);
+    expect(log.direction, CallLogDirection.inbound);
+    expect(log.peerOnion, 'peer.onion');
   });
 
   test('endCall sends call_end to peer', () async {
@@ -262,6 +291,16 @@ void main() {
       expect(endFrame.payload['reason'], 'declined');
     },
   );
+}
+
+Future<void> _waitFor(bool Function() condition, {int timeoutMs = 2000}) async {
+  final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Condition not met within ${timeoutMs}ms');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
 
 class _RecordingForegroundSession implements CallForegroundSessionPort {

@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/database/call_logs_db.dart';
+import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
@@ -10,6 +13,7 @@ import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/local_onion_address.dart';
 import 'package:uuid/uuid.dart';
 
 enum CallState { idle, connecting, ringing, incoming, active, ended }
@@ -124,6 +128,10 @@ class CallManager extends ChangeNotifier {
   bool _incomingActionInFlight = false;
   bool _shuttingDown = false;
   int _audioSendFailures = 0;
+  String? _currentCallId;
+  CallLogDirection? _currentCallDirection;
+  int? _currentCallStartedAt;
+  bool _callLogFinalized = false;
 
   CallSnapshot _snapshot = const CallSnapshot(state: CallState.idle);
 
@@ -148,6 +156,7 @@ class CallManager extends ChangeNotifier {
 
   Future<void> _handleRemoteHangup() async {
     if (!_snapshot.isInCall) return;
+    await _finalizeCurrentLog();
     await _teardown();
     _setSnapshot(const CallSnapshot(state: CallState.idle));
   }
@@ -188,6 +197,11 @@ class CallManager extends ChangeNotifier {
           peerOnion: peerOnion,
           callId: callId,
         ),
+      );
+      _startCallLog(
+        callId: callId,
+        peerOnion: peerOnion,
+        direction: CallLogDirection.outbound,
       );
       _startRingTimeout(peerOnion, callId);
 
@@ -256,6 +270,7 @@ class CallManager extends ChangeNotifier {
     _ringTimer?.cancel();
     try {
       await _sendEnd(peerOnion, callId, reason: 'declined');
+      await _finalizeCurrentLog(status: CallLogStatus.declined);
       await _teardown();
       _setSnapshot(const CallSnapshot(state: CallState.idle));
     } finally {
@@ -308,6 +323,7 @@ class CallManager extends ChangeNotifier {
     if (peerOnion != null && callId != null) {
       await _sendEnd(peerOnion, callId, reason: 'hangup');
     }
+    await _finalizeCurrentLog();
     await _teardown();
     _setSnapshot(const CallSnapshot(state: CallState.idle));
   }
@@ -389,6 +405,11 @@ class CallManager extends ChangeNotifier {
           callId: callId,
         ),
       );
+      _startCallLog(
+        callId: callId,
+        peerOnion: event.peerOnion,
+        direction: CallLogDirection.inbound,
+      );
       _startRingTimeout(event.peerOnion, callId);
     } catch (e) {
       await _sendEnd(event.peerOnion, callId, reason: 'error');
@@ -416,6 +437,7 @@ class CallManager extends ChangeNotifier {
     final callId = event.callId;
     if (callId == null || callId != _snapshot.callId) return;
     if (event.peerOnion != _snapshot.peerOnion) return;
+    await _finalizeCurrentLog();
     await _teardown();
     _setSnapshot(const CallSnapshot(state: CallState.idle));
   }
@@ -489,12 +511,147 @@ class CallManager extends ChangeNotifier {
     );
   }
 
+  Future<void> _startCallLog({
+    required String callId,
+    required String peerOnion,
+    required CallLogDirection direction,
+  }) async {
+    _currentCallId = callId;
+    _currentCallDirection = direction;
+    _currentCallStartedAt = DateTime.now().millisecondsSinceEpoch;
+    _callLogFinalized = false;
+    try {
+      await CallLogsDb.insertLog(
+        callId: callId,
+        peerOnion: peerOnion,
+        direction: direction,
+        status: CallLogStatus.ringing,
+        startedAt: _currentCallStartedAt!,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('CallManager: failed to insert call log: $e');
+      }
+    }
+  }
+
+  Future<void> _finalizeCurrentLog({CallLogStatus? status}) async {
+    final callId = _currentCallId;
+    final peerOnion = _snapshot.peerOnion;
+    final direction = _currentCallDirection;
+    final startedAt = _currentCallStartedAt;
+    if (callId == null || peerOnion == null || direction == null || startedAt == null || _callLogFinalized) {
+      return;
+    }
+    _callLogFinalized = true;
+
+    final now = DateTime.now();
+    final endedAt = now.millisecondsSinceEpoch;
+    final activeSince = _snapshot.activeSince;
+    final durationMs = activeSince != null
+        ? now.difference(activeSince).inMilliseconds
+        : 0;
+
+    final resolved = status ?? _resolveFinalStatus();
+    await _finalizeLog(
+      callId: callId,
+      peerOnion: peerOnion,
+      direction: direction,
+      status: resolved,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      durationMs: durationMs,
+    );
+  }
+
+  CallLogStatus _resolveFinalStatus() {
+    if (_snapshot.state == CallState.active) return CallLogStatus.completed;
+    if (_currentCallDirection == CallLogDirection.inbound) {
+      return CallLogStatus.missed;
+    }
+    return CallLogStatus.failed;
+  }
+
+  Future<void> _finalizeLog({
+    required String callId,
+    required String peerOnion,
+    required CallLogDirection direction,
+    required CallLogStatus status,
+    required int startedAt,
+    required int endedAt,
+    required int durationMs,
+  }) async {
+    try {
+      await CallLogsDb.upsertLog(
+        callId: callId,
+        peerOnion: peerOnion,
+        direction: direction,
+        status: status,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        durationMs: durationMs,
+      );
+      unawaited(_insertCallMessage(
+        peerOnion: peerOnion,
+        direction: direction,
+        status: status,
+        endedAt: endedAt,
+        durationMs: durationMs,
+      ));
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('CallManager: failed to update call log: $e');
+      }
+    }
+  }
+
+  Future<void> _insertCallMessage({
+    required String peerOnion,
+    required CallLogDirection direction,
+    required CallLogStatus status,
+    required int endedAt,
+    required int durationMs,
+  }) async {
+    final localOnion = LocalOnionAddress.value;
+    if (localOnion == null || localOnion.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('CallManager: cannot insert call message without local onion');
+      }
+      return;
+    }
+
+    final isOutbound = direction == CallLogDirection.outbound;
+    final senderId = isOutbound ? localOnion : peerOnion;
+    final receiverId = isOutbound ? peerOnion : localOnion;
+
+    try {
+      await MessagesDb.insertMessage({
+        'id': const Uuid().v4(),
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': jsonEncode({
+          'durationMs': durationMs,
+          'status': status.name,
+          'direction': direction.name,
+        }),
+        'type': 'call',
+        'timestamp': endedAt,
+        'status': 'system',
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('CallManager: failed to insert call message: $e');
+      }
+    }
+  }
+
   void _startRingTimeout(String peerOnion, String callId) {
     _ringTimer?.cancel();
     _ringTimer = Timer(const Duration(seconds: 45), () async {
       if (!_snapshot.isInCall) return;
       if (_snapshot.callId != callId) return;
       await _sendEnd(peerOnion, callId, reason: 'timeout');
+      await _finalizeCurrentLog(status: CallLogStatus.missed);
       await _teardown();
       _setSnapshot(const CallSnapshot(state: CallState.idle));
     });
@@ -528,6 +685,7 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> _fail(String message) async {
+    await _finalizeCurrentLog(status: CallLogStatus.failed);
     await _teardown();
     _setSnapshot(CallSnapshot(state: CallState.idle, error: message));
   }

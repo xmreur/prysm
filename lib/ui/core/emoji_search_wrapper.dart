@@ -174,15 +174,17 @@ class _EmojiSearchWrapperState extends State<EmojiSearchWrapper> {
       config: Config(
         height: null,
         checkPlatformCompatibility: false,
-        emojiTextStyle: TextStyle(
+        emojiTextStyle: const TextStyle(
           fontFamily: 'NotoEmoji',
           fontSize: 26,
         ),
         emojiViewConfig: EmojiViewConfig(
+          columns: 28,
+          emojiSizeMax: 28,
           backgroundColor: tokens.surface,
-          verticalSpacing: 4,
-          horizontalSpacing: 4,
-          gridPadding: const EdgeInsets.symmetric(horizontal: 4),
+          verticalSpacing: 1,
+          horizontalSpacing: 1,
+          gridPadding: const EdgeInsets.symmetric(horizontal: 1),
         ),
         categoryViewConfig: CategoryViewConfig(
           backgroundColor: tokens.surface,

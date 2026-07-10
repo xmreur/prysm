@@ -11,8 +11,9 @@ void main() {
 
   Future<Database> openTestDb(String name) async {
     return databaseFactory.openDatabase(
-      'file:$name.db',
+      inMemoryDatabasePath,
       options: OpenDatabaseOptions(
+        singleInstance: false,
         version: 9,
         onCreate: (db, version) async {
           await db.execute('''

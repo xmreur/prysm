@@ -32,6 +32,7 @@ import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_theme.dart';
@@ -872,6 +873,19 @@ class _ChatScreenState extends State<ChatScreen> {
               source: msg['message'],
             ),
           );
+        } else if (msg['type'] == 'call') {
+          final payload = jsonDecode((msg['message'] as String?) ?? '{}')
+              as Map<String, dynamic>;
+          messages.add(
+            PrysmCallMessage(
+              id: msg['id'],
+              authorId: msg['senderId'] as String,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+              durationMs: (payload['durationMs'] as num?)?.toInt() ?? 0,
+              callStatus: payload['status'] as String? ?? 'completed',
+              direction: payload['direction'] as String? ?? 'outbound',
+            ),
+          );
         } else if (msg['type'] == "image") {
           final isViewOnce = (msg['viewOnce'] ?? 0) == 1;
           final isViewed = (msg['viewed'] ?? 0) == 1;
@@ -1671,7 +1685,93 @@ class _ChatScreenState extends State<ChatScreen> {
     if (message is TextMessage) return message.text;
     if (message is FileMessage) return message.name;
     if (message is ImageMessage) return '📷 Image';
+    if (message is PrysmCallMessage) return _callMessageLabel(message);
     return '';
+  }
+
+  String _callMessageLabel(PrysmCallMessage message) {
+    final direction = message.direction == 'outbound' ? 'Outgoing' : 'Incoming';
+    final status = _prettyCallStatus(message.callStatus);
+    if (message.callStatus == 'completed') {
+      final duration = _formatCallDuration(message.durationMs);
+      return '$direction call · $duration';
+    }
+    return '$direction call · $status';
+  }
+
+  String _prettyCallStatus(String status) {
+    switch (status) {
+      case 'completed':
+        return 'Completed';
+      case 'missed':
+        return 'Missed';
+      case 'declined':
+        return 'Declined';
+      case 'failed':
+        return 'Failed';
+      default:
+        return status;
+    }
+  }
+
+  String _formatCallDuration(int durationMs) {
+    final seconds = (durationMs ~/ 1000).clamp(0, Duration.secondsPerDay * 99);
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    if (minutes > 0) {
+      return '${minutes}m ${secs.toString().padLeft(2, '0')}s';
+    }
+    return '${secs}s';
+  }
+
+  Widget _callMessageBuilder(PrysmCallMessage message) {
+    final tokens = context.prysmStyle.tokens;
+    final isMissed = message.callStatus == 'missed';
+    final label = _callMessageLabel(message);
+    final timeString = message.createdAt != null
+        ? '${message.createdAt!.hour.toString().padLeft(2, '0')}:${message.createdAt!.minute.toString().padLeft(2, '0')}'
+        : '';
+
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 280),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: tokens.surfaceElevated,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              PrysmIcons.phone,
+              size: 16,
+              color: isMissed ? tokens.danger : tokens.textSecondary,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+              label,
+              style: context.prysmStyle.captionStyle.copyWith(
+                color: isMissed ? tokens.danger : tokens.textSecondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            ),
+            if (timeString.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                timeString,
+                style: context.prysmStyle.captionStyle.copyWith(
+                  color: tokens.textMuted,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openUrl(String url) async {
@@ -2036,6 +2136,19 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildCallMessageRow(PrysmCallMessage message, int index) {
+    final showDateHeader = shouldShowChatDateHeader(_messages.messages, index);
+    return Column(
+      children: [
+        if (showDateHeader) PrysmDateHeader(date: message.createdAt!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: _callMessageBuilder(message),
+        ),
+      ],
+    );
+  }
+
   Widget _messageChildFor(
     BuildContext context,
     Message message,
@@ -2066,11 +2179,19 @@ class _ChatScreenState extends State<ChatScreen> {
         isSentByMe: isSentByMe,
       );
     }
+    if (message is PrysmCallMessage) {
+      return _callMessageBuilder(message);
+    }
     return const SizedBox.shrink();
   }
 
   Widget _buildChatListItem(BuildContext context, Message message, int index) {
     final isSentByMe = message.authorId == widget.userId;
+
+    if (message is PrysmCallMessage) {
+      return _buildCallMessageRow(message, index);
+    }
+
     final isSelected = selectedMessageIds.contains(message.id);
     final child = _messageChildFor(context, message, index, isSentByMe);
 

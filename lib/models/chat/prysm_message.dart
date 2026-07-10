@@ -153,6 +153,40 @@ final class PrysmFileMessage extends PrysmMessage {
   }
 }
 
+/// System-style call event shown inside a chat thread.
+final class PrysmCallMessage extends PrysmMessage {
+  const PrysmCallMessage({
+    required super.id,
+    required super.authorId,
+    required this.durationMs,
+    required this.callStatus,
+    required this.direction,
+    super.createdAt,
+  });
+
+  final int durationMs;
+  final String callStatus;
+  final String direction;
+
+  PrysmCallMessage copyWith({
+    String? id,
+    String? authorId,
+    int? durationMs,
+    String? callStatus,
+    String? direction,
+    DateTime? createdAt,
+  }) {
+    return PrysmCallMessage(
+      id: id ?? this.id,
+      authorId: authorId ?? this.authorId,
+      durationMs: durationMs ?? this.durationMs,
+      callStatus: callStatus ?? this.callStatus,
+      direction: direction ?? this.direction,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+}
+
 /// Type aliases for gradual migration from flutter_chat_core names.
 typedef Message = PrysmMessage;
 typedef TextMessage = PrysmTextMessage;
@@ -200,6 +234,11 @@ extension PrysmMessageCopyWith on PrysmMessage {
           seenAt: seenAt,
           metadata: metadata,
           reactions: reactions,
+        ),
+      PrysmCallMessage m => m.copyWith(
+          id: id,
+          authorId: authorId,
+          createdAt: createdAt,
         ),
     };
   }

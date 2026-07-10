@@ -161,14 +161,13 @@ class MessageComposerState extends State<MessageComposer> {
   void _onEmojiSelected(Category? category, Emoji emoji) {
     final text = _textController.text;
     final cursorPos = _textController.selection.base.offset;
-    final newText = cursorPos >= 0
-        ? text.substring(0, cursorPos) + emoji.emoji + text.substring(cursorPos)
-        : text + emoji.emoji;
+    final insertAt = cursorPos >= 0 ? cursorPos : text.length;
+    final newText =
+        text.substring(0, insertAt) + emoji.emoji + text.substring(insertAt);
 
     _textController.text = newText;
     _textController.selection = TextSelection.collapsed(
-      offset:
-          (cursorPos >= 0 ? cursorPos : newText.length) + emoji.emoji.length,
+      offset: insertAt + emoji.emoji.length,
     );
     setState(() {
       currentText = newText;

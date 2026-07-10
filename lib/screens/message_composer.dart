@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/services.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:prysm/ui/core/emoji_search_wrapper.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
@@ -295,12 +296,8 @@ class MessageComposerState extends State<MessageComposer> {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (showEmojiPicker)
-          SizedBox(
-            height: 250,
-            child: EmojiPicker(
-              onEmojiSelected: _onEmojiSelected,
-              config: Config(),
-            ),
+          EmojiSearchWrapper(
+            onEmojiSelected: (emoji) => _onEmojiSelected(null, Emoji(emoji, '')),
           ),
         Container(
           padding: const EdgeInsets.symmetric(

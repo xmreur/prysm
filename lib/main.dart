@@ -814,84 +814,89 @@ class _MyAppState extends State<MyApp> {
       return _prysmApp(
         title: '${settings.name} Chat',
         home: PrysmPage(
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (_torFailed)
-                  Icon(
-                    PrysmIcons.wifiOff,
-                    size: 48,
-                    color: context.prysmStyle.tokens.danger,
-                  )
-                else
-                  const PrysmProgressIndicator(),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    _torStatus,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _torFailed
-                      ? 'You can use Prysm offline or retry when you have a connection.'
-                      : _torBootstrapProgress > 0
-                      ? 'Tor bootstrap: $_torBootstrapProgress%'
-                      : 'Setting up secure connection...',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: context.prysmStyle.tokens.textMuted,
-                  ),
-                ),
-                if (!_torFailed && _torBootstrapProgress > 0) ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: 200,
-                    height: 4,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: context.prysmStyle.tokens.outline,
-                        borderRadius: BorderRadius.circular(2),
+          body: Builder(
+            builder: (ctx) {
+              final tokens = ctx.prysmStyle.tokens;
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_torFailed)
+                      Icon(
+                        PrysmIcons.wifiOff,
+                        size: 48,
+                        color: tokens.danger,
+                      )
+                    else
+                      const PrysmProgressIndicator(),
+                    const SizedBox(height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        _torStatus,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: FractionallySizedBox(
-                          widthFactor:
-                              (_torBootstrapProgress / 100).clamp(0.0, 1.0),
-                          heightFactor: 1,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: context.prysmStyle.tokens.accent,
-                              borderRadius: BorderRadius.circular(2),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _torFailed
+                          ? 'You can use Prysm offline or retry when you have a connection.'
+                          : _torBootstrapProgress > 0
+                          ? 'Tor bootstrap: $_torBootstrapProgress%'
+                          : 'Setting up secure connection...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: tokens.textMuted,
+                      ),
+                    ),
+                    if (!_torFailed && _torBootstrapProgress > 0) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: 200,
+                        height: 4,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: tokens.outline,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor:
+                                  (_torBootstrapProgress / 100).clamp(0.0, 1.0),
+                              heightFactor: 1,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: tokens.accent,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
-                if (_torFailed) ...[
-                  const SizedBox(height: 24),
-                  PrysmButton(
-                    label: 'Retry',
-                    onPressed: _retryTor,
-                  ),
-                  const SizedBox(height: 12),
-                  PrysmButton(
-                    label: 'Continue offline',
-                    variant: PrysmButtonVariant.secondary,
-                    onPressed: _enterOfflineMode,
-                  ),
-                ],
-              ],
-            ),
+                    ],
+                    if (_torFailed) ...[
+                      const SizedBox(height: 24),
+                      PrysmButton(
+                        label: 'Retry',
+                        onPressed: _retryTor,
+                      ),
+                      const SizedBox(height: 12),
+                      PrysmButton(
+                        label: 'Continue offline',
+                        variant: PrysmButtonVariant.secondary,
+                        onPressed: _enterOfflineMode,
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
           ),
         ),
       );

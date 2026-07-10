@@ -171,3 +171,6 @@ flutter:
     - family: JetBrainsMono
       fonts:
         - asset: assets/fonts/JetBrainsMono-Regular.ttf
+    - family: NotoEmoji
+      fonts:
+        - asset: assets/fonts/NotoEmoji.ttf

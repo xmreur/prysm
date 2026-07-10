@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
-import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/ui/core/emoji_search_wrapper.dart';
 
 /// Quick emoji row + optional full picker for message reactions.
 class MessageReactionPicker extends StatefulWidget {
@@ -50,14 +50,8 @@ class _MessageReactionPickerState extends State<MessageReactionPicker> {
           onPressed: () => setState(() => _showFullPicker = !_showFullPicker),
         ),
         if (_showFullPicker)
-          SizedBox(
-            height: 250,
-            child: EmojiPicker(
-              onEmojiSelected: (category, emoji) {
-                widget.onEmojiSelected(emoji.emoji);
-              },
-              config: const Config(),
-            ),
+          EmojiSearchWrapper(
+            onEmojiSelected: widget.onEmojiSelected,
           ),
       ],
     );

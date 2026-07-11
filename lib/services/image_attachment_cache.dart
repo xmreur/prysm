@@ -35,27 +35,32 @@ class ImageAttachmentCache {
     required String messageId,
     required Future<Uint8List> Function() decrypt,
     Uint8List? inlineBytes,
+    void Function(double progress)? onProgress,
   }) async {
     if (inlineBytes != null && inlineBytes.isNotEmpty) {
+      onProgress?.call(1.0);
       return _fromBytes(inlineBytes);
     }
 
     final mem = _memory[messageId];
     if (mem != null) {
       _touchMemory(messageId);
+      onProgress?.call(1.0);
       return mem;
     }
 
     final disk = await _readDisk(messageId);
     if (disk != null) {
       _putMemory(messageId, disk);
+      onProgress?.call(1.0);
       return disk;
     }
 
     final existing = _inflight[messageId];
     if (existing != null) return existing;
 
-    final future = _resolveUncached(messageId: messageId, decrypt: decrypt);
+    onProgress?.call(0.1);
+    final future = _resolveUncached(messageId: messageId, decrypt: decrypt, onProgress: onProgress);
     _inflight[messageId] = future;
     try {
       return await future;
@@ -67,14 +72,19 @@ class ImageAttachmentCache {
   static Future<CachedImage> _resolveUncached({
     required String messageId,
     required Future<Uint8List> Function() decrypt,
+    void Function(double progress)? onProgress,
   }) async {
+    onProgress?.call(0.2);
     final bytes = await decrypt();
+    onProgress?.call(0.6);
     if (bytes.isEmpty) {
       throw StateError('Empty image payload for $messageId');
     }
     final cached = await _fromBytes(bytes);
+    onProgress?.call(0.8);
     _putMemory(messageId, cached);
     await _writeDisk(messageId, bytes);
+    onProgress?.call(1.0);
     return cached;
   }
 

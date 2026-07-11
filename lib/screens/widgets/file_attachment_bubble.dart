@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
@@ -12,7 +14,7 @@ import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
-import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
 
 class FileAttachmentBubble extends StatefulWidget {
   final String fileName;
@@ -22,6 +24,7 @@ class FileAttachmentBubble extends StatefulWidget {
   final Widget tickWidget;
   final Future<Uint8List> Function() resolveBytes;
   final Widget? header;
+  final ValueNotifier<double>? downloadProgress;
 
   const FileAttachmentBubble({
     required this.fileName,
@@ -31,6 +34,7 @@ class FileAttachmentBubble extends StatefulWidget {
     required this.resolveBytes,
     this.fileSize,
     this.header,
+    this.downloadProgress,
     super.key,
   });
 
@@ -46,33 +50,96 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   bool _loading = true;
   bool _loadFailed = false;
   bool _previewSkippedDueToSize = false;
+  Timer? _progressTimer;
+  Timer? _minDisplayTimer;
+  double _simulatedProgress = 0.0;
+  bool _showProgress = false;
 
   @override
   void initState() {
     super.initState();
     _category = ReadableFilePolicy.categorize(widget.fileName);
+    _startProgressSimulation();
     if (SettingsService().enableFilePreview) {
       _loadPreview();
     } else {
-      _loading = false;
+      _resolveBytesOnly();
+    }
+  }
+
+  Future<void> _resolveBytesOnly() async {
+    try {
+      final bytes = await widget.resolveBytes();
+      if (!mounted) return;
+      _completeProgress();
+      setState(() {
+        _bytes = bytes;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      _completeProgress();
+      setState(() {
+        _loading = false;
+        _loadFailed = true;
+      });
     }
   }
 
   @override
   void dispose() {
     _pdfController?.dispose();
+    _progressTimer?.cancel();
+    _minDisplayTimer?.cancel();
     super.dispose();
+  }
+
+  void _startProgressSimulation() {
+    _simulatedProgress = 0.0;
+    _showProgress = true;
+    _progressTimer?.cancel();
+    final size = widget.fileSize ?? 0;
+    final intervalMs = size > 0
+        ? (500000 / size).clamp(40, 120).toInt()
+        : 80;
+    _progressTimer = Timer.periodic(Duration(milliseconds: intervalMs), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _simulatedProgress += 0.04;
+      if (_simulatedProgress > 0.9) {
+        _simulatedProgress = 0.9;
+        timer.cancel();
+      }
+      widget.downloadProgress?.value = _simulatedProgress;
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _completeProgress() {
+    _progressTimer?.cancel();
+    _simulatedProgress = 1.0;
+    widget.downloadProgress?.value = 1.0;
+    // Keep progress visible for at least 600ms so fast resolves still show the bar
+    _minDisplayTimer?.cancel();
+    _minDisplayTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      setState(() => _showProgress = false);
+    });
   }
 
   Future<void> _loadPreview() async {
     if (!ReadableFilePolicy.supportsInlinePreview(_category) &&
         _category != FilePreviewCategory.blocked) {
+      _completeProgress();
       setState(() => _loading = false);
       return;
     }
 
     if (widget.fileSize != null &&
         ReadableFilePolicy.exceedsPreviewLimit(widget.fileSize!)) {
+      _completeProgress();
       setState(() {
         _loading = false;
         _previewSkippedDueToSize = true;
@@ -80,10 +147,13 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
       return;
     }
 
+    _startProgressSimulation();
+
     try {
       final bytes = await widget.resolveBytes();
       if (!mounted) return;
       if (bytes.isEmpty) {
+        _completeProgress();
         setState(() {
           _loading = false;
           _loadFailed = true;
@@ -92,6 +162,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
       }
 
       if (ReadableFilePolicy.exceedsPreviewLimit(bytes.length)) {
+        _completeProgress();
         setState(() {
           _loading = false;
           _previewSkippedDueToSize = true;
@@ -112,6 +183,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
       }
 
       if (!mounted) return;
+      _completeProgress();
       setState(() {
         _bytes = bytes;
         _preview = preview;
@@ -120,6 +192,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
       });
     } catch (_) {
       if (!mounted) return;
+      _completeProgress();
       setState(() {
         _loading = false;
         _loadFailed = true;
@@ -141,8 +214,20 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   }
 
   Future<void> _download() async {
+    if (_bytes == null) {
+      _startProgressSimulation();
+      setState(() => _loading = true);
+    }
     final bytes = _bytes ?? await widget.resolveBytes();
+    _completeProgress();
     if (!mounted) return;
+    if (_bytes == null) {
+      setState(() {
+        _bytes = bytes;
+        _loading = false;
+        _loadFailed = false;
+      });
+    }
     await FileDownloadHelper.download(
       context,
       fileName: widget.fileName,
@@ -221,16 +306,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     ),
                   )
                 else if (_loading)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Center(
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: PrysmProgressIndicator(size: 20),
-                      ),
-                    ),
-                  )
+                  const SizedBox.shrink()
                 else if (_hasTappablePreview)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -274,7 +350,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                       icon: PrysmIcons.downloadOutlined,
                       color: onPrimary,
                       tooltip: 'Download',
-                      onPressed: _loading ? null : _download,
+                      onPressed: (_loading && _bytes == null) ? null : _download,
                     ),
                     Expanded(
                       child: Text(
@@ -314,6 +390,27 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     ),
                   ],
                 ),
+                if (_showProgress)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        PrysmLinearProgressIndicator(
+                          value: _simulatedProgress.clamp(0.0, 1.0),
+                          minHeight: 3,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Downloading… ${(_simulatedProgress * 100).toInt()}%',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: onPrimary.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

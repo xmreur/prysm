@@ -15,12 +15,19 @@ class FileAttachmentResolver {
   static Future<Uint8List> resolve(
     FileMessage message, {
     KeyManager? keyManager,
+    void Function(double progress)? onProgress,
   }) async {
     final cached = _cache[message.id];
-    if (cached != null) return cached;
+    if (cached != null) {
+      onProgress?.call(1.0);
+      return cached;
+    }
 
+    onProgress?.call(0.1);
     final bytes = await _resolveUncached(message, keyManager: keyManager);
+    onProgress?.call(0.7);
     _putCache(message.id, bytes);
+    onProgress?.call(1.0);
     return bytes;
   }
 

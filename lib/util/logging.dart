@@ -18,6 +18,7 @@ enum LogLevel {
 class Logging {
   Logging._();
 
+  static const int _maxLogSize = 10 * 1024 * 1024;
   static LogLevel minimumLevel = kReleaseMode ? LogLevel.info : LogLevel.debug;
   static int _sequence = 0;
   static File? _logFile;
@@ -76,8 +77,25 @@ class Logging {
     final file = _logFile;
     if (file == null) return;
     try {
-      file.writeAsStringSync('$text\n', mode: FileMode.append, flush: true);
+      final line = '$text\n';
+      if (file.lengthSync() + line.length > _maxLogSize) {
+        _trimFront(file, line.length);
+      }
+      file.writeAsStringSync(line, mode: FileMode.append, flush: true);
     } catch (_) {}
+  }
+
+  static void _trimFront(File file, int neededSpace) {
+    var content = file.readAsStringSync();
+    while (content.length + neededSpace > _maxLogSize) {
+      final nl = content.indexOf('\n');
+      if (nl == -1) {
+        content = '';
+        break;
+      }
+      content = content.substring(nl + 1);
+    }
+    file.writeAsStringSync(content, flush: true);
   }
 
   static void _write(

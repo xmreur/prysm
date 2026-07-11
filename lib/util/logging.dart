@@ -25,7 +25,7 @@ class Logging {
   static Future<void> init() async {
     final tempDir = await getTemporaryDirectory();
     final now = DateTime.now();
-    final filename = 'prysm_chat_${_timestampForFile(now)}.log';
+    final filename = 'prysm_chat.log';
     final file = File('${tempDir.path}/$filename');
 
     if (!file.existsSync()) {
@@ -38,16 +38,6 @@ class Logging {
       mode: FileMode.append,
       flush: true,
     );
-  }
-
-  static String _timestampForFile(DateTime now) {
-    final y = now.year.toString().padLeft(4, '0');
-    final m = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
-    final h = now.hour.toString().padLeft(2, '0');
-    final min = now.minute.toString().padLeft(2, '0');
-    final s = now.second.toString().padLeft(2, '0');
-    return '$y$m${d}_$h$min$s';
   }
 
   static String _timestampForLine(DateTime now) {

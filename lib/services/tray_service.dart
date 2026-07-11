@@ -13,6 +13,7 @@ import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
@@ -190,7 +191,7 @@ class TrayService with TrayListener {
       await trayManager.setToolTip(text);
     } catch (e) {
       if (kDebugMode) {
-        print('Tray tooltip failed: $e');
+        Logging.error('Tray tooltip failed: $e', 'TrayService');
       }
     }
   }
@@ -303,9 +304,8 @@ class TrayService with TrayListener {
       await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
       return file.path;
     } catch (e) {
-      if (kDebugMode) {
-        print('Tray badge render failed: $e');
-      }
+       Logging.error('Tray badge render failed: $e', 'TrayService');
+
       return null;
     }
   }

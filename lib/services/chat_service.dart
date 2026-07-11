@@ -12,6 +12,7 @@ import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:uuid/uuid.dart';
@@ -77,7 +78,7 @@ class ChatService {
         peerIdentity = keyManager.importPeerIdentity(peerIdentityJson);
         return true;
       } catch (e) {
-        print('Invalid cached peer identity: $e');
+        Logging.error('Invalid cached peer identity: $e', 'ChatService');
       }
     }
 
@@ -87,7 +88,7 @@ class ChatService {
         peerIdentity = keyManager.importPeerIdentity(cached);
         return true;
       } catch (e) {
-        print('Invalid peer identity in database: $e');
+        Logging.error('Invalid peer identity in database: $e', 'ChatService');
       }
     }
     return await _fetchPeerIdentityOverTor();
@@ -153,7 +154,7 @@ class ChatService {
       try {
         await resendMessage(wireId, processQueue: false);
       } catch (e) {
-        debugPrint('Failed to re-queue pending message $wireId: $e');
+        Logging.error('Failed to re-queue pending message $wireId: $e', 'ChatService');
       }
     }
   }
@@ -292,7 +293,7 @@ class ChatService {
         _consecutivePollErrors = 0;
         _pollIntervalSeconds = _effectivePollIntervalSeconds(hadNew);
       } catch (e) {
-        print('Polling error: $e');
+        Logging.error('Polling error: $e', 'ChatService');
         _consecutivePollErrors++;
         final base = BatterySaverPolicy.chatPollActiveSeconds();
         _pollIntervalSeconds = min(30, base * (1 << _consecutivePollErrors));
@@ -487,10 +488,10 @@ class ChatService {
       );
       return true;
     } on TimeoutException {
-      print('Send timeout for $type message');
+      Logging.error('Send timeout for $type message', 'ChatService');
       return false;
     } catch (e) {
-      debugPrint('Send deferred (queued for retry): $e');
+      Logging.error('Send deferred (queued for retry): $e', 'ChatService');
       return false;
     } finally {
       _inFlightSends.remove(id);
@@ -536,7 +537,7 @@ class ChatService {
       await _persistPeerIdentity(identityJson);
       return true;
     } catch (e) {
-      print('Failed to fetch peer identity: $e');
+      Logging.error('Failed to fetch peer identity: $e', 'ChatService');
       return false;
     }
   }
@@ -554,7 +555,7 @@ class ChatService {
         'publicKeyPem': identityJson,
       });
     } catch (e) {
-      print('Failed to persist peer public key: $e');
+      Logging.error('Failed to persist peer public key: $e', 'ChatService');
     }
   }
 

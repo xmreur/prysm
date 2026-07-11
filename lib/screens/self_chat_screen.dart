@@ -34,6 +34,7 @@ import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -530,7 +531,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                   );
                 });
               } catch (e) {
-                debugPrint('View-once decrypt failed: $e');
+                Logging.error('View-once decrypt failed: $e', 'SelfChatScreen');
               }
             },
             child: Container(

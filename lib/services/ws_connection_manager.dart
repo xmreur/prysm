@@ -10,6 +10,7 @@ import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/peer_ws_connection_notifier.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
@@ -231,9 +232,8 @@ class WsConnectionManager {
 
       return targets;
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('WsConnectionManager: DB not ready for peer targets: $e');
-      }
+      Logging.error('DB not ready for peer targets: $e', 'WsConnectionManager');
+      
       return Set<String>.from(_pinnedPeers);
     }
   }
@@ -322,7 +322,7 @@ class WsConnectionManager {
         final link = OutboundWsPeerLink(client);
         _registerLink(peerOnion, link, outbound: true);
         if (kDebugMode) {
-          debugPrint('WsConnectionManager: connected to $peerOnion');
+          Logging.debug('connected to $peerOnion', 'WsConnectionManager');
         }
       }
 
@@ -333,9 +333,9 @@ class WsConnectionManager {
       }
     } catch (e, stack) {
       if (kDebugMode) {
-        debugPrint('WsConnectionManager: connect to $peerOnion failed: $e');
+        Logging.error('connect to $peerOnion failed: $e', 'WsConnectionManager');
         if (!useTorRetry) {
-          debugPrint('$stack');
+          Logging.error('$stack', 'WsConnectionManager');
         }
       }
       rethrow;
@@ -380,7 +380,7 @@ class WsConnectionManager {
     }
     _registerLink(peerOnion, link, outbound: false);
     if (kDebugMode) {
-      debugPrint('WsConnectionManager: accepted from $peerOnion');
+      Logging.debug('accepted from $peerOnion', 'WsConnectionManager');
     }
   }
 

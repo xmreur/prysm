@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:battery_plus/battery_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_level_reading.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Tracks manual battery saving, OS low-power mode, and auto-enable at low charge.
 class BatterySaverService {
@@ -94,7 +94,7 @@ class BatterySaverService {
     try {
       _batteryLevel = await _battery.batteryLevel;
     } catch (e) {
-      debugPrint('Battery level unavailable: $e');
+      Logging.error('Battery level unavailable: $e', 'BatterySaverService');
       _batteryLevel = null;
     }
 
@@ -103,7 +103,7 @@ class BatterySaverService {
       _batteryState = state;
       _isCharging = state == BatteryState.charging || state == BatteryState.full;
     } catch (e) {
-      debugPrint('Battery state unavailable: $e');
+      Logging.error('Battery state unavailable: $e', 'BatterySaverService');
       _batteryState = null;
       _isCharging = false;
     }

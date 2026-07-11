@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/logging.dart';
 
 class CachedImage {
   final Uint8List bytes;
@@ -171,7 +172,7 @@ class ImageAttachmentCache {
       final dir = await _cacheDir();
       await File(_diskPath(messageId, dir)).writeAsBytes(bytes, flush: true);
     } catch (e) {
-      debugPrint('Image disk cache write failed ($messageId): $e');
+      Logging.error('Image disk cache write failed ($messageId): $e', 'ImageAttachmentCache');
     }
   }
 
@@ -184,7 +185,7 @@ class ImageAttachmentCache {
       if (bytes.isEmpty) return null;
       return _fromBytes(bytes);
     } catch (e) {
-      debugPrint('Image disk cache read failed ($messageId): $e');
+      Logging.error('Image disk cache read failed ($messageId): $e', 'ImageAttachmentCache');
       return null;
     }
   }

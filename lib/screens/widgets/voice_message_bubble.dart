@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:prysm/screens/widgets/voice_waveform_scrubber.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/voice_transcription_service.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/util/voice_playback_coordinator.dart';
 import 'package:prysm/util/voice_player.dart';
@@ -168,7 +169,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
         showPrysmToast(context, e.message);
       }
     } catch (err) {
-      debugPrint('Voice transcription error: $err');
+      Logging.error('Voice transcription error: $err', 'VoiceMessageBubble');
       if (mounted) {
         showPrysmToast(context, 'Failed to transcribe voice message');
       }
@@ -345,7 +346,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     try {
       await _playFromFile();
     } catch (err) {
-      debugPrint('Voice playback error: $err');
+      Logging.error('Voice playback error: $err', 'VoiceMessageBubble');
       if (mounted) {
         showPrysmToast(context, 'Failed to play voice message');
       }

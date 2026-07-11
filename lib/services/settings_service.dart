@@ -1,6 +1,7 @@
 // lib/services/settings_service.dart
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/models/appearance_settings.dart';
@@ -96,7 +97,7 @@ class SettingsService {
     try {
       json = jsonDecode(raw) as Map<String, dynamic>;
     } catch (e) {
-      print('Error parsing settings for unlock migration: $e');
+      Logging.error('Error parsing settings for unlock migration: $e', 'SettingsService');
       return;
     }
     if (json.containsKey('unlockType')) return;
@@ -135,7 +136,7 @@ class SettingsService {
       try {
         _settings = Settings.fromJson(jsonDecode(jsonString));
       } catch (e) {
-        print('Error loading settings: $e');
+        Logging.error('Error loading settings: $e', 'SettingsService');
         _settings = Settings(); // Use defaults
       }
     } else {
@@ -149,7 +150,7 @@ class SettingsService {
       final jsonString = jsonEncode(_settings.toJson());
       await _prefs?.setString(_settingsKey, jsonString);
     } catch (e) {
-      print('Error saving settings: $e');
+      Logging.error('Error saving settings: $e', 'SettingsService');
     }
   }
 
@@ -324,7 +325,7 @@ class SettingsService {
       await updateSettings(settings);
       return true;
     } catch (e) {
-      print('Error importing settings: $e');
+      Logging.error('Error importing settings: $e', 'SettingsService');
       return false;
     }
   }
@@ -337,16 +338,16 @@ class SettingsService {
 
   // Print current settings (for debugging)
   void printSettings() {
-    print('=== Current Settings ===');
-    print('Notifications: ${_settings.enableNotifications}');
-    print('Online Status: ${_settings.showOnlineStatus}');
-    print('Read Receipts: ${_settings.sendReadReceipts}');
-    print('Enable Relay: ${_settings.enableRelay}');
-    print('Relay Address: ${_settings.personalRelayAddress ?? "Not set"}');
-    print('Aggressive Retry: ${_settings.aggressiveRetry}');
-    print('Message Retention: ${_settings.messageRetentionDays} days');
-    print('Theme Mode: ${_getThemeModeName(_settings.themeMode)}');
-    print('=======================');
+    Logging.debug('=== Current Settings ===', 'SettingsService');
+    Logging.debug('Notifications: ${_settings.enableNotifications}', 'SettingsService');
+    Logging.debug('Online Status: ${_settings.showOnlineStatus}', 'SettingsService');
+    Logging.debug('Read Receipts: ${_settings.sendReadReceipts}', 'SettingsService');
+    Logging.debug('Enable Relay: ${_settings.enableRelay}', 'SettingsService');
+    Logging.debug('Relay Address: ${_settings.personalRelayAddress ?? "Not set"}', 'SettingsService');
+    Logging.debug('Aggressive Retry: ${_settings.aggressiveRetry}', 'SettingsService');
+    Logging.debug('Message Retention: ${_settings.messageRetentionDays} days', 'SettingsService');
+    Logging.debug('Theme Mode: ${_getThemeModeName(_settings.themeMode)}', 'SettingsService');
+    Logging.debug('=======================', 'SettingsService');
   }
 
   String _getThemeModeName(int mode) {

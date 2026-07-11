@@ -14,6 +14,7 @@ import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/local_onion_address.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:uuid/uuid.dart';
 
 enum CallState { idle, connecting, ringing, incoming, active, ended }
@@ -474,9 +475,7 @@ class CallManager extends ChangeNotifier {
           transport.sendBytes(peerOnion, frame).catchError((Object e) {
             _audioSendFailures++;
             if (kDebugMode) {
-              debugPrint(
-                'CallManager: sendBytes to $peerOnion failed (#$_audioSendFailures): $e',
-              );
+              Logging.error('sendBytes to $peerOnion failed (#$_audioSendFailures): $e', 'CallManager');
             }
           }),
         );
@@ -530,7 +529,7 @@ class CallManager extends ChangeNotifier {
       );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('CallManager: failed to insert call log: $e');
+        Logging.error('failed to insert call log: $e', 'CallManager');
       }
     }
   }
@@ -600,7 +599,7 @@ class CallManager extends ChangeNotifier {
       ));
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('CallManager: failed to update call log: $e');
+        Logging.error('failed to update call log: $e', 'CallManager');
       }
     }
   }
@@ -615,7 +614,7 @@ class CallManager extends ChangeNotifier {
     final localOnion = LocalOnionAddress.value;
     if (localOnion == null || localOnion.isEmpty) {
       if (kDebugMode) {
-        debugPrint('CallManager: cannot insert call message without local onion');
+        Logging.error('cannot insert call message without local onion', 'CallManager');
       }
       return;
     }
@@ -640,7 +639,7 @@ class CallManager extends ChangeNotifier {
       });
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('CallManager: failed to insert call message: $e');
+        Logging.error('failed to insert call message: $e', 'CallManager');
       }
     }
   }
@@ -673,9 +672,7 @@ class CallManager extends ChangeNotifier {
         return;
       } catch (e) {
         if (kDebugMode) {
-          debugPrint(
-            'CallManager: call_end to $peerOnion failed (attempt ${attempt + 1}): $e',
-          );
+          Logging.error('call_end to $peerOnion failed (attempt ${attempt + 1}): $e', 'CallManager');
         }
         if (attempt < 2) {
           await Future<void>.delayed(const Duration(milliseconds: 150));

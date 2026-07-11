@@ -4,6 +4,7 @@ import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:uuid/uuid.dart';
 
@@ -181,7 +182,7 @@ class SelfChatService {
             );
         }
       } catch (e) {
-        debugPrint('Self message decrypt failed (${msg['id']}): $e');
+        Logging.error('Self message decrypt failed (${msg['id']}): $e', 'SelfChatService');
         messages.add(
           TextMessage(
             authorId: userId,

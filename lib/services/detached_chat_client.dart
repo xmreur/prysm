@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/util/detached_message_codec.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// IPC client used by pop-out chat windows to talk to the main window.
@@ -42,7 +42,7 @@ class DetachedChatClient {
 
     final ok = await ping();
     if (!ok) {
-      debugPrint('DetachedChatClient: main window not reachable');
+      Logging.error('Main window not reachable', 'DetachedChatClient');
     }
   }
 

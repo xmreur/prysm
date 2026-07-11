@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/outbound_transport.dart';
@@ -10,6 +9,7 @@ import 'package:prysm/transport/tor_http_transport.dart';
 import 'package:prysm/transport/tor_websocket_transport.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/util/local_onion_address.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -121,25 +121,18 @@ class TransportProvider implements OutboundTransport {
       try {
         final result = await operation(_wsTransport);
         PeerTransportRegistry.instance.markWebSocket(peerOnion);
-        if (kDebugMode) {
-          debugPrint('TransportProvider: WS $peerOnion (${preference.name})');
-        }
+        Logging.debug('TransportProvider: WS $peerOnion (${preference.name})', 'TransportProvider');
+        
         return result;
       } catch (e) {
-        if (kDebugMode) {
-          debugPrint(
-            'TransportProvider: WS failed for $peerOnion (${preference.name}): $e',
-          );
-        }
+        Logging.error('WS failed for $peerOnion (${preference.name}): $e', 'TransportProvider');
         if (_shouldDisconnectWsAfterFailure(e)) {
           await _wsManager.disconnectPeer(peerOnion);
         }
       }
     }
 
-    if (kDebugMode) {
-      debugPrint('TransportProvider: HTTP $peerOnion (${preference.name})');
-    }
+    Logging.debug('HTTP $peerOnion (${preference.name})', 'TransportProvider');
     return operation(_httpTransport);
   }
 
@@ -359,26 +352,16 @@ class TransportProvider implements OutboundTransport {
               timeout: wsTimeout,
               preference: TransportPreference.wsIfConnected,
             );
-            if (kDebugMode) {
-              debugPrint('TransportProvider: WS send ok $peerOnion');
-            }
+            Logging.debug('WS send ok $peerOnion', 'TransportProvider');
             return;
           } catch (e) {
             lastWsError = e;
             final retryTimeout = e is TimeoutException && attempt == 0;
             if (!retryTimeout) break;
-            if (kDebugMode) {
-              debugPrint(
-                'TransportProvider: WS send timeout ($peerOnion), retrying once',
-              );
-            }
+            Logging.error('WS send timeout ($peerOnion), retrying once', 'TransportProvider');
           }
         }
-        if (kDebugMode) {
-          debugPrint(
-            'TransportProvider: WS send failed ($peerOnion): $lastWsError → HTTP',
-          );
-        }
+        Logging.error('WS send failed ($peerOnion): $lastWsError → HTTP', 'TransportProvider');
         if (lastWsError != null &&
             _shouldDisconnectWsAfterFailure(lastWsError)) {
           await inst.wsManager.disconnectPeer(peerOnion);
@@ -390,9 +373,7 @@ class TransportProvider implements OutboundTransport {
         timeout: timeout,
         preference: TransportPreference.httpOnly,
       );
-      if (kDebugMode) {
-        debugPrint('TransportProvider: HTTP send ok $peerOnion');
-      }
+      Logging.debug('HTTP send ok $peerOnion', 'TransportProvider');
       return;
     }
     await TorDelivery.withTorRetry<void>(
@@ -444,9 +425,8 @@ class TransportProvider implements OutboundTransport {
         timeout: timeout,
       );
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('TransportProvider: sync-hint to $peerOnion failed: $e');
-      }
+      Logging.error('sync-hint to $peerOnion failed: $e', 'TransportProvider');
+      
     }
   }
 

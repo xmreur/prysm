@@ -175,9 +175,10 @@ Message messageWithDeliveryUpdate(
     );
   }
   if (status == 'failed') {
-    return message.copyWith(
-      metadata: {...?message.metadata, 'failed': true},
-    );
+    final meta = <String, Object?>{...?message.metadata};
+    meta.remove('deliveryStatus');
+    meta['failed'] = true;
+    return message.copyWith(metadata: meta);
   }
   return message;
 }

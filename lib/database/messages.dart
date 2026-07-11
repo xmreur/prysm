@@ -33,13 +33,6 @@ class MessagesDb {
       "OR (senderId = ? AND receiverId = ? AND status = 'system') "
       "OR (senderId = ? AND receiverId = ? AND status = 'system'))";
 
-  /// Return singleton database instance
-  @visibleForTesting
-  static void setDatabaseForTest(Database? db) {
-    _database = db;
-    _opening = null;
-  }
-
   static Future<Database> get database async {
     if (_database != null) return _database!;
     _opening ??= _openDatabase();

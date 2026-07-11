@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/log_export_helper.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
@@ -445,6 +446,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showBackupDialog() => showCreateBackupDialog(context);
 
+  void _showExportLogDialog() {
+    showPrysmConfirmDialog(
+      context: context,
+      title: 'Export Log',
+      content: const Text(
+        'The log file may contain sensitive information. Only share it with trusted parties.',
+      ),
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Export',
+    ).then((confirmed) async {
+      if (confirmed != true || !mounted) return;
+      await exportLog(context);
+    });
+  }
+
   void _openOnboardingReplay() {
     final onion = widget.onionAddress;
     if (onion == null) return;
@@ -861,6 +877,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   PrysmIcons.restoreOutlined,
                   _showRestoreDialog,
                   subtitle: 'Import from backup file',
+                ),
+                const PrysmDivider(),
+                _buildNavigationTile(
+                  'Export Log',
+                  PrysmIcons.uploadFile,
+                  _showExportLogDialog,
+                  subtitle: 'Save debug log to download folder',
                 ),
               ]),
 

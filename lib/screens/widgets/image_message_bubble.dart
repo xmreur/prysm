@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/ui/core/prysm_linear_progress.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/screens/widgets/image_viewer_screen.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
@@ -19,6 +19,7 @@ class ImageMessageBubble extends StatefulWidget {
   final Widget tickWidget;
   final Future<Uint8List> Function()? decryptFromDb;
   final Widget? senderLabel;
+  final ValueNotifier<double>? downloadProgress;
 
   const ImageMessageBubble({
     required this.message,
@@ -27,6 +28,7 @@ class ImageMessageBubble extends StatefulWidget {
     required this.tickWidget,
     this.decryptFromDb,
     this.senderLabel,
+    this.downloadProgress,
     super.key,
   });
 
@@ -72,14 +74,17 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
           messageId: widget.message.id,
           decrypt: () async => inline,
           inlineBytes: inline,
+          onProgress: (p) => widget.downloadProgress?.value = p,
         );
         if (!mounted) return;
+        _completeProgress();
         setState(() {
           _image = cached;
           _loading = false;
         });
       } catch (e) {
         if (!mounted) return;
+        _completeProgress();
         setState(() {
           _error = e;
           _loading = false;
@@ -108,19 +113,26 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
       final cached = await ImageAttachmentCache.resolve(
         messageId: widget.message.id,
         decrypt: decrypt,
+        onProgress: (p) => widget.downloadProgress?.value = p,
       );
       if (!mounted) return;
+      _completeProgress();
       setState(() {
         _image = cached;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
+      _completeProgress();
       setState(() {
         _error = e;
         _loading = false;
       });
     }
+  }
+
+  void _completeProgress() {
+    widget.downloadProgress?.value = 1.0;
   }
 
   Uint8List? _inlineBytes() {
@@ -227,6 +239,7 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
   }
 
   Widget _loadingPlaceholder(BuildContext context) {
+    final progress = widget.downloadProgress;
     return Container(
       width: _maxBubbleWidth,
       height: 160,
@@ -234,11 +247,48 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
         color: context.prysmStyle.tokens.surfaceElevated,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: const PrysmProgressIndicator(size: 20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Spacer(),
+            if (progress != null)
+              ValueListenableBuilder<double>(
+                valueListenable: progress,
+                builder: (context, p, _) {
+                  return PrysmLinearProgressIndicator(
+                    value: p.clamp(0.0, 1.0),
+                    minHeight: 4,
+                  );
+                },
+              )
+            else
+              const PrysmLinearProgressIndicator(minHeight: 4),
+            const SizedBox(height: 10),
+            if (progress != null)
+              ValueListenableBuilder<double>(
+                valueListenable: progress,
+                builder: (context, p, _) {
+                  return Text(
+                    'Downloading… ${(p * 100).toInt()}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.prysmStyle.tokens.textSecondary,
+                    ),
+                  );
+                },
+              )
+            else
+              Text(
+                'Downloading…',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.prysmStyle.tokens.textSecondary,
+                ),
+              ),
+            const Spacer(),
+          ],
         ),
       ),
     );

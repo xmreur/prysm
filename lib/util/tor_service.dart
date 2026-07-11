@@ -439,7 +439,7 @@ class TorManager {
       if (Platform.isLinux || Platform.isMacOS) {
         final r1 = await Process.run(
           'pkill',
-          ['-9', '-f', 'tor.*${dataDir}/torrc'],
+          ['-9', '-f', 'tor.*$dataDir/torrc'],
         );
         Logging.debug('tor cleanup: pkill targeted exit ${r1.exitCode}', 'TorManager');
         if (r1.exitCode != 0) {

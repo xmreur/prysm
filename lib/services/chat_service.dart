@@ -49,6 +49,7 @@ class ChatService {
   final Set<String> _seenMessageIds = {};
   final Set<String> _inFlightSends = {};
   StreamSubscription<InboundMessageEvent>? _inboundSub;
+  StreamSubscription<Map<String, dynamic>>? _localInsertSub;
 
   ChatService({
     required this.userId,
@@ -62,6 +63,8 @@ class ChatService {
     _isSending = false;
     _inboundSub?.cancel();
     _inboundSub = null;
+    _localInsertSub?.cancel();
+    _localInsertSub = null;
     _newMessagesController.close();
     _messageStatusController.close();
     _peerReachableController.close();
@@ -97,6 +100,7 @@ class ChatService {
     if (_isPolling) return;
     _isPolling = true;
     _subscribeInbound();
+    _subscribeLocalInserts();
     _loopPoll();
   }
 
@@ -116,6 +120,25 @@ class ChatService {
     if (event.groupId != null) return;
     if (event.senderId != peerId) return;
     _deliverNewRows([event.row]);
+  }
+
+  void _subscribeLocalInserts() {
+    _localInsertSub ??= MessagesDb.onMessageInserted.listen(_onLocalInsert);
+  }
+
+  void _onLocalInsert(Map<String, dynamic> row) {
+    if (_disposed) return;
+    final groupId = row['groupId'] as String?;
+    if (groupId != null) return;
+
+    final senderId = row['senderId'] as String?;
+    final receiverId = row['receiverId'] as String?;
+    final isDirectForPeer =
+        (senderId == userId && receiverId == peerId) ||
+            (senderId == peerId && receiverId == userId);
+    if (!isDirectForPeer) return;
+
+    _deliverNewRows([row]);
   }
 
   void stopPolling() {
@@ -194,7 +217,7 @@ class ChatService {
       'status': 'pending',
       'timestamp': timestamp,
       'replyTo': replyToId,
-    });
+    }, notifyListeners: false);
 
     final success = await _sendOverTor(
       id,
@@ -250,7 +273,7 @@ class ChatService {
       'replyTo': replyToId,
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
-    });
+    }, notifyListeners: false);
 
     final success = await _sendOverTor(
       id,

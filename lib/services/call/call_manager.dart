@@ -10,6 +10,7 @@ import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/opus_codec.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
+import 'package:prysm/services/call/call_logs_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -528,6 +529,7 @@ class CallManager extends ChangeNotifier {
         status: CallLogStatus.ringing,
         startedAt: _currentCallStartedAt!,
       );
+      CallLogsService.instance.notifyChanged();
     } catch (e) {
       if (kDebugMode) {
         debugPrint('CallManager: failed to insert call log: $e');
@@ -591,6 +593,7 @@ class CallManager extends ChangeNotifier {
         endedAt: endedAt,
         durationMs: durationMs,
       );
+      CallLogsService.instance.notifyChanged();
       unawaited(_insertCallMessage(
         peerOnion: peerOnion,
         direction: direction,

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/self_messages_db.dart';
@@ -14,6 +15,10 @@ class MessagesDb {
   static Database? _database;
   static Future<Database>? _opening;
   static final _dbMutex = Mutex();
+  static final _insertController = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Stream that emits the normalized row whenever a message is inserted locally.
+  static Stream<Map<String, dynamic>> get onMessageInserted => _insertController.stream;
 
   static const _dbVersion = 10;
 
@@ -29,6 +34,12 @@ class MessagesDb {
       "OR (senderId = ? AND receiverId = ? AND status = 'system'))";
 
   /// Return singleton database instance
+  @visibleForTesting
+  static void setDatabaseForTest(Database? db) {
+    _database = db;
+    _opening = null;
+  }
+
   static Future<Database> get database async {
     if (_database != null) return _database!;
     _opening ??= _openDatabase();
@@ -270,14 +281,21 @@ class MessagesDb {
   }
 
   /// Insert or replace a locally-sent message (encrypted for self).
-  static Future<void> insertMessage(Map<String, dynamic> message) async {
+  static Future<void> insertMessage(
+    Map<String, dynamic> message, {
+    bool notifyListeners = true,
+  }) async {
     await _dbMutex.protect(() async {
       final db = await database;
+      final normalized = _withStorageId(message);
       await db.insert(
         'messages',
-        _withStorageId(message),
+        normalized,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+      if (notifyListeners && !_insertController.isClosed) {
+        _insertController.add(normalized);
+      }
     });
   }
 

@@ -376,9 +376,8 @@ class TorInitResult {
 }
 
 Future<bool> isNewerVersion(String current, String latest) async {
-  // Simple version comparison (assumes vX.Y.Z format)
   List<int> toNums(String v) =>
-      v.replaceFirst('v', '').split('.').map(int.parse).toList();
+      v.replaceFirst('v', '').split('.').map((s) => int.parse(s.replaceAll(RegExp(r'\D.*'), ''))).toList();
 
   final currNums = toNums(current);
   final latestNums = toNums(latest);

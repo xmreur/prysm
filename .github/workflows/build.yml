@@ -19,18 +19,23 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
-      - run: flutter config --enable-windows-desktop
-      - run: flutter pub get
+      - run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+      - name: Patch opus_flutter_windows
+        run: |
+          $symlink = "flutter/ephemeral/.plugin_symlinks/opus_flutter_windows/windows"
+          if (-not (Test-Path $symlink)) { New-Item -ItemType Directory -Path $symlink -Force }
       - run: flutter build windows --release
-
-      - name: Zip Windows Build
-        run: powershell Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath windows-build.zip
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: windows-build.zip
+          path: build/windows/x64/runner/Release/
 
   # ----------------------
   # LINUX BUILD
@@ -44,6 +49,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
       - name: Install Linux dependencies
         run: |
@@ -58,20 +64,18 @@ jobs:
             libopus0 \
             gstreamer1.0-tools \
             gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good
+            gstreamer1.0-plugins-good \
+            libpulse-dev
 
-      - run: flutter config --enable-linux-desktop
-      - run: flutter pub get
+      - run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
       - run: flutter build linux
-
-      - name: Zip Linux build
-        run: zip -r linux-build.zip build/linux/x64/release/bundle/
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-build
-          path: linux-build.zip
-
+          path: build/linux/x64/release/bundle/
 
   # ----------------------
   # ANDROID BUILD
@@ -85,17 +89,21 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
-      # ----------------------
-      # Restore debug keystore
-      # ----------------------
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Restore debug keystore
         run: |
           echo "${{ secrets.ANDROID_DEBUG_KEYSTORE }}" | base64 -d > debug.keystore
 
-      # ----------------------
-      # Create key.properties
-      # ----------------------
       - name: Create key.properties
         run: |
           cat > android/key.properties <<EOF
@@ -104,9 +112,6 @@ jobs:
           keyAlias=androiddebugkey
           storeFile=../debug.keystore
           EOF
-
-      - name: Accept Android licenses
-        run: yes | flutter doctor --android-licenses
 
       - run: flutter pub get
 

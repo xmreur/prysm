@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/util/tor_health_status.dart';
 
@@ -194,7 +195,7 @@ class TorManager {
         return TorHealthStatus.healthy;
       });
     } catch (e) {
-      print('Tor health check failed: $e');
+      Logging.error('Tor health check failed: $e', 'TorManager');
       await _resetControlSession();
       return TorHealthStatus(ok: false, reason: e.toString());
     }
@@ -324,7 +325,7 @@ class TorManager {
       );
       return true;
     } catch (e) {
-      print('refreshCircuit error: $e');
+      Logging.error('refreshCircuit error: $e', 'TorManager');
       await _resetControlSession();
       return false;
     }
@@ -408,22 +409,65 @@ class TorManager {
   // =========================
 
   Future<void> _cleanupOrphanTorBeforeStart() async {
-    if (await _probeOurControlPort()) {
+    Logging.debug('tor cleanup: probing control port...', 'TorManager');
+    final found = await _probeOurControlPort();
+    Logging.debug('tor cleanup: control port probe = $found', 'TorManager');
+    if (found) {
       try {
         await _connectControlPort();
         await _authenticateDesktopPassword();
+        Logging.debug('tor cleanup: sending SIGNAL SHUTDOWN...', 'TorManager');
         await _sendAndCollectImpl(
           'SIGNAL SHUTDOWN',
           untilOk: true,
           timeout: const Duration(seconds: 5),
         );
         await _resetControlSession();
-        await Future.delayed(restartSettleDelay);
-      } catch (_) {
+        await _pollPortReleased();
+        Logging.debug('tor cleanup: SIGNAL SHUTDOWN done', 'TorManager');
+      } catch (e) {
+        Logging.error('tor cleanup: SIGNAL SHUTDOWN failed: $e', 'TorManager');
         await _resetControlSession();
       }
     }
+    await _killOrphanTorForce();
     await _removePidFile();
+  }
+
+  Future<void> _killOrphanTorForce() async {
+    try {
+      if (Platform.isLinux || Platform.isMacOS) {
+        final r1 = await Process.run(
+          'pkill',
+          ['-9', '-f', 'tor.*$dataDir/torrc'],
+        );
+        Logging.debug('tor cleanup: pkill targeted exit ${r1.exitCode}', 'TorManager');
+        if (r1.exitCode != 0) {
+          final r2 = await Process.run('pkill', ['-9', 'tor']);
+          Logging.debug('tor cleanup: pkill broad exit ${r2.exitCode}', 'TorManager');
+        }
+      } else if (Platform.isWindows) {
+        await Process.run('taskkill', ['/F', '/IM', 'tor.exe']);
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+    } catch (e) {
+      Logging.error('tor cleanup force error: $e', 'TorManager');
+    }
+  }
+
+  Future<void> _pollPortReleased() async {
+    for (var i = 0; i < 10; i++) {
+      try {
+        final s = await Socket.connect(
+          '127.0.0.1', controlPort,
+          timeout: const Duration(milliseconds: 200),
+        );
+        await s.close();
+        await Future.delayed(const Duration(milliseconds: 200));
+      } catch (_) {
+        return;
+      }
+    }
   }
 
   Future<bool> _probeOurControlPort() async {
@@ -432,7 +476,7 @@ class TorManager {
       socket = await Socket.connect(
         '127.0.0.1',
         controlPort,
-        timeout: const Duration(seconds: 1),
+        timeout: const Duration(seconds: 2),
       );
 
       final iterator = StreamIterator<String>(
@@ -455,13 +499,13 @@ class TorManager {
 
       void writeCmd(String cmd) => socket!.write('$cmd\r\n');
 
-      await readUntilOk();
+      await readUntilOk().timeout(const Duration(seconds: 3));
       try {
         writeCmd('AUTHENTICATE "$controlPassword"');
-        await readUntilOk();
+        await readUntilOk().timeout(const Duration(seconds: 3));
       } catch (_) {
         writeCmd('AUTHENTICATE $controlPassword');
-        await readUntilOk();
+        await readUntilOk().timeout(const Duration(seconds: 3));
       }
       return true;
     } catch (_) {
@@ -665,7 +709,7 @@ HiddenServicePort 80 127.0.0.1:12345
         }
       }
     } catch (e) {
-      print('SOCKS port discovery failed, using $_socksPort: $e');
+      Logging.error('SOCKS port discovery failed, using $_socksPort: $e', 'TorManager');
     }
   }
 

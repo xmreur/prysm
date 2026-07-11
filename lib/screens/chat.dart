@@ -64,6 +64,7 @@ import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/screens/widgets/message_status_icon.dart';
 import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
+import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/message_content_wiper.dart';
@@ -1849,7 +1850,27 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _deletePendingMessage(Message message) async {
+    final id = message.id;
+    await PendingMessageDbHelper.removeOutboundPendingForWireId(id);
+    _chatService.cancelPendingSend(id);
+    await MessageContentWiper.wipeLocalArtifacts(wireId: id);
+    await MessagesDb.deleteMessageById(id);
+    await MessageReactionsDb.deleteReactionsForMessage(id);
+    _messageCache.remove(id);
+    if (!mounted) return;
+    setState(() {
+      _messages.removeMessage(message);
+      selectedMessageIds.remove(id);
+    });
+  }
+
   Future<void> _deleteMessage(Message message) async {
+    if (message.authorId == widget.userId && isOutboundPending(message)) {
+      await _deletePendingMessage(message);
+      return;
+    }
+
     if (canDeleteForEveryone(message, widget.userId)) {
       await _modifyService.deleteMessage(targetMessageId: message.id);
       await MessageReactionsDb.deleteReactionsForMessage(message.id);
@@ -1911,6 +1932,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final ids = List<String>.from(selectedMessageIds);
     for (final id in ids) {
       final message = _messages.messages.firstWhere((msg) => msg.id == id);
+      if (message.authorId == widget.userId && isOutboundPending(message)) {
+        await _deletePendingMessage(message);
+        continue;
+      }
       if (canDeleteForEveryone(message, widget.userId)) {
         await _modifyService.deleteMessage(targetMessageId: id);
         await MessageReactionsDb.deleteReactionsForMessage(id);

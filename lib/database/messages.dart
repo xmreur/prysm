@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/self_messages_db.dart';
@@ -90,6 +91,12 @@ class MessagesDb {
       _database = null;
       _opening = null;
     }
+  }
+
+  @visibleForTesting
+  static void setDatabaseForTest(Database? db) {
+    _database = db;
+    _opening = null;
   }
 
   static Future<void> _createV2(Database db) async {

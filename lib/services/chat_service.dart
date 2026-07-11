@@ -49,6 +49,7 @@ class ChatService {
   int? _newestTimestamp;
   final Set<String> _seenMessageIds = {};
   final Set<String> _inFlightSends = {};
+  final Set<String> _cancelledSends = {};
   StreamSubscription<InboundMessageEvent>? _inboundSub;
 
   ChatService({
@@ -204,6 +205,14 @@ class ChatService {
       replyToId: replyToId,
     );
 
+    // If the user deleted the message while the send was in flight, do not
+    // mark it as sent or re-queue it.
+    final stored = await MessagesDb.getMessageById(id);
+    if (stored.isEmpty || stored.first['deletedAt'] != null) {
+      await PendingMessageDbHelper.removeOutboundPendingForWireId(id);
+      return id;
+    }
+
     if (success) {
       await _markAsSent(id);
       _notifyPeerReachable();
@@ -262,6 +271,14 @@ class ChatService {
       replyToId: replyToId,
       viewOnce: viewOnce,
     );
+
+    // If the user deleted the message while the send was in flight, do not
+    // mark it as sent or re-queue it.
+    final stored = await MessagesDb.getMessageById(id);
+    if (stored.isEmpty || stored.first['deletedAt'] != null) {
+      await PendingMessageDbHelper.removeOutboundPendingForWireId(id);
+      return id;
+    }
 
     if (success) {
       await _markAsSent(id);
@@ -380,7 +397,7 @@ class ChatService {
             await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
         if (pending.isEmpty) break;
 
-        final List<String> sentIds = [];
+        final List<String> removeIds = [];
         var sentAny = false;
 
         for (final msg in pending) {
@@ -392,10 +409,21 @@ class ChatService {
           }
 
           final msgId = msg['id'] as String;
+
+          // Skip messages that were deleted while queued. This prevents a
+          // pending message from being delivered after the user deletes it.
+          final stored = await MessagesDb.getMessageById(msgId);
+          if (stored.isEmpty ||
+              stored.first['deletedAt'] != null ||
+              _cancelledSends.contains(msgId)) {
+            removeIds.add(msgId);
+            continue;
+          }
+
           final retries = _retryCounts[msgId] ?? 0;
 
           if (retries >= _maxRetries) {
-            sentIds.add(msgId);
+            removeIds.add(msgId);
             _retryCounts.remove(msgId);
             if (!_disposed) {
               _messageStatusController.add(MessageStatusUpdate(msgId, 'failed'));
@@ -414,7 +442,7 @@ class ChatService {
           );
 
           if (success) {
-            sentIds.add(msgId);
+            removeIds.add(msgId);
             _retryCounts.remove(msgId);
             await _markAsSent(msgId);
             if (!_disposed) {
@@ -429,8 +457,8 @@ class ChatService {
           }
         }
 
-        if (sentIds.isNotEmpty) {
-          await PendingMessageDbHelper.removeMessages(sentIds);
+        if (removeIds.isNotEmpty) {
+          await PendingMessageDbHelper.removeMessages(removeIds);
         }
 
         final remaining =
@@ -659,7 +687,7 @@ class ChatService {
         }
         final msgId = msg['id'] as String;
         final stored = await MessagesDb.getMessageById(msgId);
-        if (stored.isNotEmpty && stored.first['deletedAt'] != null) {
+        if (stored.isEmpty || stored.first['deletedAt'] != null) {
           await PendingMessageDbHelper.removeOutboundPendingForWireId(msgId);
           continue;
         }
@@ -721,6 +749,7 @@ class ChatService {
       await PendingMessageDbHelper.removeOutboundPendingForWireId(messageId);
       return;
     }
+    if (_cancelledSends.contains(messageId)) return;
 
     if (_inFlightSends.contains(messageId)) return;
 
@@ -776,6 +805,13 @@ class ChatService {
     if (processQueue) {
       _processSendQueue();
     }
+  }
+
+  /// Cancel any future send attempt for [messageId] within this service.
+  /// Already queued rows should still be removed by the caller; this only
+  /// prevents in-flight sends started after the call from completing.
+  void cancelPendingSend(String messageId) {
+    _cancelledSends.add(messageId);
   }
 
   void _notifyPeerReachable() {

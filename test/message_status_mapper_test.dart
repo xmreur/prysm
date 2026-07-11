@@ -127,6 +127,41 @@ void main() {
     expect(sent.seenAt, isNull);
   });
 
+  test('isOutboundPending detects undelivered outbound messages', () {
+    final base = TextMessage(
+      authorId: 'me',
+      createdAt: DateTime.now(),
+      id: '1',
+      text: 'hi',
+    );
+
+    expect(isOutboundPending(base), isTrue);
+
+    final pending = messageWithPendingStatus(base);
+    expect(isOutboundPending(pending), isTrue);
+
+    final sent = messageWithDeliveryUpdate(
+      pending,
+      status: 'sent',
+      readReceiptsEnabled: true,
+    );
+    expect(isOutboundPending(sent), isFalse);
+
+    final read = messageWithDeliveryUpdate(
+      sent,
+      status: 'read',
+      readReceiptsEnabled: true,
+    );
+    expect(isOutboundPending(read), isFalse);
+
+    final failed = messageWithDeliveryUpdate(
+      pending,
+      status: 'failed',
+      readReceiptsEnabled: true,
+    );
+    expect(isOutboundPending(failed), isFalse);
+  });
+
   test('outboundTickState maps pending, delivered, and read', () {
     final base = TextMessage(
       authorId: 'me',

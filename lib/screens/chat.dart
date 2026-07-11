@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/services/message_draft_store.dart';
@@ -467,7 +468,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _scheduleScrollToBottomIfNeeded();
       await _markInboundAsRead();
     } catch (e) {
-      debugPrint('Error handling new messages: $e');
+      Logging.error('Error handling new messages: $e', 'ChatScreen');
     }
   }
 
@@ -684,7 +685,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Profile refresh failed: $e');
+      Logging.error('Profile refresh failed: $e', 'ChatScreen');
     }
   }
 
@@ -923,7 +924,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
       } catch (e) {
-        debugPrint('Direct message decrypt failed (${msg['id']}): $e');
+        Logging.error('Direct message decrypt failed (${msg['id']}): $e', 'ChatScreen');
         messages.add(
           TextMessage(
             authorId: msg['senderId'] as String,
@@ -2345,7 +2346,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 });
               } catch (e) {
-                print('View-once decrypt failed: $e');
+                Logging.error('View-once decrypt failed: $e', 'ChatScreen');
               }
             },
             child: Container(

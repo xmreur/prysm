@@ -2,6 +2,7 @@ import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:path_provider/path_provider.dart';
@@ -131,7 +132,7 @@ class MessagesDb {
 
   /// CHANGES: added readAt timestamp
   static Future<void> _upgradeToV2(Database db) async {
-    print("UPGRADING DB TO v2");
+    Logging.info("UPGRADING DB TO v2", 'MessagesDb');
 
     final columns = await db.rawQuery('PRAGMA table_info(messages)');
     final hasReadAt = columns.any((col) => col['name'] == 'readAt');
@@ -144,7 +145,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV3(Database db) async {
-    print("UPGRADING DB TO v3");
+    Logging.info("UPGRADING DB TO v3", 'MessagesDb');
     final columns = await db.rawQuery('PRAGMA table_info(messages)');
     if (!columns.any((col) => col['name'] == 'viewOnce')) {
       await db.execute(
@@ -159,7 +160,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV4(Database db) async {
-    print("UPGRADING DB TO v4");
+    Logging.info("UPGRADING DB TO v4", 'MessagesDb');
     final columns = await db.rawQuery('PRAGMA table_info(messages)');
     if (!columns.any((col) => col['name'] == 'groupId')) {
       await db.execute('ALTER TABLE messages ADD COLUMN groupId TEXT');
@@ -170,7 +171,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV5(Database db) async {
-    print('UPGRADING DB TO v5');
+    Logging.info('UPGRADING DB TO v5', 'MessagesDb');
     await db.transaction((txn) async {
       final rows = await txn.query('messages', where: 'groupId IS NOT NULL');
       for (final row in rows) {
@@ -188,7 +189,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV6(Database db) async {
-    print('UPGRADING DB TO v6');
+    Logging.info('UPGRADING DB TO v6', 'MessagesDb');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_unread_inbound ON messages(senderId, status, readAt)',
     );
@@ -198,12 +199,12 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV7(Database db) async {
-    print('UPGRADING DB TO v7');
+    Logging.info('UPGRADING DB TO v7', 'MessagesDb');
     await MessageReactionsDb.createTable(db);
   }
 
   static Future<void> _upgradeToV8(Database db) async {
-    print('UPGRADING DB TO v8');
+    Logging.info('UPGRADING DB TO v8', 'MessagesDb');
     final columns = await db.rawQuery('PRAGMA table_info(messages)');
     if (!columns.any((col) => col['name'] == 'deletedAt')) {
       await db.execute('ALTER TABLE messages ADD COLUMN deletedAt INTEGER');
@@ -214,7 +215,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV9(Database db) async {
-    print('UPGRADING DB TO v9');
+    Logging.info('UPGRADING DB TO v9', 'MessagesDb');
     await MessageReadReceiptsDb.createTable(db);
     // Outbound rows had readAt set on delivery — not peer read confirmations.
     await db.execute('''
@@ -226,7 +227,7 @@ class MessagesDb {
   }
 
   static Future<void> _upgradeToV10(Database db) async {
-    print('UPGRADING DB TO v10');
+    Logging.info('UPGRADING DB TO v10', 'MessagesDb');
     await SelfMessagesDb.createTable(db);
   }
 

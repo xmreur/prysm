@@ -9,6 +9,7 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/read_receipt_payload.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
@@ -230,7 +231,7 @@ class ReadReceiptService {
       return true;
     } catch (e) {
       if (logOnFailure) {
-        debugPrint('Read waterline deferred (will retry via sync): $e');
+        Logging.warning('Read waterline deferred (will retry via sync): $e', 'ReadReceiptService');
       }
       return false;
     }
@@ -290,7 +291,7 @@ class ReadReceiptService {
       return true;
     } catch (e) {
       if (logOnFailure) {
-        debugPrint('Group read waterline deferred (will retry via sync): $e');
+        Logging.warning('Group read waterline deferred (will retry via sync): $e', 'ReadReceiptService');
       }
       return false;
     }
@@ -506,7 +507,7 @@ class ReadReceiptService {
         return await GroupCrypto.decryptText(groupKey, encrypted);
       }
     } catch (e) {
-      print('Read receipt decrypt failed: $e');
+      Logging.error('Read receipt decrypt failed: $e', 'ReadReceiptService');
     }
     return null;
   }

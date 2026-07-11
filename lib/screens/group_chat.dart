@@ -32,6 +32,7 @@ import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/util/chat_scroll.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
@@ -1565,7 +1566,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         );
                       });
                     } catch (e) {
-                      debugPrint('View-once failed: $e');
+                      Logging.error('View-once failed: $e', 'GroupChatScreen');
                     }
                   },
             child: Container(

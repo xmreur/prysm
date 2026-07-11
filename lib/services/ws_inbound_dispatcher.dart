@@ -7,6 +7,7 @@ import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Routes inbound WebSocket frames received on outbound peer connections.
 class WsInboundDispatcher {
@@ -29,7 +30,7 @@ class WsInboundDispatcher {
     detach(peerOnion);
     _subscriptions[peerOnion] = stream.listen(
       (frame) => unawaited(_handleFrame(peerOnion, frame)),
-      onError: (Object e) => debugPrint('WsInboundDispatcher $peerOnion: $e'),
+      onError: (Object e) => Logging.error('$peerOnion: $e', 'WsInboundDispatcher'),
     );
   }
 
@@ -89,13 +90,14 @@ class WsInboundDispatcher {
         try {
           final result = await router.processMessage(payload);
           if (result.statusCode >= 400) {
-            debugPrint(
-              'WsInboundDispatcher $op failed after push: '
+            Logging.error(
+              '$op failed after push: '
               '${result.jsonBody?['error'] ?? result.statusCode}',
+              'WsInboundDispatcher',
             );
           }
         } catch (e, stack) {
-          debugPrint('WsInboundDispatcher message error: $e\n$stack');
+          Logging.error('message error: $e\n$stack', 'WsInboundDispatcher');
         }
       }());
       return;
@@ -107,7 +109,7 @@ class WsInboundDispatcher {
       try {
         await router.handleSyncHint(payload);
       } catch (e, stack) {
-        debugPrint('WsInboundDispatcher sync-hint error: $e\n$stack');
+        Logging.error('sync-hint error: $e\n$stack', 'WsInboundDispatcher');
       }
     }
   }

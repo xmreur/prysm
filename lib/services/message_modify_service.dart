@@ -15,6 +15,7 @@ import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/util/logging.dart';
 
 class MessageModifyService {
   final String userId;
@@ -193,7 +194,7 @@ class MessageModifyService {
       try {
         await _sendGroupModify(payload, onlyTargets: deliveredTargets);
       } catch (e) {
-        print('Group message edit send failed: $e');
+        Logging.error('Group message edit send failed: $e', 'MessageModifyService');
       }
     }
 
@@ -231,7 +232,7 @@ class MessageModifyService {
     try {
       await _sendDirectModify(payload);
     } catch (e) {
-      print('Direct message edit send failed: $e');
+      Logging.error('Direct message edit send failed: $e', 'MessageModifyService');
     }
     return true;
   }
@@ -347,7 +348,7 @@ class MessageModifyService {
       );
       return true;
     } catch (e) {
-      print('Message modify send failed: $e');
+      Logging.error('Message modify send failed: $e', 'MessageModifyService');
       return false;
     }
   }
@@ -389,7 +390,7 @@ class MessageModifyService {
       );
       return true;
     } catch (e) {
-      print('Group message modify send failed: $e');
+      Logging.error('Group message modify send failed: $e', 'MessageModifyService');
       return false;
     }
   }
@@ -420,7 +421,7 @@ class MessageModifyService {
     try {
       return await loadPeerIdentityFromDb(keyManager, peerId!);
     } catch (e) {
-      print('Failed to load peer public key for $peerId: $e');
+      Logging.error('Failed to load peer public key for $peerId: $e', 'MessageModifyService');
       return null;
     }
   }
@@ -528,7 +529,7 @@ class MessageModifyService {
         return await GroupCrypto.decryptText(groupKey, encryptedBody);
       }
     } catch (e) {
-      print('Edited body decrypt failed: $e');
+      Logging.error('Edited body decrypt failed: $e', 'MessageModifyService');
     }
     return null;
   }
@@ -571,7 +572,7 @@ class MessageModifyService {
         return await GroupCrypto.decryptText(groupKey, encrypted);
       }
     } catch (e) {
-      print('Message modify decrypt failed: $e');
+      Logging.error('Message modify decrypt failed: $e', 'MessageModifyService');
     }
     return null;
   }

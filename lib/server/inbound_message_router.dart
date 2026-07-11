@@ -17,6 +17,7 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/notification_preview.dart';
 import 'package:prysm/util/notification_service.dart';
 
@@ -209,8 +210,9 @@ class InboundMessageRouter {
 
   /// Async processing after [validateMessage] returns null.
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
-    print(
-      'InboundMessageRouter: Received ${data['type']} from ${data['senderId']}',
+    Logging.info(
+      'Received ${data['type']} from ${data['senderId']}',
+      'InboundMessageRouter',
     );
 
     if (_isBlockedDm(data)) {
@@ -287,7 +289,7 @@ class InboundMessageRouter {
         data['message'] as String,
       );
     } catch (e) {
-      print('InboundMessageRouter: group control handling failed: $e');
+      Logging.error('Group control handling failed: $e', 'InboundMessageRouter');
       return InboundHandleResult.internalError(
         'Group control processing failed',
       );
@@ -319,7 +321,7 @@ class InboundMessageRouter {
         groupService: groupService,
       );
     } catch (e) {
-      print('InboundMessageRouter: message modify handling failed: $e');
+      Logging.error('Message modify handling failed: $e', 'InboundMessageRouter');
       return InboundHandleResult.internalError(
         'Message modify processing failed',
       );
@@ -352,7 +354,7 @@ class InboundMessageRouter {
         groupService: groupService,
       );
     } catch (e) {
-      print('InboundMessageRouter: read receipt handling failed: $e');
+      Logging.error('Read receipt handling failed: $e', 'InboundMessageRouter');
       return InboundHandleResult.internalError(
         'Read receipt processing failed',
       );
@@ -384,7 +386,7 @@ class InboundMessageRouter {
         groupService: groupService,
       );
     } catch (e) {
-      print('InboundMessageRouter: reaction handling failed: $e');
+      Logging.error('Reaction handling failed: $e', 'InboundMessageRouter');
       return InboundHandleResult.internalError('Reaction processing failed');
     }
 

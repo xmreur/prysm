@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
+
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
@@ -100,9 +101,7 @@ class DBHelper {
     try {
       await _onUpgradeImpl(db, oldVersion, newVersion);
     } catch (e, st) {
-      debugPrint(
-        'chat_app.db migration failed v$oldVersion->$newVersion: $e\n$st',
-      );
+      Logging.error('chat_app.db migration failed v$oldVersion->$newVersion: $e\n$st', 'DBHelper');
       rethrow;
     }
   }

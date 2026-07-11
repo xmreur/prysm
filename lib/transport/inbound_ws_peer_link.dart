@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -151,7 +151,7 @@ class InboundWsPeerLink implements WsPeerLink {
     try {
       frame = WsFrame.decode(text);
     } catch (e) {
-      debugPrint('InboundWsPeerLink: invalid hello frame: $e');
+      Logging.error('invalid hello frame: $e', 'InboundWsPeerLink');
       await _rejectHandshake();
       return;
     }
@@ -195,9 +195,8 @@ class InboundWsPeerLink implements WsPeerLink {
     _handshakeComplete = true;
     manager?.registerInboundLink(this);
 
-    if (kDebugMode) {
-      debugPrint('InboundWsPeerLink: handshake complete from $peerOnion');
-    }
+    Logging.debug('handshake complete from $peerOnion', 'InboundWsPeerLink');
+    
   }
 
   Future<void> _rejectDuplicate(String localOnion) async {
@@ -302,7 +301,7 @@ class InboundWsPeerLink implements WsPeerLink {
         _channel.sink.add(encoded);
       }
     } catch (e, stack) {
-      debugPrint('InboundWsPeerLink inbound request error: $e\n$stack');
+      Logging.error('inbound request error: $e\n$stack', 'InboundWsPeerLink');
       final requestId = frame.id;
       if (requestId != null && !_closed) {
         _channel.sink.add(

@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/util/detached_message_codec.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
+import 'package:prysm/util/logging.dart';
 
 typedef DetachedDecryptRowsFn = Future<List<Message>> Function(
   DetachedChatKind chatKind,
@@ -113,7 +113,7 @@ class DetachedChatHost {
     try {
       return await _handleCallImpl(call);
     } catch (e, st) {
-      debugPrint('DetachedChatHost: ${call.method} failed: $e\n$st');
+      Logging.error('${call.method} failed: $e\n$st', 'DetachedChatHost');
       return null;
     }
   }
@@ -206,7 +206,7 @@ class DetachedChatHost {
           [DetachedMessageCodec.encode(await _rowToMessage(event.row, kind, conversationId))],
         );
       } catch (e) {
-        debugPrint('DetachedChatHost: forward inbound failed: $e');
+        Logging.error('Forward inbound failed: $e', 'DetachedChatHost');
       }
     }
   }
@@ -252,7 +252,7 @@ class DetachedChatHost {
           'status': status,
         });
       } catch (e) {
-        debugPrint('DetachedChatHost: forward status failed: $e');
+        Logging.error('Forward status failed: $e', 'DetachedChatHost');
       }
     }
   }

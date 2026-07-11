@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
+import 'package:prysm/util/logging.dart';
 
 
 enum LinuxDistroType {
@@ -43,7 +44,7 @@ class UpdaterDownloader {
       await Process.run('chmod', ['+x', updaterExecutablePath]);
     }
 
-    print("Updater executable downloaded to $updaterExecutablePath");
+    Logging.debug("Updater executable downloaded to $updaterExecutablePath", 'UpdaterDownloader');
     return updaterExecutablePath;
   }
 

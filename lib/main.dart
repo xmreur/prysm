@@ -37,6 +37,7 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'package:prysm/screens/call/call_overlay.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
@@ -147,10 +148,10 @@ void main(List<String> args) {
 
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
-        debugPrint('FlutterError: ${details.exception}\n${details.stack}');
+        Logging.error('FlutterError: ${details.exception}\n${details.stack}', 'Main');
       };
       PlatformDispatcher.instance.onError = (error, stack) {
-        debugPrint('Uncaught async error: $error\n$stack');
+        Logging.error('Uncaught async error: $error\n$stack', 'Main');
         return true;
       };
 
@@ -165,7 +166,7 @@ void main(List<String> args) {
       );
     },
     (error, stack) {
-      debugPrint('Zone error: $error\n$stack');
+      Logging.error('Zone error: $error\n$stack', 'Main');
     },
   );
 }
@@ -191,7 +192,7 @@ Future<void> _runMainApp() async {
       final pid = int.tryParse(pidStr);
       if (pid != null && await _isProcessRunning(pid)) {
         // Another instance is running — activate it and exit
-        print('Another instance of Prysm is already running (PID $pid).');
+        Logging.info('Another instance of Prysm is already running (PID $pid).', 'Main');
         exit(0);
       }
     }
@@ -219,7 +220,7 @@ Future<void> _runMainApp() async {
   try {
     await BlockService.instance.init();
   } catch (e, st) {
-    debugPrint('BlockService init failed: $e\n$st');
+    Logging.error('BlockService init failed: $e\n$st', 'Main');
     startupError = e.toString();
   }
 
@@ -231,7 +232,7 @@ Future<void> _runMainApp() async {
   try {
     await messageServer.start();
   } catch (e, st) {
-    debugPrint('PrysmServer start failed: $e\n$st');
+    Logging.error('PrysmServer start failed: $e\n$st', 'Main');
     serverBindFailed = true;
   }
   LocalOnionAddress.provider = () => PrysmServer.instance?.localOnionAddress;
@@ -296,7 +297,7 @@ Future<void> runDesktopUpdaterCheck() async {
     await UpdaterDownloader().getOrDownloadUpdater();
     checkForUpdatesAndLaunchUpdater();
   } catch (e) {
-    print('Error downloading updater: $e');
+    Logging.error('Error downloading updater: $e', 'Main');
   }
 }
 
@@ -405,21 +406,22 @@ Future<void> checkForUpdatesAndLaunchUpdater() async {
       if (await isNewerVersion(currentVersion, latestVersion)) {
         final updaterPath = await UpdaterDownloader().getOrDownloadUpdater();
 
-        print('Launching updater process...');
+        Logging.info('Launching updater process...', 'Main');
         await Process.start(updaterPath, [], mode: ProcessStartMode.detached);
 
         // Exit app to allow updater to proceed
         exit(0);
       } else {
-        print('Already at latest version $currentVersion');
+        Logging.info('Already at latest version $currentVersion', 'Main');
       }
     } else {
-      print(
+      Logging.warning(
         'Failed to fetch latest release info. Status: ${response.statusCode}',
+        'Main',
       );
     }
   } catch (e) {
-    print('Error checking updates: $e');
+    Logging.error('Error checking updates: $e', 'Main');
   }
 }
 
@@ -553,6 +555,7 @@ class _MyAppState extends State<MyApp> {
     _loadSavedTheme();
     _checkMigration();
     _checkKeysExist();
+    unawaited(Logging.init());
     _bootstrapSub = TorBootstrapNotifier.instance.onProgress.listen((p) {
       if (mounted) setState(() => _torBootstrapProgress = p);
     });
@@ -633,7 +636,7 @@ class _MyAppState extends State<MyApp> {
         });
       }
     } catch (e) {
-      print('Tor connection failed: $e');
+      Logging.error('Tor connection failed: $e', 'Main');
       if (_torManager == null) {
         await _enterOfflineMode();
       }
@@ -687,7 +690,7 @@ class _MyAppState extends State<MyApp> {
         });
       }
     } catch (e) {
-      print('Tor initialization failed: $e');
+      Logging.error('Tor initialization failed: $e', 'Main');
       if (mounted) {
         setState(() {
           _torFailed = true;
@@ -1251,7 +1254,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
         })
         .catchError((Object e, StackTrace st) {
-          debugPrint('loadUsers failed: $e\n$st');
+          Logging.error('loadUsers failed: $e\n$st', 'Main');
         });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3095,7 +3098,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
       _torHealthTimer?.cancel();
       await widget.torManager.stopTor();
-      print('Tor process stopped gracefully.');
+      Logging.info('Tor process stopped gracefully.', 'Main');
     }
   }
 

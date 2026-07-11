@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Linux microphone capture via `pw-record` (PipeWire), matching the CLI path
 /// that works reliably with Scarlett / native PipeWire devices.
@@ -43,9 +44,8 @@ class LinuxMicCapture {
       '-',
     ];
 
-    if (kDebugMode) {
-      debugPrint('LinuxMicCapture: pw-record ${args.join(' ')}');
-    }
+    Logging.debug('pw-record ${args.join(' ')}', 'LinuxMicCapture');
+    
 
     _process = await Process.start('pw-record', args);
     _running = true;
@@ -74,8 +74,8 @@ class LinuxMicCapture {
     );
 
     _process!.stderr.transform(utf8.decoder).listen((line) {
-      if (kDebugMode && line.trim().isNotEmpty) {
-        debugPrint('LinuxMicCapture: ${line.trim()}');
+      if (line.trim().isNotEmpty) {
+        Logging.debug(line.trim(), 'LinuxMicCapture');
       }
     });
 

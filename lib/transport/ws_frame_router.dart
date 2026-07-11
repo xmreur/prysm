@@ -6,6 +6,7 @@ import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 
 /// Handles inbound WebSocket request frames and returns encoded responses.
@@ -95,12 +96,7 @@ class WsFrameRouter {
       final router = _router;
       if (router == null) return [];
 
-      if (kDebugMode) {
-        debugPrint(
-          'WsFrameRouter ${frame.op} from ${payload['senderId']} '
-          'type=${payload['type']}',
-        );
-      }
+      Logging.debug('${frame.op} from ${payload['senderId']} type=${payload['type']}', 'WsFrameRouter');
 
       final validation = router.validateMessage(payload);
       if (validation != null) {
@@ -152,7 +148,7 @@ class WsFrameRouter {
           ).encode(),
         ];
       } catch (e, stack) {
-        debugPrint('WsFrameRouter sync-hint error: $e\n$stack');
+        Logging.error('sync-hint error: $e\n$stack', 'WsFrameRouter');
         if (frame.id == null) return [];
         return [
           WsFrame.error(id: frame.id!, message: 'Processing failed').encode(),
@@ -184,13 +180,10 @@ class WsFrameRouter {
     try {
       final result = await router.processMessage(payload);
       if (result.statusCode >= 400) {
-        debugPrint(
-          'WsFrameRouter $op async process failed after ack: '
-          '${result.jsonBody?['error'] ?? result.statusCode}',
-        );
+        Logging.error('$op from ${payload['senderId']} type=${payload['type']} async process failed after ack: ${result.jsonBody?['error'] ?? result.statusCode}', 'WsFrameRouter');
       }
     } catch (e, stack) {
-      debugPrint('WsFrameRouter $op async process error: $e\n$stack');
+      Logging.error('$op from ${payload['senderId']} type=${payload['type']} async process error: $e\n$stack', 'WsFrameRouter');
     }
   }
 

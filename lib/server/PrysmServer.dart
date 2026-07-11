@@ -10,6 +10,7 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
 import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
@@ -60,12 +61,12 @@ class PrysmServer {
       shared: true,
     );
 
-    print('HTTP server now running on http://127.0.0.1:$port');
+    Logging.info('HTTP server now running on http://127.0.0.1:$port', 'PrysmServer');
   }
 
   Future<void> stop() async {
     await _server?.close(force: true);
-    print('HTTP server stopped');
+    Logging.info('HTTP server stopped', 'PrysmServer');
   }
 
   FutureOr<Response> _rootHandler(Request request) {
@@ -76,7 +77,7 @@ class PrysmServer {
   }
 
   Future<Response> _requestHandler(Request request) async {
-    print('${request.method} - ${request.url}');
+    Logging.info('${request.method} - ${request.url}', 'PrysmServer');
 
     try {
       if (request.method == 'POST' && request.url.path == 'message') {
@@ -105,7 +106,7 @@ class PrysmServer {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e, stack) {
-      print('PrysmServer Error: $e\n$stack');
+      Logging.error('PrysmServer Error: $e\n$stack', 'PrysmServer');
       return Response.internalServerError(
         body: jsonEncode({'error': 'Internal server error'}),
       );
@@ -122,9 +123,7 @@ class PrysmServer {
     try {
       payload = utf8.decode(bodyBytes);
     } on FormatException catch (e) {
-      print(
-        'PrysmServer: invalid UTF-8 request body (${bodyBytes.length} bytes): $e',
-      );
+      Logging.error('PrysmServer: invalid UTF-8 request body (${bodyBytes.length} bytes): $e', 'PrysmServer');
       rethrow;
     }
 
@@ -141,10 +140,10 @@ class PrysmServer {
       final result = await _router.handleMessage(data);
       return _toResponse(result);
     } on FormatException catch (e, stack) {
-      print('PrysmServer POST /message invalid body: $e\n$stack');
+      Logging.error('PrysmServer POST /message invalid body: $e\n$stack', 'PrysmServer');
       return _badRequest('Invalid message body');
     } catch (e, stack) {
-      print('PrysmServer POST /message Error $e\n$stack');
+      Logging.error('PrysmServer POST /message Error $e\n$stack', 'PrysmServer');
       return Response.internalServerError(
         body: jsonEncode({'error': 'Processing failed'}),
         headers: {'Content-Type': 'application/json'},
@@ -158,10 +157,10 @@ class PrysmServer {
       final result = await _router.handleSyncHint(data);
       return _toResponse(result);
     } on FormatException catch (e, stack) {
-      print('PrysmServer POST /sync-hint invalid body: $e\n$stack');
+      Logging.error('PrysmServer POST /sync-hint invalid body: $e\n$stack', 'PrysmServer');
       return _badRequest('Invalid sync-hint body');
     } catch (e, stack) {
-      print('PrysmServer POST /sync-hint Error $e\n$stack');
+      Logging.error('PrysmServer POST /sync-hint Error $e\n$stack', 'PrysmServer');
       return Response.internalServerError(
         body: jsonEncode({'error': 'Processing failed'}),
         headers: {'Content-Type': 'application/json'},
@@ -202,7 +201,7 @@ class PrysmServer {
     Zone.current.fork(
       specification: ZoneSpecification(
         handleUncaughtError: (self, parent, zone, error, stackTrace) {
-          print('Suppressed error in _fetchSenderProfile: $error');
+          Logging.error('Suppressed error in _fetchSenderProfile: $error', 'PrysmServer');
         },
       ),
     ).run(() async {
@@ -252,7 +251,7 @@ class PrysmServer {
         }
         PeerProfileCache.instance.markFetched(senderId);
       } catch (e) {
-        print('Failed to fetch sender profile: $e');
+        Logging.error('Failed to fetch sender profile: $e', 'PrysmServer');
       }
     });
   }

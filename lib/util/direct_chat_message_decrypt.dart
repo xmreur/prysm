@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
+
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_modify_policy.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Decrypts direct-chat DB rows using the main window's unlocked [KeyManager].
 class DirectChatMessageDecrypt {
@@ -122,7 +123,7 @@ class DirectChatMessageDecrypt {
           }
         }
       } catch (e) {
-        debugPrint('Direct message decrypt failed (${msg['id']}): $e');
+        Logging.error('Direct message decrypt failed (${msg['id']}): $e', 'DirectChatMessageDecrypt');
         messages.add(
           TextMessage(
             authorId: msg['senderId'] as String,

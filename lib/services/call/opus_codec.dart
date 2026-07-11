@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:opus_dart/opus_dart.dart';
 import 'package:opus_flutter/opus_flutter.dart' as opus_flutter;
+import 'package:prysm/util/logging.dart';
 
 class OpusCodec {
   OpusCodec._({
@@ -39,7 +40,7 @@ class OpusCodec {
       _available = false;
       lastLoadError = e.toString();
       if (kDebugMode) {
-        debugPrint('OpusCodec: failed to load libopus: $e\n$stack');
+        Logging.error('failed to load libopus: $e\n$stack', 'OpusCodec');
       }
     }
     _loaded = true;
@@ -110,7 +111,7 @@ class OpusCodec {
     } catch (e, stack) {
       lastLoadError = e.toString();
       if (kDebugMode) {
-        debugPrint('OpusCodec: encoder/decoder init failed: $e\n$stack');
+        Logging.error('encoder/decoder init failed: $e\n$stack', 'OpusCodec');
       }
       return null;
     }

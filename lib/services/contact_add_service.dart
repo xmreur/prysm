@@ -6,6 +6,7 @@ import 'package:prysm/models/contact.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/logging.dart';
 
 class ContactAddService {
   ContactAddService._();
@@ -17,7 +18,7 @@ class ContactAddService {
     String? expectedFingerprint,
   }) async {
     if (BlockService.instance.isBlocked(onionId)) {
-      print('Cannot add blocked contact $onionId');
+      Logging.error('Cannot add blocked contact $onionId', 'ContactAddService');
       return false;
     }
     String? identityJson;
@@ -40,12 +41,12 @@ class ContactAddService {
           avatarBase64 = profileData['avatar'] as String;
         }
       } catch (e) {
-        print('Profile fetch failed, trying /public: $e');
+        Logging.error('Profile fetch failed, trying /public: $e', 'ContactAddService');
         identityJson =
             (await TransportProvider.getPublicOrFallback(peerOnion)).trim();
       }
     } catch (e) {
-      print('Failed to fetch identity from $onionId: $e');
+      Logging.error('Failed to fetch identity from $onionId: $e', 'ContactAddService');
       return false;
     }
 
@@ -60,13 +61,13 @@ class ContactAddService {
         jsonDecode(json) as Map<String, dynamic>,
       );
     } catch (e) {
-      print('Invalid identity JSON from $onionId: $e');
+      Logging.error('Invalid identity JSON from $onionId: $e', 'ContactAddService');
       return false;
     }
 
     if (expectedFingerprint != null &&
         keys.fingerprint != expectedFingerprint) {
-      print('Identity fingerprint mismatch for $onionId');
+      Logging.error('Identity fingerprint mismatch for $onionId', 'ContactAddService');
       return false;
     }
 

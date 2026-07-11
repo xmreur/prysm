@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 import 'dart:convert';
 
+import 'package:prysm/util/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MuteTarget { user, group }
@@ -121,7 +122,7 @@ class NotificationMuteService {
         }
       }
     } catch (e) {
-      print('Error loading notification mutes: $e');
+      Logging.error('Error loading notification mutes: $e', 'NotificationMuteService');
     }
   }
 
@@ -129,7 +130,7 @@ class NotificationMuteService {
     try {
       await _prefs?.setString(_storageKey, jsonEncode(_mutes));
     } catch (e) {
-      print('Error saving notification mutes: $e');
+      Logging.error('Error saving notification mutes: $e', 'NotificationMuteService');
     }
   }
 

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/digests/sha256.dart';
+import 'package:prysm/util/logging.dart';
 
 enum LinuxDistroType {
   debianBased,
@@ -38,12 +39,12 @@ class TorDownloader {
               expectedHash.toLowerCase()) {
         return torExecutablePath;
       }
-      print('Tor binary hash mismatch — re-downloading');
+      Logging.error('Tor binary hash mismatch — re-downloading', 'TorDownloader');
       await File(torExecutablePath).delete();
     }
 
     final Uri downloadUri = await _getDownloadUri();
-    print('Downloading Tor from $downloadUri ...');
+    Logging.debug('Downloading Tor from $downloadUri ...', 'TorDownloader');
 
     final http.Response response = await http.get(downloadUri);
     if (response.statusCode != 200) {
@@ -62,7 +63,7 @@ class TorDownloader {
       await Process.run('chmod', ['+x', torExecutablePath]);
     }
 
-    print('Tor executable downloaded to $torExecutablePath');
+    Logging.debug('Tor executable downloaded to $torExecutablePath', 'TorDownloader');
     return torExecutablePath;
   }
 
@@ -146,7 +147,7 @@ class TorDownloader {
       final value = map[manifestKey];
       return value is String ? value : null;
     } catch (e) {
-      print('Tor manifest fetch failed (skipping verify): $e');
+      Logging.error('Tor manifest fetch failed (skipping verify): $e', 'TorDownloader');
       return null;
     }
   }

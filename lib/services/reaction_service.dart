@@ -14,6 +14,7 @@ import 'package:prysm/util/reaction_payload.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/util/logging.dart';
 
 class ReactionUpdate {
   final String targetMessageId;
@@ -229,7 +230,7 @@ class ReactionService {
       );
       return true;
     } catch (e) {
-      print('Reaction send failed: $e');
+      Logging.error('Reaction send failed: $e', 'ReactionService');
       return false;
     }
   }
@@ -271,7 +272,7 @@ class ReactionService {
       );
       return true;
     } catch (e) {
-      print('Group reaction send failed: $e');
+      Logging.error('Group reaction send failed: $e', 'ReactionService');
       return false;
     }
   }
@@ -390,7 +391,7 @@ class ReactionService {
         return await GroupCrypto.decryptText(groupKey, encrypted);
       }
     } catch (e) {
-      print('Reaction decrypt failed: $e');
+      Logging.error('Reaction decrypt failed: $e', 'ReactionService');
     }
     return null;
   }

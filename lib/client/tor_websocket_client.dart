@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:prysm/client/tor_socks_websocket.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:uuid/uuid.dart';
 
 /// Persistent WebSocket connection to a single peer over Tor SOCKS.
@@ -257,9 +257,7 @@ class TorWebSocketClient {
         try {
           await socket.close();
         } catch (e) {
-          if (kDebugMode) {
-            debugPrint('TorWebSocketClient: socket close failed: $e');
-          }
+            Logging.error('TorWebSocketClient: socket close failed: $e', 'TorWebSocketClient');          
         }
       }
     } finally {

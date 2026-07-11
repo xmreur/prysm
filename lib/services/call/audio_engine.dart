@@ -12,6 +12,7 @@ import 'package:prysm/services/call/linux_mic_capture.dart';
 import 'package:prysm/services/call/opus_codec.dart';
 import 'package:prysm/services/call/pcm_capture_processor.dart';
 import 'package:prysm/services/call/pcm_gain_normalizer.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:record/record.dart';
 
 typedef CallAudioSendCallback = void Function(Uint8List encryptedFrame);
@@ -139,7 +140,7 @@ class AudioEngine implements CallAudio {
               );
             } catch (e) {
               if (kDebugMode) {
-                debugPrint('AudioEngine: encode failed: $e');
+                Logging.error('encode failed: $e', 'AudioEngine');
               }
             }
           }
@@ -147,7 +148,7 @@ class AudioEngine implements CallAudio {
         onError: (Object e) {
           AudioEngine.lastStartError = 'Microphone stream error: $e';
           if (kDebugMode) {
-            debugPrint('AudioEngine: capture stream error: $e');
+            Logging.error('capture stream error: $e', 'AudioEngine');
           }
         },
       );
@@ -185,7 +186,7 @@ class AudioEngine implements CallAudio {
         _playback.playPcm(bytes);
       } catch (e) {
         if (kDebugMode) {
-          debugPrint('AudioEngine: decode failed: $e');
+          Logging.error('decode failed: $e', 'AudioEngine');
         }
       }
     }());

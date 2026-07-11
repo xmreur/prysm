@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -93,7 +94,7 @@ class GroupService {
       _groupKeyVersionCache[groupId] = version;
       return key;
     } catch (e) {
-      print('Failed to decrypt group key for $groupId: $e');
+      Logging.error('Failed to decrypt group key for $groupId: $e', 'GroupService');
       return null;
     }
   }
@@ -605,13 +606,13 @@ class GroupService {
     final localKeyVersion = localKeyRow?['keyVersion'] as int? ?? 0;
 
     if (localKeyVersion > keyVersion) {
-      print('Ignoring stale group invite for $groupId (v$keyVersion < v$localKeyVersion)');
+      Logging.error('Ignoring stale group invite for $groupId (v$keyVersion < v$localKeyVersion)', 'GroupService');
       return;
     }
 
     final inviteMemberIds = members.map((m) => m['id'] as String).toSet();
     if (existing != null && !inviteMemberIds.contains(userId)) {
-      print('Ignoring group invite for $groupId — local user not in roster');
+      Logging.error('Ignoring group invite for $groupId — local user not in roster', 'GroupService');
       return;
     }
 
@@ -685,7 +686,7 @@ class GroupService {
     final localKeyRow = await DBHelper.getGroupKey(groupId);
     final localKeyVersion = localKeyRow?['keyVersion'] as int? ?? 0;
     if (keyVersion <= localKeyVersion) {
-      print('Ignoring stale key rotate for $groupId (v$keyVersion <= v$localKeyVersion)');
+      Logging.error('Ignoring stale key rotate for $groupId (v$keyVersion <= v$localKeyVersion)', 'GroupService');
       return;
     }
 
@@ -974,7 +975,7 @@ class GroupService {
       return true;
     } catch (e) {
       if (!quiet) {
-        print('Group control send failed: $e');
+        Logging.error('Group control send failed: $e', 'GroupService');
       }
       return false;
     }
@@ -1010,7 +1011,7 @@ class GroupService {
       try {
         return keyManager.importPeerIdentity(pem);
       } catch (e) {
-        print('Invalid cached peer public key for $peerId: $e');
+        Logging.error('Invalid cached peer public key for $peerId: $e', 'GroupService');
       }
     }
 
@@ -1026,7 +1027,7 @@ class GroupService {
         return key;
       }
     } catch (e) {
-      print('Failed to fetch peer public key: $e');
+      Logging.error('Failed to fetch peer public key: $e', 'GroupService');
     }
     return null;
   }

@@ -15,7 +15,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
@@ -32,7 +31,6 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
-import 'package:prysm/ui/core/prysm_linear_progress.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_switch.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
@@ -79,11 +77,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableRelay = false;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
-  bool _enableVoiceTranscription = false;
   bool _biometricsEnabled = false;
   bool _biometricsAvailable = false;
-  bool _isDownloadingSttModel = false;
-  double _sttModelDownloadProgress = 0;
   String _downloadLocationDisplay = 'Loading...';
   List<LinuxAudioDevice> _linuxInputDevices = const [];
   String? _linuxSelectedDeviceId;
@@ -121,7 +116,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableRelay = settings.enableRelay;
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
-      _enableVoiceTranscription = settings.enableVoiceTranscription;
       _biometricsEnabled = settings.biometricsEnabled;
     });
   }
@@ -400,58 +394,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settings.setEnableLinkUnfurling(value);
     setState(() => _enableLinkUnfurling = value);
   }
-
-  Future<void> _onVoiceTranscriptionToggle(bool value) async {
-    if (value) {
-      final confirmed = await showPrysmConfirmDialog(
-        context: context,
-        title: 'Enable voice transcription?',
-        content: const Text(
-          'Prysm will download an on-device English speech model (~110 MB). '
-          'Only English voice messages can be transcribed for now. '
-          'Transcripts stay on this device and are never sent to contacts.',
-        ),
-        cancelLabel: 'Cancel',
-        confirmLabel: 'Enable',
-      );
-      if (confirmed != true || !mounted) return;
-
-      setState(() {
-        _enableVoiceTranscription = true;
-        _isDownloadingSttModel = true;
-        _sttModelDownloadProgress = 0;
-      });
-      try {
-        await SttModelManager.instance.ensureModelReady(
-          onProgress: (progress) {
-            if (mounted) {
-              setState(() => _sttModelDownloadProgress = progress);
-            }
-          },
-        );
-        await settings.setEnableVoiceTranscription(true);
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _enableVoiceTranscription = false;
-            _isDownloadingSttModel = false;
-          });
-          showPrysmToast(context, 'Failed to download speech model: $e');
-        }
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _isDownloadingSttModel = false;
-        _sttModelDownloadProgress = 1;
-      });
-      return;
-    }
-
-    await settings.setEnableVoiceTranscription(false);
-    setState(() => _enableVoiceTranscription = false);
-  }
-
   void _onBatterySavingToggle(bool value) async {
     await BatterySaverService.instance.setUserEnabled(value);
     if (mounted) setState(() {});
@@ -884,35 +826,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _onLinkUnfurlingToggle,
                 ),
                 const PrysmDivider(),
-                _buildSwitchTile(
-                  'Voice transcription',
-                  'Transcribe English voice messages on this device. Text stays local and is never sent to contacts.',
-                  PrysmIcons.subtitlesOutlined,
-                  _enableVoiceTranscription,
-                  _onVoiceTranscriptionToggle,
-                ),
-                if (_isDownloadingSttModel) ...[
-                  const PrysmDivider(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Downloading speech model…',
-                          style: context.prysmStyle.captionStyle,
-                        ),
-                        const SizedBox(height: 6),
-                        PrysmLinearProgressIndicator(
-                          value: _sttModelDownloadProgress > 0
-                              ? _sttModelDownloadProgress
-                              : null,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const PrysmDivider(),
+
                 _buildNavigationTile(
                   'Call History',
                   PrysmIcons.call,

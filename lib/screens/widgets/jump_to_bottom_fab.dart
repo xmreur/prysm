@@ -8,7 +8,7 @@ class JumpToBottomFabOverlay extends StatelessWidget {
     required this.visible,
     required this.onPressed,
     required this.child,
-    this.bottom = 80,
+    this.bottom = 16,
     super.key,
   });
 

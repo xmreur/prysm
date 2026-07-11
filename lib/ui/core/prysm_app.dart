@@ -45,16 +45,22 @@ class PrysmApp extends StatelessWidget {
             },
             builder: (context, child) {
               final resolved = PrysmStyleScope.of(context);
-              return IconTheme(
-                data: IconThemeData(
-                  color: resolved.tokens.textSecondary,
-                  size: 22,
-                ),
-                child: DefaultTextStyle(
-                  style: resolved.bodyStyle,
-                  child: ColoredBox(
-                    color: resolved.tokens.background,
-                    child: child ?? const SizedBox.shrink(),
+              final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+              return AnimatedPadding(
+                padding: EdgeInsets.only(bottom: bottomInset),
+                duration: const Duration(milliseconds: 100),
+                curve: Curves.easeOut,
+                child: IconTheme(
+                  data: IconThemeData(
+                    color: resolved.tokens.textSecondary,
+                    size: 22,
+                  ),
+                  child: DefaultTextStyle(
+                    style: resolved.bodyStyle,
+                    child: ColoredBox(
+                      color: resolved.tokens.background,
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               );

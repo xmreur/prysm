@@ -50,26 +50,21 @@ class PrysmSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
     return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: PrysmTokens.spacing8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: style.tokens.outline,
-                borderRadius: BorderRadius.circular(2),
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: PrysmTokens.spacing8),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: style.tokens.outline,
+              borderRadius: BorderRadius.circular(2),
             ),
-            const SizedBox(height: PrysmTokens.spacing8),
-            Flexible(child: child),
-          ],
-        ),
+          ),
+          const SizedBox(height: PrysmTokens.spacing8),
+          Flexible(child: child),
+        ],
       ),
     );
   }

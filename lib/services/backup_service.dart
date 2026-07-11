@@ -38,8 +38,7 @@ class BackupService {
       'chat_app.db',
       'messages.db',
       'pending_messages.db',
-      'voice_transcripts.db',
-    ];
+];
     final databases = <String, String>{};
     for (final name in dbNames) {
       final file = File(p.join(prysmDir, name));

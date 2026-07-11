@@ -33,7 +33,6 @@ class Settings {
   // Files
   final bool enableFilePreview;
   final bool enableLinkUnfurling;
-  final bool enableVoiceTranscription;
   final String? customDownloadPath;
 
   // Onboarding
@@ -62,7 +61,6 @@ class Settings {
     this.username,
     this.enableFilePreview = false,
     this.enableLinkUnfurling = false,
-    this.enableVoiceTranscription = false,
     this.customDownloadPath,
     this.onboardingCompleted = false,
     this.unlockType = UnlockType.pin,
@@ -89,7 +87,6 @@ class Settings {
     'username': username,
     'enableFilePreview': enableFilePreview,
     'enableLinkUnfurling': enableLinkUnfurling,
-    'enableVoiceTranscription': enableVoiceTranscription,
     'customDownloadPath': customDownloadPath,
     'onboardingCompleted': onboardingCompleted,
     'unlockType': unlockType.toJson(),
@@ -118,7 +115,6 @@ class Settings {
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
     enableLinkUnfurling: json['enableLinkUnfurling'] ?? false,
-    enableVoiceTranscription: json['enableVoiceTranscription'] ?? false,
     customDownloadPath: json['customDownloadPath'],
     onboardingCompleted: json['onboardingCompleted'] ?? false,
     unlockType: json.containsKey('unlockType')
@@ -147,7 +143,6 @@ class Settings {
     String? username,
     bool? enableFilePreview,
     bool? enableLinkUnfurling,
-    bool? enableVoiceTranscription,
     String? customDownloadPath,
     bool? onboardingCompleted,
     UnlockType? unlockType,
@@ -174,8 +169,6 @@ class Settings {
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
     enableLinkUnfurling: enableLinkUnfurling ?? this.enableLinkUnfurling,
-    enableVoiceTranscription:
-        enableVoiceTranscription ?? this.enableVoiceTranscription,
     customDownloadPath: clearCustomDownloadPath
         ? null
         : (customDownloadPath ?? this.customDownloadPath),
@@ -218,7 +211,6 @@ class Settings {
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
         other.enableLinkUnfurling == enableLinkUnfurling &&
-        other.enableVoiceTranscription == enableVoiceTranscription &&
         other.customDownloadPath == customDownloadPath &&
         other.onboardingCompleted == onboardingCompleted &&
         other.unlockType == unlockType &&
@@ -245,7 +237,6 @@ class Settings {
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^
         enableLinkUnfurling.hashCode ^
-        enableVoiceTranscription.hashCode ^
         (customDownloadPath?.hashCode ?? 0) ^
         onboardingCompleted.hashCode ^
         unlockType.hashCode ^

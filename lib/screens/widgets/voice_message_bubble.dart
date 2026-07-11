@@ -4,23 +4,18 @@ import 'package:prysm/ui/core/prysm_toast.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/screens/widgets/voice_waveform_scrubber.dart';
-import 'package:prysm/services/settings_service.dart';
-import 'package:prysm/services/voice_transcription_service.dart';
 import 'package:prysm/util/logging.dart';
-import 'package:prysm/util/stt_model_manager.dart';
 import 'package:prysm/util/voice_playback_coordinator.dart';
 import 'package:prysm/util/voice_player.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
-import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
-import 'package:prysm/ui/core/prysm_linear_progress.dart';
 
 /// Shared voice message bubble with waveform scrubbing (1:1 and group chats).
 class VoiceMessageBubble extends StatefulWidget {
@@ -56,13 +51,6 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
   String? _resolvedPath;
   Uint8List? _audioBytes;
   double? _scrubFraction;
-  String? _cachedTranscript;
-  bool _showTranscript = false;
-  bool _isTranscribing = false;
-  bool _batterySavingHintShown = false;
-
-  bool get _sttSupported =>
-      !kIsWeb && VoiceTranscriptionService.instance.isSupported;
 
   @override
   void initState() {
@@ -73,10 +61,6 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     _loadDurationFromSource();
     _loadPeaksFromMetadata();
     _syncDurationToPlayer();
-    if (_sttSupported) {
-      unawaited(_loadCachedTranscript());
-    }
-
     _player.playingStream.listen((playing) {
       if (!mounted) return;
       setState(() => _isPlaying = playing);
@@ -100,82 +84,6 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     });
 
     unawaited(_prepareWaveform());
-  }
-
-  Future<void> _loadCachedTranscript() async {
-    final cached = await VoiceTranscriptionService.instance
-        .getCachedTranscript(widget.message.id);
-    if (!mounted || cached == null) return;
-    setState(() {
-      _cachedTranscript = cached;
-    });
-  }
-
-  Future<void> _onTranscribeTap() async {
-    if (!_sttSupported) return;
-
-    if (!SettingsService().enableVoiceTranscription) {
-      if (mounted) {
-        showPrysmToast(context, 
-              'Enable Voice transcription in Settings → Data to transcribe locally',
-            );
-      }
-      return;
-    }
-
-    if (_cachedTranscript != null) {
-      setState(() => _showTranscript = !_showTranscript);
-      return;
-    }
-
-    if (_isTranscribing) return;
-
-    if (SettingsService().enableBatterySaving && !_batterySavingHintShown) {
-      _batterySavingHintShown = true;
-      if (mounted) {
-        showPrysmToast(context, 
-              'Transcription uses extra CPU while battery saving is on',
-            );
-      }
-    }
-
-    setState(() => _isTranscribing = true);
-    try {
-      final wavPath = await _resolvePath();
-      if (wavPath == null) {
-        if (mounted) {
-          showPrysmToast(context, 'Voice message cache expired');
-        }
-        return;
-      }
-
-      final transcript = await VoiceTranscriptionService.instance.transcribe(
-        messageId: widget.message.id,
-        wavPath: wavPath,
-      );
-
-      if (!mounted) return;
-      if (transcript == null || transcript.isEmpty) {
-        showPrysmToast(context, 'Could not transcribe voice message');
-        return;
-      }
-
-      setState(() {
-        _cachedTranscript = transcript;
-        _showTranscript = true;
-      });
-    } on VoiceTranscriptionException catch (e) {
-      if (mounted) {
-        showPrysmToast(context, e.message);
-      }
-    } catch (err) {
-      Logging.error('Voice transcription error: $err', 'VoiceMessageBubble');
-      if (mounted) {
-        showPrysmToast(context, 'Failed to transcribe voice message');
-      }
-    } finally {
-      if (mounted) setState(() => _isTranscribing = false);
-    }
   }
 
   void _syncDurationToPlayer() {
@@ -400,12 +308,6 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
       color: contentColor.withAlpha(170),
       height: 1.1,
     );
-    final transcriptStyle = TextStyle(
-      fontSize: 11,
-      color: contentColor.withAlpha(220),
-      height: 1.3,
-    );
-
     return Column(
       crossAxisAlignment:
           widget.isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -482,55 +384,6 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                           ],
                         ],
                       ),
-                      if (_sttSupported) ...[
-                        const SizedBox(height: 4),
-                        Align(
-                          alignment: widget.isSentByMe
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: PrysmLinkButton(
-                            onPressed:
-                                _isTranscribing ? null : _onTranscribeTap,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  PrysmIcons.subtitlesOutlined,
-                                  size: 14,
-                                  color: contentColor.withValues(alpha: 0.82),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _cachedTranscript != null
-                                      ? (_showTranscript
-                                          ? 'Hide transcript'
-                                          : 'Show transcript')
-                                      : 'Transcribe (${SttModelManager.supportedLanguageLabel})',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: contentColor.withValues(alpha: 0.82),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (_isTranscribing)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2, bottom: 2),
-                            child: const PrysmLinearProgressIndicator(
-                              minHeight: 2,
-                            ),
-                          ),
-                        if (_showTranscript && _cachedTranscript != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2, bottom: 2),
-                            child: Text(
-                              _cachedTranscript!,
-                              style: transcriptStyle,
-                            ),
-                          ),
-                      ],
                     ],
                   ),
                 ),

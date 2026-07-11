@@ -9,6 +9,7 @@ import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
+import 'package:prysm/services/call/call_logs_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
@@ -203,6 +204,32 @@ void main() {
     expect(log.status, CallLogStatus.completed);
     expect(log.direction, CallLogDirection.inbound);
     expect(log.peerOnion, 'peer.onion');
+  });
+
+  test('CallLogsService notifies on call log insert and update', () async {
+    final events = <void>[];
+    final sub = CallLogsService.instance.onChanged.listen(events.add);
+    addTearDown(sub.cancel);
+
+    final caller = CallSession.createOutbound(
+      callId: 'log-notify-test',
+      sessionId: 20,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+    });
+    await Future<void>.delayed(Duration.zero);
+    await manager.acceptIncoming();
+    expect(manager.snapshot.state, CallState.active);
+
+    await manager.endCall();
+    expect(manager.snapshot.state, CallState.idle);
+
+    await Future<void>.delayed(Duration.zero);
+    expect(events, isNotEmpty);
   });
 
   test('endCall sends call_end to peer', () async {

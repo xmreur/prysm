@@ -7,6 +7,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_delivery.dart';
@@ -217,6 +218,10 @@ class GroupChatService {
   }) async {
     await _refreshSession();
     if (_groupKey == null) return null;
+    if (!FileTransferPolicy.isWithinMaxFileSize(bytes.length)) {
+      Logging.error(FileTransferPolicy.maxFileSizeError, 'GroupChatService');
+      return null;
+    }
 
     final groupType = _groupTypeForMedia(type);
     final timestamp = DateTime.now().millisecondsSinceEpoch;

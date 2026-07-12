@@ -4,6 +4,7 @@ import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/message_blob_store.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,7 +22,7 @@ class MessagesDb {
   /// Stream that emits the normalized row whenever a message is inserted locally.
   static Stream<Map<String, dynamic>> get onMessageInserted => _insertController.stream;
 
-  static const _dbVersion = 10;
+  static const _dbVersion = 11;
 
   static const String _directChatTypeFilter =
       "(type IS NULL OR type IN ('text', 'file', 'image', 'audio', 'call'))";
@@ -33,6 +34,25 @@ class MessagesDb {
       "OR (senderId = ? AND receiverId = ? AND status = 'received') "
       "OR (senderId = ? AND receiverId = ? AND status = 'system') "
       "OR (senderId = ? AND receiverId = ? AND status = 'system'))";
+
+  /// Columns safe for chat list queries (excludes huge [message] payloads).
+  static const List<String> _messageListColumns = [
+    'id',
+    'senderId',
+    'receiverId',
+    'type',
+    'fileName',
+    'fileSize',
+    'timestamp',
+    'status',
+    'replyTo',
+    'viewOnce',
+    'viewed',
+    'groupId',
+    'deletedAt',
+    'editedAt',
+    'readAt',
+  ];
 
   static Future<Database> get database async {
     if (_database != null) return _database!;
@@ -76,7 +96,60 @@ class MessagesDb {
       },
     );
     _database = db;
+    await _migrateOversizedMessagePayloads(db);
     return db;
+  }
+
+  static Future<void> _migrateOversizedMessagePayloads(Database db) async {
+    final rows = await db.rawQuery(
+      "SELECT id FROM messages WHERE message IS NOT NULL "
+      "AND LENGTH(message) > ? AND message NOT LIKE 'blob:%'",
+      [MessageBlobStore.inlineThreshold],
+    );
+    for (final row in rows) {
+      final storageId = row['id'] as String;
+      try {
+        final wire = await _readMessageColumnInChunks(db, storageId);
+        await MessageBlobStore.save(storageId, wire);
+        await db.update(
+          'messages',
+          {'message': MessageBlobStore.marker(storageId)},
+          where: 'id = ?',
+          whereArgs: [storageId],
+        );
+      } catch (e, stack) {
+        Logging.error(
+          'failed to migrate oversized message $storageId: $e\n$stack',
+          'MessagesDb',
+        );
+      }
+    }
+  }
+
+  static Future<String> _readMessageColumnInChunks(
+    Database db,
+    String storageId,
+  ) async {
+    final lenRows = await db.rawQuery(
+      'SELECT LENGTH(message) AS len FROM messages WHERE id = ?',
+      [storageId],
+    );
+    if (lenRows.isEmpty) return '';
+    final len = lenRows.first['len'];
+    final total = len is int ? len : int.tryParse(len.toString()) ?? 0;
+    if (total <= 0) return '';
+
+    const chunkSize = 500000;
+    final buffer = StringBuffer();
+    for (var offset = 1; offset <= total; offset += chunkSize) {
+      final partRows = await db.rawQuery(
+        'SELECT SUBSTR(message, ?, ?) AS part FROM messages WHERE id = ?',
+        [offset, chunkSize, storageId],
+      );
+      if (partRows.isEmpty) break;
+      buffer.write(partRows.first['part'] ?? '');
+    }
+    return buffer.toString();
   }
 
   static Future<void> _onConfigure(Database db) async {
@@ -287,7 +360,7 @@ class MessagesDb {
   }) async {
     await _dbMutex.protect(() async {
       final db = await database;
-      final normalized = _withStorageId(message);
+      final normalized = await _withStoragePayload(_withStorageId(message));
       await db.insert(
         'messages',
         normalized,
@@ -307,10 +380,12 @@ class MessagesDb {
   ) async {
     return await _dbMutex.protect(() async {
       final db = await database;
-      final normalized = _withStorageId(message);
+      final normalized =
+          await _withStoragePayload(_withStorageId(message));
       final id = normalized['id'] as String;
       final existing = await db.query(
         'messages',
+        columns: const ['id', 'senderId', 'status'],
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -328,6 +403,69 @@ class MessagesDb {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       return normalized;
+    });
+  }
+
+  static Future<Map<String, dynamic>> _withStoragePayload(
+    Map<String, dynamic> message,
+  ) async {
+    final normalized = Map<String, dynamic>.from(message);
+    final storageId = normalized['id'] as String;
+    final wire = normalized['message'];
+    if (wire is String) {
+      normalized['message'] =
+          await MessageBlobStore.prepareForStorage(storageId, wire);
+    }
+    return normalized;
+  }
+
+  /// Loads the encrypted wire payload for a message (may read from disk).
+  static Future<String?> getMessageWire(
+    String messageId, {
+    String? groupId,
+  }) async {
+    return await _dbMutex.protect(() async {
+      final db = await database;
+      final storageId = scopedId(wireId: messageId, groupId: groupId);
+
+      if (await MessageBlobStore.exists(storageId)) {
+        return MessageBlobStore.read(storageId);
+      }
+
+      try {
+        final rows = await db.query(
+          'messages',
+          columns: const ['message'],
+          where: 'id = ?',
+          whereArgs: [storageId],
+        );
+        if (rows.isEmpty) return null;
+        final wire = rows.first['message'] as String?;
+        return MessageBlobStore.resolve(wire);
+      } catch (e, stack) {
+        Logging.error(
+          'getMessageWire failed for $messageId, attempting migration: $e\n$stack',
+          'MessagesDb',
+        );
+        try {
+          final wire = await _readMessageColumnInChunks(db, storageId);
+          if (wire.isEmpty) return null;
+          await MessageBlobStore.save(storageId, wire);
+          await db.update(
+            'messages',
+            {'message': MessageBlobStore.marker(storageId)},
+            where: 'id = ?',
+            whereArgs: [storageId],
+          );
+          return wire;
+        } catch (e2, stack2) {
+          Logging.error(
+            'getMessageWire migration failed for $messageId: $e2\n$stack2',
+            'MessagesDb',
+          );
+          return null;
+        }
+      }
     });
   }
 
@@ -390,6 +528,7 @@ class MessagesDb {
       final db = await database;
       return await db.query(
         'messages',
+        columns: _messageListColumns,
         where:
             'groupId IS NULL AND $_directChatTypeFilter AND $_directConversationFilter',
         whereArgs: [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId],
@@ -403,9 +542,50 @@ class MessagesDb {
     String messageId, {
     String? groupId,
   }) async {
-    final db = await database;
-    final storageId = scopedId(wireId: messageId, groupId: groupId);
-    return await db.query('messages', where: 'id = ?', whereArgs: [storageId]);
+    return await _dbMutex.protect(() async {
+      final db = await database;
+      final storageId = scopedId(wireId: messageId, groupId: groupId);
+      final metaRows = await db.query(
+        'messages',
+        columns: _messageListColumns,
+        where: 'id = ?',
+        whereArgs: [storageId],
+      );
+      if (metaRows.isEmpty) return [];
+
+      final row = Map<String, dynamic>.from(metaRows.first);
+      if (await MessageBlobStore.exists(storageId)) {
+        row['message'] = MessageBlobStore.marker(storageId);
+        return [row];
+      }
+
+      try {
+        final wireRows = await db.query(
+          'messages',
+          columns: const ['message'],
+          where: 'id = ?',
+          whereArgs: [storageId],
+        );
+        if (wireRows.isNotEmpty) {
+          row['message'] = wireRows.first['message'];
+        }
+      } catch (e, stack) {
+        Logging.error(
+          'getMessageById wire read failed for $messageId: $e\n$stack',
+          'MessagesDb',
+        );
+        final wire = await getMessageWire(messageId, groupId: groupId);
+        if (wire == null) {
+          row['message'] = null;
+        } else if (MessageBlobStore.isMarker(wire) ||
+            wire.length > MessageBlobStore.inlineThreshold) {
+          row['message'] = MessageBlobStore.marker(storageId);
+        } else {
+          row['message'] = wire;
+        }
+      }
+      return [row];
+    });
   }
 
   /// Get a batch of messages with optional pagination by timestamp
@@ -428,6 +608,7 @@ class MessagesDb {
 
       return await db.query(
         'messages',
+        columns: _messageListColumns,
         where: where,
         whereArgs: whereArgs,
         orderBy: 'timestamp DESC',
@@ -464,6 +645,7 @@ class MessagesDb {
 
       return await db.query(
         'messages',
+        columns: _messageListColumns,
         where: where,
         whereArgs: whereArgs,
         orderBy: 'timestamp DESC, id DESC',
@@ -508,6 +690,7 @@ class MessagesDb {
         where: 'id = ?',
         whereArgs: [storageId],
       );
+      await MessageBlobStore.delete(storageId);
     });
   }
 

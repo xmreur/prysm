@@ -43,6 +43,7 @@ import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/util/reply_preview_label.dart';
@@ -886,7 +887,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         final meta = metadataFromDbRow(msg);
 
         final wire = msg['message'];
-        if (meta['deleted'] == true || wire == null || (wire is String && wire.isEmpty)) {
+        if (rowShowsAsDeleted(msg, meta)) {
           result.add(TextMessage(
             authorId: authorId,
             createdAt: createdAt,
@@ -1117,7 +1118,32 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     widget.reloadConversations();
   }
 
+  bool _rejectOversizedFile(int byteLength) {
+    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
+      return false;
+    }
+    if (mounted) {
+      showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
+    }
+    return true;
+  }
+
+  void _removeOptimisticFileMessage(String messageId) {
+    if (!mounted) return;
+    setState(() {
+      final idx = _messages.messages.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        _messages.removeMessage(_messages.messages[idx]);
+        selectedMessageIds.remove(messageId);
+      }
+    });
+  }
+
   void _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
+    if (_rejectOversizedFile(bytes.length)) {
+      return;
+    }
+
     final messageId = const Uuid().v4();
     final replyToId = _replyToMessageId;
     setState(() {
@@ -1168,7 +1194,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         messageId: messageId,
         viewOnce: viewOnce,
       );
-      if (sentId == null && mounted) {
+      if (!mounted) return;
+      if (sentId == null) {
+        _removeOptimisticFileMessage(messageId);
         showPrysmToast(context, 'Could not send file — group key unavailable');
       }
       return;
@@ -1182,9 +1210,23 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       viewOnce: viewOnce,
       replyToId: replyToId,
     );
-    if (sentId == null && mounted) {
-      showPrysmToast(context, 'Message queued. Will send when members are reachable.');
+    if (!mounted) return;
+    if (sentId != null) {
+      widget.reloadConversations();
+      return;
     }
+
+    final stored = await MessagesDb.getMessageById(
+      messageId,
+      groupId: widget.group.id,
+    );
+    if (stored.isEmpty) {
+      _removeOptimisticFileMessage(messageId);
+      return;
+    }
+
+    if (!mounted) return;
+    showPrysmToast(context, 'Message queued. Will send when members are reachable.');
     widget.reloadConversations();
   }
 

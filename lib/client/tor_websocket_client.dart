@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:prysm/client/tor_socks_websocket.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
+import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/logging.dart';
@@ -32,6 +33,7 @@ class TorWebSocketClient {
   bool _disposed = false;
   bool _disconnecting = false;
   Completer<void>? _helloCompleter;
+  List<String> peerSupports = const [];
 
   Stream<Map<String, dynamic>> get onIncoming => _incomingController.stream;
 
@@ -129,6 +131,16 @@ class TorWebSocketClient {
         _binaryController.add(raw);
         return;
       }
+      if (raw.isNotEmpty && raw[0] == fileTransferChunkMagic) {
+        unawaited(
+          FileTransferHandler.instance.handleBinaryChunk(
+            raw,
+            peerOnion: peerOnion,
+            sendAck: (op, {payload}) => send(op, payload: payload),
+          ),
+        );
+        return;
+      }
       final text = _tryDecodeUtf8(raw);
       if (text != null) {
         _handleTextFrame(text);
@@ -155,8 +167,6 @@ class TorWebSocketClient {
     }
 
     final op = frameMap['op'];
-    if (op == 'pong') return;
-
     if (op is String && WsFrame.isCallOp(op)) {
       final payload = frameMap['payload'];
       if (payload is Map<String, dynamic>) {
@@ -166,6 +176,13 @@ class TorWebSocketClient {
     }
 
     if (op == 'hello') {
+      final payload = frameMap['payload'];
+      if (payload is Map<String, dynamic>) {
+        final supports = payload['supports'];
+        if (supports is List) {
+          peerSupports = supports.whereType<String>().toList();
+        }
+      }
       final completer = _helloCompleter;
       if (completer != null && !completer.isCompleted) {
         completer.complete();
@@ -190,6 +207,8 @@ class TorWebSocketClient {
       return;
     }
 
+    if (op == 'pong') return;
+
     WsFrame frame;
     try {
       frame = WsFrame.decode(raw);
@@ -207,11 +226,31 @@ class TorWebSocketClient {
   }
 
   Future<void> _respondToLocalRequest(WsFrame frame) async {
-    final responses = await _frameRouter.handleInboundFrame(frame);
-    final socket = _socket;
-    if (socket == null) return;
-    for (final encoded in responses) {
-      socket.add(encoded);
+    try {
+      Logging.debug(
+        'inbound request op=${frame.op} from $peerOnion',
+        'TorWebSocketClient',
+      );
+      final responses = await _frameRouter.handleInboundFrame(
+        frame,
+        peerOnion: peerOnion,
+      );
+      final socket = _socket;
+      if (socket == null) return;
+      for (final encoded in responses) {
+        socket.add(encoded);
+      }
+    } catch (e, stack) {
+      Logging.error(
+        'inbound request failed op=${frame.op}: $e\n$stack',
+        'TorWebSocketClient',
+      );
+      final requestId = frame.id;
+      if (requestId != null && _socket != null) {
+        _socket!.add(
+          WsFrame.error(id: requestId, message: 'Processing failed').encode(),
+        );
+      }
     }
   }
 

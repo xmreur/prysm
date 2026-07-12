@@ -25,6 +25,7 @@ class FileAttachmentBubble extends StatefulWidget {
   final Future<Uint8List> Function() resolveBytes;
   final Widget? header;
   final ValueNotifier<double>? downloadProgress;
+  final ValueNotifier<double>? uploadProgress;
 
   const FileAttachmentBubble({
     required this.fileName,
@@ -35,6 +36,7 @@ class FileAttachmentBubble extends StatefulWidget {
     this.fileSize,
     this.header,
     this.downloadProgress,
+    this.uploadProgress,
     super.key,
   });
 
@@ -54,12 +56,48 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
   Timer? _minDisplayTimer;
   double _simulatedProgress = 0.0;
   bool _showProgress = false;
+  bool _progressIsSending = false;
+  bool _uploadInProgress = false;
+  VoidCallback? _boundProgressListener;
+  ValueNotifier<double>? _boundProgressNotifier;
 
   @override
   void initState() {
     super.initState();
     _category = ReadableFilePolicy.categorize(widget.fileName);
-    _startProgressSimulation();
+    _bindProgressFromWidget();
+    if (!_uploadInProgress) {
+      _startContentLoad();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant FileAttachmentBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uploadProgress != widget.uploadProgress ||
+        oldWidget.downloadProgress != widget.downloadProgress) {
+      _unbindRealProgress();
+      _bindProgressFromWidget();
+      if (!_uploadInProgress && _bytes == null && !_loadFailed) {
+        _startContentLoad();
+      }
+    }
+  }
+
+  void _bindProgressFromWidget() {
+    final upload = widget.uploadProgress;
+    final download = widget.downloadProgress;
+    if (upload != null) {
+      _uploadInProgress = true;
+      _bindRealProgress(upload, sending: true);
+    } else if (download != null) {
+      _bindRealProgress(download, sending: false);
+    } else if (!_showProgress) {
+      _startProgressSimulation();
+    }
+  }
+
+  void _startContentLoad() {
     if (SettingsService().enableFilePreview) {
       _loadPreview();
     } else {
@@ -91,7 +129,45 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
     _pdfController?.dispose();
     _progressTimer?.cancel();
     _minDisplayTimer?.cancel();
+    _unbindRealProgress();
     super.dispose();
+  }
+
+  void _unbindRealProgress() {
+    final listener = _boundProgressListener;
+    final notifier = _boundProgressNotifier;
+    if (listener != null && notifier != null) {
+      notifier.removeListener(listener);
+    }
+    _boundProgressListener = null;
+    _boundProgressNotifier = null;
+  }
+
+  void _bindRealProgress(ValueNotifier<double> notifier, {required bool sending}) {
+    _progressIsSending = sending;
+    _showProgress = true;
+    _simulatedProgress = notifier.value;
+    void onChanged() {
+      if (!mounted) return;
+      final value = notifier.value;
+      setState(() => _simulatedProgress = value);
+      if (value >= 1.0) {
+        final wasUploading = _uploadInProgress;
+        _uploadInProgress = false;
+        _completeProgress();
+        if (wasUploading && _bytes == null && !_loadFailed) {
+          _startContentLoad();
+        }
+      }
+    }
+    _boundProgressListener = onChanged;
+    _boundProgressNotifier = notifier;
+    notifier.addListener(onChanged);
+    if (notifier.value > 0) {
+      onChanged();
+    } else {
+      setState(() {});
+    }
   }
 
   void _startProgressSimulation() {
@@ -402,7 +478,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Downloading… ${(_simulatedProgress * 100).toInt()}%',
+                          '${_progressIsSending ? 'Sending' : 'Downloading'}… ${(_simulatedProgress * 100).toInt()}%',
                           style: TextStyle(
                             fontSize: 10,
                             color: onPrimary.withValues(alpha: 0.6),

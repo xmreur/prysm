@@ -27,6 +27,7 @@ import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/self_chat_service.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
@@ -201,6 +202,14 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     widget.reloadSidebar();
   }
 
+  bool _rejectOversizedFile(int byteLength) {
+    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
+      return false;
+    }
+    showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
+    return true;
+  }
+
   Future<void> _sendFile(
     Uint8List bytes,
     String fileName,
@@ -208,6 +217,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     bool viewOnce = false,
   }) async {
     if (!mounted) return;
+    if (_rejectOversizedFile(bytes.length)) return;
 
     final messageId = const Uuid().v4();
 
@@ -249,6 +259,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         messageId: messageId,
         viewOnce: viewOnce,
       );
+      widget.reloadSidebar();
       return;
     }
 

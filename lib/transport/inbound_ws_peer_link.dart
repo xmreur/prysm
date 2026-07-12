@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:prysm/services/call/call_signaling_notifier.dart';
+import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
@@ -57,6 +58,7 @@ class InboundWsPeerLink implements WsPeerLink {
   StreamSubscription<dynamic>? _subscription;
   bool _handshakeComplete = false;
   bool _closed = false;
+  List<String> peerSupports = const [];
 
   @override
   bool get isConnected => !_closed && _handshakeComplete && peerOnion.isNotEmpty;
@@ -89,9 +91,12 @@ class InboundWsPeerLink implements WsPeerLink {
     final completer = Completer<Map<String, dynamic>>();
     _pendingRequests[id] = completer;
 
-    _channel.sink.add(
-      WsFrame(op: op, id: id, payload: payload).encode(),
+    final encoded = WsFrame(op: op, id: id, payload: payload).encode();
+    Logging.debug(
+      'request op=$op id=$id bytes=${encoded.length} to $peerOnion',
+      'InboundWsPeerLink',
     );
+    _channel.sink.add(encoded);
 
     try {
       return await completer.future.timeout(timeout);
@@ -118,6 +123,18 @@ class InboundWsPeerLink implements WsPeerLink {
       if (raw.isNotEmpty && raw[0] == callAudioFrameMagic) {
         if (_handshakeComplete) {
           _binaryController.add(raw);
+        }
+        return;
+      }
+      if (raw.isNotEmpty && raw[0] == fileTransferChunkMagic) {
+        if (_handshakeComplete && peerOnion.isNotEmpty) {
+          unawaited(
+            FileTransferHandler.instance.handleBinaryChunk(
+              raw,
+              peerOnion: peerOnion,
+              sendAck: (op, {payload}) => send(op, payload: payload),
+            ),
+          );
         }
         return;
       }
@@ -189,6 +206,10 @@ class InboundWsPeerLink implements WsPeerLink {
     }
 
     peerOnion = remoteOnion;
+    final supports = frame.payload?['supports'];
+    if (supports is List) {
+      peerSupports = supports.whereType<String>().toList();
+    }
     _channel.sink.add(
       WsFrame.hello(onion: local.isNotEmpty ? local : null).encode(),
     );
@@ -236,8 +257,6 @@ class InboundWsPeerLink implements WsPeerLink {
     }
 
     final op = frameMap['op'];
-    if (op == 'pong') return;
-
     if (op is String && WsFrame.isCallOp(op)) {
       final payload = frameMap['payload'];
       if (payload is Map<String, dynamic> && peerOnion.isNotEmpty) {
@@ -248,9 +267,15 @@ class InboundWsPeerLink implements WsPeerLink {
 
     final id = frameMap['id'];
     if (id is String && _pendingRequests.containsKey(id)) {
+      Logging.debug(
+        'response op=$op id=$id peer=$peerOnion',
+        'InboundWsPeerLink',
+      );
       _completePendingRequest(id, frameMap);
       return;
     }
+
+    if (op == 'pong') return;
 
     WsFrame frame;
     try {
@@ -260,13 +285,26 @@ class InboundWsPeerLink implements WsPeerLink {
     }
 
     if (frame.op == 'ping') {
-      _channel.sink.add(WsFrame.pong().encode());
+      final encoded = frame.id != null
+          ? WsFrame(op: 'pong', id: frame.id).encode()
+          : WsFrame.pong().encode();
+      _channel.sink.add(encoded);
       return;
     }
 
     if (_frameRouter.isPeerRequest(frame)) {
+      if (WsFrame.isFileTransferRequestOp(frame.op)) {
+        Logging.debug(
+          'inbound file-transfer op=${frame.op} from $peerOnion',
+          'InboundWsPeerLink',
+        );
+      }
       unawaited(_handleInboundPeerRequest(frame));
       return;
+    }
+
+    if (op is String && WsFrame.isFileTransferOp(op)) {
+      Logging.debug('push op=$op from $peerOnion', 'InboundWsPeerLink');
     }
 
     _pushController.add(frameMap);
@@ -297,6 +335,11 @@ class InboundWsPeerLink implements WsPeerLink {
       final responses =
           await _frameRouter.handleInboundFrame(frame, peerOnion: peerOnion);
       if (_closed) return;
+      Logging.debug(
+        'answered op=${frame.op} id=${frame.id} frames=${responses.length} '
+        'peer=$peerOnion',
+        'InboundWsPeerLink',
+      );
       for (final encoded in responses) {
         _channel.sink.add(encoded);
       }

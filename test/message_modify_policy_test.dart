@@ -45,4 +45,34 @@ void main() {
     expect(isMessageDeleted(deleted), isTrue);
     expect(deleted.metadata?['edited'], isTrue);
   });
+
+  test('rowShowsAsDeleted treats missing wire as deleted for text only', () {
+    final meta = <String, Object?>{};
+    expect(
+      rowShowsAsDeleted({'type': 'text', 'message': 'hello'}, meta),
+      isFalse,
+    );
+    expect(
+      rowShowsAsDeleted({'type': 'text'}, meta),
+      isTrue,
+    );
+    expect(
+      rowShowsAsDeleted({'type': 'file', 'fileName': 'a.zip'}, meta),
+      isFalse,
+    );
+    expect(
+      rowShowsAsDeleted({'type': 'group_file', 'fileName': 'a.zip'}, meta),
+      isFalse,
+    );
+  });
+
+  test('rowShowsAsDeleted respects deletedAt metadata', () {
+    expect(
+      rowShowsAsDeleted(
+        {'type': 'file', 'deletedAt': 1},
+        metadataFromDbRow({'deletedAt': 1}),
+      ),
+      isTrue,
+    );
+  });
 }

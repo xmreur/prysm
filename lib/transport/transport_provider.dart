@@ -8,6 +8,7 @@ import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/tor_http_transport.dart';
 import 'package:prysm/transport/tor_websocket_transport.dart';
 import 'package:prysm/transport/transport_preference.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/profile_http_uri.dart';
@@ -91,6 +92,31 @@ class TransportProvider implements OutboundTransport {
 
   void unpinPeer(String peerOnion) => _wsManager.unpinPeer(peerOnion);
 
+  /// Tries to restore a WebSocket after HTTP fallback or disconnect.
+  Future<void> recoverWebSocket(String peerOnion) async {
+    if (isRealtimeConnected(peerOnion)) return;
+
+    _wsManager.warmPeer(peerOnion);
+    if (isRealtimeConnected(peerOnion)) return;
+
+    try {
+      await _wsManager.ensureConnected(
+        peerOnion,
+        connectBudget: WsConnectionManager.interactiveConnectBudget,
+      );
+    } catch (_) {}
+
+    if (isRealtimeConnected(peerOnion)) return;
+
+    try {
+      await postSyncHint(peerOnion: peerOnion);
+    } catch (_) {}
+  }
+
+  void _scheduleWebSocketRecovery(String peerOnion) {
+    unawaited(recoverWebSocket(peerOnion));
+  }
+
   Future<T> withPeer<T>(
     String peerOnion,
     Future<T> Function(OutboundTransport transport) operation, {
@@ -114,7 +140,9 @@ class TransportProvider implements OutboundTransport {
 
     if (preference == TransportPreference.wsIfConnected &&
         !_wsManager.isConnected(peerOnion)) {
-      return operation(_httpTransport);
+      final result = await operation(_httpTransport);
+      _scheduleWebSocketRecovery(peerOnion);
+      return result;
     }
 
     if (_wsManager.isConnected(peerOnion)) {
@@ -129,11 +157,18 @@ class TransportProvider implements OutboundTransport {
         if (_shouldDisconnectWsAfterFailure(e)) {
           await _wsManager.disconnectPeer(peerOnion);
         }
+        if (preference != TransportPreference.httpOnly) {
+          _scheduleWebSocketRecovery(peerOnion);
+        }
       }
     }
 
     Logging.debug('HTTP $peerOnion (${preference.name})', 'TransportProvider');
-    return operation(_httpTransport);
+    final result = await operation(_httpTransport);
+    if (preference != TransportPreference.httpOnly) {
+      _scheduleWebSocketRecovery(peerOnion);
+    }
+    return result;
   }
 
   @override
@@ -341,7 +376,15 @@ class TransportProvider implements OutboundTransport {
           // Fall through to HTTP below.
         }
       }
-      if (inst.isRealtimeConnected(peerOnion)) {
+      final skipWsForLargePayload =
+          FileTransferPolicy.shouldAvoidWsMonolithicSend(payload);
+      if (skipWsForLargePayload) {
+        Logging.debug(
+          'Skipping WS for large payload to $peerOnion → HTTP',
+          'TransportProvider',
+        );
+      }
+      if (inst.isRealtimeConnected(peerOnion) && !skipWsForLargePayload) {
         final wsTimeout = _wsSendTimeoutFor(timeout);
         Object? lastWsError;
         for (var attempt = 0; attempt < 2; attempt++) {
@@ -374,6 +417,7 @@ class TransportProvider implements OutboundTransport {
         preference: TransportPreference.httpOnly,
       );
       Logging.debug('HTTP send ok $peerOnion', 'TransportProvider');
+      inst._scheduleWebSocketRecovery(peerOnion);
       return;
     }
     await TorDelivery.withTorRetry<void>(

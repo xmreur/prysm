@@ -89,9 +89,7 @@ class SelfChatService {
       final meta = metadataFromDbRow(msg);
       final wire = msg['message'];
 
-      if (meta['deleted'] == true ||
-          wire == null ||
-          (wire is String && wire.isEmpty)) {
+      if (rowShowsAsDeleted(msg, meta)) {
         messages.add(_deletedMessageFromRow(msg, meta));
         continue;
       }

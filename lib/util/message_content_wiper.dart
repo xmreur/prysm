@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
+import 'package:prysm/util/message_blob_store.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 
 /// Removes ciphertext and media artifacts for a message id.
@@ -17,7 +19,10 @@ class MessageContentWiper {
       groupId: groupId,
     );
     await ImageAttachmentCache.invalidate(wireId);
-await _deleteVoiceCaches(wireId);
+    await MessageBlobStore.delete(
+      MessagesDb.scopedId(wireId: wireId, groupId: groupId),
+    );
+    await _deleteVoiceCaches(wireId);
   }
 
   static Future<void> _deleteVoiceCaches(String messageId) async {

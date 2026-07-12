@@ -5,7 +5,9 @@ import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
+import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 
@@ -25,6 +27,9 @@ class WsFrameRouter {
     String? peerOnion,
   }) async {
     if (frame.op == 'ping') {
+      if (frame.id != null) {
+        return [WsFrame(op: 'pong', id: frame.id).encode()];
+      }
       return [WsFrame.pong().encode()];
     }
 
@@ -156,6 +161,76 @@ class WsFrameRouter {
       }
     }
 
+    if (frame.op == 'file_transfer_begin') {
+      final payload = frame.payload;
+      if (payload == null) return [];
+      Logging.debug(
+        'begin from $peerOnion transfer=${payload['transferId']} '
+        'message=${payload['messageId']} chunks=${payload['totalChunks']}',
+        'WsFrameRouter',
+      );
+      final result = await FileTransferHandler.instance.handleBegin(
+        payload,
+        peerOnion: peerOnion ?? '',
+        localOnion: LocalOnionAddress.value,
+      );
+      if (frame.id != null) {
+        if (result.containsKey('error')) {
+          return [
+            WsFrame.error(
+              id: frame.id!,
+              message: result['error']?.toString() ?? 'Processing failed',
+            ).encode(),
+          ];
+        }
+        return [
+          WsFrame.response(
+            op: 'file_transfer_begin_ack',
+            id: frame.id!,
+            payload: result,
+          ).encode(),
+        ];
+      }
+      return [
+        WsFrame(
+          op: 'file_transfer_begin_ack',
+          payload: result,
+        ).encode(),
+      ];
+    }
+
+    if (frame.op == 'file_transfer_end') {
+      final payload = frame.payload;
+      if (payload == null) return [];
+      final result = await FileTransferHandler.instance.handleEnd(
+        payload,
+        peerOnion: peerOnion ?? '',
+      );
+      if (frame.id != null) {
+        if (result.containsKey('error')) {
+          return [
+            WsFrame.error(
+              id: frame.id!,
+              message: result['error']?.toString() ?? 'Processing failed',
+            ).encode(),
+          ];
+        }
+        return [
+          WsFrame.response(
+            op: 'file_transfer_end_ack',
+            id: frame.id!,
+            payload: result,
+          ).encode(),
+        ];
+      }
+      return [
+        WsFrame(
+          op: 'file_transfer_end_ack',
+          payload: result,
+        ).encode(),
+      ];
+    }
+
     return [];
   }
 
@@ -168,8 +243,12 @@ class WsFrameRouter {
     if (isLocalRequestOp(frame.op) || WsFrame.isTypingOp(frame.op)) {
       return true;
     }
+    if (WsFrame.isFileTransferRequestOp(frame.op)) {
+      return true;
+    }
     if (frame.id == null) return false;
-    return WsFrame.routesToMessageHandler(frame.op) || frame.op == 'sync-hint';
+    return WsFrame.routesToMessageHandler(frame.op) ||
+        frame.op == 'sync-hint';
   }
 
   Future<void> _processMessageAsync(

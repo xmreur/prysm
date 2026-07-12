@@ -48,10 +48,7 @@ class DirectChatMessageDecrypt {
 
     for (final msg in rawMessages) {
       final meta = metadataFromDbRow(msg);
-      final wire = msg['message'];
-      if (meta['deleted'] == true ||
-          wire == null ||
-          (wire is String && wire.isEmpty)) {
+      if (rowShowsAsDeleted(msg, meta)) {
         messages.add(
           TextMessage(
             authorId: msg['senderId'] as String,
@@ -87,7 +84,7 @@ class DirectChatMessageDecrypt {
               replyToMessageId: msg['replyTo'] as String?,
               name: msg['fileName'] as String? ?? 'file',
               size: (msg['fileSize'] as num?)?.toInt() ?? 0,
-              source: msg['message'] as String,
+              source: (msg['message'] as String?) ?? '',
               metadata: meta.isEmpty ? null : meta,
             ),
           );

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/screens/widgets/image_send_preview_screen.dart';
+import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 
 typedef SendFileCallback = void Function(
@@ -63,9 +65,20 @@ class ChatAttachmentIngress {
     required SendFileCallback sendFile,
     bool forceImageFlow = false,
   }) async {
+    if (!FileTransferPolicy.isWithinMaxFileSize(bytes.length)) {
+      if (context.mounted) {
+        showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
+      }
+      return;
+    }
+
     if (forceImageFlow || isImageFileName(fileName)) {
       final prepared = await prepareImageBytes(bytes);
       if (!context.mounted) return;
+      if (!FileTransferPolicy.isWithinMaxFileSize(prepared.length)) {
+        showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
+        return;
+      }
 
       final viewOnce = await ImageSendPreviewScreen.open(context, prepared);
       if (viewOnce == null || !context.mounted) return;

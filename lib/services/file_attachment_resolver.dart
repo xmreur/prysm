@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -35,7 +36,13 @@ class FileAttachmentResolver {
     FileMessage message, {
     KeyManager? keyManager,
   }) async {
-    final source = message.source;
+    var source = message.source;
+    if (source.isEmpty) {
+      final wire = await MessagesDb.getMessageWire(message.id);
+      if (wire != null && wire.isNotEmpty) {
+        source = wire;
+      }
+    }
     if (source.isEmpty) {
       return Uint8List(0);
     }

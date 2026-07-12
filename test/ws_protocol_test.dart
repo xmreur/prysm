@@ -50,6 +50,35 @@ void main() {
       expect(WsFrame.isCallOp('call_answer'), isTrue);
       expect(WsFrame.isCallOp('message'), isFalse);
     });
+
+    test('file transfer ops are supported and detected', () {
+      expect(wsSupportedOps, contains(wsFileTransferCapability));
+      expect(WsFrame.isFileTransferOp('file_transfer_begin'), isTrue);
+      expect(WsFrame.isFileTransferRequestOp('file_transfer_end'), isTrue);
+      expect(WsFrame.isFileTransferRequestOp('file_transfer_chunk_ack'), isFalse);
+    });
+  });
+
+  group('FileTransferChunkFrame', () {
+    test('round-trips binary payload', () {
+      const transferId = '550e8400-e29b-41d4-a716-446655440000';
+      const frame = FileTransferChunkFrame(
+        transferId: transferId,
+        chunkIndex: 3,
+        payload: [9, 8, 7],
+      );
+      final decoded = FileTransferChunkFrame.decode(frame.encode());
+      expect(decoded.transferId, transferId);
+      expect(decoded.chunkIndex, 3);
+      expect(decoded.payload, [9, 8, 7]);
+    });
+
+    test('rejects invalid magic', () {
+      expect(
+        () => FileTransferChunkFrame.decode([0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        throwsFormatException,
+      );
+    });
   });
 
   group('CallAudioFrame', () {

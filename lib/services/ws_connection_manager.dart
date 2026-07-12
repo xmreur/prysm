@@ -9,6 +9,7 @@ import 'package:prysm/transport/outbound_ws_peer_link.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
 import 'package:prysm/transport/ws_dial_policy.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
+import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/peer_ws_connection_notifier.dart';
@@ -38,6 +39,7 @@ class WsConnectionManager {
   final Map<String, List<Completer<void>>> _inboundWaiters = {};
   final Set<String> _connectingPeers = {};
   final Set<String> _pinnedPeers = {};
+  final Map<String, Set<String>> _peerSupports = {};
   String? _localOnion;
   Timer? _maintainTimer;
   bool _running = false;
@@ -58,6 +60,20 @@ class WsConnectionManager {
   bool isConnectInFlight(String peerOnion) => _connectingPeers.contains(peerOnion);
 
   bool hasLink(String peerOnion) => _links.containsKey(peerOnion);
+
+  bool peerSupports(String peerOnion, String capability) =>
+      _peerSupports[peerOnion]?.contains(capability) ?? false;
+
+  bool peerSupportsFileTransfer(String peerOnion) =>
+      peerSupports(peerOnion, wsFileTransferCapability);
+
+  Stream<Map<String, dynamic>> pushFramesFor(String peerOnion) {
+    final link = _links[peerOnion];
+    if (link == null) {
+      return const Stream<Map<String, dynamic>>.empty();
+    }
+    return link.onPushFrames;
+  }
 
   void pinPeer(String peerOnion) => _pinnedPeers.add(peerOnion);
 
@@ -390,6 +406,7 @@ class WsConnectionManager {
     required bool outbound,
   }) {
     _links[peerOnion] = link;
+    _recordPeerSupports(peerOnion, link);
     WsInboundDispatcher.instance.attach(peerOnion, link.onPushFrames);
     PeerTransportRegistry.instance.markWebSocket(peerOnion);
     _connectFailures.remove(peerOnion);
@@ -433,8 +450,9 @@ class WsConnectionManager {
     String op, {
     Map<String, dynamic>? payload,
     Duration timeout = const Duration(seconds: 30),
+    bool bypassQueue = false,
   }) {
-    return _enqueueRequest(peerOnion, () async {
+    Future<Map<String, dynamic>> operation() async {
       if (TorRuntimeGate.blocked) {
         throw StateError('Tor is stopped');
       }
@@ -447,7 +465,32 @@ class WsConnectionManager {
       _lastSuccessByPeer[peerOnion] = DateTime.now();
       _pingFailures.remove(peerOnion);
       return result;
-    });
+    }
+
+    if (bypassQueue) {
+      return operation();
+    }
+
+    return _enqueueRequest(peerOnion, operation);
+  }
+
+  /// Ensures a WS link exists before a large upload.
+  Future<void> prepareForFileTransfer(String peerOnion) async {
+    if (_disposed || TorRuntimeGate.blocked) {
+      throw StateError('Tor is stopped');
+    }
+    pinPeer(peerOnion);
+
+    if (isConnected(peerOnion)) return;
+
+    await ensureConnected(
+      peerOnion,
+      connectBudget: interactiveConnectBudget,
+    );
+
+    if (!isConnected(peerOnion)) {
+      throw StateError('WebSocket not connected to $peerOnion');
+    }
   }
 
   Future<void> send(
@@ -524,16 +567,46 @@ class WsConnectionManager {
   Future<T> runForPeer<T>(String peerOnion, Future<T> Function() operation) =>
       operation();
 
+  void _recordPeerSupports(String peerOnion, WsPeerLink link) {
+    if (link is OutboundWsPeerLink) {
+      _peerSupports[peerOnion] = link.client.peerSupports.toSet();
+      return;
+    }
+    if (link is InboundWsPeerLink) {
+      _peerSupports[peerOnion] = link.peerSupports.toSet();
+    }
+  }
+
   Future<void> disconnectPeer(String peerOnion) => _removeLink(peerOnion);
 
   Future<void> _removeLink(String peerOnion) async {
     final link = _links.remove(peerOnion);
     if (link == null) return;
 
+    final wasPinned = _pinnedPeers.contains(peerOnion);
+    _peerSupports.remove(peerOnion);
+
     WsInboundDispatcher.instance.detach(peerOnion);
     await link.close();
     onPeerDisconnected?.call(peerOnion);
     PeerWsConnectionNotifier.instance.notify(peerOnion, connected: false);
+
+    if (wasPinned && _running && !_disposed) {
+      unawaited(_reconnectPinnedPeer(peerOnion));
+    }
+  }
+
+  Future<void> _reconnectPinnedPeer(String peerOnion) async {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    if (_links[peerOnion]?.isConnected == true) return;
+
+    final nudge = nudgePeerForInbound;
+    if (nudge != null) {
+      try {
+        await nudge(peerOnion);
+      } catch (_) {}
+    }
+    warmPeer(peerOnion);
   }
 
   @visibleForTesting

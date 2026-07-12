@@ -18,6 +18,17 @@ const List<String> wsSupportedOps = [
   'call_answer',
   'call_end',
   'call_mute',
+  'file_transfer',
+];
+
+const String wsFileTransferCapability = 'file_transfer';
+
+const List<String> wsFileTransferOps = [
+  'file_transfer_begin',
+  'file_transfer_end',
+  'file_transfer_begin_ack',
+  'file_transfer_end_ack',
+  'file_transfer_chunk_ack',
 ];
 
 const List<String> wsCallOps = [
@@ -29,6 +40,9 @@ const List<String> wsCallOps = [
 
 const int callAudioFrameMagic = 0xA1;
 const int callAudioFrameHeaderLength = 9;
+
+const int fileTransferChunkMagic = 0xA2;
+const int fileTransferChunkHeaderLength = 21; // magic + 16-byte UUID + index
 
 /// Maps an inbound message [type] to the WebSocket command sent on the wire.
 String wsOpForPayloadType(String type) {
@@ -119,6 +133,11 @@ class WsFrame {
       op == 'message' || isInboundSideChannelOp(op);
 
   static bool isCallOp(String op) => wsCallOps.contains(op);
+
+  static bool isFileTransferOp(String op) => wsFileTransferOps.contains(op);
+
+  static bool isFileTransferRequestOp(String op) =>
+      op == 'file_transfer_begin' || op == 'file_transfer_end';
 }
 
 /// Binary wire format for encrypted Opus audio during an active call.
@@ -160,4 +179,70 @@ class CallAudioFrame {
       payload: payload,
     );
   }
+}
+
+/// Binary wire format for encrypted file ciphertext chunks.
+class FileTransferChunkFrame {
+  const FileTransferChunkFrame({
+    required this.transferId,
+    required this.chunkIndex,
+    required this.payload,
+  });
+
+  final String transferId;
+  final int chunkIndex;
+  final List<int> payload;
+
+  Uint8List encode() {
+    final transferBytes = transferIdToBytes(transferId);
+    final out = Uint8List(fileTransferChunkHeaderLength + payload.length);
+    out[0] = fileTransferChunkMagic;
+    out.setRange(1, 17, transferBytes);
+    final view = ByteData.sublistView(out);
+    view.setUint32(17, chunkIndex, Endian.big);
+    out.setRange(fileTransferChunkHeaderLength, out.length, payload);
+    return out;
+  }
+
+  static FileTransferChunkFrame decode(List<int> raw) {
+    if (raw.length < fileTransferChunkHeaderLength) {
+      throw const FormatException('File transfer chunk frame too short');
+    }
+    if (raw[0] != fileTransferChunkMagic) {
+      throw const FormatException('Invalid file transfer chunk magic');
+    }
+    final transferId = transferIdFromBytes(Uint8List.fromList(raw.sublist(1, 17)));
+    final view = ByteData.sublistView(Uint8List.fromList(raw));
+    final chunkIndex = view.getUint32(17, Endian.big);
+    final payload = raw.sublist(fileTransferChunkHeaderLength);
+    return FileTransferChunkFrame(
+      transferId: transferId,
+      chunkIndex: chunkIndex,
+      payload: payload,
+    );
+  }
+}
+
+Uint8List transferIdToBytes(String transferId) {
+  final normalized = transferId.replaceAll('-', '');
+  if (normalized.length != 32) {
+    throw FormatException('Invalid transfer id: $transferId');
+  }
+  final out = Uint8List(16);
+  for (var i = 0; i < 16; i++) {
+    out[i] = int.parse(normalized.substring(i * 2, i * 2 + 2), radix: 16);
+  }
+  return out;
+}
+
+String transferIdFromBytes(Uint8List bytes) {
+  if (bytes.length != 16) {
+    throw const FormatException('Transfer id bytes must be 16 bytes');
+  }
+  final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-'
+      '${hex.substring(8, 12)}-'
+      '${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-'
+      '${hex.substring(20)}';
 }

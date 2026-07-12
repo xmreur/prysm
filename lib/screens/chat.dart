@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/util/file_bytes_reader.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/models/reply_preview_data.dart';
@@ -53,6 +54,8 @@ import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/services/file_transfer_progress.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
@@ -829,8 +832,7 @@ class _ChatScreenState extends State<ChatScreen> {
         continue;
       }
       final meta = metadataFromDbRow(msg);
-      final wire = msg['message'];
-      if (meta['deleted'] == true || wire == null || (wire is String && wire.isEmpty)) {
+      if (rowShowsAsDeleted(msg, meta)) {
         messages.add(_deletedMessageFromRow(msg, {
           ...meta,
           'deleted': true,
@@ -852,17 +854,27 @@ class _ChatScreenState extends State<ChatScreen> {
         } else if (msg['type'] == 'file') {
           final fileName = msg['fileName'] ?? 'Unknown';
           final msgId = msg['id'] as String;
-          messages.add(
-            FileMessage(
-              id: msgId,
-              authorId: msg['senderId'] as String,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-              replyToMessageId: msg['replyTo'],
-              name: fileName,
-              size: msg['fileSize'] ?? 0,
-              source: msg['message'],
-            ),
+          var fileMsg = FileMessage(
+            id: msgId,
+            authorId: msg['senderId'] as String,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+            replyToMessageId: msg['replyTo'],
+            name: fileName,
+            size: msg['fileSize'] ?? 0,
+            source: (msg['message'] as String?) ?? '',
+            metadata: meta.isEmpty ? null : meta,
           );
+          if (msg['senderId'] == widget.userId) {
+            fileMsg = applyOutboundStatus(
+              fileMsg,
+              status: outboundStatusFromDbRow(
+                row: msg,
+                localUserId: widget.userId,
+                readReceiptsEnabled: _settings.sendReadReceipts,
+              ),
+            ) as FileMessage;
+          }
+          messages.add(fileMsg);
         } else if (msg['type'] == 'audio') {
           messages.add(
             FileMessage(
@@ -1319,85 +1331,197 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
-  Future<void> _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
+  bool _rejectOversizedFile(int byteLength) {
+    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
+      return false;
+    }
+    showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
+    return true;
+  }
+
+  void _removeOptimisticFileMessage(String messageId) {
+    if (!mounted) return;
+    setState(() {
+      final idx = _messages.messages.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        _messages.removeMessage(_messages.messages[idx]);
+        selectedMessageIds.remove(messageId);
+      }
+      _messageCache.remove(messageId);
+    });
+    FileTransferProgress.clearUpload(messageId);
+  }
+
+  Future<void> _sendFile(
+    Uint8List bytes,
+    String fileName,
+    String type, {
+    bool viewOnce = false,
+    String? messageId,
+    String? replyToId,
+  }) async {
+    if (!mounted) return;
+    if (_rejectOversizedFile(bytes.length)) return;
+
+    final id = messageId ?? const Uuid().v4();
+    final reply = replyToId ?? _replyToMessageId;
+
+    if (messageId == null) {
+      setState(() {
+        if (type == 'file') {
+          if (bytes.length >= FileTransferPolicy.chunkThresholdBytes) {
+            FileTransferProgress.uploadNotifier(id);
+          }
+          _messages.insertMessage(
+            messageWithPendingStatus(
+              FileMessage(
+                authorId: widget.userId,
+                createdAt: DateTime.now(),
+                id: id,
+                name: fileName,
+                size: bytes.length,
+                replyToMessageId: reply,
+                source: '',
+              ),
+            ),
+            index: _messages.messages.length,
+          );
+        } else if (type == 'image') {
+          _messages.insertMessage(
+            messageWithPendingStatus(
+              ImageMessage(
+                authorId: widget.userId,
+                createdAt: DateTime.now(),
+                id: id,
+                size: bytes.length,
+                replyToMessageId: reply,
+                source:
+                    'data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}',
+                metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
+              ),
+            ),
+            index: _messages.messages.length,
+          );
+        }
+        _replyToMessage = null;
+        _replyDraft = null;
+      });
+      MessageDraftStore.instance.setReply(_draftKey, null);
+      _scheduleScrollToBottomAfterSend();
+    }
+
+    await _dispatchFileSend(
+      bytes: bytes,
+      fileName: fileName,
+      type: type,
+      messageId: id,
+      replyToId: reply,
+      viewOnce: viewOnce,
+    );
+  }
+
+  Future<void> _sendFileFromPath(String path, String fileName) async {
     if (!mounted) return;
 
-    var replyToId = _replyToMessageId;
+    final fileSize = await fileSizeDeferred(path);
+    if (!mounted) return;
+    if (_rejectOversizedFile(fileSize)) return;
 
-    // ✅ Generate ID and show UI IMMEDIATELY
     final messageId = const Uuid().v4();
+    final replyToId = _replyToMessageId;
+
+    Uint8List bytes;
+    try {
+      bytes = await readFileBytesDeferred(path);
+    } catch (e) {
+      if (!mounted) return;
+      showPrysmToast(context, 'Could not read file: $e');
+      return;
+    }
+    if (!mounted) return;
+    if (_rejectOversizedFile(bytes.length)) return;
 
     setState(() {
-      if (type == "file") {
-        _messages.insertMessage(
-          messageWithPendingStatus(
-            FileMessage(
-              authorId: widget.userId,
-              createdAt: DateTime.now(),
-              id: messageId,
-              name: fileName,
-              size: bytes.length,
-              replyToMessageId: replyToId,
-              source: base64Encode(bytes),
-            ),
-          ),
-          index: _messages.messages.length,
-        );
-      } else if (type == "image") {
-        _messages.insertMessage(
-          messageWithPendingStatus(
-            ImageMessage(
-              authorId: widget.userId,
-              createdAt: DateTime.now(),
-              id: messageId,
-              size: bytes.length,
-              replyToMessageId: replyToId,
-              source:
-                  "data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}",
-              metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
-            ),
-          ),
-          index: _messages.messages.length,
-        );
+      if (fileSize >= FileTransferPolicy.chunkThresholdBytes) {
+        FileTransferProgress.uploadNotifier(messageId);
       }
+      _messages.insertMessage(
+        messageWithPendingStatus(
+          FileMessage(
+            authorId: widget.userId,
+            createdAt: DateTime.now(),
+            id: messageId,
+            name: fileName,
+            size: fileSize,
+            replyToMessageId: replyToId,
+            source: '',
+          ),
+        ),
+        index: _messages.messages.length,
+      );
       _replyToMessage = null;
       _replyDraft = null;
     });
     MessageDraftStore.instance.setReply(_draftKey, null);
     _scheduleScrollToBottomAfterSend();
 
-    // ✅ NOW send in background
-    if (widget.detachedClient != null) {
-      widget.detachedClient!
-          .sendFile(
-            bytes: bytes,
-            fileName: fileName,
-            type: type,
-            replyToId: replyToId,
-            messageId: messageId,
-            viewOnce: viewOnce,
-          )
-          .then((sentId) {
-            if (sentId == null && mounted) {
-              showPrysmToast(context, 'File queued. Will send when peer is available.');
-            }
-          });
+    await _dispatchFileSend(
+      bytes: bytes,
+      fileName: fileName,
+      type: 'file',
+      messageId: messageId,
+      replyToId: replyToId,
+    );
+  }
+
+  Future<void> _dispatchFileSend({
+    required Uint8List bytes,
+    required String fileName,
+    required String type,
+    required String messageId,
+    String? replyToId,
+    bool viewOnce = false,
+  }) async {
+    if (!mounted) return;
+    if (_rejectOversizedFile(bytes.length)) {
+      _removeOptimisticFileMessage(messageId);
       return;
     }
-    _chatService
-        .sendFileMessage(
-          bytes,
-          fileName,
-          type,
-          replyToId: replyToId,
-          messageId: messageId,
-          viewOnce: viewOnce,
-        )
-        .then((sentId) {
-          if (sentId == null && mounted) {
-            showPrysmToast(context, 'File queued. Will send when peer is available.');
-          }
-        });
+
+    final String? sentId;
+    if (widget.detachedClient != null) {
+      sentId = await widget.detachedClient!.sendFile(
+        bytes: bytes,
+        fileName: fileName,
+        type: type,
+        replyToId: replyToId,
+        messageId: messageId,
+        viewOnce: viewOnce,
+      );
+    } else {
+      sentId = await _chatService.sendFileMessage(
+        bytes,
+        fileName,
+        type,
+        replyToId: replyToId,
+        messageId: messageId,
+        viewOnce: viewOnce,
+      );
+    }
+
+    if (!mounted) return;
+    if (sentId != null) return;
+
+    final stored = await MessagesDb.getMessageById(messageId);
+    if (stored.isEmpty) {
+      _removeOptimisticFileMessage(messageId);
+      return;
+    }
+
+    showPrysmToast(
+      context,
+      'File queued. Will send when peer is available.',
+    );
   }
 
   Future<void> _handleSendImage() async {
@@ -1421,36 +1545,52 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _handleSendFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: true);
+    final result = await FilePicker.platform.pickFiles(withData: false);
     if (result == null || result.files.isEmpty) return;
 
     final file = result.files.first;
-    if (file.bytes == null) return;
+    final path = file.path;
+    if (path == null || path.isEmpty) return;
     if (!mounted) return;
+    if (file.size > 0 && _rejectOversizedFile(file.size)) return;
 
-    await ChatAttachmentIngress.sendLocalAttachment(
-      context: context,
-      bytes: file.bytes!,
-      fileName: file.name,
-      sendFile: _sendFile,
-    );
-  }
-
-  Future<void> _handleDroppedFile(String path, String name) async {
-    try {
-      final bytes = await File(path).readAsBytes();
+    if (ChatAttachmentIngress.isImageFileName(file.name)) {
+      final bytes = await readFileBytesDeferred(path);
       if (!mounted) return;
       await ChatAttachmentIngress.sendLocalAttachment(
         context: context,
         bytes: bytes,
-        fileName: name,
+        fileName: file.name,
         sendFile: _sendFile,
       );
-    } catch (e) {
-      if (mounted) {
-        showPrysmToast(context, 'Could not read dropped file: $e');
-      }
+      return;
     }
+
+    await _sendFileFromPath(path, file.name);
+  }
+
+  Future<void> _handleDroppedFile(String path, String name) async {
+    if (!mounted) return;
+
+    if (ChatAttachmentIngress.isImageFileName(name)) {
+      try {
+        final bytes = await readFileBytesDeferred(path);
+        if (!mounted) return;
+        await ChatAttachmentIngress.sendLocalAttachment(
+          context: context,
+          bytes: bytes,
+          fileName: name,
+          sendFile: _sendFile,
+        );
+      } catch (e) {
+        if (mounted) {
+          showPrysmToast(context, 'Could not read dropped file: $e');
+        }
+      }
+      return;
+    }
+
+    await _sendFileFromPath(path, name);
   }
 
   Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
@@ -2489,6 +2629,12 @@ class _ChatScreenState extends State<ChatScreen> {
       timeString: timeString,
       isSentByMe: isSentByMe,
       tickWidget: tickWidget,
+      uploadProgress: isSentByMe
+          ? FileTransferProgress.uploadFor(message.id)
+          : null,
+      downloadProgress: !isSentByMe
+          ? FileTransferProgress.downloadFor(message.id)
+          : null,
       resolveBytes: () => FileAttachmentResolver.resolve(
         message,
         keyManager: widget.keyManager,

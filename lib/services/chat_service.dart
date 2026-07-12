@@ -1,15 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/crypto/file_encrypt_worker.dart';
 import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/file_transfer_progress.dart';
+import 'package:prysm/services/file_transfer_sender.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
@@ -27,6 +33,7 @@ class ChatService {
   bool _isPolling = false;
   bool _isSending = false;
   bool _disposed = false;
+  Future<void>? _outboundSendChain;
   int _pollIntervalSeconds = BatterySaverPolicy.chatPollActiveSeconds(false);
   int _consecutivePollErrors = 0;
 
@@ -264,7 +271,13 @@ class ChatService {
   }) async {
     if (BlockService.instance.isBlocked(peerId)) return null;
     if (peerIdentity == null) return null;
+    if (!FileTransferPolicy.isWithinMaxFileSize(bytes.length)) {
+      Logging.error(FileTransferPolicy.maxFileSizeError, 'ChatService');
+      return null;
+    }
 
+    // Let the optimistic bubble paint before heavy encryption.
+    await SchedulerBinding.instance.endOfFrame;
     final payload = await _encryptFilePayload(bytes);
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -285,6 +298,20 @@ class ChatService {
       'viewOnce': viewOnce ? 1 : 0,
     }, notifyListeners: false);
 
+    if (TransportProvider.isConfigured) {
+      final wsConnected =
+          TransportProvider.instance.isRealtimeConnected(peerId);
+      final peerSupports = TransportProvider.instance.wsManager
+          .peerSupportsFileTransfer(peerId);
+      if (FileTransferPolicy.shouldUseChunkedTransfer(
+        fileSizeBytes: bytes.length,
+        wsConnected: wsConnected,
+        peerSupportsFileTransfer: peerSupports,
+      )) {
+        FileTransferProgress.uploadNotifier(id);
+      }
+    }
+
     final success = await _sendOverTor(
       id,
       payload['peerPayload']!,
@@ -294,6 +321,10 @@ class ChatService {
       replyToId: replyToId,
       viewOnce: viewOnce,
     );
+
+    if (!success) {
+      FileTransferProgress.clearUpload(id);
+    }
 
     // If the user deleted the message while the send was in flight, do not
     // mark it as sent or re-queue it.
@@ -502,6 +533,13 @@ class ChatService {
     }
   }
 
+  Future<T> _serializedOutbound<T>(Future<T> Function() action) {
+    final previous = _outboundSendChain ?? Future<void>.value();
+    final run = previous.then((_) => action());
+    _outboundSendChain = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
   Future<bool> _sendOverTor(
     String id,
     String encrypted,
@@ -510,7 +548,8 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
-  }) async {
+  }) {
+    return _serializedOutbound(() async {
     if (BlockService.instance.isBlocked(peerId)) return false;
     if (TorRuntimeGate.blocked) return false;
 
@@ -518,6 +557,25 @@ class ChatService {
     final timeout = isLargeMedia
         ? const Duration(minutes: 5)
         : const Duration(seconds: 30);
+
+    if (isLargeMedia && fileName != null && fileSize != null) {
+      final chunked = await _trySendChunkedFile(
+        id: id,
+        encrypted: encrypted,
+        type: type,
+        fileName: fileName,
+        fileSize: fileSize,
+        replyToId: replyToId,
+        viewOnce: viewOnce,
+        timeout: timeout,
+      );
+      if (chunked) return true;
+
+      Logging.error(
+        'Chunked file transfer failed for $id, falling back to HTTP send',
+        'ChatService',
+      );
+    }
 
     try {
       _inFlightSends.add(id);
@@ -547,19 +605,65 @@ class ChatService {
     } finally {
       _inFlightSends.remove(id);
     }
+    });
+  }
+
+  Future<bool> _trySendChunkedFile({
+    required String id,
+    required String encrypted,
+    required String type,
+    required String fileName,
+    required int fileSize,
+    String? replyToId,
+    bool viewOnce = false,
+    required Duration timeout,
+  }) async {
+    if (!TransportProvider.isConfigured) return false;
+
+    final wsConnected = TransportProvider.instance.isRealtimeConnected(peerId);
+    final peerSupports =
+        TransportProvider.instance.wsManager.peerSupportsFileTransfer(peerId);
+    if (!FileTransferPolicy.shouldUseChunkedTransfer(
+      fileSizeBytes: fileSize,
+      wsConnected: wsConnected,
+      peerSupportsFileTransfer: peerSupports,
+    )) {
+      return false;
+    }
+
+    try {
+      _inFlightSends.add(id);
+      final sender = FileTransferSender(TransportProvider.instance.wsManager);
+      return await sender.send(
+        peerOnion: peerId,
+        messageId: id,
+        senderId: userId,
+        receiverId: peerId,
+        type: type,
+        fileName: fileName,
+        fileSize: fileSize,
+        peerPayload: encrypted,
+        replyToId: replyToId,
+        viewOnce: viewOnce,
+        timeout: timeout,
+      );
+    } catch (e) {
+      Logging.error('Chunked file send failed: $e', 'ChatService');
+      return false;
+    } finally {
+      _inFlightSends.remove(id);
+    }
   }
 
   Future<Map<String, String>> _encryptFilePayload(Uint8List bytes) async {
     final peer = peerIdentity!;
-    final result = await CryptoWire.encryptFile(
-      bytes,
-      keyManager.identity,
-      peer.agreePublic,
+    final identityJson = await identityPrivateJsonForIsolate(keyManager.identity);
+    final peerAgreeBytes = Uint8List.fromList(peer.agreePublic.bytes);
+    return encryptFileInBackground(
+      bytes: bytes,
+      identityPrivateJson: identityJson,
+      peerAgreePublicBytes: peerAgreeBytes,
     );
-    return {
-      'peerPayload': result.peerPayload,
-      'selfPayload': result.selfPayload,
-    };
   }
 
   Future<bool> _fetchPeerIdentityOverTor() async {

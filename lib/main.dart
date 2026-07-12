@@ -28,6 +28,7 @@ import 'package:prysm/screens/settings_screen.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
 import 'package:prysm/services/notification_open_chat_resolver.dart';
@@ -1162,6 +1163,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _syncCoordinator!.flushPendingForPeer(peerId),
     );
     TransportProvider.instance.startWebSocketConnections();
+    FileTransferHandler.instance.start();
     TorRuntimeGate.isTorStopped = () => _torStopped;
     if (!Platform.isAndroid && !Platform.isIOS) {
       _torSupervisor = TorSupervisor(

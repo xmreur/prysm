@@ -247,6 +247,7 @@ Future<void> _runMainApp() async {
   if (!Platform.isAndroid && !Platform.isIOS) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await windowManager.ensureInitialized();
+      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
       await windowManager.show();
       await windowManager.focus();
       await TrayService.instance.init();

@@ -58,3 +58,7 @@ tor_executable/tor_data/
 *.hprof
 .lock
 stt_models/
+
+# Ignore PDF
+*.pdf
+

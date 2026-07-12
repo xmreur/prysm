@@ -32,24 +32,36 @@ class TorHttpTransport implements OutboundTransport {
   }
 
   @override
-  Future<T> runForPeer<T>(String peerOnion, Future<T> Function() operation) {
+  Future<T> runForPeer<T>(
+    String peerOnion,
+    Future<T> Function() operation, {
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) {
     if (TorRuntimeGate.blocked) {
       return Future.error(StateError('Tor is stopped'));
     }
 
-    return _runWithRetry(peerOnion, operation);
+    return _runWithRetry(
+      peerOnion,
+      operation,
+      maxAttempts: maxAttempts,
+    );
   }
 
   Future<T> _runWithRetry<T>(
     String peerOnion,
-    Future<T> Function() operation,
-  ) async {
+    Future<T> Function() operation, {
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) async {
     outboundQueueDepth++;
     try {
       if (TorRuntimeGate.blocked) {
         throw StateError('Tor is stopped');
       }
-      final result = await TorDelivery.withTorRetry(attempt: operation);
+      final result = await TorDelivery.withTorRetry(
+        maxAttempts: maxAttempts,
+        attempt: operation,
+      );
       _lastSuccessByPeer[peerOnion] = DateTime.now();
       return result;
     } finally {
@@ -61,8 +73,11 @@ class TorHttpTransport implements OutboundTransport {
   Future<String> getProfile(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) {
-    return runForPeer(peerOnion, () async {
+    return runForPeer(
+      peerOnion,
+      () async {
       final client = _client();
       try {
         final requester = LocalOnionAddress.value;
@@ -75,15 +90,20 @@ class TorHttpTransport implements OutboundTransport {
       } finally {
         await client.close();
       }
-    });
+    },
+      maxAttempts: maxAttempts,
+    );
   }
 
   @override
   Future<String> getPublic(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) {
-    return runForPeer(peerOnion, () async {
+    return runForPeer(
+      peerOnion,
+      () async {
       final client = _client();
       try {
         final response = await client
@@ -93,7 +113,9 @@ class TorHttpTransport implements OutboundTransport {
       } finally {
         await client.close();
       }
-    });
+    },
+      maxAttempts: maxAttempts,
+    );
   }
 
   @override

@@ -80,15 +80,13 @@ import 'package:prysm/ui/prysm_list_row.dart';
 import 'package:prysm/ui/prysm_search_field.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
-import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
-import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/screens/widgets/add_contact_dialog.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
-import 'package:prysm/crypto/qr_payload.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/decoy_session_data.dart';
@@ -1970,144 +1968,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    String? onionPrefill = prefilledId;
-    String? expectedFingerprint;
-    if (prefilledId != null) {
-      final payload = QrPayload.tryParse(prefilledId);
-      if (payload != null) {
-        onionPrefill = payload.onion;
-        expectedFingerprint = payload.fingerprint;
-      }
-    }
-
-    final idController = TextEditingController(text: onionPrefill ?? '');
-    final nameController = TextEditingController();
     final hostContext = context;
 
-    Future<void> submit(BuildContext dialogContext) async {
-      String newId;
-      try {
-        newId = decodeBase58ToOnion(idController.text.trim());
-      } catch (_) {
-        return;
-      }
-      final newName = nameController.text.trim();
-
-      if (newId.isEmpty || newId == '.onion' || newName.isEmpty) {
-        return;
-      }
-      if (widget.decoyMode) {
-        if (!dialogContext.mounted) return;
-        showPrysmToast(dialogContext, 
-              'Could not reach peer or fetch their public key. '
-              'Make sure they are online and try again.',
-            );
-        return;
-      }
-      final added = await _addNewUser(
-        newId,
-        newName,
-        expectedFingerprint: expectedFingerprint,
-      );
-      if (!dialogContext.mounted) return;
-      if (!added) {
-        showPrysmToast(dialogContext, 
-              'Could not reach peer or fetch their public key. '
-              'Make sure they are online and try again.',
-            );
-        return;
-      }
-      await loadUsers();
-      if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-    }
-
-    await showGeneralDialog<void>(
+    await showAddContactDialog(
       context: hostContext,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: const Color(0x80000000),
-      pageBuilder: (dialogContext, animation, secondaryAnimation) {
-        Future<void> scanQrCode() async {
-          Navigator.of(dialogContext).pop();
-          final scannedValue = await Navigator.push<String>(
-            hostContext,
-            PrysmPageRoute(page: const QrScannerScreen()),
-          );
-          if (scannedValue != null && scannedValue.isNotEmpty) {
-            _showAddUserDialog(prefilledId: scannedValue);
-          }
-        }
-
-        final style = dialogContext.prysmStyle;
-        return Center(
-          child: PrysmDialog(
-            title: 'Add contact',
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'User ID (Base58 Onion URL)',
-                            style: style.captionStyle,
-                          ),
-                          const SizedBox(height: 6),
-                          PrysmTextField(
-                            controller: idController,
-                            autofocus: prefilledId == null,
-                            hintText: 'eg. 51EsbujFRDJLHJ',
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (QrPlatform.isScanSupported)
-                      _tooltipIconButton(
-                        icon: PrysmIcons.qrCodeScanner,
-                        tooltip: 'Scan QR code',
-                        onPressed: scanQrCode,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('Display name', style: style.captionStyle),
-                const SizedBox(height: 6),
-                PrysmTextField(
-                  controller: nameController,
-                  autofocus: prefilledId != null,
-                  hintText: 'eg. Alice',
-                  onSubmitted: (_) => submit(dialogContext),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    PrysmPressable(
-                      onTap: () => Navigator.of(dialogContext).pop(),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text('Cancel', style: style.bodyStyle),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    PrysmButton(
-                      label: 'Add',
-                      onPressed: () => submit(dialogContext),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+      prefilledId: prefilledId,
+      decoyMode: widget.decoyMode,
+      onAdd: (onionId, displayName, {expectedFingerprint}) async {
+        final added = await _addNewUser(
+          onionId,
+          displayName,
+          expectedFingerprint: expectedFingerprint,
         );
+        if (added) unawaited(loadUsers());
+        return added;
       },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        return FadeTransition(opacity: animation, child: child);
+      onScanQr: () async {
+        Navigator.of(hostContext).pop();
+        final scannedValue = await Navigator.push<String>(
+          hostContext,
+          PrysmPageRoute(page: const QrScannerScreen()),
+        );
+        if (scannedValue != null && scannedValue.isNotEmpty) {
+          _showAddUserDialog(prefilledId: scannedValue);
+        }
       },
     );
   }

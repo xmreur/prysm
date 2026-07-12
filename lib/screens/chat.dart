@@ -1518,6 +1518,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    if (!mounted) return;
     showPrysmToast(
       context,
       'File queued. Will send when peer is available.',

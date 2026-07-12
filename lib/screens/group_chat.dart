@@ -1225,6 +1225,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       return;
     }
 
+    if (!mounted) return;
     showPrysmToast(context, 'Message queued. Will send when members are reachable.');
     widget.reloadConversations();
   }

@@ -144,7 +144,7 @@ class FileTransferSender {
           'ciphertextSize': ciphertext.length,
           'totalChunks': totalChunks,
           'chunkSize': chunkSize,
-          if (replyToId != null) 'replyTo': replyToId,
+          'replyTo': ?replyToId,
           'viewOnce': viewOnce,
         },
         bypassQueue: true,

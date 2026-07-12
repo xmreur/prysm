@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/outbound_transport.dart';
 import 'package:prysm/transport/ws_protocol.dart';
+import 'package:prysm/util/tor_delivery.dart';
 
 /// WebSocket transport delegating to [WsConnectionManager].
 class TorWebSocketTransport implements OutboundTransport {
@@ -18,13 +19,18 @@ class TorWebSocketTransport implements OutboundTransport {
       _manager.lastSuccessForPeer(peerOnion);
 
   @override
-  Future<T> runForPeer<T>(String peerOnion, Future<T> Function() operation) =>
+  Future<T> runForPeer<T>(
+    String peerOnion,
+    Future<T> Function() operation, {
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) =>
       _manager.runForPeer(peerOnion, operation);
 
   @override
   Future<String> getProfile(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) {
     return runForPeer(peerOnion, () async {
       final response = await _manager.request(
@@ -40,6 +46,7 @@ class TorWebSocketTransport implements OutboundTransport {
   Future<String> getPublic(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) {
     return runForPeer(peerOnion, () async {
       final response = await _manager.request(

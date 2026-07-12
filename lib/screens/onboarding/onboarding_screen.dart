@@ -5,6 +5,7 @@ import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/unlock_type.dart';
+import 'package:prysm/screens/widgets/add_contact_dialog.dart';
 import 'package:prysm/screens/widgets/backup_flow.dart';
 import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
@@ -160,10 +161,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _addingContact = false);
 
     if (!added) {
-      _showSnack(
-        'Could not reach peer or fetch their public key. '
-        'Make sure they are online and try again.',
-      );
+      await showContactAddErrorDialog(context);
       return;
     }
     setState(() => _contactAdded = true);
@@ -807,13 +805,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   controller: _contactIdController,
                   labelText: 'Prysm ID (Base58)',
                   hintText: 'eg. 51EsbujFRDJLHJ',
+                  enabled: !_addingContact,
                 ),
               ),
               if (QrPlatform.isScanSupported)
                 PrysmIconButton(
                   icon: PrysmIcons.qrCodeScanner,
                   tooltip: 'Scan QR code',
-                  onPressed: () async {
+                  onPressed: _addingContact
+                      ? null
+                      : () async {
                     final scanned = await Navigator.push<String>(
                       context,
                       PrysmPageRoute(page: const QrScannerScreen()),
@@ -829,12 +830,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           PrysmTextField(
             controller: _contactNameController,
             labelText: 'Display name',
+            enabled: !_addingContact,
           ),
           const SizedBox(height: 16),
           PrysmButton(
             label: 'Add contact',
             onPressed: widget.offlineMode || _addingContact ? null : _addContact,
           ),
+          if (_addingContact) ...[
+            const SizedBox(height: 16),
+            buildContactAddLoadingRow(style),
+          ],
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),
             PrysmTextButton(label: 'Skip for now', onPressed: _nextPage),

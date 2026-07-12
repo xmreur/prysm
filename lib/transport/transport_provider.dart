@@ -182,25 +182,43 @@ class TransportProvider implements OutboundTransport {
   }
 
   @override
-  Future<T> runForPeer<T>(String peerOnion, Future<T> Function() operation) =>
+  Future<T> runForPeer<T>(
+    String peerOnion,
+    Future<T> Function() operation, {
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) =>
       withPeer(
         peerOnion,
-        (transport) => transport.runForPeer(peerOnion, operation),
+        (transport) => transport.runForPeer(
+          peerOnion,
+          operation,
+          maxAttempts: maxAttempts,
+        ),
       );
 
   @override
   Future<String> getProfile(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
-  }) => getProfileWithPreference(peerOnion, timeout: timeout);
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) => getProfileWithPreference(
+    peerOnion,
+    timeout: timeout,
+    maxAttempts: maxAttempts,
+  );
 
   Future<String> getProfileWithPreference(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
     TransportPreference preference = TransportPreference.wsPreferred,
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) => withPeer(
     peerOnion,
-    (transport) => transport.getProfile(peerOnion, timeout: timeout),
+    (transport) => transport.getProfile(
+      peerOnion,
+      timeout: timeout,
+      maxAttempts: maxAttempts,
+    ),
     preference: preference,
   );
 
@@ -208,15 +226,25 @@ class TransportProvider implements OutboundTransport {
   Future<String> getPublic(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
-  }) => getPublicWithPreference(peerOnion, timeout: timeout);
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
+  }) => getPublicWithPreference(
+    peerOnion,
+    timeout: timeout,
+    maxAttempts: maxAttempts,
+  );
 
   Future<String> getPublicWithPreference(
     String peerOnion, {
     Duration timeout = const Duration(seconds: 20),
     TransportPreference preference = TransportPreference.wsPreferred,
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) => withPeer(
     peerOnion,
-    (transport) => transport.getPublic(peerOnion, timeout: timeout),
+    (transport) => transport.getPublic(
+      peerOnion,
+      timeout: timeout,
+      maxAttempts: maxAttempts,
+    ),
     preference: preference,
   );
 
@@ -282,15 +310,18 @@ class TransportProvider implements OutboundTransport {
     Duration timeout = const Duration(seconds: 20),
     int socksPort = 9050,
     TransportPreference preference = TransportPreference.wsPreferred,
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) async {
     if (isConfigured) {
       return instance.getProfileWithPreference(
         peerOnion,
         timeout: timeout,
         preference: preference,
+        maxAttempts: maxAttempts,
       );
     }
     return TorDelivery.withTorRetry<String>(
+      maxAttempts: maxAttempts,
       attempt: () async {
         final torClient = TorHttpClient(
           proxyHost: '127.0.0.1',
@@ -316,15 +347,18 @@ class TransportProvider implements OutboundTransport {
     Duration timeout = const Duration(seconds: 20),
     int socksPort = 9050,
     TransportPreference preference = TransportPreference.wsPreferred,
+    int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) async {
     if (isConfigured) {
       return instance.getPublicWithPreference(
         peerOnion,
         timeout: timeout,
         preference: preference,
+        maxAttempts: maxAttempts,
       );
     }
     return TorDelivery.withTorRetry<String>(
+      maxAttempts: maxAttempts,
       attempt: () async {
         final torClient = TorHttpClient(
           proxyHost: '127.0.0.1',

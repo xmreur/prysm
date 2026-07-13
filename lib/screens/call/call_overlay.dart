@@ -16,9 +16,10 @@ import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_tabs.dart';
 
 class CallOverlay extends StatefulWidget {
-  const CallOverlay({super.key, required this.child});
+  const CallOverlay({super.key, required this.child, this.decoyMode = false});
 
   final Widget child;
+  final bool decoyMode;
 
   @override
   State<CallOverlay> createState() => _CallOverlayState();
@@ -32,6 +33,7 @@ class _CallOverlayState extends State<CallOverlay> {
   @override
   void initState() {
     super.initState();
+    if (widget.decoyMode) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       try {
@@ -43,9 +45,11 @@ class _CallOverlayState extends State<CallOverlay> {
 
   @override
   void dispose() {
-    try {
-      CallManager.instance.removeListener(_onCallChanged);
-    } catch (_) {}
+    if (!widget.decoyMode) {
+      try {
+        CallManager.instance.removeListener(_onCallChanged);
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -113,6 +117,8 @@ class _CallOverlayState extends State<CallOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.decoyMode) return widget.child;
+
     CallManager? manager;
     try {
       manager = CallManager.instance;

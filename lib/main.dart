@@ -920,6 +920,7 @@ class _MyAppState extends State<MyApp> {
               },
             )
           : CallOverlay(
+              decoyMode: _panicDecoySession,
               child: HomeScreen(
                 torManager: _torManager!,
                 onionAddress: onionAddress,
@@ -3019,6 +3020,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         offlineMode: widget.offlineMode,
         torConnecting: widget.torConnecting,
         onConnectTor: widget.onConnectTor,
+        decoyMode: widget.decoyMode,
       );
     }
     if (showSelfChat && !widget.decoyMode) {
@@ -3044,6 +3046,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isGroup: true,
           initialMessages: _decoyMessages[group.id] ?? const [],
           onCloseChat: () => clearChat(),
+          torStatusAction: _buildTorAppBarAction(),
         );
       }
       return GroupChatScreen(
@@ -3068,6 +3071,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           avatarBase64: contact.avatarBase64,
           initialMessages: _decoyMessages[contact.id] ?? const [],
           onCloseChat: () => clearChat(),
+          torStatusAction: _buildTorAppBarAction(),
         );
       }
       return ChatScreen(
@@ -3096,11 +3100,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final tokens = context.prysmStyle.tokens;
     return ColoredBox(
       color: tokens.surface,
-      child: SafeArea(
-        bottom: false,
-        left: false,
-        right: false,
-        child: Column(
+      child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
@@ -3147,7 +3147,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(height: 1, color: tokens.divider),
           ],
         ),
-      ),
     );
   }
 
@@ -3163,11 +3162,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       color: tokens.background,
       child: Column(
         children: [
+          if (isMobile)
+            SizedBox(height: MediaQuery.paddingOf(context).top),
           if (showHomeHeader)
             _buildHomeHeader(
               showMenuButton: true,
               actions: [
-                if (!widget.decoyMode) _buildTorAppBarAction(),
+                _buildTorAppBarAction(),
                 _tooltipIconButton(
                   icon: PrysmIcons.settingsOutlined,
                   tooltip: 'Settings',
@@ -3182,7 +3183,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _buildHomeHeader(
               showMenuButton: false,
               actions: [
-                if (!widget.decoyMode) _buildTorAppBarAction(),
+                _buildTorAppBarAction(),
                 _tooltipIconButton(
                   icon: PrysmIcons.settingsOutlined,
                   tooltip: _desktopShortcutTooltip('Settings', 'I'),
@@ -3193,7 +3194,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _buildOfflineBanner(),
           Expanded(
             child: isMobile
-                ? _buildChatBody()
+                ? MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: _buildChatBody(),
+                  )
                 : Row(
                     children: [
                       buildSidebar(),

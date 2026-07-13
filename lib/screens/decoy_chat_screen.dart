@@ -8,6 +8,7 @@ import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/decoy_session_data.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:uuid/uuid.dart';
 
 /// Read-only-looking chat for panic decoy sessions. Messages stay in memory only.
@@ -19,6 +20,7 @@ class DecoyChatScreen extends StatefulWidget {
   final bool isGroup;
   final List<DecoyMessage> initialMessages;
   final VoidCallback? onCloseChat;
+  final Widget? torStatusAction;
 
   const DecoyChatScreen({
     required this.conversationId,
@@ -28,6 +30,7 @@ class DecoyChatScreen extends StatefulWidget {
     this.isGroup = false,
     required this.initialMessages,
     this.onCloseChat,
+    this.torStatusAction,
     super.key,
   });
 
@@ -89,41 +92,67 @@ class _DecoyChatScreenState extends State<DecoyChatScreen> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.prysmStyle.tokens;
+    final style = context.prysmStyle;
 
     return PrysmPage(
+      headerHeight: 70,
       leading: widget.onCloseChat != null
           ? PrysmIconButton(
-              icon: PrysmIcons.arrowBack,
+              icon: PrysmIcons.chevronLeft,
               onPressed: widget.onCloseChat,
             )
           : null,
+      actions: [
+        if (widget.torStatusAction != null) widget.torStatusAction!,
+      ],
       titleWidget: Row(
         children: [
           ContactAvatar(
             name: widget.avatarName ?? widget.title,
             avatarBase64: widget.avatarBase64,
-            radius: 18,
+            radius: 20,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   widget.title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: style.titleStyle,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
                 if (widget.isGroup)
                   Text(
                     'Group',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: style.captionStyle.copyWith(
                       color: tokens.textMuted,
+                      fontWeight: FontWeight.w500,
                     ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: tokens.textPrimary.withAlpha(100),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Offline',
+                        style: style.captionStyle.copyWith(
+                          color: tokens.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),
@@ -181,63 +210,54 @@ class _DecoyMessageBubble extends StatelessWidget {
     final timeString =
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
-    final bubbleColor = isMe ? tokens.bubbleSent : tokens.bubbleReceived;
-    final textColor =
-        isMe ? tokens.onAccent : tokens.textPrimary;
+    final textColor = isMe ? tokens.onAccent : tokens.textPrimary;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment:
-            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
-          Flexible(
-            child: Column(
-              crossAxisAlignment:
-                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                if (isGroup && !isMe && message.senderName != null)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 2),
-                    child: Text(
-                      message.senderName!,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: tokens.accent,
+          if (isGroup && !isMe && message.senderName != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 2),
+              child: Text(
+                message.senderName!,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: tokens.accent,
+                ),
+              ),
+            ),
+          IntrinsicWidth(
+            child: PrysmBubbleRenderer(
+              isSentByMe: isMe,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      message.text,
+                      style: context.prysmStyle.bodyStyle.copyWith(
+                        color: textColor,
                       ),
                     ),
-                  ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: bubbleColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        message.text,
-                        style: TextStyle(color: textColor, fontSize: 14),
-                      ),
-                      const SizedBox(height: 4),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          timeString,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: textColor.withValues(alpha: 0.7),
-                          ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        timeString,
+                        style: context.prysmStyle.captionStyle.copyWith(
+                          color: textColor.withValues(alpha: 0.7),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],

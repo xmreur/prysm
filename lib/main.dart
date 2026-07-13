@@ -3096,11 +3096,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final tokens = context.prysmStyle.tokens;
     return ColoredBox(
       color: tokens.surface,
-      child: SafeArea(
-        bottom: false,
-        left: false,
-        right: false,
-        child: Column(
+      child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
@@ -3147,7 +3143,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(height: 1, color: tokens.divider),
           ],
         ),
-      ),
     );
   }
 
@@ -3163,6 +3158,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       color: tokens.background,
       child: Column(
         children: [
+          if (isMobile)
+            SizedBox(height: MediaQuery.paddingOf(context).top),
           if (showHomeHeader)
             _buildHomeHeader(
               showMenuButton: true,
@@ -3193,7 +3190,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _buildOfflineBanner(),
           Expanded(
             child: isMobile
-                ? _buildChatBody()
+                ? MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: _buildChatBody(),
+                  )
                 : Row(
                     children: [
                       buildSidebar(),

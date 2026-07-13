@@ -993,26 +993,22 @@ class MessagesDb {
         );
       }
 
+      // SQLite guarantees that bare columns in a MAX-aggregate query come
+      // from the row that produced the MAX value — no self-join needed.
       final directRows = await db.rawQuery(
         '''
-				WITH latest AS (
-				  SELECT
-				    CASE WHEN senderId = ? THEN receiverId ELSE senderId END AS convKey,
-				    MAX(timestamp) AS max_ts
-				  FROM messages
-				  WHERE groupId IS NULL
-				    AND $_directChatTypeFilter
-				    AND (senderId = ? OR receiverId = ?)
-				  GROUP BY convKey
-				)
-				SELECT l.convKey, m.type, m.deletedAt
-				FROM latest l
-				JOIN messages m ON m.timestamp = l.max_ts
-				  AND m.groupId IS NULL
-				  AND (CASE WHEN m.senderId = ? THEN m.receiverId ELSE m.senderId END) = l.convKey
-				GROUP BY l.convKey
+				SELECT
+				  CASE WHEN senderId = ? THEN receiverId ELSE senderId END AS convKey,
+				  type,
+				  deletedAt,
+				  MAX(timestamp) AS max_ts
+				FROM messages
+				WHERE groupId IS NULL
+				  AND $_directChatTypeFilter
+				  AND (senderId = ? OR receiverId = ?)
+				GROUP BY convKey
 			''',
-        [localUserId, localUserId, localUserId, localUserId],
+        [localUserId, localUserId, localUserId],
       );
 
       for (final row in directRows) {

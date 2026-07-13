@@ -15,6 +15,8 @@ import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_checkbox.dart';
+import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 
 class CreateGroupScreen extends StatefulWidget {
@@ -115,6 +117,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   Widget build(BuildContext context) {
     return PrysmPage(
       title: 'Create Group',
+      leading: PrysmIconButton(
+        icon: PrysmIcons.close,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
       actions: [
         _creating
             ? const SizedBox(

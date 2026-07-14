@@ -49,6 +49,7 @@ class SettingsScreen extends StatefulWidget {
   final bool offlineMode;
   final bool torConnecting;
   final Future<void> Function()? onConnectTor;
+  final bool decoyMode;
 
   const SettingsScreen({
     required this.onClose,
@@ -60,6 +61,7 @@ class SettingsScreen extends StatefulWidget {
     this.offlineMode = false,
     this.torConnecting = false,
     this.onConnectTor,
+    this.decoyMode = false,
     super.key,
   });
 
@@ -843,21 +845,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const PrysmDivider(),
 
-                _buildNavigationTile(
-                  'Call History',
-                  PrysmIcons.call,
-                  () {
-                    Navigator.push(
-                      context,
-                      PrysmPageRoute(
-                        page: CallHistoryScreen(
-                          onClose: () => Navigator.of(context).pop(),
+                if (!widget.decoyMode)
+                  _buildNavigationTile(
+                    'Call History',
+                    PrysmIcons.call,
+                    () {
+                      Navigator.push(
+                        context,
+                        PrysmPageRoute(
+                          page: CallHistoryScreen(
+                            onClose: () => Navigator.of(context).pop(),
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-                const PrysmDivider(),
+                      );
+                    },
+                  ),
+                if (!widget.decoyMode) const PrysmDivider(),
                 _buildNavigationTile(
                   'Download Location',
                   PrysmIcons.downloadOutlined,

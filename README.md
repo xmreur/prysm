@@ -26,7 +26,7 @@ If the destination is offline or unreachable, Prysm stores the message locally i
 
 ## Encryption
 
-Prysm 0.4.0 uses **Crypto v2**: Curve25519 identity keys, AEAD-only wire formats, Argon2id passphrase protection, and Double Ratchet sessions for 1:1 forward secrecy. Upgrading from 0.2.x requires a clean-break migration (export if needed, wipe, re-onboard). See `docs/THREAT_MODEL.md`.
+Prysm 0.4.0 or later uses **Crypto v2**: Curve25519 identity keys, AEAD-only wire formats, Argon2id passphrase protection, and Double Ratchet sessions for 1:1 forward secrecy. Upgrading from 0.2.x requires a clean-break migration (export if needed, wipe, re-onboard). See `docs/THREAT_MODEL.md`.
 
 ### Identity
 
@@ -119,7 +119,7 @@ On desktop, the Tor binary is downloaded automatically on first launch.
 
 ## Release
 
-Latest release: [v0.5.0-pre.1](https://github.com/xmreur/prysm/releases)
+Latest release: [v0.5.0](https://github.com/xmreur/prysm/releases)
 
 ## Notes
 

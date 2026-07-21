@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "github.xrmeur.prysm"
+    namespace = "github.xmreur.prysm"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -29,13 +29,21 @@ android {
         }
     }
 
+    signingConfigs {
+        create("sharedDebug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("sharedDebug")
+        }
         release {
-            // isMinifyEnabled = false
-            // isShrinkResources = false
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("sharedDebug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

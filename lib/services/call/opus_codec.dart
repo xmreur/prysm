@@ -3,8 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:opus_dart/opus_dart.dart';
 import 'package:opus_flutter/opus_flutter.dart' as opus_flutter;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:prysm/util/logging.dart';
 
 class OpusCodec {
@@ -47,6 +50,9 @@ class OpusCodec {
     return _available;
   }
 
+  static const _opusDownloadUrl =
+      'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/macos/libopus.dylib';
+
   static Future<dynamic> _loadLibrary() async {
     if (kIsWeb) {
       return opus_flutter.load();
@@ -60,7 +66,9 @@ class OpusCodec {
       ]);
     }
     if (Platform.isMacOS) {
-      return _openFirst(const [
+      final bundled = await _ensureMacOsOpus();
+      return _openFirst([
+        bundled,
         'libopus.dylib',
         'libopus.0.dylib',
         '/opt/homebrew/lib/libopus.dylib',
@@ -68,6 +76,24 @@ class OpusCodec {
       ]);
     }
     return opus_flutter.load();
+  }
+
+  static Future<String> _ensureMacOsOpus() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final libDir = Directory(p.join(dir.path, 'prysm', 'native_libs'));
+    if (!libDir.existsSync()) {
+      libDir.createSync(recursive: true);
+    }
+    final dylibPath = p.join(libDir.path, 'libopus.dylib');
+    if (!File(dylibPath).existsSync()) {
+      Logging.debug('Downloading libopus.dylib ...', 'OpusCodec');
+      final resp = await http.get(Uri.parse(_opusDownloadUrl));
+      if (resp.statusCode != 200) {
+        throw StateError('Failed to download libopus.dylib: ${resp.statusCode}');
+      }
+      await File(dylibPath).writeAsBytes(resp.bodyBytes);
+    }
+    return dylibPath;
   }
 
   static DynamicLibrary _openFirst(List<String> names) {

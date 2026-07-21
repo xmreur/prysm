@@ -7,6 +7,7 @@ import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/kdf.dart';
 import 'package:prysm/models/unlock_type.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Secure storage for identity keys and crypto generation marker.
 class CryptoKeyStore {
@@ -19,6 +20,11 @@ class CryptoKeyStore {
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+      synchronizable: false,
+      useDataProtectionKeyChain: false,
+    ),
   );
 
   static final Map<String, String> _testMemory = {};
@@ -39,7 +45,8 @@ class CryptoKeyStore {
     }
     try {
       return await _storage.read(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage read failed for $key: $e', 'CryptoKeyStore');
       return _testMemory[key];
     }
   }
@@ -61,7 +68,8 @@ class CryptoKeyStore {
     }
     try {
       await _storage.write(key: key, value: value);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage write failed for $key: $e', 'CryptoKeyStore');
       _testMemory[key] = value;
     }
   }
@@ -73,7 +81,8 @@ class CryptoKeyStore {
     }
     try {
       await _storage.delete(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage delete failed for $key: $e', 'CryptoKeyStore');
       _testMemory.remove(key);
     }
   }
@@ -85,7 +94,8 @@ class CryptoKeyStore {
     }
     try {
       await _storage.deleteAll();
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage deleteAll failed: $e', 'CryptoKeyStore');
       _testMemory.clear();
     }
   }

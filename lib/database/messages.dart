@@ -35,12 +35,13 @@ class MessagesDb {
       "OR (senderId = ? AND receiverId = ? AND status = 'system') "
       "OR (senderId = ? AND receiverId = ? AND status = 'system'))";
 
-  /// Columns safe for chat list queries (excludes huge [message] payloads).
+  /// Columns needed for chat list queries.
   static const List<String> _messageListColumns = [
     'id',
     'senderId',
     'receiverId',
     'type',
+    'message',
     'fileName',
     'fileSize',
     'timestamp',

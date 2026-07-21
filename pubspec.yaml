@@ -100,6 +100,9 @@ flutter_launcher_icons:
     icon_size: 48
   android: "launcher_icon"
   ios: true
+  macos:
+    generate: true
+    image_path: "assets/logo.png"
   image_path: "assets/logo.png"
   
 

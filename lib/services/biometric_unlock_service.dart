@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/util/biometrics.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Stores the unlock secret for biometric convenience unlock on Android.
 class BiometricUnlockService {
@@ -15,6 +16,11 @@ class BiometricUnlockService {
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+      synchronizable: false,
+      useDataProtectionKeyChain: false,
+    ),
   );
 
   static final Map<String, String> _testMemory = {};
@@ -43,7 +49,8 @@ class BiometricUnlockService {
     if (_useTestMemoryOnly) return _testMemory[key];
     try {
       return await _secureStorage.read(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage read failed for $key: $e', 'BiometricUnlockService');
       return _testMemory[key];
     }
   }
@@ -55,7 +62,8 @@ class BiometricUnlockService {
     }
     try {
       await _secureStorage.write(key: key, value: value);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage write failed for $key: $e', 'BiometricUnlockService');
       _testMemory[key] = value;
     }
   }
@@ -67,7 +75,8 @@ class BiometricUnlockService {
     }
     try {
       await _secureStorage.delete(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage delete failed for $key: $e', 'BiometricUnlockService');
       _testMemory.remove(key);
     }
   }

@@ -46,7 +46,7 @@ void main() {
     expect(deleted.metadata?['edited'], isTrue);
   });
 
-  test('rowShowsAsDeleted treats missing wire as deleted for text only', () {
+  test('rowShowsAsDeleted only trusts deletedAt, not missing wire', () {
     final meta = <String, Object?>{};
     expect(
       rowShowsAsDeleted({'type': 'text', 'message': 'hello'}, meta),
@@ -54,14 +54,10 @@ void main() {
     );
     expect(
       rowShowsAsDeleted({'type': 'text'}, meta),
-      isTrue,
-    );
-    expect(
-      rowShowsAsDeleted({'type': 'file', 'fileName': 'a.zip'}, meta),
       isFalse,
     );
     expect(
-      rowShowsAsDeleted({'type': 'group_file', 'fileName': 'a.zip'}, meta),
+      rowShowsAsDeleted({'type': 'file', 'fileName': 'a.zip'}, meta),
       isFalse,
     );
   });

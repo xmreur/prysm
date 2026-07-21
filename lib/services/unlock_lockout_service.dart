@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:prysm/util/logging.dart';
 
 /// Tracks failed primary unlock attempts and enforces a timed lockout.
 class UnlockLockoutService {
@@ -14,6 +15,11 @@ class UnlockLockoutService {
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+      synchronizable: false,
+      useDataProtectionKeyChain: false,
+    ),
   );
 
   static final Map<String, String> _testMemory = {};
@@ -37,7 +43,8 @@ class UnlockLockoutService {
     if (_useTestMemoryOnly) return _testMemory[key];
     try {
       return await _secureStorage.read(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage read failed for $key: $e', 'UnlockLockoutService');
       return _testMemory[key];
     }
   }
@@ -49,7 +56,8 @@ class UnlockLockoutService {
     }
     try {
       await _secureStorage.write(key: key, value: value);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage write failed for $key: $e', 'UnlockLockoutService');
       _testMemory[key] = value;
     }
   }
@@ -61,7 +69,8 @@ class UnlockLockoutService {
     }
     try {
       await _secureStorage.delete(key: key);
-    } catch (_) {
+    } catch (e) {
+      Logging.error('SecureStorage delete failed for $key: $e', 'UnlockLockoutService');
       _testMemory.remove(key);
     }
   }

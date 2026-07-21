@@ -122,6 +122,10 @@ class TransportProvider implements OutboundTransport {
     Future<T> Function(OutboundTransport transport) operation, {
     TransportPreference preference = TransportPreference.wsPreferred,
   }) async {
+    if (peerOnion.isEmpty) {
+      throw ArgumentError('peerOnion must not be empty');
+    }
+
     if (preference == TransportPreference.httpOnly) {
       return operation(_httpTransport);
     }
@@ -312,6 +316,7 @@ class TransportProvider implements OutboundTransport {
     TransportPreference preference = TransportPreference.wsPreferred,
     int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) async {
+    if (peerOnion.isEmpty) return '';
     if (isConfigured) {
       return instance.getProfileWithPreference(
         peerOnion,
@@ -349,6 +354,7 @@ class TransportProvider implements OutboundTransport {
     TransportPreference preference = TransportPreference.wsPreferred,
     int maxAttempts = TorDelivery.defaultMaxAttempts,
   }) async {
+    if (peerOnion.isEmpty) return '';
     if (isConfigured) {
       return instance.getPublicWithPreference(
         peerOnion,
@@ -398,6 +404,7 @@ class TransportProvider implements OutboundTransport {
     Duration timeout = const Duration(seconds: 30),
     int socksPort = 9050,
   }) async {
+    if (peerOnion.isEmpty) return;
     if (isConfigured) {
       final inst = instance;
       if (!inst.isRealtimeConnected(peerOnion)) {
@@ -480,6 +487,7 @@ class TransportProvider implements OutboundTransport {
     String? senderId,
     Duration timeout = const Duration(seconds: 15),
   }) async {
+    if (peerOnion.isEmpty) return;
     try {
       final localSender = senderId;
       if (localSender == null || localSender.isEmpty) {
@@ -515,6 +523,7 @@ class TransportProvider implements OutboundTransport {
     Duration timeout = const Duration(seconds: 30),
     int socksPort = 9050,
   }) async {
+    if (peerOnion.isEmpty) return;
     if (isConfigured) {
       await instance.postJsonWithPreference(
         peerOnion: peerOnion,

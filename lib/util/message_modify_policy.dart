@@ -26,24 +26,8 @@ Map<String, Object?> metadataFromDbRow(Map<String, dynamic> row) {
   return meta;
 }
 
-const Set<String> _deferredWireMessageTypes = {
-  'file',
-  'image',
-  'audio',
-  'group_file',
-  'group_image',
-  'group_audio',
-};
-
-/// List queries may omit the huge [message] column; attachments load wire lazily.
 bool rowShowsAsDeleted(Map<String, dynamic> row, Map<String, dynamic> meta) {
-  if (meta['deleted'] == true) return true;
-  final type = row['type'] as String?;
-  if (type != null && _deferredWireMessageTypes.contains(type)) {
-    return false;
-  }
-  final wire = row['message'];
-  return wire == null || (wire is String && wire.isEmpty);
+  return meta['deleted'] == true;
 }
 
 Message markMessageDeleted(Message message) {

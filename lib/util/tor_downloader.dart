@@ -19,6 +19,15 @@ class TorDownloader {
   static const _manifestUrl =
       'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/manifest.json';
 
+  static const _macosDylibs = [
+    'libevent-2.1.7.dylib',
+    'libssl.3.dylib',
+    'libcrypto.3.dylib',
+  ];
+
+  static const _macosDylibBase =
+      'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/macos/';
+
   Future<String> getOrDownloadTor() async {
     final Directory appDocDir = await getApplicationDocumentsDirectory();
     final String torDirPath =
@@ -37,6 +46,9 @@ class TorDownloader {
       if (expectedHash == null ||
           _sha256Hex(await File(torExecutablePath).readAsBytes()) ==
               expectedHash.toLowerCase()) {
+        if (Platform.isMacOS) {
+          await _ensureDylibs(torDirPath);
+        }
         return torExecutablePath;
       }
       Logging.error('Tor binary hash mismatch — re-downloading', 'TorDownloader');
@@ -63,8 +75,27 @@ class TorDownloader {
       await Process.run('chmod', ['+x', torExecutablePath]);
     }
 
+    if (Platform.isMacOS) {
+      await _ensureDylibs(torDirPath);
+    }
+
     Logging.debug('Tor executable downloaded to $torExecutablePath', 'TorDownloader');
     return torExecutablePath;
+  }
+
+  Future<void> _ensureDylibs(String torDirPath) async {
+    for (final dylibName in _macosDylibs) {
+      final dylibPath = path.join(torDirPath, dylibName);
+      if (!File(dylibPath).existsSync()) {
+        final url = '$_macosDylibBase$dylibName';
+        Logging.debug('Downloading macOS dylib: $url', 'TorDownloader');
+        final resp = await http.get(Uri.parse(url));
+        if (resp.statusCode != 200) {
+          throw Exception('Failed to download $dylibName');
+        }
+        await File(dylibPath).writeAsBytes(resp.bodyBytes);
+      }
+    }
   }
 
   String _getTorExecutableName() {

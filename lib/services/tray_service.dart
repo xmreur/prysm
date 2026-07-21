@@ -455,7 +455,11 @@ class TrayService with TrayListener {
 
   @override
   void onTrayIconMouseUp() {
-    unawaited(_showWindow());
+    if (Platform.isMacOS) {
+      trayManager.popUpContextMenu();
+    } else {
+      unawaited(_showWindow());
+    }
   }
 
   @override

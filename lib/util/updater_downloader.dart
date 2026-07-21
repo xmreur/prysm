@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:prysm/util/logging.dart';
 
 
@@ -15,7 +16,8 @@ class UpdaterDownloader {
   /// returns the path to the downloader executable
   
   Future<String> getOrDownloadUpdater() async {
-    final String updaterDirPath = path.dirname(Platform.resolvedExecutable);
+    final docDir = await getApplicationDocumentsDirectory();
+    final String updaterDirPath = path.join(docDir.path, 'prysm', 'updater');
     final Directory updaterDir = Directory(updaterDirPath);
     if (!updaterDir.existsSync()) {
       updaterDir.createSync(recursive: true);

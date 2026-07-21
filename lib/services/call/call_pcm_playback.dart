@@ -282,7 +282,7 @@ class _LivePcmSource extends StreamAudioSource {
       rangeRequestsSupported: false,
       sourceLength: null,
       contentLength: null,
-      offset: 0,
+      offset: null,
       contentType: 'audio/wav',
       stream: stream,
     );

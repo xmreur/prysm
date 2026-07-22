@@ -78,6 +78,45 @@ jobs:
           path: build/linux/x64/release/bundle/
 
   # ----------------------
+  # MACOS BUILD
+  # ----------------------
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install macOS dependencies
+        run: |
+          brew install cocoapods opus
+          brew link --overwrite cocoapods
+
+      - run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+
+      - name: Pod install
+        working-directory: macos
+        run: pod install
+
+      - run: flutter build macos --release
+
+      - name: Package .app as zip
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r prysm-macos.zip prysm.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: build/macos/Build/Products/Release/prysm-macos.zip
+
+  # ----------------------
   # ANDROID BUILD
   # ----------------------
   build-android:

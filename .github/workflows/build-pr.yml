@@ -1,0 +1,231 @@
+name: Build PR
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: build-pr-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  PR_NUMBER: ${{ github.event.issue.number }}
+
+jobs:
+  authorize:
+    if: >
+      github.event.issue.pull_request != '' &&
+      startsWith(github.event.comment.body, 'build:test')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify commenter is codeowner
+        run: |
+          if [ "${{ github.actor }}" != "xmreur" ]; then
+            gh issue comment "$PR_NUMBER" \
+              --body "❌ Only @xmreur can trigger PR builds."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: React to trigger comment
+        run: |
+          gh api \
+            -X POST "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='rocket'
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # ----------------------------
+  # Windows build
+  # ----------------------------
+  build-windows:
+    needs: [authorize]
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+      - name: Patch opus_flutter_windows
+        run: |
+          $symlink = "windows/flutter/ephemeral/.plugin_symlinks/opus_flutter_windows/windows"
+          if (-not (Test-Path $symlink)) { New-Item -ItemType Directory -Path $symlink -Force }
+      - run: flutter build windows --release
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ env.PR_NUMBER }}-windows-build
+          path: build/windows/x64/runner/Release/
+
+  # ----------------------
+  # LINUX BUILD
+  # ----------------------
+  build-linux:
+    needs: [authorize]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libsecret-1-dev \
+            libayatana-appindicator3-dev \
+            libopus0 \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            libpulse-dev
+
+      - run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
+      - run: flutter build linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ env.PR_NUMBER }}-linux-build
+          path: build/linux/x64/release/bundle/
+
+  # ----------------------
+  # MACOS BUILD
+  # ----------------------
+  build-macos:
+    needs: [authorize]
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install macOS dependencies
+        run: |
+          brew install cocoapods opus
+          brew link --overwrite cocoapods
+
+      - run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+
+      - name: Pod install
+        working-directory: macos
+        run: pod install
+
+      - run: flutter build macos --release
+
+      - name: Package .app as zip
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r prysm-macos.zip prysm.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ env.PR_NUMBER }}-macos-build
+          path: build/macos/Build/Products/Release/prysm-macos.zip
+
+  # ----------------------
+  # IOS BUILD
+  # ----------------------
+  build-ios:
+    needs: [authorize]
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install iOS dependencies
+        run: |
+          brew install cocoapods
+          brew link --overwrite cocoapods
+
+      - run: |
+          flutter pub get
+
+      - name: Pod install
+        working-directory: ios
+        run: pod install
+
+      - run: flutter build ios --release --no-codesign
+
+      - name: Package .app as zip
+        run: |
+          cd build/ios/iphoneos
+          zip -r prysm-ios.zip Runner.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ env.PR_NUMBER }}-ios-build
+          path: build/ios/iphoneos/prysm-ios.zip
+
+  # ----------------------
+  # ANDROID BUILD
+  # ----------------------
+  build-android:
+    needs: [authorize]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - run: flutter pub get
+
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ env.PR_NUMBER }}-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

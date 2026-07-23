@@ -275,17 +275,35 @@ jobs:
         id: body
         shell: bash
         run: |
+          windows_url="${{ needs.build-windows.outputs.artifact_url }}"
+          linux_url="${{ needs.build-linux.outputs.artifact_url }}"
+          macos_url="${{ needs.build-macos.outputs.artifact_url }}"
+          ios_url="${{ needs.build-ios.outputs.artifact_url }}"
+          android_url="${{ needs.build-android.outputs.artifact_url }}"
+
+          windows_link="N/A"
+          linux_link="N/A"
+          macos_link="N/A"
+          ios_link="N/A"
+          android_link="N/A"
+
+          [ -n "$windows_url" ] && windows_link="[Download]($windows_url)"
+          [ -n "$linux_url" ] && linux_link="[Download]($linux_url)"
+          [ -n "$macos_url" ] && macos_link="[Download]($macos_url)"
+          [ -n "$ios_url" ] && ios_link="[Download]($ios_url)"
+          [ -n "$android_url" ] && android_link="[Download]($android_url)"
+
           {
             echo 'comment<<EOF'
             echo '## PR build results'
             echo ''
             echo '| Platform | Result | Artifact |'
             echo '|---|---|---|'
-            echo '| Windows | ${{ needs.build-windows.result }} | [Download](${{ needs.build-windows.outputs.artifact_url }}) |'
-            echo '| Linux | ${{ needs.build-linux.result }} | [Download](${{ needs.build-linux.outputs.artifact_url }}) |'
-            echo '| macOS | ${{ needs.build-macos.result }} | [Download](${{ needs.build-macos.outputs.artifact_url }}) |'
-            echo '| iOS | ${{ needs.build-ios.result }} | [Download](${{ needs.build-ios.outputs.artifact_url }}) |'
-            echo '| Android | ${{ needs.build-android.result }} | [Download](${{ needs.build-android.outputs.artifact_url }}) |'
+            echo "| Windows | ${{ needs.build-windows.result }} | $windows_link |"
+            echo "| Linux | ${{ needs.build-linux.result }} | $linux_link |"
+            echo "| macOS | ${{ needs.build-macos.result }} | $macos_link |"
+            echo "| iOS | ${{ needs.build-ios.result }} | $ios_link |"
+            echo "| Android | ${{ needs.build-android.result }} | $android_link |"
             echo ''
             echo "Triggered by: @${{ github.actor }}"
             echo "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -294,6 +312,8 @@ jobs:
 
       - name: Comment on PR
         run: |
-          gh issue comment "${{ env.PR_NUMBER }}" --body "${{ steps.body.outputs.comment }}"
+          gh issue comment "${{ env.PR_NUMBER }}" \
+            --repo "${{ github.repository }}" \
+            --body "${{ steps.body.outputs.comment }}"
         env:
           GH_TOKEN: ${{ secrets.PR_BOT_TOKEN }}

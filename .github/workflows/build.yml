@@ -117,6 +117,44 @@ jobs:
           path: build/macos/Build/Products/Release/prysm-macos.zip
 
   # ----------------------
+  # IOS BUILD
+  # ----------------------
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install iOS dependencies
+        run: |
+          brew install cocoapods
+          brew link --overwrite cocoapods
+
+      - run: |
+          flutter pub get
+
+      - name: Pod install
+        working-directory: ios
+        run: pod install
+
+      - run: flutter build ios --release --no-codesign
+
+      - name: Package .app as zip
+        run: |
+          cd build/ios/iphoneos
+          zip -r prysm-ios.zip Runner.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: build/ios/iphoneos/prysm-ios.zip
+
+  # ----------------------
   # ANDROID BUILD
   # ----------------------
   build-android:

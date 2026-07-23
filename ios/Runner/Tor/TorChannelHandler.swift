@@ -91,6 +91,11 @@ final class TorChannelHandler {
                 }
             }
 
+        case "setCallAudioActive":
+            let active = call.arguments as? Bool ?? false
+            TorKeepAlive.shared.setCallAudioActive(active)
+            result(nil)
+
         default:
             result(FlutterMethodNotImplemented)
         }

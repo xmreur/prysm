@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,6 +14,7 @@ import 'package:prysm/services/call/opus_codec.dart';
 import 'package:prysm/services/call/pcm_capture_processor.dart';
 import 'package:prysm/services/call/pcm_gain_normalizer.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/tor_service.dart';
 import 'package:record/record.dart';
 
 typedef CallAudioSendCallback = void Function(Uint8List encryptedFrame);
@@ -90,6 +92,12 @@ class AudioEngine implements CallAudio {
         AudioEngine.lastStartError =
             OpusCodec.lastLoadError ?? 'Opus codec unavailable';
         return false;
+      }
+
+      if (!kIsWeb && Platform.isIOS) {
+        await TorManager.setIosCallAudioActive(true);
+        await _configureIosCallAudioSession();
+        await _recorder.ios?.manageAudioSession(false);
       }
 
       await _playback.start(
@@ -202,6 +210,25 @@ class AudioEngine implements CallAudio {
     );
   }
 
+  Future<void> _configureIosCallAudioSession() async {
+    final audioSession = await AudioSession.instance;
+    await audioSession.configure(
+      AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.defaultToSpeaker |
+            AVAudioSessionCategoryOptions.allowBluetooth,
+        avAudioSessionMode: AVAudioSessionMode.voiceChat,
+      ),
+    );
+    await audioSession.setActive(true);
+  }
+
+  Future<void> _restoreIosCallAudioSession() async {
+    await _recorder.ios?.manageAudioSession(true);
+    await TorManager.setIosCallAudioActive(false);
+  }
+
   @override
   void setMuted(bool muted) {
     _muted = muted;
@@ -225,6 +252,9 @@ class AudioEngine implements CallAudio {
     _playbackGain.reset();
     _captureProcessor.reset();
     await _playback.stop();
+    if (!kIsWeb && Platform.isIOS) {
+      await _restoreIosCallAudioSession();
+    }
     _codec?.dispose();
     _codec = null;
   }

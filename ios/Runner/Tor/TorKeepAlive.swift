@@ -6,9 +6,26 @@ final class TorKeepAlive {
     static let shared = TorKeepAlive()
 
     private var player: AVAudioPlayer?
+    private var pausedForCall = false
     private let lock = NSLock()
 
     private init() {}
+
+    /// Pauses silent playback while a VoIP call owns the shared audio session.
+    func setCallAudioActive(_ active: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if active {
+            pausedForCall = true
+            player?.pause()
+            return
+        }
+
+        guard pausedForCall else { return }
+        pausedForCall = false
+        _ = player?.play()
+    }
 
     func start() {
         lock.lock()
@@ -18,7 +35,12 @@ final class TorKeepAlive {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            // `.playback` disables microphone capture; use playAndRecord so calls can record.
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth]
+            )
             try session.setActive(true)
 
             let url = try Self.silentWavURL()
@@ -42,15 +64,7 @@ final class TorKeepAlive {
 
         player?.stop()
         player = nil
-
-        do {
-            try AVAudioSession.sharedInstance().setActive(
-                false,
-                options: .notifyOthersOnDeactivation
-            )
-        } catch {
-            NSLog("TorKeepAlive failed to deactivate session: \(error)")
-        }
+        pausedForCall = false
     }
 
     private static func silentWavURL() throws -> URL {

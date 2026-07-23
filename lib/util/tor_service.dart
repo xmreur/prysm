@@ -62,6 +62,16 @@ class TorManager {
 
   bool get _usesNativeTorChannel => Platform.isAndroid || Platform.isIOS;
 
+  /// Pauses Tor background audio on iOS so VoIP capture can use the microphone.
+  static Future<void> setIosCallAudioActive(bool active) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _channel.invokeMethod<void>('setCallAudioActive', active);
+    } catch (e) {
+      Logging.warning('setCallAudioActive failed: $e', 'TorManager');
+    }
+  }
+
   // =========================
   // Public API
   // =========================

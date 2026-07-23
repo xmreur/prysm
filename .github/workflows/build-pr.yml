@@ -14,7 +14,7 @@ env:
 jobs:
   authorize:
     if: >
-      github.event.issue.pull_request != '' &&
+      github.event.issue.pull_request != null &&
       startsWith(github.event.comment.body, 'build:test')
     runs-on: ubuntu-latest
     steps:
@@ -56,10 +56,16 @@ jobs:
       - run: |
           flutter config --enable-windows-desktop
           flutter pub get
+
       - name: Patch opus_flutter_windows
         run: |
           $symlink = "windows/flutter/ephemeral/.plugin_symlinks/opus_flutter_windows/windows"
           if (-not (Test-Path $symlink)) { New-Item -ItemType Directory -Path $symlink -Force }
+          # Copy opus DLLs if available in the repo
+          if (Test-Path "windows/opus") {
+            Copy-Item "windows/opus/*" -Destination $symlink -Recurse -Force
+          }
+
       - run: flutter build windows --release
         env:
           CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -105,7 +111,8 @@ jobs:
       - run: |
           flutter config --enable-linux-desktop
           flutter pub get
-      - run: flutter build linux
+
+      - run: flutter build linux --release   # ← added --release
 
       - uses: actions/upload-artifact@v4
         with:
@@ -176,8 +183,7 @@ jobs:
           brew install cocoapods
           brew link --overwrite cocoapods
 
-      - run: |
-          flutter pub get
+      - run: flutter pub get
 
       - name: Pod install
         working-directory: ios

@@ -4,23 +4,21 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: build-pr-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 env:
   PR_NUMBER: ${{ github.event.issue.number }}
-  TRIGGER_COMMAND: "build:test"
 
 jobs:
   authorize:
-    if: >
-      github.event.issue.pull_request != null &&
-      github.event.comment.body == env.TRIGGER_COMMAND
+    if: ${{ github.event.issue.pull_request && github.event.comment.body == 'build:test' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
       is_codeowner: ${{ steps.verify.outputs.is_codeowner }}
     steps:
@@ -29,60 +27,49 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify commenter is Codeowner for changed files
+      - name: Verify commenter is listed in CODEOWNERS
         id: verify
+        shell: bash
         run: |
           COMMENTER="${{ github.actor }}"
-          # Get list of codeowners for the PR files using int128/find-codeowners-action logic manually or via API
-          # Since we need to check against the CODEOWNERS file dynamically:
-          
-          # 1. Get changed files in the PR
-          CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --jq '.[].filename')
-          
-          # 2. Read CODEOWNERS file
-          if [ ! -f "CODEOWNERS" ] && [ ! -f ".github/CODEOWNERS" ] && [ ! -f "docs/CODEOWNERS" ]; then
-            echo "No CODEOWNERS file found. Failing."
-            echo "is_codeowner=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          
-          CODEOWNERS_FILE=""
-          [ -f "CODEOWNERS" ] && CODEOWNERS_FILE="CODEOWNERS"
-          [ -f ".github/CODEOWNERS" ] && CODEOWNERS_FILE=".github/CODEOWNERS"
-          [ -f "docs/CODEOWNERS" ] && CODEOWNERS_FILE="docs/CODEOWNERS"
-          
-          # Simple check: Does the commenter appear in the CODEOWNERS file at all?
-          # For strict file-level matching, a complex script is needed. 
-          # Here we check if the user is defined as ANY codeowner in the file.
-          if grep -q "@$COMMENTER" "$CODEOWNERS_FILE"; then
-            echo "User @$COMMENTER found in CODEOWNERS file."
-            echo "is_codeowner=true" >> $GITHUB_OUTPUT
+
+          if [ -f "CODEOWNERS" ]; then
+            CODEOWNERS_FILE="CODEOWNERS"
+          elif [ -f ".github/CODEOWNERS" ]; then
+            CODEOWNERS_FILE=".github/CODEOWNERS"
+          elif [ -f "docs/CODEOWNERS" ]; then
+            CODEOWNERS_FILE="docs/CODEOWNERS"
           else
-            echo "User @$COMMENTER is NOT in CODEOWNERS file."
-            echo "is_codeowner=false" >> $GITHUB_OUTPUT
-            gh issue comment "$PR_NUMBER" --body "❌ Only defined Codeowners can trigger PR builds. You (@$COMMENTER) are not listed in CODEOWNERS."
+            echo "is_codeowner=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
+
+          if grep -Eq "(^|[[:space:]])@${COMMENTER}([[:space:]]|$)" "$CODEOWNERS_FILE"; then
+            echo "is_codeowner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_codeowner=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
       - name: React to trigger comment
         if: steps.verify.outputs.is_codeowner == 'true'
+        shell: bash
         run: |
           gh api \
-            -X POST "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='rocket'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PR_BOT_TOKEN }}
 
-  # ----------------------------
-  # Windows build
-  # ----------------------------
   build-windows:
     needs: [authorize]
     if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: windows-latest
-
+    outputs:
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,27 +83,28 @@ jobs:
       - run: |
           flutter config --enable-windows-desktop
           flutter pub get
+
       - name: Patch opus_flutter_windows
         run: |
           $symlink = "windows/flutter/ephemeral/.plugin_symlinks/opus_flutter_windows/windows"
           if (-not (Test-Path $symlink)) { New-Item -ItemType Directory -Path $symlink -Force }
+
       - run: flutter build windows --release
         env:
           CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-windows-build
           path: build/windows/x64/runner/Release/
 
-  # ----------------------
-  # LINUX BUILD
-  # ----------------------
   build-linux:
     needs: [authorize]
     if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: ubuntu-latest
-
+    outputs:
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -146,21 +134,21 @@ jobs:
       - run: |
           flutter config --enable-linux-desktop
           flutter pub get
-      - run: flutter build linux
 
-      - uses: actions/upload-artifact@v4
+      - run: flutter build linux --release
+
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-linux-build
           path: build/linux/x64/release/bundle/
 
-  # ----------------------
-  # MACOS BUILD
-  # ----------------------
   build-macos:
     needs: [authorize]
     if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: macos-latest
-
+    outputs:
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -191,19 +179,18 @@ jobs:
           cd build/macos/Build/Products/Release
           zip -r prysm-macos.zip prysm.app
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-macos-build
           path: build/macos/Build/Products/Release/prysm-macos.zip
 
-  # ----------------------
-  # IOS BUILD
-  # ----------------------
   build-ios:
     needs: [authorize]
     if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: macos-latest
-
+    outputs:
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -219,8 +206,7 @@ jobs:
           brew install cocoapods
           brew link --overwrite cocoapods
 
-      - run: |
-          flutter pub get
+      - run: flutter pub get
 
       - name: Pod install
         working-directory: ios
@@ -233,19 +219,18 @@ jobs:
           cd build/ios/iphoneos
           zip -r prysm-ios.zip Runner.app
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-ios-build
           path: build/ios/iphoneos/prysm-ios.zip
 
-  # ----------------------
-  # ANDROID BUILD
-  # ----------------------
   build-android:
     needs: [authorize]
     if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: ubuntu-latest
-
+    outputs:
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -269,7 +254,66 @@ jobs:
 
       - run: flutter build apk --release
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk   
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  report:
+    needs:
+      - authorize
+      - build-windows
+      - build-linux
+      - build-macos
+      - build-ios
+      - build-android
+    if: always() && needs.authorize.outputs.is_codeowner == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR comment body
+        id: body
+        shell: bash
+        run: |
+          windows_url="${{ needs.build-windows.outputs.artifact_url }}"
+          linux_url="${{ needs.build-linux.outputs.artifact_url }}"
+          macos_url="${{ needs.build-macos.outputs.artifact_url }}"
+          ios_url="${{ needs.build-ios.outputs.artifact_url }}"
+          android_url="${{ needs.build-android.outputs.artifact_url }}"
+
+          windows_link="N/A"
+          linux_link="N/A"
+          macos_link="N/A"
+          ios_link="N/A"
+          android_link="N/A"
+
+          [ -n "$windows_url" ] && windows_link="[Download]($windows_url)"
+          [ -n "$linux_url" ] && linux_link="[Download]($linux_url)"
+          [ -n "$macos_url" ] && macos_link="[Download]($macos_url)"
+          [ -n "$ios_url" ] && ios_link="[Download]($ios_url)"
+          [ -n "$android_url" ] && android_link="[Download]($android_url)"
+
+          {
+            echo 'comment<<EOF'
+            echo '## PR build results'
+            echo ''
+            echo '| Platform | Result | Artifact |'
+            echo '|---|---|---|'
+            echo "| Windows | ${{ needs.build-windows.result }} | $windows_link |"
+            echo "| Linux | ${{ needs.build-linux.result }} | $linux_link |"
+            echo "| macOS | ${{ needs.build-macos.result }} | $macos_link |"
+            echo "| iOS | ${{ needs.build-ios.result }} | $ios_link |"
+            echo "| Android | ${{ needs.build-android.result }} | $android_link |"
+            echo ''
+            echo "Triggered by: @${{ github.actor }}"
+            echo "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        run: |
+          gh issue comment "${{ env.PR_NUMBER }}" \
+            --repo "${{ github.repository }}" \
+            --body "${{ steps.body.outputs.comment }}"
+        env:
+          GH_TOKEN: ${{ secrets.PR_BOT_TOKEN }}

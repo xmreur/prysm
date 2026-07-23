@@ -10,25 +10,64 @@ concurrency:
 
 env:
   PR_NUMBER: ${{ github.event.issue.number }}
+  TRIGGER_COMMAND: "build:test"
 
 jobs:
   authorize:
     if: >
-      github.event.issue.pull_request != '' &&
-      startsWith(github.event.comment.body, 'build:test')
+      github.event.issue.pull_request != null &&
+      github.event.comment.body == env.TRIGGER_COMMAND
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_codeowner: ${{ steps.verify.outputs.is_codeowner }}
     steps:
-      - name: Verify commenter is codeowner
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify commenter is Codeowner for changed files
+        id: verify
         run: |
-          if [ "${{ github.actor }}" != "xmreur" ]; then
-            gh issue comment "$PR_NUMBER" \
-              --body "❌ Only @xmreur can trigger PR builds."
+          COMMENTER="${{ github.actor }}"
+          # Get list of codeowners for the PR files using int128/find-codeowners-action logic manually or via API
+          # Since we need to check against the CODEOWNERS file dynamically:
+          
+          # 1. Get changed files in the PR
+          CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --jq '.[].filename')
+          
+          # 2. Read CODEOWNERS file
+          if [ ! -f "CODEOWNERS" ] && [ ! -f ".github/CODEOWNERS" ] && [ ! -f "docs/CODEOWNERS" ]; then
+            echo "No CODEOWNERS file found. Failing."
+            echo "is_codeowner=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          CODEOWNERS_FILE=""
+          [ -f "CODEOWNERS" ] && CODEOWNERS_FILE="CODEOWNERS"
+          [ -f ".github/CODEOWNERS" ] && CODEOWNERS_FILE=".github/CODEOWNERS"
+          [ -f "docs/CODEOWNERS" ] && CODEOWNERS_FILE="docs/CODEOWNERS"
+          
+          # Simple check: Does the commenter appear in the CODEOWNERS file at all?
+          # For strict file-level matching, a complex script is needed. 
+          # Here we check if the user is defined as ANY codeowner in the file.
+          if grep -q "@$COMMENTER" "$CODEOWNERS_FILE"; then
+            echo "User @$COMMENTER found in CODEOWNERS file."
+            echo "is_codeowner=true" >> $GITHUB_OUTPUT
+          else
+            echo "User @$COMMENTER is NOT in CODEOWNERS file."
+            echo "is_codeowner=false" >> $GITHUB_OUTPUT
+            gh issue comment "$PR_NUMBER" --body "❌ Only defined Codeowners can trigger PR builds. You (@$COMMENTER) are not listed in CODEOWNERS."
             exit 1
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: React to trigger comment
+        if: steps.verify.outputs.is_codeowner == 'true'
         run: |
           gh api \
             -X POST "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
@@ -41,6 +80,7 @@ jobs:
   # ----------------------------
   build-windows:
     needs: [authorize]
+    if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: windows-latest
 
     steps:
@@ -74,6 +114,7 @@ jobs:
   # ----------------------
   build-linux:
     needs: [authorize]
+    if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -117,6 +158,7 @@ jobs:
   # ----------------------
   build-macos:
     needs: [authorize]
+    if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: macos-latest
 
     steps:
@@ -159,6 +201,7 @@ jobs:
   # ----------------------
   build-ios:
     needs: [authorize]
+    if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: macos-latest
 
     steps:
@@ -200,6 +243,7 @@ jobs:
   # ----------------------
   build-android:
     needs: [authorize]
+    if: needs.authorize.outputs.is_codeowner == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -228,4 +272,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pr-${{ env.PR_NUMBER }}-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk   

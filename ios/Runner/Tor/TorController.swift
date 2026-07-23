@@ -8,7 +8,6 @@ actor PrysmTorController {
     private static let dirPermissions: Int = 0o700
 
     private static let stopSettleMs: UInt64 = 500
-    private static let restartSettleMs: UInt64 = 800
     private static let portPollMs: UInt64 = 100
 
     private var torThread: TorThread?
@@ -43,17 +42,26 @@ actor PrysmTorController {
     }
 
     func startTor() async throws {
-        if isRunning {
-            try await stopTorLocked()
-            try await waitForControlPortClosed()
-            try await Task.sleep(nanoseconds: Self.restartSettleMs * 1_000_000)
+        if isRunning, Self.isTcpPortOpen(Self.controlPort) {
+            NSLog("PrysmTor: Tor already running")
+            return
         }
 
-        if let active = TorThread.active, active.isExecuting {
-            NSLog("PrysmTor: stopping previous Tor thread before restart")
+        if TorThread.active != nil {
+            NSLog("PrysmTor: waiting for previous Tor thread to exit before start")
             try await stopTorLocked()
-            try await waitForControlPortClosed()
-            try await Task.sleep(nanoseconds: Self.restartSettleMs * 1_000_000)
+        }
+
+        try await waitForActiveThreadCleared(timeoutSeconds: 60)
+
+        guard TorThread.active == nil else {
+            throw NSError(
+                domain: "PrysmTor",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Previous Tor thread has not exited",
+                ]
+            )
         }
 
         try prepareDirectories()
@@ -76,6 +84,25 @@ actor PrysmTorController {
         try await stopTorLocked()
     }
 
+    /// Soft restart: keep the TorThread alive and rotate circuits.
+    func restartTor() async throws {
+        if !isRunning || !Self.isTcpPortOpen(Self.controlPort) {
+            try await startTor()
+            return
+        }
+
+        guard let cookie = try? Data(contentsOf: cookieFile), !cookie.isEmpty else {
+            throw NSError(
+                domain: "PrysmTor",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Tor cookie missing for restart"]
+            )
+        }
+
+        await sendSignal(cookie: cookie, signal: "NEWNYM")
+        NSLog("PrysmTor: soft restart (NEWNYM) completed")
+    }
+
     func getCachedOnionAddress() -> String? {
         readOnionAddressFromFile()
     }
@@ -95,19 +122,45 @@ actor PrysmTorController {
     // MARK: - Private
 
     private func stopTorLocked() async throws {
-        defer {
-            isRunning = false
-            TorKeepAlive.shared.stop()
-            torThread = nil
-        }
+        isRunning = false
+        TorKeepAlive.shared.stop()
 
         if let cookie = try? Data(contentsOf: cookieFile), !cookie.isEmpty {
             await sendShutdown(cookie: cookie)
         }
 
-        torThread?.cancel()
-        try await waitForControlPortClosed()
-        try await Task.sleep(nanoseconds: Self.stopSettleMs * 1_000_000)
+        try await waitForControlPortClosed(timeoutSeconds: 30)
+        torThread = nil
+        try await waitForActiveThreadCleared(timeoutSeconds: 60)
+    }
+
+    private func waitForActiveThreadCleared(timeoutSeconds: UInt64) async throws {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+        while Date() < deadline {
+            torThread = nil
+            if TorThread.active == nil {
+                return
+            }
+            if let active = TorThread.active, active.isFinished {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                if TorThread.active == nil {
+                    return
+                }
+            }
+            try await Task.sleep(nanoseconds: Self.portPollMs * 1_000_000)
+        }
+
+        NSLog(
+            "PrysmTor: TorThread.active still set after \(timeoutSeconds)s " +
+                "(finished=\(TorThread.active?.isFinished ?? false))"
+        )
+        throw NSError(
+            domain: "PrysmTor",
+            code: 3,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Previous Tor thread did not exit",
+            ]
+        )
     }
 
     private func prepareDirectories() throws {
@@ -159,11 +212,15 @@ actor PrysmTorController {
     }
 
     private func sendShutdown(cookie: Data) async {
+        await sendSignal(cookie: cookie, signal: "SHUTDOWN")
+    }
+
+    private func sendSignal(cookie: Data, signal: String) async {
         let controller = TorController(socketHost: "127.0.0.1", port: Self.controlPort)
         do {
             try controller.connect()
         } catch {
-            NSLog("PrysmTor shutdown connect failed: \(error)")
+            NSLog("PrysmTor \(signal) connect failed: \(error)")
             return
         }
 
@@ -175,14 +232,14 @@ actor PrysmTorController {
                 }
                 guard success else {
                     if let error {
-                        NSLog("PrysmTor shutdown auth failed: \(error)")
+                        NSLog("PrysmTor \(signal) auth failed: \(error)")
                     }
                     return
                 }
 
                 controller.sendCommand(
                     "SIGNAL",
-                    arguments: ["SHUTDOWN"],
+                    arguments: [signal],
                     data: nil
                 ) { _, _, stop in
                     stop.pointee = true
@@ -214,15 +271,15 @@ actor PrysmTorController {
         )
     }
 
-    private func waitForControlPortClosed() async throws {
-        let deadline = Date().addingTimeInterval(5)
+    private func waitForControlPortClosed(timeoutSeconds: UInt64) async throws {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
         while Date() < deadline {
             if !Self.isTcpPortOpen(Self.controlPort) {
                 return
             }
             try await Task.sleep(nanoseconds: Self.portPollMs * 1_000_000)
         }
-        NSLog("PrysmTor: control port still open after stop timeout")
+        NSLog("PrysmTor: control port still open after \(timeoutSeconds)s")
     }
 
     private static func isTcpPortOpen(_ port: UInt16) -> Bool {

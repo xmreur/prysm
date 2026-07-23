@@ -2497,8 +2497,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkTorHealth() async {
-    if (!mounted || _torStopped || _torRestartInProgress) {
-      if (mounted && _torConnectionState != TorConnectionState.disconnected) {
+    if (!mounted || _torRestartInProgress) return;
+    if (_torStopped) {
+      if (_torConnectionState != TorConnectionState.disconnected) {
         _lastTorDisconnectedAt = DateTime.now();
         setState(() {
           _torConnectionState = TorConnectionState.disconnected;
@@ -2611,13 +2612,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     TorConnectionNotifier.instance.update(TorConnectionState.connecting);
 
     try {
-      await widget.torManager.stopTor();
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await Future.delayed(TorManager.restartSettleDelay);
-      }
       TorBootstrapNotifier.instance.reset();
       TorLifecycleNotifier.instance.update(TorLifecycleState.bootstrapping);
-      await widget.torManager.startTor();
+      await widget.torManager.restartTor();
       _torStopped = false;
       TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
       final onion = await widget.torManager.getOnionAddress();

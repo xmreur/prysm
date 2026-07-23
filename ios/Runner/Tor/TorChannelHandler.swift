@@ -53,6 +53,23 @@ final class TorChannelHandler {
                 }
             }
 
+        case "restartTor":
+            Task {
+                do {
+                    try await torController.restartTor()
+                    result(nil)
+                } catch {
+                    NSLog("TOR restartTor failed: \(error)")
+                    result(
+                        FlutterError(
+                            code: "RESTART_FAILED",
+                            message: error.localizedDescription,
+                            details: nil
+                        )
+                    )
+                }
+            }
+
         case "getCachedOnionAddress":
             Task {
                 result(await torController.getCachedOnionAddress())

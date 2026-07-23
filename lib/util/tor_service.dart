@@ -110,6 +110,31 @@ class TorManager {
     return _controlWriteMutex.protect(_stopTorUnlocked);
   }
 
+  /// Restart Tor without tearing down the native iOS thread when possible.
+  Future<void> restartTor() {
+    return _controlWriteMutex.protect(() async {
+      TorBootstrapNotifier.instance.reset();
+      if (Platform.isIOS) {
+        await _channel.invokeMethod('restartTor');
+        await _resetControlSession();
+        await _connectControlPort();
+        await _authenticateWithCookieFile();
+        await _waitForBootstrap(timeout: const Duration(minutes: 2));
+        await _discoverSocksPort();
+        return;
+      }
+      await _stopTorUnlocked();
+      if (!Platform.isAndroid) {
+        await Future.delayed(restartSettleDelay);
+      }
+      if (_usesNativeTorChannel) {
+        await _startNativeTorService();
+        return;
+      }
+      await _startDesktopTorBinary();
+    });
+  }
+
   Future<void> _stopTorUnlocked() async {
     if (_usesNativeTorChannel) {
       await _channel.invokeMethod("stopTor");

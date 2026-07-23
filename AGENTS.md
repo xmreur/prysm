@@ -57,7 +57,7 @@ flutter build ios        # iOS build (--release --no-codesign)
 Managed via `pubspec.yaml`. Dependabot configured in `.github/dependabot.yml`.
 
 ## Agent Instructions
-- **SOLID principles always** — single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion
+- **SOLID principles must always be applied** — single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion
 - Write idiomatic Dart/Flutter following existing patterns in the codebase
 - Use `flutter analyze` to verify lint before considering work done
 - Prefer existing singletons/services over creating new ones

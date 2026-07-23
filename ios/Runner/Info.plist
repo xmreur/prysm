@@ -26,10 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Prysm needs camera access to scan QR codes and add contacts.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Prysm needs microphone access to record voice messages.</string>
+	<string>Prysm needs microphone access for voice messages and calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Prysm needs access to save images to your photo library.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

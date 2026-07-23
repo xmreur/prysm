@@ -60,6 +60,8 @@ class TorManager {
 
   List<String> get recentStderrLines => List.unmodifiable(_recentStderrLines);
 
+  bool get _usesNativeTorChannel => Platform.isAndroid || Platform.isIOS;
+
   // =========================
   // Public API
   // =========================
@@ -67,8 +69,8 @@ class TorManager {
   Future<void> startTor() {
     return _controlWriteMutex.protect(() async {
       TorBootstrapNotifier.instance.reset();
-      if (Platform.isAndroid) {
-        await _startAndroidTorService();
+      if (_usesNativeTorChannel) {
+        await _startNativeTorService();
         return;
       }
       await _cleanupOrphanTorBeforeStart();
@@ -77,7 +79,7 @@ class TorManager {
   }
 
   Future<String?> getCachedOnionAddress() async {
-    if (Platform.isAndroid) {
+    if (_usesNativeTorChannel) {
       try {
         return await _channel.invokeMethod<String>("getCachedOnionAddress");
       } catch (_) {
@@ -91,7 +93,7 @@ class TorManager {
   }
 
   Future<String?> getOnionAddress() async {
-    if (Platform.isAndroid) {
+    if (_usesNativeTorChannel) {
       try {
         return await _channel.invokeMethod<String>("getOnionAddress");
       } catch (_) {
@@ -109,7 +111,7 @@ class TorManager {
   }
 
   Future<void> _stopTorUnlocked() async {
-    if (Platform.isAndroid) {
+    if (_usesNativeTorChannel) {
       await _channel.invokeMethod("stopTor");
       await _resetControlSession();
       await Future.delayed(const Duration(milliseconds: 300));
@@ -154,7 +156,7 @@ class TorManager {
 
   Future<TorHealthStatus> _getHealthStatusUnlocked() async {
     try {
-      if (!Platform.isAndroid) {
+      if (!_usesNativeTorChannel) {
         final proc = _torProcess;
         if (proc == null) {
           return const TorHealthStatus(
@@ -279,8 +281,8 @@ class TorManager {
       void writeCmd(String command) => socket!.write('$command\r\n');
 
       await readUntilOk();
-      if (Platform.isAndroid) {
-        throw UnsupportedError('Ephemeral control is desktop-only');
+      if (_usesNativeTorChannel) {
+        throw UnsupportedError('Ephemeral control is native-mobile-only');
       }
       try {
         writeCmd('AUTHENTICATE "$controlPassword"');
@@ -334,7 +336,7 @@ class TorManager {
   Future<void> _ensureControlSession() async {
     if (_controlSocket != null) return;
     await _connectControlPort();
-    if (Platform.isAndroid) {
+    if (_usesNativeTorChannel) {
       await _authenticateWithCookieFile();
     } else {
       await _authenticateDesktopPassword();
@@ -363,10 +365,10 @@ class TorManager {
       exitedGeneration == currentGeneration && activeProcess == exitedProcess;
 
   // =========================
-  // Android implementation
+  // Native mobile implementation (Android / iOS)
   // =========================
 
-  Future<void> _startAndroidTorService() async {
+  Future<void> _startNativeTorService() async {
     await _channel.invokeMethod("startTor");
     await _connectControlPort();
     await _authenticateWithCookieFile();

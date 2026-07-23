@@ -317,7 +317,7 @@ Future<String> _resolveTorDataDir() async {
 }
 
 Future<String> _resolveTorBinaryPath({bool allowDownload = true}) async {
-  if (Platform.isAndroid) return '';
+  if (Platform.isAndroid || Platform.isIOS) return '';
   if (allowDownload) {
     final torDownloader = TorDownloader();
     return torDownloader.getOrDownloadTor();

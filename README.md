@@ -119,7 +119,7 @@ On desktop, the Tor binary is downloaded automatically on first launch.
 
 ## Release
 
-Latest release: [v0.5.0](https://github.com/xmreur/prysm/releases)
+Latest release: [v0.6.0](https://github.com/xmreur/prysm/releases)
 
 ## Notes
 

@@ -10,17 +10,14 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:prysm/util/file_bytes_reader.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
@@ -28,7 +25,6 @@ import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/peer_ws_connection_notifier.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
-import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
@@ -38,7 +34,6 @@ import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_theme.dart';
-import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
@@ -51,31 +46,27 @@ import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
+import 'package:prysm/screens/widgets/view_once_image_screen.dart';
 import 'package:prysm/util/reply_preview_label.dart';
-import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/file_transfer_progress.dart';
-import 'package:prysm/util/file_transfer_policy.dart';
-import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/services/message_actions_service.dart';
+import 'package:prysm/services/message_view_mapper.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/chat_screen_controller.dart';
 import 'package:prysm/services/peer_presence_tracker.dart';
 import 'package:prysm/services/settings_service.dart';
-import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/screens/widgets/message_status_icon.dart';
 import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
-import 'package:prysm/util/pending_message_db_helper.dart';
-import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
-import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
-import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/chat_service.dart';
@@ -86,14 +77,11 @@ import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/wire.dart';
-import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:prysm/models/contact.dart';
-
-import 'package:uuid/uuid.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userId;
@@ -141,13 +129,10 @@ class _ChatScreenState extends State<ChatScreen> {
   late ReadReceiptService _readReceiptService;
   final _settings = SettingsService();
 
-  var _messages = InMemoryChatController();
+  late ChatScreenController _controller;
   final Map<String, Message> _messageCache = {};
-  
-  bool _loading = false;
-  bool _hasMore = true;
-  int? _oldestTimestamp;
-  String? _oldestMessageId;
+  PrysmChatMessageList get _messages => _controller.messages;
+  Set<String> get selectedMessageIds => _controller.selectedMessageIds;
 
   String _peerName = '';
   String? _peerAvatarBase64;
@@ -159,14 +144,10 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<PeerWsConnectionEvent>? _wsPresenceSub;
   StreamSubscription<void>? _batterySaverSub;
 
-  Set<String> selectedMessageIds = {};
-  Message? _replyToMessage;
-  ReplyPreviewData? _replyDraft;
   final ValueNotifier<double> _swipeDragOffset = ValueNotifier(0);
   String? _swipeDragMessageId;
 
   final ScrollController _listScrollController = ScrollController();
-  bool _stickToBottom = true;
   Timer? _debounceTimer;
 
   // ✅ ADD ChatService subscriptions
@@ -179,8 +160,9 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _detachedInboundSub;
   StreamSubscription? _detachedStatusSub;
   StreamSubscription? _readReceiptRefreshSub;
-  Timer? _readReceiptDebounce;
   late MessageModifyService _modifyService;
+  late MessageViewMapper _viewMapper;
+  late MessageActionsService _actionsService;
   String? _highlightedMessageId;
   Timer? _highlightTimer;
   late TypingIndicatorService _typingService;
@@ -188,65 +170,62 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<TypingIndicatorEvent>? _typingSub;
   StreamSubscription<void>? _typingTrackerSub;
 
-  void _onListScroll() {
-    final atBottom = isChatScrolledToBottom(_listScrollController);
-    if (atBottom == _stickToBottom) return;
-    setState(() => _stickToBottom = atBottom);
-  }
-
   String get _draftKey => 'dm:${widget.peerId}';
 
-  String? get _replyToMessageId => _replyToMessage?.id ?? _replyDraft?.messageId;
-
-  void _persistReplyDraft() {
-    final data = _replyToMessage != null
-        ? replyPreviewFromMessage(_replyToMessage!)
-        : _replyDraft;
-    MessageDraftStore.instance.setReply(_draftKey, data);
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _restoreReplyDraft() {
-    final stored = MessageDraftStore.instance.get(_draftKey).reply;
-    if (stored == null) return;
-    Message? found;
-    for (final message in _messages.messages) {
-      if (message.id == stored.messageId) {
-        found = message;
-        break;
-      }
-    }
-    setState(() {
-      _replyToMessage = found;
-      _replyDraft = found == null ? stored : null;
-    });
-  }
+  // Stable forwarder registered once in initState so scroll updates always
+  // reach the *current* `_controller`, even after didUpdateWidget rebuilds
+  // it on peerId change. Never rebind addListener/removeListener to the
+  // controller's own tear-off — that pins the listener to whichever
+  // controller instance existed at registration time and it silently stops
+  // firing (or throws "used after being disposed") once that instance is
+  // replaced.
+  void _onListScrollForward() => _controller.onListScroll();
 
-  void _clearReplyState() {
-    _replyToMessage = null;
-    _replyDraft = null;
-    MessageDraftStore.instance.setReply(_draftKey, null);
-  }
-
-  void _setReplyToMessage(Message message) {
-    setState(() {
-      _replyToMessage = message;
-      _replyDraft = null;
-    });
-    _persistReplyDraft();
-  }
-
-  void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
-    if (!_stickToBottom) return;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: animated,
+  ChatScreenController _buildController() {
+    return ChatScreenController(
+      localUserId: widget.userId,
+      draftKey: _draftKey,
+      listScrollController: _listScrollController,
       isMounted: () => mounted,
+      messageCache: _messageCache,
+      typingTracker: _typingTracker,
+      typingService: _typingService,
+      conversationKey: widget.peerId,
+      matchesTypingEvent: (e) => e.groupId == null && e.senderId == widget.peerId,
+      typingIndicatorsEnabled: () => _settings.enableTypingIndicators,
+      typistDisplayName: (id) => _peerName.isNotEmpty ? _peerName : id,
+      reactionService: _reactionService,
+      readReceiptService: _readReceiptService,
+      markInboundRead: () => MessagesDb.markInboundConversationRead(widget.userId, widget.peerId),
+      cancelForegroundNotification: () => unawaited(
+        NotificationService().cancelConversationNotificationIfForeground(
+          senderId: widget.peerId,
+        ),
+      ),
+      sendReadReceiptsEnabled: () => _settings.sendReadReceipts,
+      requiredReadCount: () => 1,
+      gateWaterlineSendOnMounted: true,
+      onNewlyRead: _recordPeerActivity,
+      fetchMessageBatch: ({beforeTimestamp, beforeId}) => MessagesDb.getMessagesBetweenBatchWithId(
+        widget.userId,
+        widget.peerId,
+        limit: 20,
+        beforeTimestamp: beforeTimestamp,
+        beforeId: beforeId,
+      ),
+      decryptForDisplay: _decryptForDisplay,
+      seedNewestTimestamp: _chatService.seedNewestTimestamp,
+      onToast: (msg) => showPrysmToast(context, msg),
+      onLargeFileUploadStart: (id) => FileTransferProgress.uploadNotifier(id),
+      onFileMessageRemoved: (id) => FileTransferProgress.clearUpload(id),
+      dispatchText: _dispatchText,
+      dispatchFile: _dispatchFile,
+      dispatchVoice: _dispatchVoice,
     );
-  }
-
-  void _scheduleScrollToBottomAfterSend() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
   }
 
   @override
@@ -278,15 +257,22 @@ class _ChatScreenState extends State<ChatScreen> {
       keyManager: widget.keyManager,
       peerId: widget.peerId,
     );
+    _viewMapper = MessageViewMapper(keyManager: widget.keyManager);
+    _actionsService = MessageActionsService(
+      modifyService: _modifyService,
+      cancelPendingSend: _chatService.cancelPendingSend,
+    );
     _typingService = TypingIndicatorService.direct(
       userId: widget.userId,
       peerId: widget.peerId,
       settings: _settings,
     );
+    _controller = _buildController();
+    _controller.addListener(_onControllerChanged);
     _setupTypingSubscriptions();
 
     _presenceTracker = PeerPresenceTracker();
-    _listScrollController.addListener(_onListScroll);
+    _listScrollController.addListener(_onListScrollForward);
     _initializeChat();
     _initPeerPresence();
     _setupDetachedClientSubscriptions();
@@ -397,22 +383,21 @@ class _ChatScreenState extends State<ChatScreen> {
         if (mounted) _recordPeerActivity();
       });
     }
-    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionSub = _reactionService.onReactionsChanged.listen(_controller.applyReactionUpdate);
     _reactionRefreshSub =
-        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_controller.applyReactionUpdate);
     _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
         .listen(_applyModifyUpdate);
     _readReceiptRefreshSub =
         ReadReceiptRefreshNotifier.instance.onReadReceiptChanged
-            .listen(_applyReadReceiptUpdate);
+            .listen(_controller.applyReadReceiptUpdate);
 
     await _loadInitialMessages();
-    _restoreReplyDraft();
-    await _markInboundAsRead();
+    _controller.restoreReplyDraft();
+    await _controller.markInboundAsRead();
 
-    if (mounted && _messages.messages.isNotEmpty) {
-      _stickToBottom = true;
-      scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
+    if (mounted && _controller.messages.messages.isNotEmpty) {
+      _controller.scheduleScrollToBottomAfterSend();
     }
 
     // ✅ Start ChatService background tasks (main window only)
@@ -423,30 +408,6 @@ class _ChatScreenState extends State<ChatScreen> {
         TransportProvider.instance.pinPeer(widget.peerId);
       }
     }
-  }
-
-  void _onTypingEvent(TypingIndicatorEvent event) {
-    if (event.groupId != null) return;
-    if (event.senderId != widget.peerId) return;
-
-    _typingTracker.applyEvent(
-      conversationKey: widget.peerId,
-      senderId: event.senderId,
-      typing: event.typing,
-      timestamp: event.timestamp,
-    );
-  }
-
-  List<String> _typingTypistNames() {
-    if (!_settings.enableTypingIndicators) return const [];
-    return _typingTracker
-        .activeTypists(widget.peerId)
-        .map((id) => _peerName.isNotEmpty ? _peerName : id)
-        .toList(growable: false);
-  }
-
-  void _onComposerTypingChanged(bool isTyping) {
-    _typingService.onComposerTypingChanged(isTyping);
   }
 
   // ✅ NEW: Handle incoming messages from ChatService
@@ -469,8 +430,8 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
       });
-      _scheduleScrollToBottomIfNeeded();
-      await _markInboundAsRead();
+      _controller.scheduleScrollToBottomIfNeeded();
+      await _controller.markInboundAsRead();
     } catch (e) {
       Logging.error('Error handling new messages: $e', 'ChatScreen');
     }
@@ -497,63 +458,6 @@ class _ChatScreenState extends State<ChatScreen> {
         _messageCache[msg.id] = updated;
       });
     }
-  }
-
-  Future<void> _markInboundAsRead() async {
-    final waterline = await MessagesDb.markInboundConversationRead(
-      widget.userId,
-      widget.peerId,
-    );
-    if (waterline == null) return;
-
-    unawaited(
-      NotificationService().cancelConversationNotificationIfForeground(
-        senderId: widget.peerId,
-      ),
-    );
-
-    _readReceiptDebounce?.cancel();
-    _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
-      if (!mounted) return;
-      if (_settings.sendReadReceipts) {
-        await _readReceiptService.sendWaterline(waterline);
-      }
-    });
-  }
-
-  Future<void> _applyReadReceiptUpdate(ReadReceiptUpdate update) async {
-    if (!mounted || !_settings.sendReadReceipts) return;
-    if (update.groupId != null) return;
-
-    final refreshed = await refreshOutboundReadStatus(
-      messages: _messages.messages,
-      localUserId: widget.userId,
-      readReceiptsEnabled: _settings.sendReadReceipts,
-      requiredReadCount: 1,
-    );
-    if (!mounted) return;
-
-    var anyNewlyRead = false;
-    setState(() {
-      for (final updated in refreshed) {
-        if (updated.authorId != widget.userId) continue;
-        try {
-          final old = _messages.messages.firstWhere((m) => m.id == updated.id);
-          if (old.seenAt == updated.seenAt &&
-              old.metadata?['deliveryStatus'] ==
-                  updated.metadata?['deliveryStatus']) {
-            continue;
-          }
-          if (updated.seenAt != null && old.seenAt == null) {
-            anyNewlyRead = true;
-          }
-          _messages.updateMessage(old, updated);
-          _messageCache[updated.id] = updated;
-        } catch (_) {}
-      }
-    });
-
-    if (anyNewlyRead) _recordPeerActivity();
   }
 
   void _cancelChatSubscriptions() {
@@ -583,8 +487,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _wsPresenceSub = null;
     _batterySaverSub?.cancel();
     _batterySaverSub = null;
-    _readReceiptDebounce?.cancel();
-    _readReceiptDebounce = null;
     _presenceStaleTimer?.cancel();
     _presenceStaleTimer = null;
     _debounceTimer?.cancel();
@@ -606,7 +508,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
       });
-      _scheduleScrollToBottomIfNeeded();
+      _controller.scheduleScrollToBottomIfNeeded();
     });
     _detachedStatusSub = client.onStatusUpdates.listen((update) {
       _handleStatusUpdate(
@@ -620,7 +522,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _setupTypingSubscriptions() {
     _typingSub =
-        TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
+        TypingIndicatorNotifier.instance.events.listen(_controller.onTypingEvent);
     _typingTrackerSub = _typingTracker.onChanged.listen((_) {
       if (mounted) setState(() {});
     });
@@ -634,8 +536,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _reactionService.dispose();
     _cancelChatSubscriptions();
     _swipeDragOffset.dispose();
-    _listScrollController.removeListener(_onListScroll);
+    _listScrollController.removeListener(_onListScrollForward);
     _listScrollController.dispose();
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
     if (TransportProvider.isConfigured) {
       TransportProvider.instance.unpinPeer(widget.peerId);
     }
@@ -693,18 +597,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void resetChatState() {
-    _messages = InMemoryChatController();
-    _replyToMessage = null;
-    _replyDraft = null;
-    _messageCache.clear();
-    _oldestTimestamp = null;
-    _oldestMessageId = null;
-    _hasMore = true;
-    _loading = false;
-    selectedMessageIds.clear();
-  }
-
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -718,11 +610,13 @@ class _ChatScreenState extends State<ChatScreen> {
       _reactionService.dispose();
       _typingService.dispose();
       _typingTracker.clearConversation(oldWidget.peerId);
+      _controller.removeListener(_onControllerChanged);
+      _controller.dispose();
 
       _presenceTracker = PeerPresenceTracker();
       if (mounted) {
         setState(() {
-          resetChatState();
+          _messageCache.clear();
           _peerName = widget.peerName;
           _peerAvatarBase64 = widget.peerAvatarBase64;
           _peerOnline = null;
@@ -749,11 +643,18 @@ class _ChatScreenState extends State<ChatScreen> {
         keyManager: widget.keyManager,
         peerId: widget.peerId,
       );
+      _viewMapper = MessageViewMapper(keyManager: widget.keyManager);
+      _actionsService = MessageActionsService(
+        modifyService: _modifyService,
+        cancelPendingSend: _chatService.cancelPendingSend,
+      );
       _typingService = TypingIndicatorService.direct(
         userId: widget.userId,
         peerId: widget.peerId,
         settings: _settings,
       );
+      _controller = _buildController();
+      _controller.addListener(_onControllerChanged);
       _setupTypingSubscriptions();
       _setupDetachedClientSubscriptions();
       _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
@@ -775,253 +676,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (oldWidget.peerAvatarBase64 != widget.peerAvatarBase64) {
       setState(() => _peerAvatarBase64 = widget.peerAvatarBase64);
     }
-  }
-
-  // ==================== DECRYPTION (KEEP AS-IS) ====================
-
-  Future<String> _decryptDirectTextMessage(
-    Map<String, dynamic> msg,
-    KeyManager keyManager,
-  ) async {
-    final senderId = msg['senderId'] as String;
-    final wire = msg['message'] as String?;
-    if (wire == null || wire.isEmpty) {
-      throw const FormatException('Empty message payload');
-    }
-
-    final trimmed = wire.trimLeft();
-    if (trimmed.startsWith('{')) {
-      final parsed = jsonDecode(wire);
-      if (parsed is Map<String, dynamic>) {
-        if (parsed['envelope'] == CryptoConstants.cryptoVersion) {
-          throw const FormatException('Misrouted group control payload');
-        }
-        if (parsed.containsKey('iv') && parsed.containsKey('ct')) {
-          throw const FormatException('Group-encoded payload in direct chat');
-        }
-      }
-    }
-
-    if (senderId == widget.userId) {
-      return await keyManager.decryptMessage(wire);
-    }
-
-    final user = await DBHelper.getUserById(senderId);
-    final identityJson = (user?['identityJson'] as String?) ??
-        (user?['publicKeyPem'] as String?);
-    if (identityJson == null || identityJson.isEmpty) {
-      throw const FormatException('Missing peer identity');
-    }
-    final peerKey = keyManager.importPeerIdentity(identityJson);
-    return keyManager.decryptPeerMessage(
-      peerId: senderId,
-      wire: wire,
-      peer: peerKey,
-    );
-  }
-
-  Future<List<Message>> decryptMessagesDeferred(
-    List<Map<String, dynamic>> rawMessages,
-    KeyManager keyManager,
-  ) async {
-    List<Message> messages = [];
-
-    for (var msg in rawMessages) {
-      if (_messageCache.containsKey(msg['id'])) {
-        messages.add(_messageCache[msg['id']]!);
-        continue;
-      }
-      final meta = metadataFromDbRow(msg);
-      if (rowShowsAsDeleted(msg, meta)) {
-        messages.add(_deletedMessageFromRow(msg, {
-          ...meta,
-          'deleted': true,
-        }));
-        continue;
-      }
-      try {
-        if (msg['type'] == 'text') {
-          messages.add(
-            TextMessage(
-              authorId: msg['senderId'] as String,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-              id: msg['id'],
-              replyToMessageId: msg['replyTo'],
-              text: await _decryptDirectTextMessage(msg, keyManager),
-              metadata: meta.isEmpty ? null : meta,
-            ),
-          );
-        } else if (msg['type'] == 'file') {
-          final fileName = msg['fileName'] ?? 'Unknown';
-          final msgId = msg['id'] as String;
-          var fileMsg = FileMessage(
-            id: msgId,
-            authorId: msg['senderId'] as String,
-            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-            replyToMessageId: msg['replyTo'],
-            name: fileName,
-            size: msg['fileSize'] ?? 0,
-            source: (msg['message'] as String?) ?? '',
-            metadata: meta.isEmpty ? null : meta,
-          );
-          if (msg['senderId'] == widget.userId) {
-            fileMsg = applyOutboundStatus(
-              fileMsg,
-              status: outboundStatusFromDbRow(
-                row: msg,
-                localUserId: widget.userId,
-                readReceiptsEnabled: _settings.sendReadReceipts,
-              ),
-            ) as FileMessage;
-          }
-          messages.add(fileMsg);
-        } else if (msg['type'] == 'audio') {
-          messages.add(
-            FileMessage(
-              id: msg['id'],
-              authorId: msg['senderId'] as String,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-              replyToMessageId: msg['replyTo'],
-              name: msg['fileName'] ?? 'voice_message.wav',
-              size: msg['fileSize'] ?? 0,
-              source: msg['message'],
-            ),
-          );
-        } else if (msg['type'] == 'call') {
-          final payload = jsonDecode((msg['message'] as String?) ?? '{}')
-              as Map<String, dynamic>;
-          messages.add(
-            PrysmCallMessage(
-              id: msg['id'],
-              authorId: msg['senderId'] as String,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-              durationMs: (payload['durationMs'] as num?)?.toInt() ?? 0,
-              callStatus: payload['status'] as String? ?? 'completed',
-              direction: payload['direction'] as String? ?? 'outbound',
-            ),
-          );
-        } else if (msg['type'] == "image") {
-          final isViewOnce = (msg['viewOnce'] ?? 0) == 1;
-          final isViewed = (msg['viewed'] ?? 0) == 1;
-
-          if (isViewOnce && isViewed) {
-            // View-once already opened — show placeholder
-            messages.add(
-              ImageMessage(
-                id: msg['id'],
-                authorId: msg['senderId'] as String,
-                createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-                replyToMessageId: msg['replyTo'],
-                size: 0,
-                source: "",
-                metadata: {'viewOnce': true, 'viewed': true},
-              ),
-            );
-          } else {
-            final msgId = msg['id'] as String;
-            messages.add(
-              ImageMessage(
-                id: msgId,
-                authorId: msg['senderId'] as String,
-                createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-                replyToMessageId: msg['replyTo'],
-                size: msg['fileSize'] ?? 0,
-                source: isViewOnce
-                    ? ''
-                    : deferredImageSourceFor(msgId),
-                metadata: isViewOnce
-                    ? {'viewOnce': true, 'viewed': false}
-                    : (meta.isEmpty ? null : meta),
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        Logging.error('Direct message decrypt failed (${msg['id']}): $e', 'ChatScreen');
-        messages.add(
-          TextMessage(
-            authorId: msg['senderId'] as String,
-            createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-            id: msg['id'],
-            replyToMessageId: msg['replyTo'],
-            text: '🔒 Unable to decrypt message',
-          ),
-        );
-      }
-    }
-    final withReactions = await _attachReactions(messages);
-    return _attachOutboundStatus(withReactions, rawMessages);
-  }
-
-  Future<List<Message>> _attachReactions(List<Message> messages) async {
-    if (messages.isEmpty) return messages;
-    final ids = messages.map((m) => m.id).toList();
-    final reactions = await _reactionService.loadReactionsForMessages(ids);
-    return messages
-        .map((m) => applyReactionsToMessage(m, reactions[m.id]))
-        .toList();
-  }
-
-  Future<List<Message>> _attachOutboundStatus(
-    List<Message> messages,
-    List<Map<String, dynamic>> rawRows,
-  ) async {
-    final readReceiptsEnabled = _settings.sendReadReceipts;
-    final outboundWireIds = <String>[];
-    final rowByWireId = <String, Map<String, dynamic>>{};
-
-    for (final row in rawRows) {
-      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
-      if (row['senderId'] == widget.userId) {
-        outboundWireIds.add(wireId);
-        rowByWireId[wireId] = row;
-      }
-    }
-
-    if (outboundWireIds.isEmpty) return messages;
-
-    final receipts =
-        await MessageReadReceiptsDb.getReceiptsForMessages(outboundWireIds);
-
-    return messages.map((m) {
-      final row = rowByWireId[m.id];
-      if (row == null) return m;
-      final status = outboundStatusFromDbRow(
-        row: row,
-        localUserId: widget.userId,
-        readReceiptsEnabled: readReceiptsEnabled,
-        receipts: receipts[m.id] ?? const [],
-        requiredReadCount: 1,
-      );
-      return applyOutboundStatus(m, status: status);
-    }).toList();
-  }
-
-  Message _deletedMessageFromRow(
-    Map<String, dynamic> msg,
-    Map<String, Object?> meta,
-  ) {
-    return TextMessage(
-      authorId: msg['senderId'] as String,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp'] as int),
-      id: msg['id'] as String,
-      replyToMessageId: msg['replyTo'] as String?,
-      text: '',
-      metadata: meta,
-    );
-  }
-
-  void _applyReactionUpdate(ReactionUpdate update) {
-    if (!mounted) return;
-    try {
-      final msg =
-          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
-      final updated = applyReactionsToMessage(msg, update.reactions);
-      setState(() {
-        _messages.updateMessage(msg, updated);
-        _messageCache[msg.id] = updated;
-      });
-    } catch (_) {}
   }
 
   void _applyModifyUpdate(MessageModifyUpdate update) {
@@ -1068,16 +722,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (newText == null || newText!.isEmpty || newText == message.text) return;
     final editedText = newText!;
 
-    final ok = await _modifyService.editTextMessage(
-      targetMessageId: message.id,
-      newText: editedText,
-    );
+    final updated = await _actionsService.editTextMessage(message, editedText);
     if (!mounted) return;
-    if (ok) {
-      final updated = message.copyWith(
-        text: editedText,
-        metadata: {...?message.metadata, 'edited': true},
-      );
+    if (updated != null) {
       setState(() {
         _messages.updateMessage(message, updated);
         _messageCache[message.id] = updated;
@@ -1131,13 +778,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _onReactionSelected(Message message, String emoji) async {
-    await _reactionService.toggleReaction(
-      targetMessageId: message.id,
-      emoji: emoji,
-    );
-  }
-
   Widget _reactionBarFor(Message message, bool isSentByMe) {
     final reactions = message.reactions;
     if (reactions == null || reactions.isEmpty) {
@@ -1147,7 +787,7 @@ class _ChatScreenState extends State<ChatScreen> {
       reactions: reactions,
       currentUserId: widget.userId,
       isSentByMe: isSentByMe,
-      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+      onReactionTap: (emoji) => _controller.onReactionSelected(message, emoji),
     );
   }
 
@@ -1211,106 +851,55 @@ class _ChatScreenState extends State<ChatScreen> {
     return decryptFileInBackground(row, widget.keyManager);
   }
 
-  String _mimeTypeForImageBytes(Uint8List bytes) {
-    return ImageAttachmentCache.sniffImageMimeType(bytes);
-  }
-
   Future<List<Message>> _decryptForDisplay(
     List<Map<String, dynamic>> rawMessages,
   ) async {
     if (widget.detachedClient != null) {
       return widget.detachedClient!.decryptRows(rawMessages);
     }
-    return decryptMessagesDeferred(rawMessages, widget.keyManager);
+    return _viewMapper.mapDirectRows(
+      rawMessages,
+      localUserId: widget.userId,
+      cache: _messageCache,
+      loadReactionsForMessages: _reactionService.loadReactionsForMessages,
+      readReceiptsEnabled: _settings.sendReadReceipts,
+    );
   }
 
   // ==================== MESSAGE LOADING (KEEP AS-IS) ====================
 
   Future<void> _loadInitialMessages() async {
-    await _loadMoreMessages();
+    await _controller.loadMoreMessages();
   }
 
-  Future<void> _loadMoreMessages() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
-
-    final batch = await MessagesDb.getMessagesBetweenBatchWithId(
-      widget.userId,
-      widget.peerId,
-      limit: 20,
-      beforeTimestamp: _oldestTimestamp,
-      beforeId: _oldestMessageId,
-    );
-
+  Future<void> _sendFileFromPath(String path, String fileName) async {
     if (!mounted) return;
 
-    if (batch.length < 20) {
-      _hasMore = false;
-      _loading = false;
-      if (batch.isEmpty) return;
+    final fileSize = await fileSizeDeferred(path);
+    if (!mounted) return;
+    if (_controller.rejectOversizedFile(fileSize)) return;
+
+    Uint8List bytes;
+    try {
+      bytes = await readFileBytesDeferred(path);
+    } catch (e) {
+      if (!mounted) return;
+      showPrysmToast(context, 'Could not read file: $e');
+      return;
     }
-
-    final modifiableList = List.of(batch);
-    modifiableList.sort(
-      (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
-    );
-
-    final newMessages = await _decryptForDisplay(modifiableList);
-
     if (!mounted) return;
 
-    if (modifiableList.isNotEmpty) {
-      final newestTs = modifiableList
-          .map((m) => m['timestamp'] as int)
-          .reduce(max);
-      _chatService.seedNewestTimestamp(newestTs);
-    }
-
-    setState(() {
-      _messages.insertAllMessages(newMessages, index: 0);
-      _oldestTimestamp = batch.last['timestamp'];
-      _oldestMessageId = batch.last['id'];
-      _loading = false;
-    });
+    await _controller.sendFile(bytes, fileName, 'file');
   }
 
-  // ==================== MESSAGE SENDING ====================
-
-  void _handleSendText(String text) async {
-    if (!mounted) return;
-
-    var replyToId = _replyToMessageId;
-
-    // ✅ Generate ID and show UI IMMEDIATELY
-    final messageId = const Uuid().v4();
-
-    setState(() {
-      _messages.insertMessage(
-        messageWithPendingStatus(
-          TextMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            text: text,
-            replyToMessageId: replyToId,
-          ),
-        ),
-        index: _messages.messages.length,
-      );
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
-
-    // ✅ NOW send in background (non-blocking)
+  Future<void> _dispatchText({
+    required String text,
+    required String messageId,
+    String? replyToId,
+  }) async {
     if (widget.detachedClient != null) {
       widget.detachedClient!
-          .sendText(
-            text: text,
-            replyToId: replyToId,
-            messageId: messageId,
-          )
+          .sendText(text: text, replyToId: replyToId, messageId: messageId)
           .then((sentId) {
             if (sentId == null && mounted) {
               showPrysmToast(context, 
@@ -1331,162 +920,15 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
-  bool _rejectOversizedFile(int byteLength) {
-    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
-      return false;
-    }
-    showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
-    return true;
-  }
-
-  void _removeOptimisticFileMessage(String messageId) {
-    if (!mounted) return;
-    setState(() {
-      final idx = _messages.messages.indexWhere((m) => m.id == messageId);
-      if (idx != -1) {
-        _messages.removeMessage(_messages.messages[idx]);
-        selectedMessageIds.remove(messageId);
-      }
-      _messageCache.remove(messageId);
-    });
-    FileTransferProgress.clearUpload(messageId);
-  }
-
-  Future<void> _sendFile(
-    Uint8List bytes,
-    String fileName,
-    String type, {
-    bool viewOnce = false,
-    String? messageId,
-    String? replyToId,
-  }) async {
-    if (!mounted) return;
-    if (_rejectOversizedFile(bytes.length)) return;
-
-    final id = messageId ?? const Uuid().v4();
-    final reply = replyToId ?? _replyToMessageId;
-
-    if (messageId == null) {
-      setState(() {
-        if (type == 'file') {
-          if (bytes.length >= FileTransferPolicy.chunkThresholdBytes) {
-            FileTransferProgress.uploadNotifier(id);
-          }
-          _messages.insertMessage(
-            messageWithPendingStatus(
-              FileMessage(
-                authorId: widget.userId,
-                createdAt: DateTime.now(),
-                id: id,
-                name: fileName,
-                size: bytes.length,
-                replyToMessageId: reply,
-                source: '',
-              ),
-            ),
-            index: _messages.messages.length,
-          );
-        } else if (type == 'image') {
-          _messages.insertMessage(
-            messageWithPendingStatus(
-              ImageMessage(
-                authorId: widget.userId,
-                createdAt: DateTime.now(),
-                id: id,
-                size: bytes.length,
-                replyToMessageId: reply,
-                source:
-                    'data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}',
-                metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
-              ),
-            ),
-            index: _messages.messages.length,
-          );
-        }
-        _replyToMessage = null;
-        _replyDraft = null;
-      });
-      MessageDraftStore.instance.setReply(_draftKey, null);
-      _scheduleScrollToBottomAfterSend();
-    }
-
-    await _dispatchFileSend(
-      bytes: bytes,
-      fileName: fileName,
-      type: type,
-      messageId: id,
-      replyToId: reply,
-      viewOnce: viewOnce,
-    );
-  }
-
-  Future<void> _sendFileFromPath(String path, String fileName) async {
-    if (!mounted) return;
-
-    final fileSize = await fileSizeDeferred(path);
-    if (!mounted) return;
-    if (_rejectOversizedFile(fileSize)) return;
-
-    final messageId = const Uuid().v4();
-    final replyToId = _replyToMessageId;
-
-    Uint8List bytes;
-    try {
-      bytes = await readFileBytesDeferred(path);
-    } catch (e) {
-      if (!mounted) return;
-      showPrysmToast(context, 'Could not read file: $e');
-      return;
-    }
-    if (!mounted) return;
-    if (_rejectOversizedFile(bytes.length)) return;
-
-    setState(() {
-      if (fileSize >= FileTransferPolicy.chunkThresholdBytes) {
-        FileTransferProgress.uploadNotifier(messageId);
-      }
-      _messages.insertMessage(
-        messageWithPendingStatus(
-          FileMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            name: fileName,
-            size: fileSize,
-            replyToMessageId: replyToId,
-            source: '',
-          ),
-        ),
-        index: _messages.messages.length,
-      );
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
-
-    await _dispatchFileSend(
-      bytes: bytes,
-      fileName: fileName,
-      type: 'file',
-      messageId: messageId,
-      replyToId: replyToId,
-    );
-  }
-
-  Future<void> _dispatchFileSend({
+  Future<void> _dispatchFile({
     required Uint8List bytes,
     required String fileName,
     required String type,
     required String messageId,
     String? replyToId,
-    bool viewOnce = false,
+    required bool viewOnce,
   }) async {
     if (!mounted) return;
-    if (_rejectOversizedFile(bytes.length)) {
-      _removeOptimisticFileMessage(messageId);
-      return;
-    }
 
     final String? sentId;
     if (widget.detachedClient != null) {
@@ -1514,7 +956,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final stored = await MessagesDb.getMessageById(messageId);
     if (stored.isEmpty) {
-      _removeOptimisticFileMessage(messageId);
+      _controller.removeOptimisticFileMessage(messageId);
       return;
     }
 
@@ -1525,112 +967,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _handleSendImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      requestFullMetadata: true,
-    );
-    if (pickedFile == null) return;
-
-    final bytes = await pickedFile.readAsBytes();
-    if (!mounted) return;
-
-    await ChatAttachmentIngress.sendLocalAttachment(
-      context: context,
-      bytes: bytes,
-      fileName: pickedFile.name,
-      sendFile: _sendFile,
-      forceImageFlow: true,
-    );
-  }
-
-  Future<void> _handleSendFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: false);
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.first;
-    final path = file.path;
-    if (path == null || path.isEmpty) return;
-    if (!mounted) return;
-    if (file.size > 0 && _rejectOversizedFile(file.size)) return;
-
-    if (ChatAttachmentIngress.isImageFileName(file.name)) {
-      final bytes = await readFileBytesDeferred(path);
-      if (!mounted) return;
-      await ChatAttachmentIngress.sendLocalAttachment(
-        context: context,
-        bytes: bytes,
-        fileName: file.name,
-        sendFile: _sendFile,
-      );
-      return;
-    }
-
-    await _sendFileFromPath(path, file.name);
-  }
-
-  Future<void> _handleDroppedFile(String path, String name) async {
-    if (!mounted) return;
-
-    if (ChatAttachmentIngress.isImageFileName(name)) {
-      try {
-        final bytes = await readFileBytesDeferred(path);
-        if (!mounted) return;
-        await ChatAttachmentIngress.sendLocalAttachment(
-          context: context,
-          bytes: bytes,
-          fileName: name,
-          sendFile: _sendFile,
-        );
-      } catch (e) {
-        if (mounted) {
-          showPrysmToast(context, 'Could not read dropped file: $e');
-        }
-      }
-      return;
-    }
-
-    await _sendFileFromPath(path, name);
-  }
-
-  Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
-    if (!mounted) return;
-
-    final messageId = const Uuid().v4();
-    final replyToId = _replyToMessageId;
-
-    // Save to cache so we can play back our own sent voice messages
-    final cacheDir = await getTemporaryDirectory();
-    final cachePath = '${cacheDir.path}/voice_cache_$messageId.wav';
-    await File(cachePath).writeAsBytes(bytes);
-    final peaks = WaveformExtractor.extractPeaks(bytes);
-    final waveformMeta = WaveformExtractor.encodePeaks(peaks);
-
-    if (!mounted) return;
-
-    setState(() {
-      _messages.insertMessage(
-        messageWithPendingStatus(
-          FileMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            replyToMessageId: replyToId,
-            name: 'voice_message.wav',
-            size: bytes.length,
-            source: 'audio:$durationMs:$cachePath',
-            metadata: {'waveform': waveformMeta},
-          ),
-        ),
-        index: _messages.messages.length,
-      );
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
-
+  Future<void> _dispatchVoice({
+    required Uint8List bytes,
+    required int durationMs,
+    required String messageId,
+    String? replyToId,
+    required String cachePath,
+  }) async {
     if (widget.detachedClient != null) {
       widget.detachedClient!
           .sendVoice(
@@ -1661,6 +1004,75 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
+  Future<void> _handleSendImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      requestFullMetadata: true,
+    );
+    if (pickedFile == null) return;
+
+    final bytes = await pickedFile.readAsBytes();
+    if (!mounted) return;
+
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: bytes,
+      fileName: pickedFile.name,
+      sendFile: _controller.sendFile,
+      forceImageFlow: true,
+    );
+  }
+
+  Future<void> _handleSendFile() async {
+    final result = await FilePicker.platform.pickFiles(withData: false);
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.first;
+    final path = file.path;
+    if (path == null || path.isEmpty) return;
+    if (!mounted) return;
+    if (file.size > 0 && _controller.rejectOversizedFile(file.size)) return;
+
+    if (ChatAttachmentIngress.isImageFileName(file.name)) {
+      final bytes = await readFileBytesDeferred(path);
+      if (!mounted) return;
+      await ChatAttachmentIngress.sendLocalAttachment(
+        context: context,
+        bytes: bytes,
+        fileName: file.name,
+        sendFile: _controller.sendFile,
+      );
+      return;
+    }
+
+    await _sendFileFromPath(path, file.name);
+  }
+
+  Future<void> _handleDroppedFile(String path, String name) async {
+    if (!mounted) return;
+
+    if (ChatAttachmentIngress.isImageFileName(name)) {
+      try {
+        final bytes = await readFileBytesDeferred(path);
+        if (!mounted) return;
+        await ChatAttachmentIngress.sendLocalAttachment(
+          context: context,
+          bytes: bytes,
+          fileName: name,
+          sendFile: _controller.sendFile,
+        );
+      } catch (e) {
+        if (mounted) {
+          showPrysmToast(context, 'Could not read dropped file: $e');
+        }
+      }
+      return;
+    }
+
+    await _sendFileFromPath(path, name);
+  }
+
   // ==================== UI HELPERS (KEEP AS-IS) ====================
 
   Future<void> _scrollToMessage(String messageId) async {
@@ -1668,10 +1080,10 @@ class _ChatScreenState extends State<ChatScreen> {
       controller: _messages,
       messageId: messageId,
       loadMore: () async {
-        if (!_hasMore || _loading) return false;
-        final countBefore = _messages.messages.length;
-        await _loadMoreMessages();
-        return _messages.messages.length > countBefore;
+        if (!_controller.hasMore || _controller.loading) return false;
+        final countBefore = _controller.messages.messages.length;
+        await _controller.loadMoreMessages();
+        return _controller.messages.messages.length > countBefore;
       },
     );
     if (!mounted) return;
@@ -1743,20 +1155,14 @@ class _ChatScreenState extends State<ChatScreen> {
               widget.userId,
               widget.peerId,
             );
-            resetChatState();
-            setState(() {
-              _messages = InMemoryChatController();
-            });
+            _controller.resetConversation();
             MessageDraftStore.instance.setReply(_draftKey, null);
             _loadInitialMessages();
           },
           onDeleteContact: () async {
             await ConversationPreferencesService.instance.delete(widget.peerId);
             await DBHelper.deleteUser(widget.peerId);
-            resetChatState();
-            setState(() {
-              _messages = InMemoryChatController();
-            });
+            _controller.resetConversation();
             MessageDraftStore.instance.setReply(_draftKey, null);
             widget.clearChat();
           },
@@ -1787,9 +1193,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildReplyPreview() {
-    final data = _replyToMessage != null
-        ? replyPreviewFromMessage(_replyToMessage!)
-        : _replyDraft;
+    final data = _controller.replyToMessage != null
+        ? replyPreviewFromMessage(_controller.replyToMessage!)
+        : _controller.replyDraft;
     if (data == null) return const SizedBox.shrink();
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -1815,7 +1221,7 @@ class _ChatScreenState extends State<ChatScreen> {
             PrysmIconButton(
               icon: PrysmIcons.close,
               onPressed: () {
-                setState(_clearReplyState);
+                _controller.clearReplyState();
               },
             ),
           ],
@@ -1963,7 +1369,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: 'Reply',
         onTap: () {
           Navigator.pop(context);
-          _setReplyToMessage(message);
+          _controller.setReplyToMessage(message);
         },
       ),
       PrysmListRow(
@@ -1986,51 +1392,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
     showMessageActionsSheet(
       context: context,
-      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      onReactionSelected: (emoji) => _controller.onReactionSelected(message, emoji),
       actionTiles: tiles,
     );
   }
 
-  Future<void> _deletePendingMessage(Message message) async {
-    final id = message.id;
-    await PendingMessageDbHelper.removeOutboundPendingForWireId(id);
-    _chatService.cancelPendingSend(id);
-    await MessageContentWiper.wipeLocalArtifacts(wireId: id);
-    await MessagesDb.deleteMessageById(id);
-    await MessageReactionsDb.deleteReactionsForMessage(id);
-    _messageCache.remove(id);
-    if (!mounted) return;
-    setState(() {
-      _messages.removeMessage(message);
-      selectedMessageIds.remove(id);
-    });
-  }
-
   Future<void> _deleteMessage(Message message) async {
-    if (message.authorId == widget.userId && isOutboundPending(message)) {
-      await _deletePendingMessage(message);
-      return;
-    }
-
-    if (canDeleteForEveryone(message, widget.userId)) {
-      await _modifyService.deleteMessage(targetMessageId: message.id);
-      await MessageReactionsDb.deleteReactionsForMessage(message.id);
-      _messageCache.remove(message.id);
-      if (!mounted) return;
-      setState(() {
-        _messages.updateMessage(message, markMessageDeleted(message));
-        selectedMessageIds.remove(message.id);
-      });
-      return;
-    }
-
-    await MessageContentWiper.wipeLocalArtifacts(wireId: message.id);
-    await MessagesDb.deleteMessageById(message.id);
-    await MessageReactionsDb.deleteReactionsForMessage(message.id);
+    final outcome = await _actionsService.deleteMessage(
+      message,
+      localUserId: widget.userId,
+    );
     _messageCache.remove(message.id);
     if (!mounted) return;
     setState(() {
-      _messages.removeMessage(message);
+      if (outcome == MessageDeleteOutcome.markedDeletedForEveryone) {
+        _messages.updateMessage(message, markMessageDeleted(message));
+      } else {
+        _messages.removeMessage(message);
+      }
       selectedMessageIds.remove(message.id);
     });
   }
@@ -2073,29 +1452,19 @@ class _ChatScreenState extends State<ChatScreen> {
     final ids = List<String>.from(selectedMessageIds);
     for (final id in ids) {
       final message = _messages.messages.firstWhere((msg) => msg.id == id);
-      if (message.authorId == widget.userId && isOutboundPending(message)) {
-        await _deletePendingMessage(message);
-        continue;
-      }
-      if (canDeleteForEveryone(message, widget.userId)) {
-        await _modifyService.deleteMessage(targetMessageId: id);
-        await MessageReactionsDb.deleteReactionsForMessage(id);
-        _messageCache.remove(id);
-        if (mounted) {
-          setState(() {
+      final outcome = await _actionsService.deleteMessage(
+        message,
+        localUserId: widget.userId,
+      );
+      _messageCache.remove(id);
+      if (mounted) {
+        setState(() {
+          if (outcome == MessageDeleteOutcome.markedDeletedForEveryone) {
             _messages.updateMessage(message, markMessageDeleted(message));
-          });
-        }
-      } else {
-        await MessageContentWiper.wipeLocalArtifacts(wireId: id);
-        await MessagesDb.deleteMessageById(id);
-        await MessageReactionsDb.deleteReactionsForMessage(id);
-        _messageCache.remove(id);
-        if (mounted) {
-          setState(() {
+          } else {
             _messages.removeMessage(message);
-          });
-        }
+          }
+        });
       }
     }
 
@@ -2258,11 +1627,9 @@ class _ChatScreenState extends State<ChatScreen> {
               child: PrysmChatList(
                 controller: _messages,
                 scrollController: _listScrollController,
-                onLoadMore: _loadMoreMessages,
+                onLoadMore: _controller.loadMoreMessages,
                 showJumpToBottom: selectedMessageIds.isEmpty,
-                onStickToBottomChanged: (atBottom) {
-                  _stickToBottom = atBottom;
-                },
+                onStickToBottomChanged: _controller.setStickToBottomSilently,
                 itemBuilder: _buildChatListItem,
               ),
             ),
@@ -2287,15 +1654,15 @@ class _ChatScreenState extends State<ChatScreen> {
             else
               PrysmChatComposerColumn(
                 draftKey: _draftKey,
-                replyPreview: _replyToMessage != null || _replyDraft != null
+                replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
                     ? _buildReplyPreview()
                     : null,
-                typingTypistNames: _typingTypistNames(),
-                onSendText: _handleSendText,
+                typingTypistNames: _controller.typingTypistNames(),
+                onSendText: _controller.handleSendText,
                 onSendImage: _handleSendImage,
                 onSendFile: _handleSendFile,
-                onSendVoice: _handleSendVoice,
-                onTypingChanged: _onComposerTypingChanged,
+                onSendVoice: _controller.sendVoice,
+                onTypingChanged: _controller.onComposerTypingChanged,
               ),
           ],
         ),
@@ -2382,13 +1749,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         });
       },
-      onReply: () {
-        setState(() {
-          _replyToMessage = message;
-          _replyDraft = null;
-        });
-        _persistReplyDraft();
-      },
+      onReply: () => _controller.setReplyToMessage(message),
       onLongPressMenu: (position) =>
           _showMessageMenu(context, message, position),
       displayChild: _displayChildForMessage(message, child, isSentByMe),
@@ -2495,7 +1856,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (!context.mounted) return;
                 await Navigator.push(
                   context,
-                  PrysmPageRoute(page: _ViewOnceScreen(imageBytes: decryptedBytes),
+                  PrysmPageRoute(page: ViewOnceImageScreen(
+                    imageBytes: decryptedBytes,
+                    title: 'View Once',
+                    closeColor: const Color(0xB3FFFFFF),
+                  ),
                   ),
                 );
                 // After closing viewer, mark as viewed and wipe content
@@ -2746,69 +2111,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 widget.keyManager.identity,
               );
             },
-      ),
-    );
-  }
-}
-
-// ==================== VIEW ONCE SCREEN ====================
-
-class _ViewOnceScreen extends StatefulWidget {
-  final Uint8List imageBytes;
-  const _ViewOnceScreen({required this.imageBytes});
-
-  @override
-  State<_ViewOnceScreen> createState() => _ViewOnceScreenState();
-}
-
-class _ViewOnceScreenState extends State<_ViewOnceScreen> {
-  static const _flagSecureChannel = MethodChannel('prysm/flag_secure');
-
-  @override
-  void initState() {
-    super.initState();
-    _enableScreenshotPrevention();
-  }
-
-  @override
-  void dispose() {
-    _disableScreenshotPrevention();
-    super.dispose();
-  }
-
-  Future<void> _enableScreenshotPrevention() async {
-    if (Platform.isAndroid) {
-      try {
-        await _flagSecureChannel.invokeMethod('enable');
-      } catch (_) {
-        // Fallback: no-op if platform channel isn't wired yet
-      }
-    }
-  }
-
-  Future<void> _disableScreenshotPrevention() async {
-    if (Platform.isAndroid) {
-      try {
-        await _flagSecureChannel.invokeMethod('disable');
-      } catch (_) {}
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const overlay = Color(0xB3FFFFFF);
-    return PrysmPage(
-      backgroundColor: const Color(0xFF000000),
-      title: 'View Once',
-      leading: PrysmIconButton(
-        icon: PrysmIcons.close,
-        color: overlay,
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          child: Image.memory(widget.imageBytes),
-        ),
       ),
     );
   }

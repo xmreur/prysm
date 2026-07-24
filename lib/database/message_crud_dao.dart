@@ -200,6 +200,15 @@ class MessageCrudDao {
           'getMessageById wire read failed for $messageId: $e\n$stack',
           'MessagesDb',
         );
+        // NOTE(pre-existing, do not "fix" without a design review): this call
+        // re-enters `_protect` (MessagesDatabase.mutex.protect) while we are
+        // still inside the outer `_protect` from getMessageById's own call
+        // above. The mutex is NOT reentrant, so if this fallback branch is
+        // ever reached, it deadlocks instead of throwing. It is only
+        // exercised by the rare wire-read failure caught above, and the
+        // deadlock has been left in place deliberately to preserve existing
+        // behavior/invariants rather than risk changing locking semantics
+        // as a drive-by fix. See FINDING 3 of the branch review.
         final wire = await getMessageWire(messageId, groupId: groupId);
         if (wire == null) {
           row['message'] = null;

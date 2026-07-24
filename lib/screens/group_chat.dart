@@ -18,20 +18,15 @@ import 'package:flutter/services.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
-import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
-import 'package:prysm/models/reply_preview_data.dart';
-import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
-import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
@@ -43,29 +38,28 @@ import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
-import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
-import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
+import 'package:prysm/screens/widgets/view_once_image_screen.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/services/message_actions_service.dart';
+import 'package:prysm/services/message_view_mapper.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/chat_screen_controller.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/screens/widgets/message_status_icon.dart';
 import 'package:prysm/screens/widgets/read_receipt_details_sheet.dart';
 import 'package:prysm/util/message_status_mapper.dart';
-import 'package:prysm/util/outbound_read_status_refresh.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
-import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
-import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
@@ -78,7 +72,6 @@ import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 
 class GroupChatScreen extends StatefulWidget {
   final String userId;
@@ -112,18 +105,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late ReactionService _reactionService;
   late ReadReceiptService _readReceiptService;
   late MessageModifyService _modifyService;
+  late MessageViewMapper _viewMapper;
+  late MessageActionsService _actionsService;
   final _settings = SettingsService();
 
-  var _messages = InMemoryChatController();
+  late ChatScreenController _controller;
   final ScrollController _listScrollController = ScrollController();
-  bool _stickToBottom = true;
   final Map<String, String> _senderNames = {};
   int _memberCount = 0;
 
-  bool _loading = false;
-  bool _hasMore = true;
-  int? _oldestTimestamp;
-  String? _oldestMessageId;
   int? _joinedAt;
 
   StreamSubscription? _newMessagesSub;
@@ -135,14 +125,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _detachedStatusSub;
   StreamSubscription? _membershipSub;
   StreamSubscription? _readReceiptRefreshSub;
-  Timer? _readReceiptDebounce;
   List<String> _groupMemberIds = [];
   String? _highlightedMessageId;
   Timer? _highlightTimer;
 
-  Message? _replyToMessage;
-  ReplyPreviewData? _replyDraft;
-  final Set<String> selectedMessageIds = {};
+  Set<String> get selectedMessageIds => _controller.selectedMessageIds;
+  PrysmChatMessageList get _messages => _controller.messages;
   final ValueNotifier<double> _swipeDragOffset = ValueNotifier(0);
   String? _swipeDragMessageId;
   late TypingIndicatorService _typingService;
@@ -153,69 +141,67 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
-    _listScrollController.addListener(_onListScroll);
     _bootstrapForGroup();
-  }
-
-  void _onListScroll() {
-    final atBottom = isChatScrolledToBottom(_listScrollController);
-    if (atBottom == _stickToBottom) return;
-    setState(() => _stickToBottom = atBottom);
+    _listScrollController.addListener(_onListScrollForward);
   }
 
   String get _draftKey => 'group:${widget.group.id}';
 
-  String? get _replyToMessageId => _replyToMessage?.id ?? _replyDraft?.messageId;
-
-  void _persistReplyDraft() {
-    final data = _replyToMessage != null
-        ? replyPreviewFromMessage(_replyToMessage!)
-        : _replyDraft;
-    MessageDraftStore.instance.setReply(_draftKey, data);
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _restoreReplyDraft() {
-    final stored = MessageDraftStore.instance.get(_draftKey).reply;
-    if (stored == null) return;
-    Message? found;
-    for (final message in _messages.messages) {
-      if (message.id == stored.messageId) {
-        found = message;
-        break;
-      }
-    }
-    setState(() {
-      _replyToMessage = found;
-      _replyDraft = found == null ? stored : null;
-    });
-  }
+  // Stable forwarder registered once in initState so scroll updates always
+  // reach the *current* `_controller`, even after didUpdateWidget or _init()
+  // rebuild it (group switch / re-init after key wait). Never rebind
+  // addListener/removeListener to the controller's own tear-off — that pins
+  // the listener to whichever controller instance existed at registration
+  // time and it silently stops firing (or throws "used after being
+  // disposed") once that instance is replaced.
+  void _onListScrollForward() => _controller.onListScroll();
 
-  void _clearReplyState() {
-    _replyToMessage = null;
-    _replyDraft = null;
-    MessageDraftStore.instance.setReply(_draftKey, null);
-  }
-
-  void _setReplyToMessage(Message message) {
-    setState(() {
-      _replyToMessage = message;
-      _replyDraft = null;
-    });
-    _persistReplyDraft();
-  }
-
-  void _scheduleScrollToBottomIfNeeded({bool animated = false}) {
-    if (!_stickToBottom) return;
-    scheduleScrollChatToBottom(
-      _messages,
-      animated: animated,
+  ChatScreenController _buildController() {
+    return ChatScreenController(
+      localUserId: widget.userId,
+      draftKey: _draftKey,
+      listScrollController: _listScrollController,
       isMounted: () => mounted,
+      typingTracker: _typingTracker,
+      typingService: _typingService,
+      conversationKey: widget.group.id,
+      matchesTypingEvent: (e) => e.groupId == widget.group.id && e.senderId != widget.userId,
+      typingIndicatorsEnabled: () => _settings.enableTypingIndicators,
+      typistDisplayName: (id) => _senderNames[id] ?? id,
+      reactionService: _reactionService,
+      readReceiptService: _readReceiptService,
+      markInboundRead: () => MessagesDb.markInboundGroupRead(widget.userId, widget.group.id),
+      cancelForegroundNotification: () => unawaited(
+        NotificationService().cancelConversationNotificationIfForeground(
+          groupId: widget.group.id,
+          senderId: widget.group.id,
+        ),
+      ),
+      sendReadReceiptsEnabled: () => _settings.sendReadReceipts,
+      readReceiptGroupId: widget.group.id,
+      requiredReadCount: () => _memberCount > 1 ? _memberCount - 1 : 1,
+      fetchMessageBatch: ({beforeTimestamp, beforeId}) => MessagesDb.getMessagesForGroupBatch(
+        widget.group.id,
+        limit: 20,
+        beforeTimestamp: beforeTimestamp,
+        beforeId: beforeId,
+        afterTimestamp: _joinedAt,
+      ),
+      decryptForDisplay: _decryptForDisplay,
+      seedNewestTimestamp: _chatService.seedNewestTimestamp,
+      onToast: (msg) {
+        if (mounted) showPrysmToast(context, msg);
+      },
+      fileMessageSource: (bytes) => base64Encode(bytes),
+      voiceCacheFileNamePrefix: 'group_voice_cache',
+      dispatchText: _dispatchText,
+      dispatchFile: _dispatchFile,
+      dispatchVoice: _dispatchVoice,
     );
-  }
-
-  void _scheduleScrollToBottomAfterSend() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
   }
 
   void _bootstrapForGroup() {
@@ -245,13 +231,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       groupId: widget.group.id,
       groupService: _groupService,
     );
+    _viewMapper = MessageViewMapper(keyManager: widget.keyManager);
+    _actionsService = MessageActionsService(
+      modifyService: _modifyService,
+      groupId: widget.group.id,
+    );
     _typingService = TypingIndicatorService.group(
       userId: widget.userId,
       groupId: widget.group.id,
       memberIds: const [],
       settings: _settings,
     );
-    _typingSub = TypingIndicatorNotifier.instance.events.listen(_onTypingEvent);
+    _controller = _buildController();
+    _controller.addListener(_onControllerChanged);
+    _typingSub = TypingIndicatorNotifier.instance.events.listen(_controller.onTypingEvent);
     _typingTrackerSub = _typingTracker.onChanged.listen((_) {
       if (mounted) setState(() {});
     });
@@ -267,7 +260,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             }
           }
         });
-        _scheduleScrollToBottomAfterSend();
+        _controller.scheduleScrollToBottomAfterSend();
       });
       _detachedStatusSub =
           widget.detachedClient!.onStatusUpdates.listen((update) {
@@ -287,15 +280,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.group.id != widget.group.id) {
       _teardown();
-      _messages = InMemoryChatController();
-      _replyToMessage = null;
-      _replyDraft = null;
       _senderNames.clear();
       _memberCount = 0;
-      _loading = false;
-      _hasMore = true;
-      _oldestTimestamp = null;
-      _oldestMessageId = null;
       _bootstrapForGroup();
     }
   }
@@ -314,7 +300,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _detachedStatusSub?.cancel();
     _membershipSub?.cancel();
     _readReceiptRefreshSub?.cancel();
-    _readReceiptDebounce?.cancel();
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
     _chatService.unpinMembersForWebSocket();
     _chatService.dispose();
     _reactionService.dispose();
@@ -357,6 +344,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       memberIds: _groupMemberIds,
       settings: _settings,
     );
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
+    _controller = _buildController();
+    _controller.addListener(_onControllerChanged);
 
     final ok = await _chatService.initialize();
     if (!ok && mounted) {
@@ -368,60 +359,35 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _newMessagesSub = _chatService.onNewMessages.listen(_handleNewMessages);
       _statusSub = _chatService.onMessageStatus.listen(_handleStatusUpdate);
     }
-    _reactionSub = _reactionService.onReactionsChanged.listen(_applyReactionUpdate);
+    _reactionSub = _reactionService.onReactionsChanged.listen(_controller.applyReactionUpdate);
     _reactionRefreshSub =
-        ReactionRefreshNotifier.instance.onReactionChanged.listen(_applyReactionUpdate);
+        ReactionRefreshNotifier.instance.onReactionChanged.listen(_controller.applyReactionUpdate);
     _modifyRefreshSub = MessageModifyRefreshNotifier.instance.onModifyChanged
         .listen(_applyModifyUpdate);
     _readReceiptRefreshSub =
         ReadReceiptRefreshNotifier.instance.onReadReceiptChanged
-            .listen(_applyReadReceiptUpdate);
+            .listen(_controller.applyReadReceiptUpdate);
 
-    await _loadMoreMessages();
-    _restoreReplyDraft();
-    await _markInboundAsRead();
+    await _controller.loadMoreMessages();
+    _controller.restoreReplyDraft();
+    await _controller.markInboundAsRead();
     if (widget.detachedClient == null) {
       _chatService.startPolling();
       _chatService.startSendQueue();
       _chatService.pinMembersForWebSocket();
     }
 
-    if (mounted && _messages.messages.isNotEmpty) {
-      _stickToBottom = true;
-      scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
+    if (mounted && _controller.messages.messages.isNotEmpty) {
+      _controller.scheduleScrollToBottomAfterSend();
     }
 
     if (mounted) setState(() {});
   }
 
-  void _onTypingEvent(TypingIndicatorEvent event) {
-    if (event.groupId != widget.group.id) return;
-    if (event.senderId == widget.userId) return;
-
-    _typingTracker.applyEvent(
-      conversationKey: widget.group.id,
-      senderId: event.senderId,
-      typing: event.typing,
-      timestamp: event.timestamp,
-    );
-  }
-
-  List<String> _typingTypistNames() {
-    if (!_settings.enableTypingIndicators) return const [];
-    return _typingTracker
-        .activeTypists(widget.group.id)
-        .map((id) => _senderNames[id] ?? id)
-        .toList(growable: false);
-  }
-
-  void _onComposerTypingChanged(bool isTyping) {
-    _typingService.onComposerTypingChanged(isTyping);
-  }
-
   Widget _buildReplyPreview() {
-    final data = _replyToMessage != null
-        ? replyPreviewFromMessage(_replyToMessage!)
-        : _replyDraft;
+    final data = _controller.replyToMessage != null
+        ? replyPreviewFromMessage(_controller.replyToMessage!)
+        : _controller.replyDraft;
     if (data == null) return const SizedBox.shrink();
     final authorName = data.authorId == widget.userId
         ? 'You'
@@ -450,7 +416,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             ),
             PrysmIconButton(
               icon: PrysmIcons.close,
-              onPressed: () => setState(_clearReplyState),
+              onPressed: () => _controller.clearReplyState(),
             ),
           ],
         ),
@@ -470,7 +436,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final isSentByMe = message.authorId == widget.userId;
     showMessageActionsSheet(
       context: context,
-      onReactionSelected: (emoji) => _onReactionSelected(message, emoji),
+      onReactionSelected: (emoji) => _controller.onReactionSelected(message, emoji),
       actionTiles: [
         if (canEditMessage(message, widget.userId))
           PrysmListRow(
@@ -495,7 +461,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           title: 'Reply',
           onTap: () {
             Navigator.pop(context);
-            _setReplyToMessage(message);
+            _controller.setReplyToMessage(message);
           },
         ),
         PrysmListRow(
@@ -503,7 +469,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           title: 'Select',
           onTap: () {
             Navigator.pop(context);
-            setState(() => selectedMessageIds.add(message.id));
+            _controller.selectMessage(message.id);
           },
         ),
         PrysmListRow(
@@ -519,36 +485,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<void> _deleteMessage(Message message) async {
-    if (canDeleteForEveryone(message, widget.userId)) {
-      await _modifyService.deleteMessage(targetMessageId: message.id);
-      final storageId = MessagesDb.scopedId(
-        wireId: message.id,
-        groupId: widget.group.id,
-      );
-      await MessageReactionsDb.deleteReactionsForMessage(storageId);
-      if (mounted) {
-        setState(() {
-          _messages.updateMessage(message, markMessageDeleted(message));
-        });
-      }
-      return;
-    }
-
-    final storageId = MessagesDb.scopedId(
-      wireId: message.id,
-      groupId: widget.group.id,
+    final outcome = await _actionsService.deleteMessage(
+      message,
+      localUserId: widget.userId,
     );
-    await MessageContentWiper.wipeLocalArtifacts(
-      wireId: message.id,
-      groupId: widget.group.id,
-    );
-    await MessagesDb.deleteMessageById(storageId);
-    await MessageReactionsDb.deleteReactionsForMessage(storageId);
-    if (mounted) {
-      setState(() {
+    if (!mounted) return;
+    setState(() {
+      if (outcome == MessageDeleteOutcome.markedDeletedForEveryone) {
+        _messages.updateMessage(message, markMessageDeleted(message));
+      } else {
         _messages.removeMessage(message);
-      });
-    }
+      }
+    });
   }
 
   Future<void> _editMessage(Message message) async {
@@ -572,20 +520,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (newText == null || newText!.isEmpty || newText == message.text) return;
     final editedText = newText!;
 
-    final ok = await _modifyService.editTextMessage(
-      targetMessageId: message.id,
-      newText: editedText,
-    );
+    final updated = await _actionsService.editTextMessage(message, editedText);
     if (!mounted) return;
-    if (ok) {
+    if (updated != null) {
       setState(() {
-        _messages.updateMessage(
-          message,
-          message.copyWith(
-            text: editedText,
-            metadata: {...?message.metadata, 'edited': true},
-          ),
-        );
+        _messages.updateMessage(message, updated);
       });
     } else {
       showPrysmToast(context, 'Could not edit message');
@@ -633,25 +572,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
 
-  Future<void> _onReactionSelected(Message message, String emoji) async {
-    await _reactionService.toggleReaction(
-      targetMessageId: message.id,
-      emoji: emoji,
-    );
-  }
-
-  void _applyReactionUpdate(ReactionUpdate update) {
-    if (!mounted) return;
-    try {
-      final msg =
-          _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
-      final updated = applyReactionsToMessage(msg, update.reactions);
-      setState(() {
-        _messages.updateMessage(msg, updated);
-      });
-    } catch (_) {}
-  }
-
   Widget _reactionBarFor(Message message, bool isSentByMe) {
     final reactions = message.reactions;
     if (reactions == null || reactions.isEmpty) {
@@ -661,7 +581,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       reactions: reactions,
       currentUserId: widget.userId,
       isSentByMe: isSentByMe,
-      onReactionTap: (emoji) => _onReactionSelected(message, emoji),
+      onReactionTap: (emoji) => _controller.onReactionSelected(message, emoji),
     );
   }
 
@@ -683,7 +603,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       } catch (_) {}
     }
     if (mounted) {
-      setState(() => selectedMessageIds.clear());
+      _controller.clearSelection();
     }
   }
 
@@ -704,7 +624,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       if (!mounted) return;
       final ready = await _chatService.initialize();
       if (ready) {
-        await _loadMoreMessages();
+        await _controller.loadMoreMessages();
         if (mounted) setState(() {});
         return;
       }
@@ -744,8 +664,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
       }
     });
-    _scheduleScrollToBottomIfNeeded();
-    await _markInboundAsRead();
+    _controller.scheduleScrollToBottomIfNeeded();
+    await _controller.markInboundAsRead();
   }
 
   void _handleStatusUpdate(GroupMessageStatusUpdate update) {
@@ -760,58 +680,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         readReceiptsEnabled: _settings.sendReadReceipts,
       );
       _messages.updateMessage(msg, updated);
-    });
-  }
-
-  Future<void> _markInboundAsRead() async {
-    final waterline = await MessagesDb.markInboundGroupRead(
-      widget.userId,
-      widget.group.id,
-    );
-    if (waterline == null) return;
-
-    unawaited(
-      NotificationService().cancelConversationNotificationIfForeground(
-        groupId: widget.group.id,
-        senderId: widget.group.id,
-      ),
-    );
-
-    _readReceiptDebounce?.cancel();
-    _readReceiptDebounce = Timer(const Duration(milliseconds: 100), () async {
-      if (_settings.sendReadReceipts) {
-        await _readReceiptService.sendWaterline(waterline);
-      }
-    });
-  }
-
-  Future<void> _applyReadReceiptUpdate(ReadReceiptUpdate update) async {
-    if (!mounted || !_settings.sendReadReceipts) return;
-    if (update.groupId != widget.group.id) return;
-
-    final requiredReadCount = _memberCount > 1 ? _memberCount - 1 : 1;
-    final refreshed = await refreshOutboundReadStatus(
-      messages: _messages.messages,
-      localUserId: widget.userId,
-      readReceiptsEnabled: _settings.sendReadReceipts,
-      groupId: widget.group.id,
-      requiredReadCount: requiredReadCount,
-    );
-    if (!mounted) return;
-
-    setState(() {
-      for (final updated in refreshed) {
-        if (updated.authorId != widget.userId) continue;
-        try {
-          final old = _messages.messages.firstWhere((m) => m.id == updated.id);
-          if (old.seenAt == updated.seenAt &&
-              old.metadata?['deliveryStatus'] ==
-                  updated.metadata?['deliveryStatus']) {
-            continue;
-          }
-          _messages.updateMessage(old, updated);
-        } catch (_) {}
-      }
     });
   }
 
@@ -841,9 +709,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<Uint8List> _decryptGroupFileBytes(Map<String, dynamic> msg) async {
-    final groupKey = await _groupService.getDecryptedGroupKey(widget.group.id);
-    if (groupKey == null) throw Exception('No group key');
-    return await GroupCryptoV2.decryptGroupFile(groupKey, msg['message'] as String);
+    return _viewMapper.decryptGroupFileBytes(
+      getDecryptedGroupKey: _groupService.getDecryptedGroupKey,
+      groupId: widget.group.id,
+      row: msg,
+    );
   }
 
   Future<String> _decryptSenderKeyText({
@@ -876,10 +746,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       throw StateError('Group image not found: $messageId');
     }
     return _decryptGroupFileBytes(rows.first);
-  }
-
-  String _mimeTypeForImageBytes(Uint8List bytes) {
-    return ImageAttachmentCache.sniffImageMimeType(bytes);
   }
 
   Future<List<Message>> _decryptForDisplay(List<Map<String, dynamic>> raw) async {
@@ -1051,71 +917,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }).toList();
   }
 
-  Future<void> _loadMoreMessages() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
-
-    final batch = await MessagesDb.getMessagesForGroupBatch(
-      widget.group.id,
-      limit: 20,
-      beforeTimestamp: _oldestTimestamp,
-      beforeId: _oldestMessageId,
-      afterTimestamp: _joinedAt,
-    );
-
-    if (!mounted) return;
-
-    if (batch.length < 20) _hasMore = false;
-    if (batch.isEmpty) {
-      _loading = false;
-      return;
-    }
-
-    final sorted = List<Map<String, dynamic>>.from(batch)
-      ..sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
-
-    if (sorted.isNotEmpty) {
-      final newestTs = sorted
-          .map((m) => m['timestamp'] as int)
-          .reduce((a, b) => a > b ? a : b);
-      _chatService.seedNewestTimestamp(newestTs);
-    }
-
-    final decrypted = await _decryptForDisplay(sorted);
-    if (!mounted) {
-      _loading = false;
-      return;
-    }
-
-    setState(() {
-      _messages.insertAllMessages(decrypted, index: 0);
-      _oldestTimestamp = batch.last['timestamp'] as int;
-      _oldestMessageId = batch.last['id'] as String;
-      _loading = false;
-    });
-  }
-
-  void _handleSendText(String text) async {
-    final messageId = const Uuid().v4();
-    final replyToId = _replyToMessageId;
-    setState(() {
-      _messages.insertMessage(
-        messageWithPendingStatus(
-          TextMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            text: text,
-            replyToMessageId: replyToId,
-          ),
-        ),
-        index: _messages.messages.length,
-      );
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
+  Future<void> _dispatchText({
+    required String text,
+    required String messageId,
+    String? replyToId,
+  }) async {
     if (widget.detachedClient != null) {
       final sentId = await widget.detachedClient!.sendText(
         text: text,
@@ -1138,73 +944,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     widget.reloadConversations();
   }
 
-  bool _rejectOversizedFile(int byteLength) {
-    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
-      return false;
-    }
-    if (mounted) {
-      showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
-    }
-    return true;
-  }
-
-  void _removeOptimisticFileMessage(String messageId) {
-    if (!mounted) return;
-    setState(() {
-      final idx = _messages.messages.indexWhere((m) => m.id == messageId);
-      if (idx != -1) {
-        _messages.removeMessage(_messages.messages[idx]);
-        selectedMessageIds.remove(messageId);
-      }
-    });
-  }
-
-  void _sendFile(Uint8List bytes, String fileName, String type, {bool viewOnce = false}) async {
-    if (_rejectOversizedFile(bytes.length)) {
-      return;
-    }
-
-    final messageId = const Uuid().v4();
-    final replyToId = _replyToMessageId;
-    setState(() {
-      if (type == 'file') {
-        _messages.insertMessage(
-          messageWithPendingStatus(
-            FileMessage(
-              authorId: widget.userId,
-              createdAt: DateTime.now(),
-              id: messageId,
-              replyToMessageId: replyToId,
-              name: fileName,
-              size: bytes.length,
-              source: base64Encode(bytes),
-            ),
-          ),
-          index: _messages.messages.length,
-        );
-      } else if (type == 'image') {
-        _messages.insertMessage(
-          messageWithPendingStatus(
-            ImageMessage(
-              authorId: widget.userId,
-              createdAt: DateTime.now(),
-              id: messageId,
-              replyToMessageId: replyToId,
-              size: bytes.length,
-              source:
-                  'data:${_mimeTypeForImageBytes(bytes)};base64,${base64Encode(bytes)}',
-              metadata: viewOnce ? const {'viewOnce': true, 'viewed': false} : null,
-            ),
-          ),
-          index: _messages.messages.length,
-        );
-      }
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
-
+  Future<void> _dispatchFile({
+    required Uint8List bytes,
+    required String fileName,
+    required String type,
+    required String messageId,
+    String? replyToId,
+    required bool viewOnce,
+  }) async {
     if (widget.detachedClient != null) {
       final sentId = await widget.detachedClient!.sendFile(
         bytes: bytes,
@@ -1216,7 +963,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
       if (!mounted) return;
       if (sentId == null) {
-        _removeOptimisticFileMessage(messageId);
+        _controller.removeOptimisticFileMessage(messageId);
         showPrysmToast(context, 'Could not send file — group key unavailable');
       }
       return;
@@ -1241,7 +988,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       groupId: widget.group.id,
     );
     if (stored.isEmpty) {
-      _removeOptimisticFileMessage(messageId);
+      _controller.removeOptimisticFileMessage(messageId);
       return;
     }
 
@@ -1250,87 +997,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     widget.reloadConversations();
   }
 
-  Future<void> _handleSendImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile == null) return;
-
-    final bytes = await pickedFile.readAsBytes();
-    if (!mounted) return;
-
-    await ChatAttachmentIngress.sendLocalAttachment(
-      context: context,
-      bytes: bytes,
-      fileName: pickedFile.name,
-      sendFile: _sendFile,
-      forceImageFlow: true,
-    );
-  }
-
-  Future<void> _handleSendFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: true);
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    if (file.bytes == null) return;
-    if (!mounted) return;
-
-    await ChatAttachmentIngress.sendLocalAttachment(
-      context: context,
-      bytes: file.bytes!,
-      fileName: file.name,
-      sendFile: _sendFile,
-    );
-  }
-
-  Future<void> _handleDroppedFile(String path, String name) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      if (!mounted) return;
-      await ChatAttachmentIngress.sendLocalAttachment(
-        context: context,
-        bytes: bytes,
-        fileName: name,
-        sendFile: _sendFile,
-      );
-    } catch (e) {
-      if (mounted) {
-        showPrysmToast(context, 'Could not read dropped file: $e');
-      }
-    }
-  }
-
-  Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
-    final messageId = const Uuid().v4();
-    final replyToId = _replyToMessageId;
-    final cacheDir = await getTemporaryDirectory();
-    final cachePath = '${cacheDir.path}/group_voice_cache_$messageId.wav';
-    await File(cachePath).writeAsBytes(bytes);
-    final peaks = WaveformExtractor.extractPeaks(bytes);
-
-    if (!mounted) return;
-
-    setState(() {
-      _messages.insertMessage(
-        messageWithPendingStatus(
-          FileMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            replyToMessageId: replyToId,
-            name: 'voice_message.wav',
-            size: bytes.length,
-            source: 'audio:$durationMs:$cachePath',
-            metadata: {'waveform': WaveformExtractor.encodePeaks(peaks)},
-          ),
-        ),
-        index: _messages.messages.length,
-      );
-      _replyToMessage = null;
-      _replyDraft = null;
-    });
-    MessageDraftStore.instance.setReply(_draftKey, null);
-    _scheduleScrollToBottomAfterSend();
-
+  Future<void> _dispatchVoice({
+    required Uint8List bytes,
+    required int durationMs,
+    required String messageId,
+    String? replyToId,
+    required String cachePath,
+  }) async {
     if (widget.detachedClient != null) {
       await widget.detachedClient!.sendVoice(
         bytes: bytes,
@@ -1348,6 +1021,55 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       replyToId: replyToId,
     );
     widget.reloadConversations();
+  }
+
+  Future<void> _handleSendImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile == null) return;
+
+    final bytes = await pickedFile.readAsBytes();
+    if (!mounted) return;
+
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: bytes,
+      fileName: pickedFile.name,
+      sendFile: _controller.sendFile,
+      forceImageFlow: true,
+    );
+  }
+
+  Future<void> _handleSendFile() async {
+    final result = await FilePicker.platform.pickFiles(withData: true);
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.bytes == null) return;
+    if (!mounted) return;
+
+    await ChatAttachmentIngress.sendLocalAttachment(
+      context: context,
+      bytes: file.bytes!,
+      fileName: file.name,
+      sendFile: _controller.sendFile,
+    );
+  }
+
+  Future<void> _handleDroppedFile(String path, String name) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (!mounted) return;
+      await ChatAttachmentIngress.sendLocalAttachment(
+        context: context,
+        bytes: bytes,
+        fileName: name,
+        sendFile: _controller.sendFile,
+      );
+    } catch (e) {
+      if (mounted) {
+        showPrysmToast(context, 'Could not read dropped file: $e');
+      }
+    }
   }
 
   Widget _senderLabel(String authorId, bool isSentByMe) {
@@ -1407,10 +1129,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       controller: _messages,
       messageId: messageId,
       loadMore: () async {
-        if (!_hasMore || _loading) return false;
-        final countBefore = _messages.messages.length;
-        await _loadMoreMessages();
-        return _messages.messages.length > countBefore;
+        if (!_controller.hasMore || _controller.loading) return false;
+        final countBefore = _controller.messages.messages.length;
+        await _controller.loadMoreMessages();
+        return _controller.messages.messages.length > countBefore;
       },
     );
     if (!mounted) return;
@@ -1433,7 +1155,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _typingTracker.dispose();
     _highlightTimer?.cancel();
     _swipeDragOffset.dispose();
-    _listScrollController.removeListener(_onListScroll);
+    _listScrollController.removeListener(_onListScrollForward);
     _listScrollController.dispose();
     super.dispose();
   }
@@ -1610,7 +1332,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       if (!context.mounted) return;
                       await Navigator.push(
                         context,
-                        PrysmPageRoute(page: _GroupViewOnceScreen(imageBytes: bytes),
+                        PrysmPageRoute(page: ViewOnceImageScreen(
+                          imageBytes: bytes,
+                          title: null,
+                          closeColor: const Color(0xB3FFFFFF),
+                        ),
                         ),
                       );
                       await MessagesDb.markViewOnceViewed(
@@ -1836,25 +1562,23 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               child: PrysmChatList(
                 controller: _messages,
                 scrollController: _listScrollController,
-                onLoadMore: _loadMoreMessages,
+                onLoadMore: _controller.loadMoreMessages,
                 showJumpToBottom: selectedMessageIds.isEmpty,
-                onStickToBottomChanged: (atBottom) {
-                  _stickToBottom = atBottom;
-                },
+                onStickToBottomChanged: _controller.setStickToBottomSilently,
                 itemBuilder: _buildGroupChatListItem,
               ),
             ),
             PrysmChatComposerColumn(
               draftKey: _draftKey,
-              replyPreview: _replyToMessage != null || _replyDraft != null
+              replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
                   ? _buildReplyPreview()
                   : null,
-              typingTypistNames: _typingTypistNames(),
-              onSendText: _handleSendText,
+              typingTypistNames: _controller.typingTypistNames(),
+              onSendText: _controller.handleSendText,
               onSendImage: _handleSendImage,
               onSendFile: _handleSendFile,
-              onSendVoice: _handleSendVoice,
-              onTypingChanged: _onComposerTypingChanged,
+              onSendVoice: _controller.sendVoice,
+              onTypingChanged: _controller.onComposerTypingChanged,
             ),
           ],
         ),
@@ -1915,22 +1639,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       isSelected: isSelected,
       isHighlighted: _highlightedMessageId == message.id,
       selectionActive: selectedMessageIds.isNotEmpty,
-      onToggleSelect: () {
-        setState(() {
-          if (isSelected) {
-            selectedMessageIds.remove(message.id);
-          } else {
-            selectedMessageIds.add(message.id);
-          }
-        });
-      },
-      onReply: () {
-        setState(() {
-          _replyToMessage = message;
-          _replyDraft = null;
-        });
-        _persistReplyDraft();
-      },
+      onToggleSelect: () => _controller.toggleMessageSelection(message.id),
+      onReply: () => _controller.setReplyToMessage(message),
       onLongPressMenu: (_) => _showMessageMenu(message),
       displayChild: Column(
         crossAxisAlignment:
@@ -1945,29 +1655,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       reactionBar: isMessageDeleted(message)
           ? const SizedBox.shrink()
           : _reactionBarFor(message, isSentByMe),
-    );
-  }
-}
-
-class _GroupViewOnceScreen extends StatelessWidget {
-  final Uint8List imageBytes;
-
-  const _GroupViewOnceScreen({required this.imageBytes});
-
-  @override
-  Widget build(BuildContext context) {
-    return PrysmPage(
-      backgroundColor: const Color(0xFF000000),
-      leading: PrysmIconButton(
-        icon: PrysmIcons.close,
-        color: const Color(0xB3FFFFFF),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          child: Image.memory(imageBytes),
-        ),
-      ),
     );
   }
 }

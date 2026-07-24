@@ -11,9 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
-import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
@@ -21,13 +19,13 @@ import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
 import 'package:prysm/screens/widgets/prysm_chat_drop_target.dart';
+import 'package:prysm/screens/widgets/view_once_image_screen.dart';
 import 'package:prysm/screens/widgets/voice_message_bubble.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
-import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/services/detached_chat_client.dart';
+import 'package:prysm/services/chat_screen_controller.dart';
 import 'package:prysm/services/self_chat_service.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
-import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
@@ -37,9 +35,7 @@ import 'package:prysm/util/chat_scroll.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_modify_policy.dart';
-import 'package:prysm/util/waveform_extractor.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 
 class SelfChatScreen extends StatefulWidget {
   final String userId;
@@ -67,15 +63,9 @@ class SelfChatScreen extends StatefulWidget {
 
 class _SelfChatScreenState extends State<SelfChatScreen> {
   late final SelfChatService _service;
-  
-  final _messages = InMemoryChatController();
+  late final ChatScreenController _controller;
   final _scrollController = ScrollController();
 
-  bool _stickToBottom = true;
-  bool _loading = false;
-  bool _hasMore = true;
-  int? _oldestTimestamp;
-  String? _oldestMessageId;
   StreamSubscription? _detachedInboundSub;
 
   Future<List<Message>> _decryptForDisplay(
@@ -87,28 +77,61 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     return _service.decryptMessages(rows);
   }
 
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
-    
+
     _service = SelfChatService(
       userId: widget.userId,
       keyManager: widget.keyManager,
     );
-    _scrollController.addListener(_onListScroll);
+    // Self-chat wiring of the shared Fase 6B controller: pagination,
+    // stick-to-bottom scroll and the optimistic-insert send pipeline are
+    // shared with DM/group; typing, reactions and read receipts stay
+    // unwired (peer-only concepts — a self-chat has no peer).
+    _controller = ChatScreenController(
+      localUserId: widget.userId,
+      draftKey: 'self:${widget.userId}',
+      listScrollController: _scrollController,
+      isMounted: () => mounted,
+      fetchMessageBatch: ({beforeTimestamp, beforeId}) =>
+          _service.loadMessagesBatch(
+        limit: 20,
+        beforeTimestamp: beforeTimestamp,
+        beforeId: beforeId,
+      ),
+      decryptForDisplay: _decryptForDisplay,
+      // Self-chat has no send-side message cache to seed (DM-only concept).
+      seedNewestTimestamp: (_) {},
+      onToast: (msg) => showPrysmToast(context, msg),
+      fileMessageSource: base64Encode,
+      dispatchText: _dispatchText,
+      dispatchFile: _dispatchFile,
+      dispatchVoice: _dispatchVoice,
+    );
+    _controller.addListener(_onControllerChanged);
+    _scrollController.addListener(_controller.onListScroll);
     if (widget.detachedClient != null) {
       _detachedInboundSub =
           widget.detachedClient!.onInboundMessages.listen((messages) {
         if (!mounted) return;
         setState(() {
-          final existingIds = _messages.messages.map((m) => m.id).toSet();
+          final existingIds =
+              _controller.messages.messages.map((m) => m.id).toSet();
           for (final msg in messages) {
             if (!existingIds.contains(msg.id)) {
-              _messages.insertMessage(msg, index: _messages.messages.length);
+              _controller.messages.insertMessage(
+                msg,
+                index: _controller.messages.messages.length,
+              );
             }
           }
         });
-        _scheduleScrollToBottomAfterSend();
+        _controller.scheduleScrollToBottomAfterSend();
       });
     }
     _loadInitialMessages();
@@ -117,140 +140,49 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   @override
   void dispose() {
     _detachedInboundSub?.cancel();
-    _scrollController.removeListener(_onListScroll);
+    _scrollController.removeListener(_controller.onListScroll);
     _scrollController.dispose();
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
     super.dispose();
   }
 
-  void _onListScroll() {
-    final atBottom = isChatScrolledToBottom(_scrollController);
-    if (atBottom == _stickToBottom) return;
-    setState(() => _stickToBottom = atBottom);
-  }
-
   Future<void> _loadInitialMessages() async {
-    await _loadMoreMessages();
-    if (mounted && _messages.messages.isNotEmpty) {
-      scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
+    await _controller.loadMoreMessages();
+    if (mounted && _controller.messages.messages.isNotEmpty) {
+      scheduleScrollChatToBottom(
+        _controller.messages,
+        isMounted: () => mounted,
+      );
     }
   }
 
-  Future<void> _loadMoreMessages() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
+  // ---- Send dispatch (screen-owned transport; the optimistic-insert
+  // mechanics live in the controller). reloadSidebar fires exactly where
+  // the pre-migration code fired it: after every service send, and after
+  // detached file sends only (detached text/voice never reloaded).
 
-    final batch = await _service.loadMessagesBatch(
-      limit: 20,
-      beforeTimestamp: _oldestTimestamp,
-      beforeId: _oldestMessageId,
-    );
-
-    if (!mounted) return;
-
-    if (batch.length < 20) {
-      _hasMore = false;
-      _loading = false;
-      if (batch.isEmpty) return;
-    }
-
-    final sorted = List<Map<String, dynamic>>.from(batch)
-      ..sort(
-        (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
-      );
-
-    final decrypted = await _decryptForDisplay(sorted);
-
-    if (!mounted) return;
-
-    setState(() {
-      _messages.insertAllMessages(decrypted, index: 0);
-      _oldestTimestamp = batch.last['timestamp'] as int;
-      _oldestMessageId = batch.last['id'] as String;
-      _loading = false;
-    });
-  }
-
-  void _scheduleScrollToBottomAfterSend() {
-    _stickToBottom = true;
-    scheduleScrollChatToBottom(_messages, isMounted: () => mounted);
-  }
-
-  Future<void> _handleSendText(String text) async {
-    if (!mounted) return;
-
-    final messageId = const Uuid().v4();
-
-    setState(() {
-      _messages.insertMessage(
-        TextMessage(
-          authorId: widget.userId,
-          createdAt: DateTime.now(),
-          id: messageId,
-          text: text,
-        ),
-        index: _messages.messages.length,
-      );
-    });
-    _scheduleScrollToBottomAfterSend();
-
+  Future<void> _dispatchText({
+    required String text,
+    required String messageId,
+    String? replyToId,
+  }) async {
     if (widget.detachedClient != null) {
       await widget.detachedClient!.sendText(text: text, messageId: messageId);
       return;
     }
-
     await _service.sendTextMessage(text, messageId: messageId);
     widget.reloadSidebar();
   }
 
-  bool _rejectOversizedFile(int byteLength) {
-    if (FileTransferPolicy.isWithinMaxFileSize(byteLength)) {
-      return false;
-    }
-    showPrysmToast(context, FileTransferPolicy.maxFileSizeError);
-    return true;
-  }
-
-  Future<void> _sendFile(
-    Uint8List bytes,
-    String fileName,
-    String type, {
-    bool viewOnce = false,
+  Future<void> _dispatchFile({
+    required Uint8List bytes,
+    required String fileName,
+    required String type,
+    required String messageId,
+    String? replyToId,
+    required bool viewOnce,
   }) async {
-    if (!mounted) return;
-    if (_rejectOversizedFile(bytes.length)) return;
-
-    final messageId = const Uuid().v4();
-
-    setState(() {
-      if (type == 'file') {
-        _messages.insertMessage(
-          FileMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            name: fileName,
-            size: bytes.length,
-            source: base64Encode(bytes),
-          ),
-          index: _messages.messages.length,
-        );
-      } else if (type == 'image') {
-        _messages.insertMessage(
-          ImageMessage(
-            authorId: widget.userId,
-            createdAt: DateTime.now(),
-            id: messageId,
-            size: bytes.length,
-            source:
-                'data:${ImageAttachmentCache.sniffImageMimeType(bytes)};base64,${base64Encode(bytes)}',
-            metadata: viewOnce ? {'viewOnce': true, 'viewed': false} : null,
-          ),
-          index: _messages.messages.length,
-        );
-      }
-    });
-    _scheduleScrollToBottomAfterSend();
-
     if (widget.detachedClient != null) {
       await widget.detachedClient!.sendFile(
         bytes: bytes,
@@ -262,7 +194,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       widget.reloadSidebar();
       return;
     }
-
     await _service.sendFileMessage(
       bytes,
       fileName,
@@ -272,6 +203,40 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     );
     widget.reloadSidebar();
   }
+
+  Future<void> _dispatchVoice({
+    required Uint8List bytes,
+    required int durationMs,
+    required String messageId,
+    String? replyToId,
+    required String cachePath,
+  }) async {
+    if (widget.detachedClient != null) {
+      await widget.detachedClient!.sendVoice(
+        bytes: bytes,
+        durationMs: durationMs,
+        messageId: messageId,
+      );
+      return;
+    }
+    await _service.sendFileMessage(
+      bytes,
+      'voice_message.wav',
+      'audio',
+      messageId: messageId,
+    );
+    widget.reloadSidebar();
+  }
+
+  Future<void> _handleSendText(String text) => _controller.handleSendText(text);
+
+  Future<void> _sendFile(
+    Uint8List bytes,
+    String fileName,
+    String type, {
+    bool viewOnce = false,
+  }) =>
+      _controller.sendFile(bytes, fileName, type, viewOnce: viewOnce);
 
   Future<void> _handleSendImage() async {
     final picker = ImagePicker();
@@ -326,57 +291,14 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     }
   }
 
-  Future<void> _handleSendVoice(Uint8List bytes, int durationMs) async {
-    if (!mounted) return;
-
-    final messageId = const Uuid().v4();
-    final cacheDir = await getTemporaryDirectory();
-    final cachePath = '${cacheDir.path}/voice_cache_$messageId.wav';
-    await File(cachePath).writeAsBytes(bytes);
-    final peaks = WaveformExtractor.extractPeaks(bytes);
-    final waveformMeta = WaveformExtractor.encodePeaks(peaks);
-
-    if (!mounted) return;
-
-    setState(() {
-      _messages.insertMessage(
-        FileMessage(
-          authorId: widget.userId,
-          createdAt: DateTime.now(),
-          id: messageId,
-          name: 'voice_message.wav',
-          size: bytes.length,
-          source: 'audio:$durationMs:$cachePath',
-          metadata: {'waveform': waveformMeta},
-        ),
-        index: _messages.messages.length,
-      );
-    });
-    _scheduleScrollToBottomAfterSend();
-
-    if (widget.detachedClient != null) {
-      await widget.detachedClient!.sendVoice(
-        bytes: bytes,
-        durationMs: durationMs,
-        messageId: messageId,
-      );
-      return;
-    }
-
-    await _service.sendFileMessage(
-      bytes,
-      'voice_message.wav',
-      'audio',
-      messageId: messageId,
-    );
-    widget.reloadSidebar();
-  }
+  Future<void> _handleSendVoice(Uint8List bytes, int durationMs) =>
+      _controller.sendVoice(bytes, durationMs);
 
   Future<void> _deleteMessage(Message message) async {
     await SelfMessagesDb.softDelete(message.id);
     if (!mounted) return;
     setState(() {
-      _messages.updateMessage(message, markMessageDeleted(message));
+      _controller.messages.updateMessage(message, markMessageDeleted(message));
     });
     widget.reloadSidebar();
   }
@@ -527,13 +449,18 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                 if (!context.mounted) return;
                 await Navigator.push(
                   context,
-                  PrysmPageRoute(page: _ViewOnceScreen(imageBytes: decryptedBytes),
+                  PrysmPageRoute(page: ViewOnceImageScreen(
+                    imageBytes: decryptedBytes,
+                    fit: BoxFit.contain,
+                    title: null,
+                    closeColor: const Color(0xB3FFFFFF),
+                  ),
                   ),
                 );
                 await SelfMessagesDb.markViewOnceViewed(message.id);
                 if (!mounted) return;
                 setState(() {
-                  _messages.updateMessage(
+                  _controller.messages.updateMessage(
                     message,
                     message.copyWith(
                       source: '',
@@ -650,15 +577,13 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           children: [
             Expanded(
               child: PrysmChatList(
-                controller: _messages,
+                controller: _controller.messages,
                 scrollController: _scrollController,
-                onLoadMore: _loadMoreMessages,
-                onStickToBottomChanged: (atBottom) {
-                  _stickToBottom = atBottom;
-                },
+                onLoadMore: _controller.loadMoreMessages,
+                onStickToBottomChanged: _controller.setStickToBottomSilently,
                 itemBuilder: (context, message, index) {
                   final showHeader = shouldShowChatDateHeader(
-                    _messages.messages,
+                    _controller.messages.messages,
                     index,
                   );
                   final msgDate = message.createdAt ?? DateTime.now();
@@ -718,29 +643,6 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
               onSendVoice: _handleSendVoice,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ViewOnceScreen extends StatelessWidget {
-  final Uint8List imageBytes;
-
-  const _ViewOnceScreen({required this.imageBytes});
-
-  @override
-  Widget build(BuildContext context) {
-    return PrysmPage(
-      backgroundColor: const Color(0xFF000000),
-      leading: PrysmIconButton(
-        icon: PrysmIcons.close,
-        color: const Color(0xB3FFFFFF),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          child: Image.memory(imageBytes, fit: BoxFit.contain),
         ),
       ),
     );

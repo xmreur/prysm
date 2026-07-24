@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/pending_side_channel_queue.dart';
+import 'package:prysm/services/side_channel_postman.dart';
+import 'package:prysm/services/side_channel_transport.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -23,6 +25,7 @@ class MessageModifyService {
   final String? peerId;
   final String? groupId;
   final GroupService? groupService;
+  final SideChannelTransport _transport;
 
   @visibleForTesting
   static Future<bool> Function({
@@ -32,19 +35,41 @@ class MessageModifyService {
     required String? peerId,
   })? postDirectOverride;
 
+  /// Optional test postman injected into the shared side-channel transport.
+  @visibleForTesting
+  static SideChannelPostman? testPostman;
+
   MessageModifyService.direct({
     required this.userId,
     required this.keyManager,
     required this.peerId,
   })  : groupId = null,
-        groupService = null;
+        groupService = null,
+        _transport = SideChannelTransport(
+          userId: userId,
+          outbox: const PendingSideChannelQueue(),
+          postman: testPostman ?? const _MessageModifyPostman(),
+          onDeliveryError: (context, error) => Logging.error(
+            'Message modify send failed [$context]: $error',
+            'MessageModifyService',
+          ),
+        );
 
   MessageModifyService.group({
     required this.userId,
     required this.keyManager,
     required this.groupId,
     required this.groupService,
-  }) : peerId = null;
+  })  : peerId = null,
+        _transport = SideChannelTransport(
+          userId: userId,
+          outbox: const PendingSideChannelQueue(),
+          postman: testPostman ?? const _MessageModifyPostman(),
+          onDeliveryError: (context, error) => Logging.error(
+            'Message modify send failed [$context]: $error',
+            'MessageModifyService',
+          ),
+        );
 
   static String modifyEventId({
     required String targetMessageId,
@@ -258,22 +283,13 @@ class MessageModifyService {
       modifiedAt: payload.modifiedAt,
     );
 
-    final ok = await _postDirect(
+    await _transport.sendDirectAndQueue(
       id: eventId,
+      peerId: peerId!,
       encrypted: encrypted,
       timestamp: payload.modifiedAt,
+      type: messageModifyType,
     );
-    if (!ok) {
-      await PendingMessageDbHelper.insertPendingMessage({
-        'id': eventId,
-        'senderId': userId,
-        'receiverId': peerId,
-        'message': encrypted,
-        'type': messageModifyType,
-        'timestamp': payload.modifiedAt,
-        'status': 'pending',
-      });
-    }
   }
 
   Future<void> _sendGroupModify(
@@ -301,119 +317,15 @@ class MessageModifyService {
     );
 
     for (final target in targets) {
-      final ok = await _postGroup(
-        id: eventId,
+      await _transport.sendGroupAndQueue(
+        id: '${eventId}__$target',
+        groupId: groupId!,
         targetMemberId: target,
         encrypted: encrypted,
         timestamp: payload.modifiedAt,
-      );
-      if (!ok) {
-        await PendingMessageDbHelper.insertPendingMessage({
-          'id': '${eventId}__$target',
-          'senderId': userId,
-          'receiverId': target,
-          'message': encrypted,
-          'type': groupMessageModifyType,
-          'timestamp': payload.modifiedAt,
-          'status': 'pending',
-          'groupId': groupId,
-          'targetMemberId': target,
-        });
-      }
-    }
-  }
-
-  Future<bool> _postDirect({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    if (peerId == null) return false;
-    final override = postDirectOverride;
-    if (override != null) {
-      return override(
-        id: id,
-        encrypted: encrypted,
-        timestamp: timestamp,
-        peerId: peerId,
+        type: groupMessageModifyType,
       );
     }
-    try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postDirectOnce(
-          id: id,
-          encrypted: encrypted,
-          timestamp: timestamp,
-        ),
-      );
-      return true;
-    } catch (e) {
-      Logging.error('Message modify send failed: $e', 'MessageModifyService');
-      return false;
-    }
-  }
-
-  Future<void> _postDirectOnce({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': peerId,
-      'message': encrypted,
-      'type': messageModifyType,
-      'timestamp': timestamp,
-    };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: peerId!,
-      payload: payload,
-    );
-  }
-
-  Future<bool> _postGroup({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    if (groupId == null) return false;
-    try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postGroupOnce(
-          id: id,
-          targetMemberId: targetMemberId,
-          encrypted: encrypted,
-          timestamp: timestamp,
-        ),
-      );
-      return true;
-    } catch (e) {
-      Logging.error('Group message modify send failed: $e', 'MessageModifyService');
-      return false;
-    }
-  }
-
-  Future<void> _postGroupOnce({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': targetMemberId,
-      'groupId': groupId,
-      'message': encrypted,
-      'type': groupMessageModifyType,
-      'timestamp': timestamp,
-    };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: targetMemberId,
-      payload: payload,
-    );
   }
 
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
@@ -605,32 +517,11 @@ class MessageModifyService {
     required String peerId,
     required KeyManager keyManager,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
-      senderId: userId,
-      receiverId: peerId,
+    final transport = _createTransport(userId);
+    return transport.flushPendingForPeer(
+      peerId: peerId,
+      types: {messageModifyType},
     );
-    final modifies =
-        pending.where((m) => m['type'] == messageModifyType).toList();
-    if (modifies.isEmpty) return false;
-
-    var any = false;
-    for (final row in modifies) {
-      final service = MessageModifyService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peerId,
-      );
-      final ok = await service._postDirect(
-        id: row['id'] as String,
-        encrypted: row['message'] as String,
-        timestamp: row['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessages([row['id'] as String]);
-        any = true;
-      }
-    }
-    return any;
   }
 
   static Future<bool> processGlobalPendingDirect({
@@ -638,34 +529,11 @@ class MessageModifyService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    final transport = _createTransport(userId);
+    return transport.flushGlobalPendingDirect(
+      types: {messageModifyType},
+      maxPerCycle: maxPerCycle,
     );
-    final modifies =
-        pending.where((m) => m['type'] == messageModifyType).toList();
-    if (modifies.isEmpty) return false;
-
-    var any = false;
-    for (final row in modifies) {
-      final peerId = row['receiverId'] as String?;
-      if (peerId == null || peerId.isEmpty) continue;
-      final service = MessageModifyService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peerId,
-      );
-      final ok = await service._postDirect(
-        id: row['id'] as String,
-        encrypted: row['message'] as String,
-        timestamp: row['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessages([row['id'] as String]);
-        any = true;
-      }
-    }
-    return any;
   }
 
   static Future<bool> processGlobalPendingGroup({
@@ -673,37 +541,59 @@ class MessageModifyService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingGroupChatMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    final transport = _createTransport(userId);
+    return transport.flushGlobalPendingGroup(
+      types: {groupMessageModifyType},
+      maxPerCycle: maxPerCycle,
     );
-    final modifies =
-        pending.where((m) => m['type'] == groupMessageModifyType).toList();
-    if (modifies.isEmpty) return false;
+  }
 
-    var any = false;
-    for (final row in modifies) {
-      final groupId = row['groupId'] as String?;
-      final target = row['receiverId'] as String?;
-      if (groupId == null || target == null) continue;
-      final gs = GroupService(userId: userId, keyManager: keyManager);
-      final service = MessageModifyService.group(
-        userId: userId,
-        keyManager: keyManager,
-        groupId: groupId,
-        groupService: gs,
+  static SideChannelTransport _createTransport(String userId) {
+    return SideChannelTransport(
+      userId: userId,
+      outbox: const PendingSideChannelQueue(),
+      postman: testPostman ?? const _MessageModifyPostman(),
+      onDeliveryError: (context, error) => Logging.error(
+        'Message modify pending send failed [$context]: $error',
+        'MessageModifyService',
+      ),
+    );
+  }
+}
+
+class _MessageModifyPostman implements SideChannelPostman {
+  const _MessageModifyPostman();
+
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final override = MessageModifyService.postDirectOverride;
+    if (override != null) {
+      final ok = await override(
+        id: payload['id'] as String,
+        encrypted: payload['message'] as String,
+        timestamp: payload['timestamp'] as int,
+        peerId: peerId,
       );
-      final ok = await service._postGroup(
-        id: row['id'] as String,
-        targetMemberId: target,
-        encrypted: row['message'] as String,
-        timestamp: row['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessages([row['id'] as String]);
-        any = true;
-      }
+      if (!ok) throw Exception('postDirectOverride returned false');
+      return;
     }
-    return any;
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId,
+      payload: payload,
+    );
+  }
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+    );
   }
 }

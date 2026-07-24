@@ -10,12 +10,13 @@ import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
-import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/services/pending_side_channel_queue.dart';
+import 'package:prysm/services/side_channel_postman.dart';
+import 'package:prysm/services/side_channel_transport.dart';
 import 'package:prysm/util/read_receipt_payload.dart';
 import 'package:prysm/util/read_receipt_refresh_notifier.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/read_waterline_mark.dart';
-import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/crypto/identity.dart';
 
@@ -42,6 +43,18 @@ class ReadReceiptService {
   static Future<bool> Function(String peerId)? _flushPendingForPeer;
   static final Map<String, int> _lastDispatchedReadUpTo = {};
 
+  // Test-only overrides for the shared side-channel transport.
+  static SideChannelPostman? _postmanForTest;
+  static SideChannelOutbox? _outboxForTest;
+
+  @visibleForTesting
+  static set postmanForTest(SideChannelPostman postman) =>
+      _postmanForTest = postman;
+
+  @visibleForTesting
+  static set outboxForTest(SideChannelOutbox outbox) =>
+      _outboxForTest = outbox;
+
   static void configure({
     Future<bool> Function(String peerId)? flushPendingForPeer,
   }) {
@@ -52,6 +65,8 @@ class ReadReceiptService {
   static void resetForTest() {
     _flushPendingForPeer = null;
     _lastDispatchedReadUpTo.clear();
+    _postmanForTest = null;
+    _outboxForTest = null;
   }
 
   static String _dispatchKey({
@@ -63,12 +78,43 @@ class ReadReceiptService {
     return '$readerId::$peerId';
   }
 
+  static SideChannelTransport _buildTransport({required String userId}) =>
+      SideChannelTransport(
+        userId: userId,
+        outbox: _outboxForTest ?? const PendingSideChannelQueue(),
+        postman: _postmanForTest ?? const _ReadReceiptPostman(),
+        maxAttempts: 2,
+      );
+
   final String userId;
   final KeyManager keyManager;
   final String? peerId;
   final String? groupId;
   final GroupService? groupService;
   final SettingsService _settings = SettingsService();
+  SideChannelTransport? _transportForTest;
+
+  @visibleForTesting
+  set transportForTest(SideChannelTransport transport) =>
+      _transportForTest = transport;
+
+  SideChannelTransport get _transport =>
+      _transportForTest ??
+      SideChannelTransport(
+        userId: userId,
+        outbox: _outboxForTest ?? const PendingSideChannelQueue(),
+        postman: _postmanForTest ?? const _ReadReceiptPostman(),
+        maxAttempts: 2,
+        onDeliveryError: (context, error) {
+          final label = context.startsWith('group:')
+              ? 'Group read waterline'
+              : 'Read waterline';
+          Logging.warning(
+            '$label deferred (will retry via sync): $error',
+            'ReadReceiptService',
+          );
+        },
+      );
 
   ReadReceiptService.direct({
     required this.userId,
@@ -133,25 +179,18 @@ class ReadReceiptService {
       peerId: peerId!,
     );
 
-    final ok = await _postDirect(
-      id: eventId,
-      encrypted: encrypted,
-      timestamp: payload.timestamp,
-      messageType: readWaterlineType,
-      fastFail: true,
-    );
     _lastDispatchedReadUpTo[_dispatchKey(readerId: userId, peerId: peerId, groupId: null)] =
         payload.readUpToTimestamp ?? payload.timestamp;
+
+    final ok = await _transport.sendDirectAndQueue(
+      id: eventId,
+      peerId: peerId!,
+      encrypted: encrypted,
+      timestamp: payload.timestamp,
+      type: readWaterlineType,
+      fastFail: true,
+    );
     if (!ok) {
-      await PendingMessageDbHelper.insertPendingMessage({
-        'id': eventId,
-        'senderId': userId,
-        'receiverId': peerId,
-        'message': encrypted,
-        'type': readWaterlineType,
-        'timestamp': payload.timestamp,
-        'status': 'pending',
-      });
       final flush = _flushPendingForPeer;
       if (flush != null) {
         unawaited(flush(peerId!));
@@ -181,151 +220,22 @@ class ReadReceiptService {
 
     for (final target in targets) {
       final pendingId = '$eventId::$target';
-      final ok = await _postGroup(
+      final ok = await _transport.sendGroupAndQueue(
         id: pendingId,
+        groupId: groupId!,
         targetMemberId: target,
         encrypted: encrypted,
         timestamp: payload.timestamp,
-        messageType: groupReadWaterlineType,
+        type: groupReadWaterlineType,
         fastFail: true,
       );
       if (!ok) {
-        await PendingMessageDbHelper.insertPendingMessage({
-          'id': pendingId,
-          'senderId': userId,
-          'receiverId': target,
-          'message': encrypted,
-          'type': groupReadWaterlineType,
-          'timestamp': payload.timestamp,
-          'status': 'pending',
-          'groupId': groupId,
-          'targetMemberId': target,
-        });
         final flush = _flushPendingForPeer;
         if (flush != null) {
           unawaited(flush(target));
         }
       }
     }
-  }
-
-  Future<bool> _postDirect({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-    required String messageType,
-    bool fastFail = false,
-    bool logOnFailure = true,
-  }) async {
-    if (peerId == null) return false;
-    try {
-      await TorDelivery.withTorRetry<void>(
-        maxAttempts: fastFail ? 1 : 2,
-        attempt: () => _postDirectOnce(
-          id: id,
-          encrypted: encrypted,
-          timestamp: timestamp,
-          messageType: messageType,
-        ),
-      );
-      return true;
-    } catch (e) {
-      if (logOnFailure) {
-        Logging.warning('Read waterline deferred (will retry via sync): $e', 'ReadReceiptService');
-      }
-      return false;
-    }
-  }
-
-  Future<void> _postDirectOnce({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-    required String messageType,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': peerId,
-      'message': encrypted,
-      'type': messageType,
-      'timestamp': timestamp,
-    };
-    final target = peerId!;
-    if (TransportProvider.isConfigured &&
-        TransportProvider.instance.isRealtimeConnected(target)) {
-      await TransportProvider.instance.wsManager.send(
-        target,
-        'read_update',
-        payload: payload,
-      );
-      return;
-    }
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: target,
-      payload: payload,
-    );
-  }
-
-  Future<bool> _postGroup({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-    required String messageType,
-    bool fastFail = false,
-    bool logOnFailure = true,
-  }) async {
-    if (groupId == null) return false;
-    try {
-      await TorDelivery.withTorRetry<void>(
-        maxAttempts: fastFail ? 1 : 2,
-        attempt: () => _postGroupOnce(
-          id: id,
-          targetMemberId: targetMemberId,
-          encrypted: encrypted,
-          timestamp: timestamp,
-          messageType: messageType,
-        ),
-      );
-      return true;
-    } catch (e) {
-      if (logOnFailure) {
-        Logging.warning('Group read waterline deferred (will retry via sync): $e', 'ReadReceiptService');
-      }
-      return false;
-    }
-  }
-
-  Future<void> _postGroupOnce({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-    required String messageType,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': targetMemberId,
-      'groupId': groupId,
-      'message': encrypted,
-      'type': messageType,
-      'timestamp': timestamp,
-    };
-    if (TransportProvider.isConfigured &&
-        TransportProvider.instance.isRealtimeConnected(targetMemberId)) {
-      await TransportProvider.instance.wsManager.send(
-        targetMemberId,
-        'read_update',
-        payload: payload,
-      );
-      return;
-    }
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: targetMemberId,
-      payload: payload,
-    );
   }
 
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
@@ -540,41 +450,10 @@ class ReadReceiptService {
     required String peerId,
     required KeyManager keyManager,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
-      senderId: userId,
-      receiverId: peerId,
+    return _buildTransport(userId: userId).flushPendingForPeer(
+      peerId: peerId,
+      types: {readReceiptType, readWaterlineType},
     );
-    final receipts = pending
-        .where((m) =>
-            m['type'] == readReceiptType || m['type'] == readWaterlineType)
-        .toList();
-    if (receipts.isEmpty) return false;
-
-    var any = false;
-    for (final msg in receipts) {
-      final service = ReadReceiptService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peerId,
-      );
-      final encrypted = msg['message'] as String?;
-      if (encrypted == null || encrypted.isEmpty) {
-        continue;
-      }
-      final ok = await service._postDirect(
-        id: msg['id'] as String,
-        encrypted: encrypted,
-        timestamp: msg['timestamp'] as int,
-        messageType: msg['type'] as String,
-        fastFail: true,
-        logOnFailure: false,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
-    }
-    return any;
   }
 
   static Future<bool> processGlobalPendingDirect({
@@ -582,44 +461,10 @@ class ReadReceiptService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    return _buildTransport(userId: userId).flushGlobalPendingDirect(
+      types: {readReceiptType, readWaterlineType},
+      maxPerCycle: maxPerCycle,
     );
-    final receipts = pending
-        .where((m) =>
-            m['type'] == readReceiptType || m['type'] == readWaterlineType)
-        .toList();
-    if (receipts.isEmpty) return false;
-
-    var any = false;
-    for (final msg in receipts) {
-      final peer = msg['receiverId'] as String?;
-      if (peer == null || peer.isEmpty) continue;
-
-      final service = ReadReceiptService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peer,
-      );
-      final encrypted = msg['message'] as String?;
-      if (encrypted == null || encrypted.isEmpty) {
-        continue;
-      }
-      final ok = await service._postDirect(
-        id: msg['id'] as String,
-        encrypted: encrypted,
-        timestamp: msg['timestamp'] as int,
-        messageType: msg['type'] as String,
-        fastFail: true,
-        logOnFailure: false,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
-    }
-    return any;
   }
 
   static Future<bool> processGlobalPendingGroup({
@@ -627,44 +472,56 @@ class ReadReceiptService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingGroupChatMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    return _buildTransport(userId: userId).flushGlobalPendingGroup(
+      types: {groupReadReceiptType, groupReadWaterlineType},
+      maxPerCycle: maxPerCycle,
     );
-    final receipts = pending
-        .where((m) =>
-            m['type'] == groupReadReceiptType ||
-            m['type'] == groupReadWaterlineType)
-        .toList();
-    if (receipts.isEmpty) return false;
+  }
+}
 
-    var any = false;
-    for (final msg in receipts) {
-      final groupId = msg['groupId'] as String?;
-      final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String?;
-      if (groupId == null || target == null) continue;
+/// [SideChannelPostman] implementation that delegates to the app's
+/// transport layer, preserving the realtime/WebSocket fast path used by
+/// read receipts.
+class _ReadReceiptPostman implements SideChannelPostman {
+  const _ReadReceiptPostman();
 
-      final gs = GroupService(userId: userId, keyManager: keyManager);
-      final service = ReadReceiptService.group(
-        userId: userId,
-        keyManager: keyManager,
-        groupId: groupId,
-        groupService: gs,
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(peerId)) {
+      await TransportProvider.instance.wsManager.send(
+        peerId,
+        'read_update',
+        payload: payload,
       );
-      final ok = await service._postGroup(
-        id: msg['id'] as String,
-        targetMemberId: target,
-        encrypted: msg['message'] as String,
-        timestamp: msg['timestamp'] as int,
-        messageType: msg['type'] as String,
-        fastFail: true,
-        logOnFailure: false,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
+      return;
     }
-    return any;
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId,
+      payload: payload,
+    );
+  }
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+  }) async {
+    if (TransportProvider.isConfigured &&
+        TransportProvider.instance.isRealtimeConnected(targetMemberId)) {
+      await TransportProvider.instance.wsManager.send(
+        targetMemberId,
+        'read_update',
+        payload: payload,
+      );
+      return;
+    }
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+    );
   }
 }

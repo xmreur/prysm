@@ -1,21 +1,22 @@
 import 'dart:async';
-import 'dart:typed_data';
 
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/transport/transport_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/crypto/group_crypto.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
-import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/pending_side_channel_queue.dart';
+import 'package:prysm/services/side_channel_postman.dart';
+import 'package:prysm/services/side_channel_transport.dart';
+import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/pending_message_db_helper.dart';
+import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/reaction_payload.dart';
 import 'package:prysm/util/reaction_refresh_notifier.dart';
-import 'package:prysm/util/peer_identity_loader.dart';
-import 'package:prysm/crypto/identity.dart';
-import 'package:prysm/util/logging.dart';
 
 class ReactionUpdate {
   final String targetMessageId;
@@ -28,12 +29,51 @@ class ReactionUpdate {
 }
 
 /// Sends, receives, and persists message emoji reactions.
+///
+/// All transport, retry, and pending-queue behaviour is delegated to the
+/// shared [SideChannelTransport] module. This class only builds payloads,
+/// encrypts them, persists the local reaction DB, and decrypts inbound
+/// reactions.
 class ReactionService {
+  static final Map<String, SideChannelTransport> _sharedTransports = {};
+  static SideChannelTransport? _testTransport;
+
+  /// Test-only override of the shared [SideChannelTransport] used by both
+  /// instance methods and the static flush helpers. Consumers are unaffected
+  /// because the parameter is optional and the public API remains unchanged.
+  static void configure({
+    SideChannelTransport? transport,
+  }) {
+    _testTransport = transport;
+  }
+
+  @visibleForTesting
+  static void resetForTest() {
+    _testTransport = null;
+    _sharedTransports.clear();
+  }
+
+  static SideChannelTransport _transportFor(String userId) =>
+      _testTransport ??
+      _sharedTransports.putIfAbsent(userId, () => _defaultTransport(userId));
+
+  static SideChannelTransport _defaultTransport(String userId) =>
+      SideChannelTransport(
+        userId: userId,
+        outbox: const PendingSideChannelQueue(),
+        postman: const _TransportProviderPostman(),
+        maxAttempts: 3,
+        onDeliveryError: (context, error) {
+          Logging.error('Reaction delivery failed: $error', 'ReactionService');
+        },
+      );
+
   final String userId;
   final KeyManager keyManager;
   final String? peerId;
   final String? groupId;
   final GroupService? groupService;
+  final SideChannelTransport _transport;
 
   final _updatesController = StreamController<ReactionUpdate>.broadcast();
 
@@ -43,15 +83,19 @@ class ReactionService {
     required this.userId,
     required this.keyManager,
     required this.peerId,
+    SideChannelTransport? transport,
   })  : groupId = null,
-        groupService = null;
+        groupService = null,
+        _transport = transport ?? _testTransport ?? _transportFor(userId);
 
   ReactionService.group({
     required this.userId,
     required this.keyManager,
     required this.groupId,
     required this.groupService,
-  }) : peerId = null;
+    SideChannelTransport? transport,
+  })  : peerId = null,
+        _transport = transport ?? _testTransport ?? _transportFor(userId);
 
   void dispose() {
     _updatesController.close();
@@ -129,13 +173,9 @@ class ReactionService {
 
   Future<void> _sendDirectReaction(ReactionPayload payload) async {
     final peerKey = await _loadPeerPublicKey();
-    if (peerKey == null) {
-      await _queueDirectReaction(payload, peerKeyMissing: true);
-      return;
-    }
+    if (peerKey == null) return;
 
-    final encrypted =
-        await keyManager.encryptForPeer(
+    final encrypted = await keyManager.encryptForPeer(
       payload.encode(),
       peerKey,
       peerId: peerId!,
@@ -145,14 +185,13 @@ class ReactionService {
       reactorId: userId,
     );
 
-    final ok = await _postDirect(
+    await _transport.sendDirectAndQueue(
       id: eventId,
+      peerId: peerId!,
       encrypted: encrypted,
       timestamp: payload.timestamp,
+      type: reactionType,
     );
-    if (!ok) {
-      await _queueDirectReaction(payload, encrypted: encrypted);
-    }
   }
 
   Future<void> _sendGroupReaction(ReactionPayload payload) async {
@@ -172,131 +211,27 @@ class ReactionService {
     );
 
     for (final target in targets) {
-      final ok = await _postGroup(
+      final ok = await _transport.sendGroup(
         id: eventId,
+        groupId: groupId!,
         targetMemberId: target,
         encrypted: encrypted,
         timestamp: payload.timestamp,
+        type: groupReactionType,
       );
       if (!ok) {
-        await PendingMessageDbHelper.insertPendingMessage({
-          'id': '${eventId}__$target',
-          'senderId': userId,
-          'receiverId': target,
-          'message': encrypted,
-          'type': groupReactionType,
-          'timestamp': payload.timestamp,
-          'status': 'pending',
-          'groupId': groupId,
-          'targetMemberId': target,
-        });
+        await _transport.outbox.insertGroup(
+          id: '${eventId}__$target',
+          senderId: userId,
+          receiverId: target,
+          message: encrypted,
+          type: groupReactionType,
+          timestamp: payload.timestamp,
+          groupId: groupId!,
+          targetMemberId: target,
+        );
       }
     }
-  }
-
-  Future<void> _queueDirectReaction(
-    ReactionPayload payload, {
-    String? encrypted,
-    bool peerKeyMissing = false,
-  }) async {
-    if (peerKeyMissing) return;
-    final eventId = reactionEventId(
-      targetMessageId: payload.targetMessageId,
-      reactorId: userId,
-    );
-    await PendingMessageDbHelper.insertPendingMessage({
-      'id': eventId,
-      'senderId': userId,
-      'receiverId': peerId,
-      'message': encrypted ?? '',
-      'type': reactionType,
-      'timestamp': payload.timestamp,
-      'status': 'pending',
-    });
-  }
-
-  Future<bool> _postDirect({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    if (peerId == null) return false;
-    try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postDirectOnce(
-          id: id,
-          encrypted: encrypted,
-          timestamp: timestamp,
-        ),
-      );
-      return true;
-    } catch (e) {
-      Logging.error('Reaction send failed: $e', 'ReactionService');
-      return false;
-    }
-  }
-
-  Future<void> _postDirectOnce({
-    required String id,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': peerId,
-      'message': encrypted,
-      'type': reactionType,
-      'timestamp': timestamp,
-    };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: peerId!,
-      payload: payload,
-    );
-  }
-
-  Future<bool> _postGroup({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    if (groupId == null) return false;
-    try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postGroupOnce(
-          id: id,
-          targetMemberId: targetMemberId,
-          encrypted: encrypted,
-          timestamp: timestamp,
-        ),
-      );
-      return true;
-    } catch (e) {
-      Logging.error('Group reaction send failed: $e', 'ReactionService');
-      return false;
-    }
-  }
-
-  Future<void> _postGroupOnce({
-    required String id,
-    required String targetMemberId,
-    required String encrypted,
-    required int timestamp,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': targetMemberId,
-      'groupId': groupId,
-      'message': encrypted,
-      'type': groupReactionType,
-      'timestamp': timestamp,
-    };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: targetMemberId,
-      payload: payload,
-    );
   }
 
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
@@ -420,44 +355,24 @@ class ReactionService {
     );
   }
 
+  /// Strips the member suffix added to pending group reaction ids so that
+  /// retry/flush uses the original wire event id, matching pre-migration
+  /// behaviour.
+  static String _eventIdFromPending(String pendingId) {
+    final idx = pendingId.lastIndexOf('__');
+    return idx == -1 ? pendingId : pendingId.substring(0, idx);
+  }
+
   /// Retry pending direct reactions for one peer.
   static Future<bool> processPendingForPeer({
     required String userId,
     required String peerId,
     required KeyManager keyManager,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
-      senderId: userId,
-      receiverId: peerId,
+    return _transportFor(userId).flushPendingForPeer(
+      peerId: peerId,
+      types: {reactionType},
     );
-    final reactions =
-        pending.where((m) => m['type'] == reactionType).toList();
-    if (reactions.isEmpty) return false;
-
-    var any = false;
-    for (final msg in reactions) {
-      final service = ReactionService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peerId,
-      );
-      final encrypted = msg['message'] as String?;
-      if (encrypted == null || encrypted.isEmpty) {
-        service.dispose();
-        continue;
-      }
-      final ok = await service._postDirect(
-        id: msg['id'] as String,
-        encrypted: encrypted,
-        timestamp: msg['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
-      service.dispose();
-    }
-    return any;
   }
 
   /// Retry pending direct reactions for all peers.
@@ -466,41 +381,10 @@ class ReactionService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    return _transportFor(userId).flushGlobalPendingDirect(
+      types: {reactionType},
+      maxPerCycle: maxPerCycle,
     );
-    final reactions =
-        pending.where((m) => m['type'] == reactionType).toList();
-    if (reactions.isEmpty) return false;
-
-    var any = false;
-    for (final msg in reactions) {
-      final peer = msg['receiverId'] as String?;
-      if (peer == null || peer.isEmpty) continue;
-
-      final service = ReactionService.direct(
-        userId: userId,
-        keyManager: keyManager,
-        peerId: peer,
-      );
-      final encrypted = msg['message'] as String?;
-      if (encrypted == null || encrypted.isEmpty) {
-        service.dispose();
-        continue;
-      }
-      final ok = await service._postDirect(
-        id: msg['id'] as String,
-        encrypted: encrypted,
-        timestamp: msg['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
-      service.dispose();
-    }
-    return any;
   }
 
   /// Retry pending group reactions.
@@ -509,44 +393,37 @@ class ReactionService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingGroupChatMessages(
-      senderId: userId,
-      limit: maxPerCycle,
+    return _transportFor(userId).flushGlobalPendingGroup(
+      types: {groupReactionType},
+      maxPerCycle: maxPerCycle,
+      wireIdOf: (row) => _eventIdFromPending(row.id),
     );
-    final reactions =
-        pending.where((m) => m['type'] == groupReactionType).toList();
-    if (reactions.isEmpty) return false;
+  }
+}
 
-    var any = false;
-    for (final msg in reactions) {
-      final groupId = msg['groupId'] as String?;
-      final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String?;
-      if (groupId == null || target == null) continue;
+/// [SideChannelPostman] that delegates to the existing [TransportProvider].
+class _TransportProviderPostman implements SideChannelPostman {
+  const _TransportProviderPostman();
 
-      final gs = GroupService(userId: userId, keyManager: keyManager);
-      final service = ReactionService.group(
-        userId: userId,
-        keyManager: keyManager,
-        groupId: groupId,
-        groupService: gs,
-      );
-      final ok = await service._postGroup(
-        id: _eventIdFromPending(msg['id'] as String),
-        targetMemberId: target,
-        encrypted: msg['message'] as String,
-        timestamp: msg['timestamp'] as int,
-      );
-      if (ok) {
-        await PendingMessageDbHelper.removeMessage(msg['id'] as String);
-        any = true;
-      }
-      service.dispose();
-    }
-    return any;
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId,
+      payload: payload,
+    );
   }
 
-  static String _eventIdFromPending(String pendingId) {
-    final idx = pendingId.lastIndexOf('__');
-    return idx >= 0 ? pendingId.substring(0, idx) : pendingId;
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+    );
   }
 }

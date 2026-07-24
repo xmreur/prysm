@@ -1,12 +1,13 @@
-import 'package:mutex/mutex.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/util/message_preview_label.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// Local-only notes-to-self messages (no P2P).
 class SelfMessagesDb {
   SelfMessagesDb._();
 
-  static final _mutex = Mutex();
   static Database? _testDatabase;
 
   static Future<Database> _db() async {
@@ -21,29 +22,11 @@ class SelfMessagesDb {
   static const _typeFilter =
       "(type IS NULL OR type IN ('text', 'file', 'image', 'audio'))";
 
-  static Future<void> createTable(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS self_messages (
-        id TEXT PRIMARY KEY,
-        message TEXT,
-        type TEXT DEFAULT 'text',
-        fileName TEXT,
-        fileSize INTEGER,
-        timestamp INTEGER NOT NULL,
-        replyTo TEXT,
-        viewOnce INTEGER DEFAULT 0,
-        viewed INTEGER DEFAULT 0,
-        deletedAt INTEGER,
-        editedAt INTEGER
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_self_messages_ts ON self_messages(timestamp)',
-    );
-  }
+  static Future<void> createTable(Database db) =>
+      MessageSchemaMigrations.createSelfMessagesTable(db);
 
   static Future<void> insertMessage(Map<String, dynamic> message) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       await db.insert(
         'self_messages',
@@ -58,7 +41,7 @@ class SelfMessagesDb {
     int? beforeTimestamp,
     String? beforeId,
   }) async {
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       var where = _typeFilter;
       final whereArgs = <dynamic>[];
@@ -85,7 +68,7 @@ class SelfMessagesDb {
   }
 
   static Future<int?> getLastTimestamp() async {
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       final result = await db.rawQuery('''
         SELECT MAX(timestamp) AS lastTimestamp
@@ -102,7 +85,7 @@ class SelfMessagesDb {
   }
 
   static Future<String?> getLastPreview() async {
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       final rows = await db.query(
         'self_messages',
@@ -113,12 +96,12 @@ class SelfMessagesDb {
       );
       if (rows.isEmpty) return null;
       final row = rows.first;
-      return MessagesDb.previewLabelForType(row['type'] as String?);
+      return previewLabelForType(row['type'] as String?);
     });
   }
 
   static Future<void> softDelete(String messageId) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       await db.update(
         'self_messages',
@@ -136,7 +119,7 @@ class SelfMessagesDb {
     required String messageId,
     required String encryptedMessage,
   }) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       await db.update(
         'self_messages',
@@ -151,7 +134,7 @@ class SelfMessagesDb {
   }
 
   static Future<List<Map<String, dynamic>>> getMessageById(String messageId) async {
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       return db.query(
         'self_messages',
@@ -163,7 +146,7 @@ class SelfMessagesDb {
   }
 
   static Future<void> markViewOnceViewed(String messageId) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _db();
       await db.update(
         'self_messages',

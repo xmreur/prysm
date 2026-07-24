@@ -1,5 +1,5 @@
 import 'package:prysm/constants/group_constants.dart';
-import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/message_id_codec.dart';
 
 /// A media attachment row surfaced in the in-chat gallery.
 class ChatMediaItem {
@@ -34,7 +34,7 @@ class ChatMediaItem {
     required bool isGroup,
   }) {
     return ChatMediaItem(
-      id: MessagesDb.wireIdFromStorage(row['id'] as String),
+      id: MessageIdCodec.wireIdFromStorage(row['id'] as String),
       type: row['type'] as String,
       fileName: row['fileName'] as String?,
       fileSize: row['fileSize'] as int?,

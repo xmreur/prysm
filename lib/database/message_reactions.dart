@@ -1,5 +1,6 @@
-import 'package:mutex/mutex.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/util/reaction_payload.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:flutter/foundation.dart';
@@ -7,8 +8,6 @@ import 'package:flutter/foundation.dart';
 /// Local persistence for message emoji reactions.
 class MessageReactionsDb {
   MessageReactionsDb._();
-
-  static final _mutex = Mutex();
 
   /// Override for unit tests (in-memory SQLite).
   @visibleForTesting
@@ -19,24 +18,8 @@ class MessageReactionsDb {
     return MessagesDb.database;
   }
 
-  static Future<void> createTable(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS message_reactions(
-        targetMessageId TEXT NOT NULL,
-        reactorId TEXT NOT NULL,
-        emoji TEXT NOT NULL,
-        groupId TEXT,
-        timestamp INTEGER NOT NULL,
-        PRIMARY KEY (targetMessageId, reactorId)
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_reactions_target ON message_reactions(targetMessageId)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_reactions_group ON message_reactions(groupId, targetMessageId)',
-    );
-  }
+  static Future<void> createTable(Database db) =>
+      MessageSchemaMigrations.createReactionsTable(db);
 
   static Future<void> upsertReaction({
     required String targetMessageId,
@@ -45,7 +28,7 @@ class MessageReactionsDb {
     String? groupId,
     required int timestamp,
   }) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _database();
       await db.insert(
         'message_reactions',
@@ -65,7 +48,7 @@ class MessageReactionsDb {
     required String targetMessageId,
     required String reactorId,
   }) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _database();
       await db.delete(
         'message_reactions',
@@ -79,7 +62,7 @@ class MessageReactionsDb {
     required String targetMessageId,
     required String reactorId,
   }) async {
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _database();
       final rows = await db.query(
         'message_reactions',
@@ -105,7 +88,7 @@ class MessageReactionsDb {
         MessagesDb.scopedId(wireId: wireId, groupId: groupId): wireId,
     };
 
-    return _mutex.protect(() async {
+    return MessagesDatabase.mutex.protect(() async {
       final db = await _database();
       final placeholders = List.filled(storageToWire.length, '?').join(',');
       final rows = await db.query(
@@ -132,7 +115,7 @@ class MessageReactionsDb {
   }
 
   static Future<void> deleteReactionsForMessage(String targetMessageId) async {
-    await _mutex.protect(() async {
+    await MessagesDatabase.mutex.protect(() async {
       final db = await _database();
       await db.delete(
         'message_reactions',

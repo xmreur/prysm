@@ -409,10 +409,12 @@ class _TransportProviderPostman implements SideChannelPostman {
   Future<void> postDirect({
     required String peerId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     await TransportProvider.postMessageOrFallback(
       peerOnion: peerId,
       payload: payload,
+      timeout: timeout,
     );
   }
 
@@ -420,10 +422,12 @@ class _TransportProviderPostman implements SideChannelPostman {
   Future<void> postGroup({
     required String targetMemberId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     await TransportProvider.postMessageOrFallback(
       peerOnion: targetMemberId,
       payload: payload,
+      timeout: timeout,
     );
   }
 }

@@ -318,6 +318,52 @@ void main() {
       expect(endFrame.payload['reason'], 'declined');
     },
   );
+
+  test(
+    'blocking the peer of an active call ends the call '
+    '(characterizes BlockService -> CallManager coupling)',
+    () async {
+      CallManager.configure(
+        keyManager: keyManager,
+        transport: transport,
+        keyResolver: keyResolver,
+        audioFactory: ({required session, required onSendFrame}) =>
+            _FakeCallAudio(onSendFrame: onSendFrame),
+      );
+      CallManager.instance.start();
+      // Mirrors the composition-root wiring in main.dart: BlockService no
+      // longer calls CallManager statically, it invokes this callback.
+      BlockService.instance.onPeerBlocked =
+          (peerOnion) => CallManager.endCallWithPeer(peerOnion, reason: 'declined');
+      addTearDown(() => BlockService.instance.onPeerBlocked = null);
+
+      final active = Completer<void>();
+      CallManager.instance.addListener(() {
+        if (CallManager.instance.snapshot.state == CallState.active) {
+          active.complete();
+        }
+      });
+
+      await CallManager.instance.startCall('active.onion');
+      final offer = transport.sentFrames.firstWhere(
+        (f) => f.op == 'call_offer',
+      );
+      notifier.applyInbound('active.onion', 'call_answer', {
+        'callId': offer.payload['callId'],
+        'sessionId': offer.payload['sessionId'],
+      });
+      await active.future.timeout(const Duration(seconds: 2));
+      expect(CallManager.instance.snapshot.state, CallState.active);
+
+      await BlockService.instance.block('active.onion');
+
+      expect(CallManager.instance.snapshot.state, CallState.idle);
+      final endFrame = transport.sentFrames.lastWhere(
+        (f) => f.op == 'call_end',
+      );
+      expect(endFrame.payload['reason'], 'declined');
+    },
+  );
 }
 
 Future<void> _waitFor(bool Function() condition, {int timeoutMs = 2000}) async {

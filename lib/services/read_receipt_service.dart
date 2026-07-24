@@ -489,6 +489,7 @@ class _ReadReceiptPostman implements SideChannelPostman {
   Future<void> postDirect({
     required String peerId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     if (TransportProvider.isConfigured &&
         TransportProvider.instance.isRealtimeConnected(peerId)) {
@@ -502,6 +503,7 @@ class _ReadReceiptPostman implements SideChannelPostman {
     await TransportProvider.postMessageOrFallback(
       peerOnion: peerId,
       payload: payload,
+      timeout: timeout,
     );
   }
 
@@ -509,6 +511,7 @@ class _ReadReceiptPostman implements SideChannelPostman {
   Future<void> postGroup({
     required String targetMemberId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     if (TransportProvider.isConfigured &&
         TransportProvider.instance.isRealtimeConnected(targetMemberId)) {
@@ -522,6 +525,7 @@ class _ReadReceiptPostman implements SideChannelPostman {
     await TransportProvider.postMessageOrFallback(
       peerOnion: targetMemberId,
       payload: payload,
+      timeout: timeout,
     );
   }
 }

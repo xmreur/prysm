@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -10,10 +9,12 @@ import 'package:prysm/crypto/crypto.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/file_transfer_progress.dart';
 import 'package:prysm/services/file_transfer_sender.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
+import 'package:prysm/services/pending_queue_reconciler.dart';
+import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
-import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -59,11 +60,40 @@ class ChatService {
   StreamSubscription<InboundMessageEvent>? _inboundSub;
   StreamSubscription<Map<String, dynamic>>? _localInsertSub;
 
+  late final PeerIdentityResolver _identityResolver;
+  late final PendingQueueReconciler _reconciler;
+  final SideChannelPostman _postman;
+
   ChatService({
     required this.userId,
     required this.peerId,
     required this.keyManager,
-  });
+    PeerIdentityResolver? identityResolver,
+    PendingQueueReconciler? pendingQueueReconciler,
+    SideChannelPostman? postman,
+  }) : _postman = postman ?? const _ChatTransportPostman() {
+    _identityResolver =
+        identityResolver ?? PeerIdentityResolver(peerId: peerId, keyManager: keyManager);
+    _reconciler = pendingQueueReconciler ??
+        PendingQueueReconciler(
+          userId: userId,
+          peerId: peerId,
+          isDisposed: () => _disposed,
+          hasPeerIdentity: () => peerIdentity != null,
+          isInFlight: (wireId) => _inFlightSends.contains(wireId),
+          requeue: (wireId) => resendMessage(wireId, processQueue: false),
+          sendPending: (row) => _sendOverTor(
+            row['id'] as String,
+            row['message'] as String,
+            row['type'] as String,
+            replyToId: row['replyTo'] as String?,
+            fileName: row['fileName'] as String?,
+            fileSize: row['fileSize'] as int?,
+            viewOnce: (row['viewOnce'] ?? 0) == 1,
+          ),
+          markAsSent: _markAsSent,
+        );
+  }
 
   void dispose() {
     _disposed = true;
@@ -92,7 +122,7 @@ class ChatService {
       }
     }
 
-    final cached = await _getPeerIdentityFromDb();
+    final cached = await _identityResolver.getCachedIdentityJson();
     if (cached != null) {
       try {
         peerIdentity = keyManager.importPeerIdentity(cached);
@@ -160,34 +190,7 @@ class ChatService {
   /// Re-queues outbound messages that show as pending in the UI but were
   /// dropped from the pending_messages retry table (e.g. after a failed send
   /// before the queue insert, or app restart during a long Tor timeout).
-  Future<void> reconcilePendingQueue() async {
-    if (_disposed || peerIdentity == null) return;
-
-    final pendingRows = await MessagesDb.getPendingOutboundDirectMessages(
-      senderId: userId,
-      receiverId: peerId,
-    );
-    if (pendingRows.isEmpty) return;
-
-    for (final row in pendingRows) {
-      if (_disposed || peerIdentity == null) return;
-
-      final wireId = MessagesDb.wireIdFromStorage(row['id'] as String);
-      final type = row['type'] as String? ?? 'text';
-      if (isSideChannelPendingType(type)) continue;
-      if (_inFlightSends.contains(wireId)) continue;
-
-      final queued =
-          await PendingMessageDbHelper.getPendingOutboundForWireId(wireId);
-      if (queued != null) continue;
-
-      try {
-        await resendMessage(wireId, processQueue: false);
-      } catch (e) {
-        Logging.error('Failed to re-queue pending message $wireId: $e', 'ChatService');
-      }
-    }
-  }
+  Future<void> reconcilePendingQueue() => _reconciler.reconcile();
 
   /// Avoid re-processing historical messages on the first poll after chat open.
   void seedNewestTimestamp(int timestamp) {
@@ -578,8 +581,8 @@ class ChatService {
 
     try {
       _inFlightSends.add(id);
-      await TransportProvider.postMessageOrFallback(
-        peerOnion: peerId,
+      await _postman.postDirect(
+        peerId: peerId,
         payload: {
           'id': id,
           'senderId': userId,
@@ -666,51 +669,13 @@ class ChatService {
   }
 
   Future<bool> _fetchPeerIdentityOverTor() async {
-    if (TorRuntimeGate.blocked) return false;
-    try {
-      String? identityJson;
-      try {
-        final profileBody =
-            await TransportProvider.getProfileOrFallback(peerId);
-        final data = jsonDecode(profileBody) as Map<String, dynamic>;
-        identityJson = (data['identityJson'] as String?)?.trim() ??
-            (data['publicKeyPem'] as String?)?.trim();
-        final prekeyRaw = data['prekeyBundle'];
-        peerIdentity = keyManager.importPeerIdentity(identityJson!);
-        if (prekeyRaw is Map) {
-          peerPrekeyBundle = await PrekeyBundle.parseVerified(
-            Map<String, dynamic>.from(prekeyRaw),
-            peerIdentity!,
-          );
-        }
-      } catch (_) {
-        identityJson =
-            (await TransportProvider.getPublicOrFallback(peerId)).trim();
-        peerIdentity = keyManager.importPeerIdentity(identityJson);
-      }
-      await _persistPeerIdentity(identityJson);
-      return true;
-    } catch (e) {
-      Logging.error('Failed to fetch peer identity: $e', 'ChatService');
-      return false;
-    }
-  }
-
-  Future<void> _persistPeerIdentity(String identityJson) async {
-    try {
-      final existing = await DBHelper.getUserById(peerId);
-      await DBHelper.insertOrUpdateUser({
-        'id': peerId,
-        'name': existing?['name'] ?? peerId,
-        'avatarUrl': existing?['avatarUrl'] ?? '',
-        'avatarBase64': existing?['avatarBase64'],
-        'customName': existing?['customName'],
-        'identityJson': identityJson,
-        'publicKeyPem': identityJson,
-      });
-    } catch (e) {
-      Logging.error('Failed to persist peer public key: $e', 'ChatService');
-    }
+    final resolved = await _identityResolver.fetchOverTor(
+      onIdentityResolved: (identity) => peerIdentity = identity,
+    );
+    if (resolved == null) return false;
+    peerIdentity = resolved.identity;
+    peerPrekeyBundle = resolved.prekeyBundle;
+    return true;
   }
 
   /// Retry pending 1:1 deliveries for one peer (wake-hint response).
@@ -719,17 +684,10 @@ class ChatService {
     required String peerId,
     required KeyManager keyManager,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+    final chatPending = await PendingQueueReconciler.chatPendingForReceiver(
       senderId: userId,
       receiverId: peerId,
     );
-    final chatPending = pending.where((m) {
-      final type = m['type'] as String?;
-      if (type == null) return false;
-      return !isReadReceiptType(type) &&
-          !isReactionType(type) &&
-          !isMessageModifyType(type);
-    }).toList();
     if (chatPending.isEmpty) return false;
 
     final service = ChatService(
@@ -737,7 +695,7 @@ class ChatService {
       peerId: peerId,
       keyManager: keyManager,
     );
-    final cached = await service._getPeerIdentityFromDb();
+    final cached = await service._identityResolver.getCachedIdentityJson();
     if (cached != null) {
       service.peerIdentity = keyManager.importPeerIdentity(cached);
     } else {
@@ -758,17 +716,11 @@ class ChatService {
     required KeyManager keyManager,
     int maxPerCycle = 20,
   }) async {
-    final pending = await PendingMessageDbHelper.getPendingDirectMessages(
+    final peerIds = await PendingQueueReconciler.peersWithPendingDirectMessages(
       senderId: userId,
       limit: maxPerCycle,
     );
-    if (pending.isEmpty) return false;
-
-    final peerIds = pending
-        .map((m) => m['receiverId'] as String?)
-        .whereType<String>()
-        .where((id) => id.isNotEmpty)
-        .toSet();
+    if (peerIds.isEmpty) return false;
 
     var anySuccess = false;
     for (final peer in peerIds) {
@@ -777,7 +729,7 @@ class ChatService {
         peerId: peer,
         keyManager: keyManager,
       );
-      final cached = await service._getPeerIdentityFromDb();
+      final cached = await service._identityResolver.getCachedIdentityJson();
       if (cached != null) {
         service.peerIdentity = keyManager.importPeerIdentity(cached);
       } else {
@@ -800,59 +752,9 @@ class ChatService {
     if (_isSending || _disposed) return;
     _isSending = true;
     try {
-      final pending =
-          await PendingMessageDbHelper.getPendingMessages(receiverId: peerId);
-      if (pending.isEmpty || peerIdentity == null) return;
-
-      final sentIds = <String>[];
-      for (final msg in pending.take(10)) {
-        if (_disposed) break;
-        final type = msg['type'] as String?;
-        if (type != null && isSideChannelPendingType(type)) {
-          continue;
-        }
-        final msgId = msg['id'] as String;
-        final stored = await MessagesDb.getMessageById(msgId);
-        if (stored.isEmpty || stored.first['deletedAt'] != null) {
-          await PendingMessageDbHelper.removeOutboundPendingForWireId(msgId);
-          continue;
-        }
-        final encrypted = msg['message'] as String?;
-        if (encrypted == null || encrypted.isEmpty) {
-          await PendingMessageDbHelper.removeOutboundPendingForWireId(msgId);
-          continue;
-        }
-        final success = await _sendOverTor(
-          msgId,
-          encrypted,
-          msg['type'] as String,
-          replyToId: msg['replyTo'] as String?,
-          fileName: msg['fileName'] as String?,
-          fileSize: msg['fileSize'] as int?,
-          viewOnce: (msg['viewOnce'] ?? 0) == 1,
-        );
-        if (success) {
-          sentIds.add(msgId);
-          await _markAsSent(msgId);
-        } else {
-          break;
-        }
-      }
-      if (sentIds.isNotEmpty) {
-        await PendingMessageDbHelper.removeMessages(sentIds);
-      }
+      await _reconciler.flushOnce();
     } finally {
       _isSending = false;
-    }
-  }
-
-  Future<String?> _getPeerIdentityFromDb() async {
-    try {
-      final user = await DBHelper.getUserById(peerId);
-      return (user?['identityJson'] as String?) ??
-          (user?['publicKeyPem'] as String?);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -976,4 +878,39 @@ class MessageStatusUpdate {
   final String messageId;
   final String status;
   MessageStatusUpdate(this.messageId, this.status);
+}
+
+/// Default [SideChannelPostman] wiring for [ChatService], delegating to the
+/// existing [TransportProvider] singleton. Injected via the ctor so the
+/// dependency is explicit and fake-able in tests; real callers keep going
+/// through the app-wide transport until the composition root (Fase 5)
+/// wires it explicitly.
+class _ChatTransportPostman implements SideChannelPostman {
+  const _ChatTransportPostman();
+
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId,
+      payload: payload,
+      timeout: timeout,
+    );
+  }
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+      timeout: timeout,
+    );
+  }
 }

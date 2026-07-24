@@ -6,6 +6,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -46,12 +47,15 @@ class GroupChatService {
   Stream<GroupMessageStatusUpdate> get onMessageStatus =>
       _messageStatusController.stream;
 
+  final SideChannelPostman _postman;
+
   GroupChatService({
     required this.userId,
     required this.groupId,
     required this.keyManager,
     required this.groupService,
-  });
+    SideChannelPostman? postman,
+  }) : _postman = postman ?? const _GroupChatTransportPostman();
 
   void dispose() {
     _disposed = true;
@@ -513,8 +517,8 @@ class GroupChatService {
       'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
     };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: targetMemberId,
+    await _postman.postGroup(
+      targetMemberId: targetMemberId,
       payload: payload,
       timeout: timeout,
     );
@@ -746,4 +750,39 @@ class GroupMessageStatusUpdate {
   final String messageId;
   final String status;
   GroupMessageStatusUpdate(this.messageId, this.status);
+}
+
+/// Default [SideChannelPostman] wiring for [GroupChatService], delegating
+/// to the existing [TransportProvider] singleton. Injected via the ctor so
+/// the dependency is explicit and fake-able in tests; real callers keep
+/// going through the app-wide transport until the composition root
+/// (Fase 5) wires it explicitly.
+class _GroupChatTransportPostman implements SideChannelPostman {
+  const _GroupChatTransportPostman();
+
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: peerId,
+      payload: payload,
+      timeout: timeout,
+    );
+  }
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await TransportProvider.postMessageOrFallback(
+      peerOnion: targetMemberId,
+      payload: payload,
+      timeout: timeout,
+    );
+  }
 }

@@ -1,5 +1,4 @@
 import 'package:prysm/database/blocked_users_db.dart';
-import 'package:prysm/services/call/call_manager.dart';
 
 class BlockService {
   BlockService._();
@@ -7,6 +6,14 @@ class BlockService {
 
   final Set<String> _blockedIds = {};
   final Map<String, int> _blockedAt = {};
+
+  /// Registered by the composition root (currently CallManager's wiring in
+  /// main.dart) so BlockService doesn't need a compile-time dependency on
+  /// the call subsystem. Breaks the BlockService <-> CallManager import
+  /// cycle: CallManager still reads BlockService.instance.isBlocked
+  /// directly (that edge stays, it's the fewer-call-site direction), but
+  /// BlockService no longer calls back into CallManager statically.
+  Future<void> Function(String userId)? onPeerBlocked;
 
   Future<void> init() async {
     _blockedIds.clear();
@@ -30,7 +37,7 @@ class BlockService {
     await BlockedUsersDb.block(userId, now);
     _blockedIds.add(userId);
     _blockedAt[userId] = now;
-    await CallManager.endCallWithPeer(userId, reason: 'declined');
+    await onPeerBlocked?.call(userId);
   }
 
   Future<void> unblock(String userId) async {

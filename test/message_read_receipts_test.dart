@@ -78,6 +78,7 @@ class _FakePostman implements SideChannelPostman {
   Future<void> postDirect({
     required String peerId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     directCalls.add({'peerId': peerId, 'payload': payload});
     if (!directSuccess) {
@@ -89,6 +90,7 @@ class _FakePostman implements SideChannelPostman {
   Future<void> postGroup({
     required String targetMemberId,
     required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     groupCalls.add({'targetMemberId': targetMemberId, 'payload': payload});
     if (!groupSuccess) {

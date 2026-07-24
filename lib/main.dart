@@ -592,6 +592,11 @@ class _MyAppState extends State<MyApp> {
     TransportProvider.configure(result.torManager);
     CallManager.configure(keyManager: widget.keyManager);
     CallManager.instance.start();
+    // Composition-root wiring for the BlockService <-> CallManager cycle
+    // break (Fase 3.3): BlockService no longer imports CallManager, it
+    // just invokes this registered callback when a peer gets blocked.
+    BlockService.instance.onPeerBlocked =
+        (peerOnion) => CallManager.endCallWithPeer(peerOnion, reason: 'declined');
 
     if (!Platform.isAndroid && !Platform.isIOS) {
       windowManager.addListener(MyWindowListener(result.torManager));

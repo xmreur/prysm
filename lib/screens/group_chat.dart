@@ -72,10 +72,11 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/typing_indicator_service.dart';
 import 'package:prysm/services/typing_state_tracker.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
@@ -842,7 +843,28 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Future<Uint8List> _decryptGroupFileBytes(Map<String, dynamic> msg) async {
     final groupKey = await _groupService.getDecryptedGroupKey(widget.group.id);
     if (groupKey == null) throw Exception('No group key');
-    return await GroupCrypto.decryptGroupFile(groupKey, msg['message'] as String);
+    return await GroupCryptoV2.decryptGroupFile(groupKey, msg['message'] as String);
+  }
+
+  Future<String> _decryptSenderKeyText({
+    required Uint8List groupKey,
+    required String wire,
+    required String transportSenderId,
+  }) async {
+    final senderKeys = await loadPeerIdentityFromDb(
+      widget.keyManager,
+      transportSenderId,
+    );
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return GroupCryptoV2.decryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: widget.group.id,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
   Future<Uint8List> _decryptGroupImageFromDb(String messageId) async {
@@ -901,15 +923,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
         if (type == groupTextType) {
           final wireStr = wire as String;
-          final text = GroupCrypto.isSenderKeyEnvelope(wireStr)
-              ? await GroupCrypto.decryptWithSenderKey(
-                  epochKey: groupKey,
-                  groupId: widget.group.id,
+          final text = GroupCryptoV2.isSenderKeyEnvelope(wireStr)
+              ? await _decryptSenderKeyText(
+                  groupKey: groupKey,
                   wire: wireStr,
                   transportSenderId: authorId,
-                  keyManager: widget.keyManager,
                 )
-              : await GroupCrypto.decryptText(groupKey, wireStr);
+              : await GroupCryptoV2.decryptText(groupKey, wireStr);
           result.add(TextMessage(
             authorId: authorId,
             createdAt: createdAt,

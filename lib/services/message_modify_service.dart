@@ -6,8 +6,8 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_payload.dart';
@@ -149,7 +149,7 @@ class MessageModifyService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return false;
 
-    final encrypted = await GroupCrypto.encryptText(groupKey, newText);
+    final encrypted = await GroupCryptoV2.encryptText(groupKey, newText);
     await MessagesDb.updateMessageContent(
       wireId: targetMessageId,
       groupId: groupId,
@@ -286,7 +286,7 @@ class MessageModifyService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return;
 
-    final encrypted = await GroupCrypto.encryptText(groupKey, payload.encode());
+    final encrypted = await GroupCryptoV2.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     var targets = members.map((m) => m.memberId).where((id) => id != userId);
     if (onlyTargets != null) {
@@ -517,16 +517,16 @@ class MessageModifyService {
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        if (GroupCrypto.isSenderKeyEnvelope(encryptedBody)) {
-          return GroupCrypto.decryptWithSenderKey(
-            epochKey: groupKey,
+        if (GroupCryptoV2.isSenderKeyEnvelope(encryptedBody)) {
+          return _decryptSenderKey(
+            groupKey: groupKey,
             groupId: groupId,
             wire: encryptedBody,
             transportSenderId: senderId,
             keyManager: keyManager,
           );
         }
-        return await GroupCrypto.decryptText(groupKey, encryptedBody);
+        return await GroupCryptoV2.decryptText(groupKey, encryptedBody);
       }
     } catch (e) {
       Logging.error('Edited body decrypt failed: $e', 'MessageModifyService');
@@ -560,21 +560,44 @@ class MessageModifyService {
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
-          return GroupCrypto.decryptWithSenderKey(
-            epochKey: groupKey,
+        if (GroupCryptoV2.isSenderKeyEnvelope(encrypted)) {
+          return _decryptSenderKey(
+            groupKey: groupKey,
             groupId: groupId,
             wire: encrypted,
             transportSenderId: senderId,
             keyManager: keyManager,
           );
         }
-        return await GroupCrypto.decryptText(groupKey, encrypted);
+        return await GroupCryptoV2.decryptText(groupKey, encrypted);
       }
     } catch (e) {
       Logging.error('Message modify decrypt failed: $e', 'MessageModifyService');
     }
     return null;
+  }
+
+  static Future<String> _decryptSenderKey({
+    required Uint8List groupKey,
+    required String groupId,
+    required String wire,
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys = await loadPeerIdentityFromDb(
+      keyManager,
+      transportSenderId,
+    );
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return GroupCryptoV2.decryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
   static Future<bool> processPendingForPeer({

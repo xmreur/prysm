@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/group_service.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -145,13 +145,13 @@ class GroupChatService {
       groupId: groupId,
       senderId: userId,
     );
-    final encrypted = await GroupCrypto.encryptWithSenderKey(
+    final encrypted = await GroupCryptoV2.encryptWithSenderKey(
       epochKey: _groupKey!,
       groupId: groupId,
       senderId: userId,
       messageIndex: index,
       plaintext: text,
-      keyManager: keyManager,
+      sender: keyManager.identity,
     );
 
     await MessagesDb.insertMessage({
@@ -226,7 +226,7 @@ class GroupChatService {
     final groupType = _groupTypeForMedia(type);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
-    final encrypted = await GroupCrypto.encryptGroupFile(_groupKey!, bytes);
+    final encrypted = await GroupCryptoV2.encryptGroupFile(_groupKey!, bytes);
 
     await MessagesDb.insertMessage({
       'id': id,

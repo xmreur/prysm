@@ -1,12 +1,13 @@
 import 'dart:convert';
 
 import 'package:prysm/crypto/ratchet/ratchet_session.dart';
-import 'package:prysm/util/db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Persists Double Ratchet session state per peer.
 class RatchetSessionStore {
-  RatchetSessionStore._();
+  RatchetSessionStore(this._db);
+
+  final Database _db;
 
   static Future<void> ensureTable(Database db) async {
     await db.execute('''
@@ -17,9 +18,8 @@ class RatchetSessionStore {
     ''');
   }
 
-  static Future<RatchetSession?> load(String peerId) async {
-    final db = await DBHelper.database;
-    final rows = await db.query(
+  Future<RatchetSession?> load(String peerId) async {
+    final rows = await _db.query(
       'session_state',
       where: 'peerId = ?',
       whereArgs: [peerId],
@@ -33,9 +33,8 @@ class RatchetSessionStore {
     );
   }
 
-  static Future<void> save(String peerId, RatchetSession session) async {
-    final db = await DBHelper.database;
-    await db.insert(
+  Future<void> save(String peerId, RatchetSession session) async {
+    await _db.insert(
       'session_state',
       {
         'peerId': peerId,
@@ -45,17 +44,15 @@ class RatchetSessionStore {
     );
   }
 
-  static Future<void> delete(String peerId) async {
-    final db = await DBHelper.database;
-    await db.delete(
+  Future<void> delete(String peerId) async {
+    await _db.delete(
       'session_state',
       where: 'peerId = ?',
       whereArgs: [peerId],
     );
   }
 
-  static Future<void> deleteAll() async {
-    final db = await DBHelper.database;
-    await db.delete('session_state');
+  Future<void> deleteAll() async {
+    await _db.delete('session_state');
   }
 }

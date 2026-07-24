@@ -86,8 +86,8 @@ import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/wire.dart';
+import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/util/tor_service.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -793,7 +793,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (trimmed.startsWith('{')) {
       final parsed = jsonDecode(wire);
       if (parsed is Map<String, dynamic>) {
-        if (parsed['envelope'] == GroupCrypto.controlEnvelopeVersion) {
+        if (parsed['envelope'] == CryptoConstants.cryptoVersion) {
           throw const FormatException('Misrouted group control payload');
         }
         if (parsed.containsKey('iv') && parsed.containsKey('ct')) {

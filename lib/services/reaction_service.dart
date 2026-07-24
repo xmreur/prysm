@@ -1,13 +1,14 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/reaction_payload.dart';
@@ -161,7 +162,7 @@ class ReactionService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return;
 
-    final encrypted = await GroupCrypto.encryptText(groupKey, payload.encode());
+    final encrypted = await GroupCryptoV2.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     final targets = members.map((m) => m.memberId).where((id) => id != userId);
 
@@ -379,21 +380,44 @@ class ReactionService {
       if (type == groupReactionType && groupId != null && groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
-          return GroupCrypto.decryptWithSenderKey(
-            epochKey: groupKey,
+        if (GroupCryptoV2.isSenderKeyEnvelope(encrypted)) {
+          return _decryptSenderKey(
+            groupKey: groupKey,
             groupId: groupId,
             wire: encrypted,
             transportSenderId: senderId,
             keyManager: keyManager,
           );
         }
-        return await GroupCrypto.decryptText(groupKey, encrypted);
+        return await GroupCryptoV2.decryptText(groupKey, encrypted);
       }
     } catch (e) {
       Logging.error('Reaction decrypt failed: $e', 'ReactionService');
     }
     return null;
+  }
+
+  static Future<String> _decryptSenderKey({
+    required Uint8List groupKey,
+    required String groupId,
+    required String wire,
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys = await loadPeerIdentityFromDb(
+      keyManager,
+      transportSenderId,
+    );
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return GroupCryptoV2.decryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
   /// Retry pending direct reactions for one peer.

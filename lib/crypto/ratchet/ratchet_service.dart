@@ -11,8 +11,26 @@ import 'package:prysm/crypto/wire.dart';
 
 /// High-level 1:1 ratchet encrypt/decrypt with SQLite session persistence.
 class RatchetService {
-  RatchetService._();
+  RatchetService._({RatchetSessionStore? sessionStore})
+      : _sessionStore = sessionStore;
+
   static final RatchetService instance = RatchetService._();
+
+  RatchetSessionStore? _sessionStore;
+
+  /// Injects the [RatchetSessionStore] used for persistence.
+  /// The wiring is performed by the application database helper.
+  void setSessionStore(RatchetSessionStore store) {
+    _sessionStore = store;
+  }
+
+  RatchetSessionStore get _store {
+    final store = _sessionStore;
+    if (store == null) {
+      throw StateError('RatchetService session store not initialized');
+    }
+    return store;
+  }
 
   static final X25519 _x25519 = X25519();
 
@@ -40,7 +58,7 @@ class RatchetService {
     required IdentityPublicKeys peer,
     PrekeyBundle? peerBundle,
   }) async {
-    var session = await RatchetSessionStore.load(peerId);
+    var session = await _store.load(peerId);
     Map<String, dynamic> handshake = {};
 
     if (session == null) {
@@ -64,7 +82,7 @@ class RatchetService {
     }
 
     final result = await session.encryptMessage(plaintext);
-    await RatchetSessionStore.save(peerId, session);
+    await _store.save(peerId, session);
     if (handshake.isEmpty) {
       return result.wire;
     }
@@ -107,7 +125,7 @@ class RatchetService {
     }
 
     try {
-      var session = await RatchetSessionStore.load(peerId);
+      var session = await _store.load(peerId);
       if (session == null) {
         final handshake = envelope['handshake'] as Map<String, dynamic>?;
         if (handshake == null) {
@@ -140,7 +158,7 @@ class RatchetService {
       }
 
       final plain = await session.decryptMessage(wire);
-      await RatchetSessionStore.save(peerId, session);
+      await _store.save(peerId, session);
       return plain;
     } on FormatException {
       rethrow;

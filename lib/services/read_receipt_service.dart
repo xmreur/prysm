@@ -6,8 +6,8 @@ import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -166,7 +166,7 @@ class ReadReceiptService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return;
 
-    final encrypted = await GroupCrypto.encryptText(groupKey, payload.encode());
+    final encrypted = await GroupCryptoV2.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     final targets = members.map((m) => m.memberId).where((id) => id != userId);
     final eventId = readWaterlineEventId(
@@ -495,21 +495,44 @@ class ReadReceiptService {
           groupService != null) {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        if (GroupCrypto.isSenderKeyEnvelope(encrypted)) {
-          return GroupCrypto.decryptWithSenderKey(
-            epochKey: groupKey,
+        if (GroupCryptoV2.isSenderKeyEnvelope(encrypted)) {
+          return _decryptSenderKey(
+            groupKey: groupKey,
             groupId: groupId,
             wire: encrypted,
             transportSenderId: senderId,
             keyManager: keyManager,
           );
         }
-        return await GroupCrypto.decryptText(groupKey, encrypted);
+        return await GroupCryptoV2.decryptText(groupKey, encrypted);
       }
     } catch (e) {
       Logging.error('Read receipt decrypt failed: $e', 'ReadReceiptService');
     }
     return null;
+  }
+
+  static Future<String> _decryptSenderKey({
+    required Uint8List groupKey,
+    required String groupId,
+    required String wire,
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys = await loadPeerIdentityFromDb(
+      keyManager,
+      transportSenderId,
+    );
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return GroupCryptoV2.decryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
   static Future<bool> processPendingForPeer({

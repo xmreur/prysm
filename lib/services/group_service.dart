@@ -11,8 +11,8 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
@@ -88,8 +88,10 @@ class GroupService {
       if (cached != null && _groupKeyVersionCache[groupId] == version) {
         return cached;
       }
-      final key =
-          await GroupCrypto.decryptGroupKey(row['encryptedKey'] as String, keyManager);
+      final key = await GroupCryptoV2.decryptGroupKey(
+        row['encryptedKey'] as String,
+        keyManager.identity,
+      );
       _groupKeyCache[groupId] = key;
       _groupKeyVersionCache[groupId] = version;
       return key;
@@ -115,8 +117,11 @@ class GroupService {
 
     final groupId = const Uuid().v4();
     final now = DateTime.now().millisecondsSinceEpoch;
-    final groupKey = GroupCrypto.generateGroupKey();
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = GroupCryptoV2.generateGroupKey();
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
 
     await DBHelper.insertGroup({
       'id': groupId,
@@ -314,7 +319,7 @@ class GroupService {
     try {
       final parsed = jsonDecode(wire);
       return parsed is Map<String, dynamic> &&
-          parsed['crypto'] == GroupCrypto.controlEnvelopeVersion &&
+          parsed['crypto'] == CryptoConstants.cryptoVersion &&
           parsed['scheme'] == CryptoConstants.schemeControlWrap1;
     } catch (_) {
       return false;
@@ -343,7 +348,11 @@ class GroupService {
 
     final payload = await _buildControlPayload(pendingType, parsed, peerKey);
     if (payload == null) return null;
-    return await GroupCrypto.encryptControlPayloadForPeer(payload, keyManager, peerKey);
+    return await GroupCryptoV2.encryptControlPayload(
+      payload,
+      keyManager.identity,
+      peerKey.agreePublic,
+    );
   }
 
   Future<String?> _buildControlPayload(
@@ -356,10 +365,10 @@ class GroupService {
         final groupId = data['groupId'] as String;
         final groupKey = await getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
+        final encryptedGroupKey = await GroupCryptoV2.encryptGroupKeyForStorage(
           groupKey,
-          keyManager,
-          peerKey,
+          keyManager.identity,
+          peerAgreePublic: peerKey.agreePublic,
         );
         return jsonEncode({
           'groupId': groupId,
@@ -374,10 +383,10 @@ class GroupService {
         final groupId = data['groupId'] as String;
         final groupKey = await getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
-        final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
+        final encryptedGroupKey = await GroupCryptoV2.encryptGroupKeyForStorage(
           groupKey,
-          keyManager,
-          peerKey,
+          keyManager.identity,
+          peerAgreePublic: peerKey.agreePublic,
         );
         return jsonEncode({
           'groupId': groupId,
@@ -450,10 +459,13 @@ class GroupService {
 
     await DBHelper.removeGroupMember(groupId, memberOnion);
 
-    final newKey = GroupCrypto.generateGroupKey();
+    final newKey = GroupCryptoV2.generateGroupKey();
     final keyRow = await DBHelper.getGroupKey(groupId);
     final newVersion = ((keyRow?['keyVersion'] as int?) ?? 1) + 1;
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(newKey, keyManager);
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      newKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -506,10 +518,13 @@ class GroupService {
 
     await DBHelper.removeGroupMember(groupId, userId);
 
-    final newKey = GroupCrypto.generateGroupKey();
+    final newKey = GroupCryptoV2.generateGroupKey();
     final keyRow = await DBHelper.getGroupKey(groupId);
     final newVersion = ((keyRow?['keyVersion'] as int?) ?? 1) + 1;
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(newKey, keyManager);
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      newKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -572,7 +587,10 @@ class GroupService {
 
   /// Handle incoming control messages (from PrysmServer).
   Future<void> handleIncomingControlMessage(String type, String encryptedPayload) async {
-    final plaintext = await GroupCrypto.decryptControlPayload(encryptedPayload, keyManager);
+    final plaintext = await GroupCryptoV2.decryptControlPayload(
+      encryptedPayload,
+      keyManager.identity,
+    );
     final data = jsonDecode(plaintext) as Map<String, dynamic>;
 
     switch (type) {
@@ -616,8 +634,14 @@ class GroupService {
       return;
     }
 
-    final groupKey = await GroupCrypto.decryptGroupKeyFromPayload(encryptedGroupKey, keyManager);
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = await GroupCryptoV2.decryptGroupKey(
+      encryptedGroupKey,
+      keyManager.identity,
+    );
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
     final now = DateTime.now().millisecondsSinceEpoch;
 
     final avatarBase64 = data['avatarBase64'] as String?;
@@ -690,8 +714,14 @@ class GroupService {
       return;
     }
 
-    final groupKey = await GroupCrypto.decryptGroupKeyFromPayload(encryptedGroupKey, keyManager);
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = await GroupCryptoV2.decryptGroupKey(
+      encryptedGroupKey,
+      keyManager.identity,
+    );
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -768,10 +798,10 @@ class GroupService {
       return;
     }
 
-    final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
+    final encryptedGroupKey = await GroupCryptoV2.encryptGroupKeyForStorage(
       groupKey,
-      keyManager,
-      peerKey,
+      keyManager.identity,
+      peerAgreePublic: peerKey.agreePublic,
     );
 
     final payload = jsonEncode({
@@ -814,10 +844,10 @@ class GroupService {
       return;
     }
 
-    final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
+    final encryptedGroupKey = await GroupCryptoV2.encryptGroupKeyForStorage(
       groupKey,
-      keyManager,
-      peerKey,
+      keyManager.identity,
+      peerAgreePublic: peerKey.agreePublic,
     );
 
     final payload = jsonEncode({
@@ -892,7 +922,11 @@ class GroupService {
       return;
     }
 
-    final encrypted = await GroupCrypto.encryptControlPayloadForPeer(payload, keyManager, peerKey);
+    final encrypted = await GroupCryptoV2.encryptControlPayload(
+      payload,
+      keyManager.identity,
+      peerKey.agreePublic,
+    );
     final id = const Uuid().v4();
     final success = await _postMessage(
       id: id,

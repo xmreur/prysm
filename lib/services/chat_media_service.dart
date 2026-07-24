@@ -9,8 +9,8 @@ import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/group_service.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 
@@ -201,7 +201,7 @@ class ChatMediaService {
     if (groupKey == null) {
       throw StateError('No group key for $groupId');
     }
-    return GroupCrypto.decryptGroupFile(
+    return GroupCryptoV2.decryptGroupFile(
       groupKey,
       row['message'] as String,
     );

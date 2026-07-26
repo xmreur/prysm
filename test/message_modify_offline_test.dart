@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_modify_payload.dart';
@@ -46,6 +47,7 @@ void main() {
   tearDown(() {
     PendingMessageDbHelper.setDatabaseForTest(null);
     MessageModifyService.postDirectOverride = null;
+    MessageModifyService.testPostman = null;
   });
 
   group('isPendingOutboundChatType', () {
@@ -258,6 +260,44 @@ void main() {
       expect(postCalled, isTrue);
     });
 
+    test('inserts pending modify row when direct post fails', () async {
+      const wireId = 'msg-fail';
+      MessageModifyService.postDirectOverride = ({
+        required id,
+        required encrypted,
+        required timestamp,
+        required peerId,
+      }) async => false;
+
+      final service = MessageModifyService.direct(
+        userId: 'me.onion',
+        keyManager: keyManager,
+        peerId: 'peer.onion',
+      );
+      const encryptedPeer = 'test-edited-ciphertext';
+      final payload = MessageModifyPayload(
+        targetMessageId: wireId,
+        action: 'edit',
+        encryptedBody: encryptedPeer,
+        modifiedAt: 2,
+      );
+
+      await service.syncDirectEditOutbound(
+        targetMessageId: wireId,
+        encryptedPeer: encryptedPeer,
+        payload: payload,
+      );
+
+      final rows = await db.query(
+        'pending_messages',
+        where: 'type = ?',
+        whereArgs: [messageModifyType],
+      );
+      expect(rows.length, 1);
+      expect(rows.first['receiverId'], 'peer.onion');
+      expect(rows.first['type'], messageModifyType);
+    });
+
     test('notifier delivers edit updates to listeners', () async {
       const wireId = 'msg-3';
       final captured = <MessageModifyUpdate>[];
@@ -281,4 +321,156 @@ void main() {
       expect(captured.first.targetMessageId, wireId);
     });
   });
+
+  group('MessageModifyService pending flush', () {
+    late Database db;
+    late KeyManager keyManager;
+
+    setUp(() async {
+      db = await _openPendingTestDb();
+      PendingMessageDbHelper.setDatabaseForTest(db);
+      keyManager = KeyManager.fromIdentity(await IdentityKeyPair.generate());
+    });
+
+    tearDown(() async {
+      await db.close();
+    });
+
+    test('processPendingForPeer removes delivered direct modify rows', () async {
+      const wireId = 'msg-flush';
+      const receiverId = 'peer.onion';
+      const senderId = 'me.onion';
+      await db.insert('pending_messages', {
+        'id': 'modify::$wireId',
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': 'modify-ciphertext',
+        'type': messageModifyType,
+        'timestamp': 1,
+        'status': 'pending',
+      });
+
+      MessageModifyService.postDirectOverride = ({
+        required id,
+        required encrypted,
+        required timestamp,
+        required peerId,
+      }) async => true;
+
+      final ok = await MessageModifyService.processPendingForPeer(
+        userId: senderId,
+        peerId: receiverId,
+        keyManager: keyManager,
+      );
+
+      expect(ok, isTrue);
+      final rows = await db.query(
+        'pending_messages',
+        where: 'id = ?',
+        whereArgs: ['modify::$wireId'],
+      );
+      expect(rows, isEmpty);
+    });
+
+    test('processGlobalPendingDirect removes delivered direct modify rows', () async {
+      const wireId = 'msg-global';
+      const receiverId = 'peer.onion';
+      const senderId = 'me.onion';
+      await db.insert('pending_messages', {
+        'id': 'modify::$wireId',
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': 'modify-ciphertext',
+        'type': messageModifyType,
+        'timestamp': 1,
+        'status': 'pending',
+      });
+
+      MessageModifyService.postDirectOverride = ({
+        required id,
+        required encrypted,
+        required timestamp,
+        required peerId,
+      }) async => true;
+
+      final ok = await MessageModifyService.processGlobalPendingDirect(
+        userId: senderId,
+        keyManager: keyManager,
+      );
+
+      expect(ok, isTrue);
+      final rows = await db.query(
+        'pending_messages',
+        where: 'id = ?',
+        whereArgs: ['modify::$wireId'],
+      );
+      expect(rows, isEmpty);
+    });
+
+    test('processGlobalPendingGroup removes delivered group modify rows', () async {
+      const wireId = 'msg-global-group';
+      const groupId = 'group-1';
+      const targetId = 'peer.onion';
+      const senderId = 'me.onion';
+      const rowId = 'modify::${wireId}__$targetId';
+      await db.insert('pending_messages', {
+        'id': rowId,
+        'senderId': senderId,
+        'receiverId': targetId,
+        'message': 'group-modify-ciphertext',
+        'type': groupMessageModifyType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': targetId,
+      });
+
+      var groupPostCalls = 0;
+      MessageModifyService.testPostman = _FakePostman(
+        onPostGroup: (targetMemberId, payload) async {
+          groupPostCalls++;
+          expect(payload['groupId'], groupId);
+          expect(targetMemberId, targetId);
+        },
+      );
+
+      final ok = await MessageModifyService.processGlobalPendingGroup(
+        userId: senderId,
+        keyManager: keyManager,
+      );
+
+      expect(ok, isTrue);
+      expect(groupPostCalls, 1);
+      final rows = await db.query(
+        'pending_messages',
+        where: 'id = ?',
+        whereArgs: [rowId],
+      );
+      expect(rows, isEmpty);
+    });
+  });
+}
+
+class _FakePostman implements SideChannelPostman {
+  final Future<void> Function(String targetMemberId, Map<String, dynamic> payload)? onPostGroup;
+
+  _FakePostman({this.onPostGroup});
+
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {}
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (onPostGroup != null) {
+      await onPostGroup!(targetMemberId, payload);
+    }
+  }
 }

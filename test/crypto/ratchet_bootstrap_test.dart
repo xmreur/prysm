@@ -44,7 +44,7 @@ void main() {
       ),
     );
     DBHelper.setDatabaseForTest(db);
-    await RatchetSessionStore.deleteAll();
+    await RatchetSessionStore(db).deleteAll();
   });
 
   tearDown(() {

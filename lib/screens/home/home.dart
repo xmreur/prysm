@@ -1,7 +1,8 @@
 /// Home shell widgets.
 ///
 /// [EmptyHomeState] is the empty conversation pane.
-/// [HomeScreen] remains in `main.dart` until a safe mechanical extraction lands.
+/// [HomeScreen] is the home shell screen (Fase 5B: moved out of `main.dart`).
 library;
 
 export 'empty_home_state.dart';
+export 'home_screen.dart';

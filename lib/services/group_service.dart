@@ -3,16 +3,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:prysm/util/logging.dart';
-import 'package:prysm/util/tor_delivery.dart';
-import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
-import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/services/group_control_channel.dart';
+import 'package:prysm/services/group_key_provider.dart';
 import 'package:prysm/util/db_helper.dart';
-import 'package:prysm/crypto/identity.dart';
-import 'package:prysm/util/group_crypto.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
@@ -26,18 +24,37 @@ class GroupServiceException implements Exception {
   String toString() => message;
 }
 
+/// Group membership CRUD (groups, members, roles) and orchestration.
+///
+/// Key caching/decryption and control-message sending/retry are delegated
+/// to [GroupKeyProvider] and [GroupControlChannel] respectively (Fase 3.1
+/// split). Handling of *inbound* control messages stays here: it mutates
+/// group/member state directly and is squarely membership orchestration,
+/// not transport.
 class GroupService {
   final String userId;
   final KeyManager keyManager;
 
-  final Map<String, Uint8List> _groupKeyCache = {};
-  final Map<String, int> _groupKeyVersionCache = {};
+  late final GroupKeyProvider _keyProvider;
+  late final GroupControlChannel _controlChannel;
 
-  GroupService({required this.userId, required this.keyManager});
+  GroupService({
+    required this.userId,
+    required this.keyManager,
+    GroupKeyProvider? keyProvider,
+    GroupControlChannel? controlChannel,
+  }) {
+    _keyProvider = keyProvider ?? GroupKeyProvider(keyManager: keyManager);
+    _controlChannel = controlChannel ??
+        GroupControlChannel(
+          userId: userId,
+          keyManager: keyManager,
+          keyProvider: _keyProvider,
+        );
+  }
 
   void invalidateGroupKeyCache(String groupId) {
-    _groupKeyCache.remove(groupId);
-    _groupKeyVersionCache.remove(groupId);
+    _keyProvider.invalidate(groupId);
   }
 
   Future<List<Group>> getGroups() async {
@@ -79,25 +96,8 @@ class GroupService {
     return members.any((m) => m.memberId == memberId && m.role == GroupRole.admin);
   }
 
-  Future<Uint8List?> getDecryptedGroupKey(String groupId) async {
-    try {
-      final row = await DBHelper.getGroupKey(groupId);
-      if (row == null) return null;
-      final version = row['keyVersion'] as int? ?? 1;
-      final cached = _groupKeyCache[groupId];
-      if (cached != null && _groupKeyVersionCache[groupId] == version) {
-        return cached;
-      }
-      final key =
-          await GroupCrypto.decryptGroupKey(row['encryptedKey'] as String, keyManager);
-      _groupKeyCache[groupId] = key;
-      _groupKeyVersionCache[groupId] = version;
-      return key;
-    } catch (e) {
-      Logging.error('Failed to decrypt group key for $groupId: $e', 'GroupService');
-      return null;
-    }
-  }
+  Future<Uint8List?> getDecryptedGroupKey(String groupId) =>
+      _keyProvider.getDecryptedGroupKey(groupId);
 
   Future<Group> createGroup(
     String name,
@@ -115,8 +115,11 @@ class GroupService {
 
     final groupId = const Uuid().v4();
     final now = DateTime.now().millisecondsSinceEpoch;
-    final groupKey = GroupCrypto.generateGroupKey();
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = GroupCryptoV2.generateGroupKey();
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
 
     await DBHelper.insertGroup({
       'id': groupId,
@@ -146,7 +149,7 @@ class GroupService {
     }
 
     for (final memberId in uniqueMembers) {
-      await _sendInvite(
+      await _controlChannel.sendInvite(
         groupId: groupId,
         name: name,
         avatarBase64: avatarBase64,
@@ -189,7 +192,7 @@ class GroupService {
     final members = await getMembers(groupId);
     for (final member in members) {
       if (member.memberId == userId) continue;
-      await _sendProfileUpdate(
+      await _controlChannel.sendProfileUpdate(
         groupId: groupId,
         name: trimmed,
         avatarBase64: group['avatarBase64'] as String?,
@@ -216,7 +219,7 @@ class GroupService {
     final members = await getMembers(groupId);
     for (final member in members) {
       if (member.memberId == userId) continue;
-      await _sendProfileUpdate(
+      await _controlChannel.sendProfileUpdate(
         groupId: groupId,
         name: group['name'] as String,
         avatarBase64: avatarBase64,
@@ -247,7 +250,7 @@ class GroupService {
 
     for (final member in members) {
       if (member.memberId == userId) continue;
-      await _sendInvite(
+      await _controlChannel.sendInvite(
         groupId: groupId,
         name: group['name'] as String,
         avatarBase64: group['avatarBase64'] as String?,
@@ -262,145 +265,8 @@ class GroupService {
   /// Retry queued group control messages (invites, rotates, etc.).
   /// Processes at most [maxPerCycle] per call; stops early if Tor/proxy is down.
   /// Returns true if at least one message was delivered.
-  Future<bool> processPendingControlMessages({int maxPerCycle = 20}) async {
-    final pending = await PendingMessageDbHelper.getPendingControlMessages(groupControlTypes);
-    if (pending.isEmpty) return false;
-
-    final sentIds = <String>[];
-    var attempted = 0;
-    var consecutiveFailures = 0;
-
-    for (final msg in pending) {
-      if (attempted >= maxPerCycle) break;
-      if (msg['senderId'] != userId) continue;
-
-      final id = msg['id'] as String;
-      final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String;
-      final groupId = msg['groupId'] as String? ?? '';
-
-      final wire = await _resolveControlWire(msg, target);
-      if (wire == null) {
-        consecutiveFailures++;
-        if (consecutiveFailures >= 3) break;
-        continue;
-      }
-
-      attempted++;
-      final success = await _postMessage(
-        id: id,
-        targetMemberId: target,
-        groupId: groupId,
-        message: wire,
-        type: msg['type'] as String,
-        quiet: true,
-      );
-
-      if (success) {
-        sentIds.add(id);
-        consecutiveFailures = 0;
-      } else {
-        consecutiveFailures++;
-        if (consecutiveFailures >= 3) break;
-      }
-    }
-
-    if (sentIds.isNotEmpty) {
-      await PendingMessageDbHelper.removeMessages(sentIds);
-    }
-    return sentIds.isNotEmpty;
-  }
-
-  bool _isEncryptedControlWire(String wire) {
-    try {
-      final parsed = jsonDecode(wire);
-      return parsed is Map<String, dynamic> &&
-          parsed['crypto'] == GroupCrypto.controlEnvelopeVersion &&
-          parsed['scheme'] == CryptoConstants.schemeControlWrap1;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<String?> _resolveControlWire(
-    Map<String, dynamic> msg,
-    String targetMemberId,
-  ) async {
-    final raw = msg['message'] as String;
-    if (_isEncryptedControlWire(raw)) return raw;
-
-    Map<String, dynamic>? parsed;
-    try {
-      parsed = jsonDecode(raw) as Map<String, dynamic>;
-    } catch (_) {
-      return raw;
-    }
-
-    final pendingType = parsed['_pendingControl'] as String? ?? msg['type'] as String;
-    if (!groupControlTypes.contains(pendingType)) return raw;
-
-    final peerKey = await _fetchPeerPublicKey(targetMemberId);
-    if (peerKey == null) return null;
-
-    final payload = await _buildControlPayload(pendingType, parsed, peerKey);
-    if (payload == null) return null;
-    return await GroupCrypto.encryptControlPayloadForPeer(payload, keyManager, peerKey);
-  }
-
-  Future<String?> _buildControlPayload(
-    String type,
-    Map<String, dynamic> data,
-    IdentityPublicKeys peerKey,
-  ) async {
-    switch (type) {
-      case groupInviteType:
-        final groupId = data['groupId'] as String;
-        final groupKey = await getDecryptedGroupKey(groupId);
-        if (groupKey == null) return null;
-        final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
-          groupKey,
-          keyManager,
-          peerKey,
-        );
-        return jsonEncode({
-          'groupId': groupId,
-          'name': data['name'],
-          'createdBy': data['createdBy'] ?? userId,
-          'members': data['members'],
-          'encryptedGroupKey': encryptedGroupKey,
-          'keyVersion': data['keyVersion'] ?? 1,
-          if (data['avatarBase64'] != null) 'avatarBase64': data['avatarBase64'],
-        });
-      case groupKeyRotateType:
-        final groupId = data['groupId'] as String;
-        final groupKey = await getDecryptedGroupKey(groupId);
-        if (groupKey == null) return null;
-        final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
-          groupKey,
-          keyManager,
-          peerKey,
-        );
-        return jsonEncode({
-          'groupId': groupId,
-          'encryptedGroupKey': encryptedGroupKey,
-          'keyVersion': data['keyVersion'],
-          if (data['removedMemberId'] != null) 'removedMemberId': data['removedMemberId'],
-        });
-      case groupMemberRemovedType:
-        return jsonEncode({
-          'groupId': data['groupId'],
-          'removedMemberId': data['removedMemberId'],
-          'keyVersion': data['keyVersion'],
-        });
-      case groupProfileUpdateType:
-        return jsonEncode({
-          'groupId': data['groupId'],
-          if (data['name'] != null) 'name': data['name'],
-          if (data['avatarBase64'] != null) 'avatarBase64': data['avatarBase64'],
-        });
-      default:
-        return null;
-    }
-  }
+  Future<bool> processPendingControlMessages({int maxPerCycle = 20}) =>
+      _controlChannel.processPendingControlMessages(maxPerCycle: maxPerCycle);
 
   Future<void> addMember(String groupId, String memberOnion) async {
     if (!await isAdmin(groupId, userId)) {
@@ -450,10 +316,13 @@ class GroupService {
 
     await DBHelper.removeGroupMember(groupId, memberOnion);
 
-    final newKey = GroupCrypto.generateGroupKey();
+    final newKey = GroupCryptoV2.generateGroupKey();
     final keyRow = await DBHelper.getGroupKey(groupId);
     final newVersion = ((keyRow?['keyVersion'] as int?) ?? 1) + 1;
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(newKey, keyManager);
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      newKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -461,14 +330,14 @@ class GroupService {
     );
 
     // Tell the removed member to drop the group (queued if they are offline).
-    await _sendKeyRotate(
+    await _controlChannel.sendKeyRotate(
       groupId: groupId,
       groupKey: newKey,
       keyVersion: newVersion,
       removedMemberId: memberOnion,
       targetMemberId: memberOnion,
     );
-    await _sendMemberRemoved(
+    await _controlChannel.sendMemberRemoved(
       groupId: groupId,
       removedMemberId: memberOnion,
       keyVersion: newVersion,
@@ -478,14 +347,14 @@ class GroupService {
     final remaining = await getMembers(groupId);
     for (final member in remaining) {
       if (member.memberId == userId) continue;
-      await _sendKeyRotate(
+      await _controlChannel.sendKeyRotate(
         groupId: groupId,
         groupKey: newKey,
         keyVersion: newVersion,
         removedMemberId: memberOnion,
         targetMemberId: member.memberId,
       );
-      await _sendMemberRemoved(
+      await _controlChannel.sendMemberRemoved(
         groupId: groupId,
         removedMemberId: memberOnion,
         keyVersion: newVersion,
@@ -506,10 +375,13 @@ class GroupService {
 
     await DBHelper.removeGroupMember(groupId, userId);
 
-    final newKey = GroupCrypto.generateGroupKey();
+    final newKey = GroupCryptoV2.generateGroupKey();
     final keyRow = await DBHelper.getGroupKey(groupId);
     final newVersion = ((keyRow?['keyVersion'] as int?) ?? 1) + 1;
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(newKey, keyManager);
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      newKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -519,14 +391,14 @@ class GroupService {
     final remaining = await getMembers(groupId);
     for (final member in remaining) {
       if (member.memberId == userId) continue;
-      await _sendKeyRotate(
+      await _controlChannel.sendKeyRotate(
         groupId: groupId,
         groupKey: newKey,
         keyVersion: newVersion,
         removedMemberId: userId,
         targetMemberId: member.memberId,
       );
-      await _sendMemberRemoved(
+      await _controlChannel.sendMemberRemoved(
         groupId: groupId,
         removedMemberId: userId,
         keyVersion: newVersion,
@@ -550,12 +422,14 @@ class GroupService {
 
     for (final member in members) {
       if (member.memberId == userId) continue;
-      _sendMemberRemoved(
-        groupId: groupId,
-        removedMemberId: userId,
-        keyVersion: keyVersion,
-        targetMemberId: member.memberId,
-      ).catchError((_) {});
+      _controlChannel
+          .sendMemberRemoved(
+            groupId: groupId,
+            removedMemberId: userId,
+            keyVersion: keyVersion,
+            targetMemberId: member.memberId,
+          )
+          .catchError((_) {});
     }
   }
 
@@ -572,7 +446,10 @@ class GroupService {
 
   /// Handle incoming control messages (from PrysmServer).
   Future<void> handleIncomingControlMessage(String type, String encryptedPayload) async {
-    final plaintext = await GroupCrypto.decryptControlPayload(encryptedPayload, keyManager);
+    final plaintext = await GroupCryptoV2.decryptControlPayload(
+      encryptedPayload,
+      keyManager.identity,
+    );
     final data = jsonDecode(plaintext) as Map<String, dynamic>;
 
     switch (type) {
@@ -616,8 +493,14 @@ class GroupService {
       return;
     }
 
-    final groupKey = await GroupCrypto.decryptGroupKeyFromPayload(encryptedGroupKey, keyManager);
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = await GroupCryptoV2.decryptGroupKey(
+      encryptedGroupKey,
+      keyManager.identity,
+    );
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
     final now = DateTime.now().millisecondsSinceEpoch;
 
     final avatarBase64 = data['avatarBase64'] as String?;
@@ -690,8 +573,14 @@ class GroupService {
       return;
     }
 
-    final groupKey = await GroupCrypto.decryptGroupKeyFromPayload(encryptedGroupKey, keyManager);
-    final encryptedForSelf = await GroupCrypto.encryptGroupKeyForStorage(groupKey, keyManager);
+    final groupKey = await GroupCryptoV2.decryptGroupKey(
+      encryptedGroupKey,
+      keyManager.identity,
+    );
+    final encryptedForSelf = await GroupCryptoV2.encryptGroupKeyForStorage(
+      groupKey,
+      keyManager.identity,
+    );
     await DBHelper.upsertGroupKey(
       groupId: groupId,
       encryptedKey: encryptedForSelf,
@@ -741,204 +630,6 @@ class GroupService {
     });
   }
 
-  Future<void> _sendInvite({
-    required String groupId,
-    required String name,
-    String? avatarBase64,
-    required List<Map<String, String>> members,
-    required Uint8List groupKey,
-    required int keyVersion,
-    required String targetMemberId,
-  }) async {
-    final peerKey = await _fetchPeerPublicKey(targetMemberId);
-    if (peerKey == null) {
-      await _queuePendingControl(
-        type: groupInviteType,
-        targetMemberId: targetMemberId,
-        groupId: groupId,
-        body: {
-          'groupId': groupId,
-          'name': name,
-          'createdBy': userId,
-          'members': members,
-          'keyVersion': keyVersion,
-          'avatarBase64': ?avatarBase64,
-        },
-      );
-      return;
-    }
-
-    final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
-      groupKey,
-      keyManager,
-      peerKey,
-    );
-
-    final payload = jsonEncode({
-      'groupId': groupId,
-      'name': name,
-      'createdBy': userId,
-      'members': members,
-      'encryptedGroupKey': encryptedGroupKey,
-      'keyVersion': keyVersion,
-      'avatarBase64': ?avatarBase64,
-    });
-
-    await _sendControlMessage(
-      type: groupInviteType,
-      targetMemberId: targetMemberId,
-      groupId: groupId,
-      payload: payload,
-    );
-  }
-
-  Future<void> _sendKeyRotate({
-    required String groupId,
-    required Uint8List groupKey,
-    required int keyVersion,
-    required String removedMemberId,
-    required String targetMemberId,
-  }) async {
-    final peerKey = await _fetchPeerPublicKey(targetMemberId);
-    if (peerKey == null) {
-      await _queuePendingControl(
-        type: groupKeyRotateType,
-        targetMemberId: targetMemberId,
-        groupId: groupId,
-        body: {
-          'groupId': groupId,
-          'keyVersion': keyVersion,
-          'removedMemberId': removedMemberId,
-        },
-      );
-      return;
-    }
-
-    final encryptedGroupKey = await GroupCrypto.encryptGroupKeyForMember(
-      groupKey,
-      keyManager,
-      peerKey,
-    );
-
-    final payload = jsonEncode({
-      'groupId': groupId,
-      'encryptedGroupKey': encryptedGroupKey,
-      'keyVersion': keyVersion,
-      'removedMemberId': removedMemberId,
-    });
-
-    await _sendControlMessage(
-      type: groupKeyRotateType,
-      targetMemberId: targetMemberId,
-      groupId: groupId,
-      payload: payload,
-    );
-  }
-
-  Future<void> _sendProfileUpdate({
-    required String groupId,
-    required String name,
-    String? avatarBase64,
-    required String targetMemberId,
-  }) async {
-    final payload = jsonEncode({
-      'groupId': groupId,
-      'name': name,
-      'avatarBase64': ?avatarBase64,
-    });
-
-    await _sendControlMessage(
-      type: groupProfileUpdateType,
-      targetMemberId: targetMemberId,
-      groupId: groupId,
-      payload: payload,
-    );
-  }
-
-  Future<void> _sendMemberRemoved({
-    required String groupId,
-    required String removedMemberId,
-    required int keyVersion,
-    required String targetMemberId,
-  }) async {
-    final payload = jsonEncode({
-      'groupId': groupId,
-      'removedMemberId': removedMemberId,
-      'keyVersion': keyVersion,
-    });
-
-    await _sendControlMessage(
-      type: groupMemberRemovedType,
-      targetMemberId: targetMemberId,
-      groupId: groupId,
-      payload: payload,
-    );
-  }
-
-  Future<void> _sendControlMessage({
-    required String type,
-    required String targetMemberId,
-    required String groupId,
-    required String payload,
-  }) async {
-    final peerKey = await _fetchPeerPublicKey(targetMemberId);
-    if (peerKey == null) {
-      await _queuePendingControl(
-        type: type,
-        targetMemberId: targetMemberId,
-        groupId: groupId,
-        body: jsonDecode(payload) as Map<String, dynamic>,
-      );
-      return;
-    }
-
-    final encrypted = await GroupCrypto.encryptControlPayloadForPeer(payload, keyManager, peerKey);
-    final id = const Uuid().v4();
-    final success = await _postMessage(
-      id: id,
-      targetMemberId: targetMemberId,
-      groupId: groupId,
-      message: encrypted,
-      type: type,
-    );
-
-    if (!success) {
-      await PendingMessageDbHelper.insertPendingMessage({
-        'id': id,
-        'senderId': userId,
-        'receiverId': targetMemberId,
-        'message': encrypted,
-        'type': type,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'status': 'pending',
-        'groupId': groupId,
-        'targetMemberId': targetMemberId,
-      });
-    }
-  }
-
-  Future<void> _queuePendingControl({
-    required String type,
-    required String targetMemberId,
-    required String groupId,
-    required Map<String, dynamic> body,
-  }) async {
-    await PendingMessageDbHelper.insertPendingMessage({
-      'id': const Uuid().v4(),
-      'senderId': userId,
-      'receiverId': targetMemberId,
-      'message': jsonEncode({
-        '_pendingControl': type,
-        ...body,
-      }),
-      'type': type,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'status': 'pending',
-      'groupId': groupId,
-      'targetMemberId': targetMemberId,
-    });
-  }
-
   /// Drop legacy queued history relays — new members no longer receive backlog.
   Future<void> discardPendingHistoryRelay() async {
     final all = await PendingMessageDbHelper.getPendingGroupChatMessages(
@@ -952,83 +643,5 @@ class GroupService {
     if (ids.isNotEmpty) {
       await PendingMessageDbHelper.removeMessages(ids);
     }
-  }
-
-  Future<bool> _postMessage({
-    required String id,
-    required String targetMemberId,
-    required String groupId,
-    required String message,
-    required String type,
-    bool quiet = false,
-  }) async {
-    try {
-      await TorDelivery.withTorRetry<void>(
-        attempt: () => _postMessageOnce(
-          id: id,
-          targetMemberId: targetMemberId,
-          groupId: groupId,
-          message: message,
-          type: type,
-        ),
-      );
-      return true;
-    } catch (e) {
-      if (!quiet) {
-        Logging.error('Group control send failed: $e', 'GroupService');
-      }
-      return false;
-    }
-  }
-
-  Future<void> _postMessageOnce({
-    required String id,
-    required String targetMemberId,
-    required String groupId,
-    required String message,
-    required String type,
-  }) async {
-    final payload = {
-      'id': id,
-      'senderId': userId,
-      'receiverId': targetMemberId,
-      'groupId': groupId,
-      'message': message,
-      'type': type,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-    await TransportProvider.postMessageOrFallback(
-      peerOnion: targetMemberId,
-      payload: payload,
-    );
-  }
-
-  Future<IdentityPublicKeys?> _fetchPeerPublicKey(String peerId) async {
-    final cached = await DBHelper.getUserById(peerId);
-    final pem = (cached?['identityJson'] as String?) ??
-        (cached?['publicKeyPem'] as String?);
-    if (pem != null && pem.isNotEmpty && pem != 'NONE') {
-      try {
-        return keyManager.importPeerIdentity(pem);
-      } catch (e) {
-        Logging.error('Invalid cached peer public key for $peerId: $e', 'GroupService');
-      }
-    }
-
-    try {
-      final publicKeyPem =
-          (await TransportProvider.getPublicOrFallback(peerId)).trim();
-      if (publicKeyPem.isNotEmpty) {
-        final key = keyManager.importPeerIdentity(publicKeyPem);
-        await DBHelper.updateUserFields(peerId, {
-          'identityJson': publicKeyPem,
-          'publicKeyPem': publicKeyPem,
-        });
-        return key;
-      }
-    } catch (e) {
-      Logging.error('Failed to fetch peer public key: $e', 'GroupService');
-    }
-    return null;
   }
 }

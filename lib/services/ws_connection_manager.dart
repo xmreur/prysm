@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/client/tor_websocket_client.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/call/call_signaling_notifier.dart';
+import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/ws_inbound_dispatcher.dart';
 import 'package:prysm/transport/inbound_ws_peer_link.dart';
 import 'package:prysm/transport/outbound_ws_peer_link.dart';
@@ -333,6 +335,9 @@ class WsConnectionManager {
           peerOnion: peerOnion,
           socksPort: _torManager.socksPort,
           localOnion: localOnion,
+          onBinaryFrame: (raw, sendAck) =>
+              _dispatchBinaryFrame(raw, peerOnion, sendAck),
+          onTextFrame: (frame) => _dispatchTextFrame(frame, peerOnion),
         );
         await client.connect(timeout: connectTimeout);
         final link = OutboundWsPeerLink(client);
@@ -358,6 +363,39 @@ class WsConnectionManager {
     } finally {
       _connectingPeers.remove(peerOnion);
     }
+  }
+
+  bool _dispatchBinaryFrame(
+    List<int> raw,
+    String peerOnion,
+    Future<void> Function(String op, {Map<String, dynamic>? payload}) sendAck,
+  ) {
+    if (raw.isNotEmpty && raw[0] == fileTransferChunkMagic) {
+      unawaited(
+        FileTransferHandler.instance.handleBinaryChunk(
+          raw,
+          peerOnion: peerOnion,
+          sendAck: sendAck,
+        ),
+      );
+      return true;
+    }
+    return false;
+  }
+
+  bool _dispatchTextFrame(
+    Map<String, dynamic> frame,
+    String peerOnion,
+  ) {
+    final op = frame['op'];
+    if (op is String && WsFrame.isCallOp(op)) {
+      final payload = frame['payload'];
+      if (payload is Map<String, dynamic>) {
+        CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
+      }
+      return true;
+    }
+    return false;
   }
 
   Future<void> _waitForInboundLink(

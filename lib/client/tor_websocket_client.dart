@@ -3,12 +3,26 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:prysm/client/tor_socks_websocket.dart';
-import 'package:prysm/services/call/call_signaling_notifier.dart';
-import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:uuid/uuid.dart';
+
+/// Callback invoked for every inbound binary frame.
+///
+/// Return `true` to consume the frame (it will not be emitted on [onBinary]);
+/// return `false` to let the client fall back to its default handling.
+typedef BinaryFrameHandler = bool Function(
+  List<int> frame,
+  Future<void> Function(String op, {Map<String, dynamic>? payload}) sendAck,
+);
+
+/// Callback invoked for every inbound text frame before the client applies
+/// internal routing (hello, pending request matching, pong, local request).
+///
+/// Return `true` to consume the frame (it will not be emitted on [onIncoming]
+/// and will not be routed locally); return `false` to let the client handle it.
+typedef TextFrameHandler = bool Function(Map<String, dynamic> frame);
 
 /// Persistent WebSocket connection to a single peer over Tor SOCKS.
 class TorWebSocketClient {
@@ -17,12 +31,27 @@ class TorWebSocketClient {
     required this.socksPort,
     this.localOnion,
     WsFrameRouter? frameRouter,
-  }) : _frameRouter = frameRouter ?? WsFrameRouter();
+    this.onBinaryFrame,
+    this.onTextFrame,
+    Future<WebSocket> Function({
+      required String peerOnion,
+      required int socksPort,
+      Duration timeout,
+    })? connector,
+  })  : _frameRouter = frameRouter ?? WsFrameRouter(),
+        _connector = connector ?? connectTorWebSocket;
 
   final String peerOnion;
   final int socksPort;
   final String? localOnion;
+  final BinaryFrameHandler? onBinaryFrame;
+  final TextFrameHandler? onTextFrame;
   final WsFrameRouter _frameRouter;
+  final Future<WebSocket> Function({
+    required String peerOnion,
+    required int socksPort,
+    Duration timeout,
+  }) _connector;
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -48,7 +77,7 @@ class TorWebSocketClient {
     }
 
     try {
-      final socket = await connectTorWebSocket(
+      final socket = await _connector(
         peerOnion: peerOnion,
         socksPort: socksPort,
         timeout: timeout,
@@ -127,19 +156,13 @@ class TorWebSocketClient {
       return;
     }
     if (raw is List<int>) {
-      if (raw.isNotEmpty && raw[0] == callAudioFrameMagic) {
-        _binaryController.add(raw);
-        return;
-      }
-      if (raw.isNotEmpty && raw[0] == fileTransferChunkMagic) {
-        unawaited(
-          FileTransferHandler.instance.handleBinaryChunk(
-            raw,
-            peerOnion: peerOnion,
-            sendAck: (op, {payload}) => send(op, payload: payload),
-          ),
+      final handler = onBinaryFrame;
+      if (handler != null) {
+        final consumed = handler(
+          raw,
+          (op, {payload}) => send(op, payload: payload),
         );
-        return;
+        if (consumed) return;
       }
       final text = _tryDecodeUtf8(raw);
       if (text != null) {
@@ -167,11 +190,9 @@ class TorWebSocketClient {
     }
 
     final op = frameMap['op'];
-    if (op is String && WsFrame.isCallOp(op)) {
-      final payload = frameMap['payload'];
-      if (payload is Map<String, dynamic>) {
-        CallSignalingNotifier.active.applyInbound(peerOnion, op, payload);
-      }
+
+    final textHandler = onTextFrame;
+    if (textHandler != null && textHandler(frameMap)) {
       return;
     }
 

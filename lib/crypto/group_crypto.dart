@@ -163,6 +163,13 @@ class GroupCryptoV2 {
     return CryptoWire.unwrapKeyFromPeer(wrapped, identity);
   }
 
+  /// Returns true when [wire] is a group-sender-key envelope.
+  static bool isSenderKeyEnvelope(String wire) {
+    final envelope = CryptoEnvelope.tryParse(wire);
+    return envelope != null &&
+        CryptoEnvelope.schemeOf(envelope) == CryptoConstants.schemeGroupSender1;
+  }
+
   /// Sender-key message encryption (epoch key + sender id + index).
   static Future<String> encryptWithSenderKey({
     required Uint8List epochKey,

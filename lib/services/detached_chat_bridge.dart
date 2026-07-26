@@ -11,9 +11,10 @@ import 'package:prysm/services/detached_chat_host.dart';
 import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/self_chat_service.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/direct_chat_message_decrypt.dart';
-import 'package:prysm/util/group_crypto.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/constants/media_constants.dart';
 
@@ -183,15 +184,15 @@ class DetachedChatBridge {
 
         if (type == groupTextType) {
           final wireStr = wire as String;
-          final text = GroupCrypto.isSenderKeyEnvelope(wireStr)
-              ? await GroupCrypto.decryptWithSenderKey(
-                  epochKey: groupKey,
+          final text = GroupCryptoV2.isSenderKeyEnvelope(wireStr)
+              ? await _decryptSenderKeyText(
+                  groupKey: groupKey,
                   groupId: groupId,
                   wire: wireStr,
                   transportSenderId: authorId,
                   keyManager: keyManager,
                 )
-              : await GroupCrypto.decryptText(groupKey, wireStr);
+              : await GroupCryptoV2.decryptText(groupKey, wireStr);
           result.add(
             TextMessage(
               authorId: authorId,
@@ -247,6 +248,29 @@ class DetachedChatBridge {
       }
     }
     return result;
+  }
+
+  static Future<String> _decryptSenderKeyText({
+    required Uint8List groupKey,
+    required String groupId,
+    required String wire,
+    required String transportSenderId,
+    required KeyManager keyManager,
+  }) async {
+    final senderKeys = await loadPeerIdentityFromDb(
+      keyManager,
+      transportSenderId,
+    );
+    if (senderKeys == null) {
+      throw ArgumentError('Unknown sender identity');
+    }
+    return GroupCryptoV2.decryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: groupId,
+      wire: wire,
+      transportSenderId: transportSenderId,
+      senderKeys: senderKeys,
+    );
   }
 
   static Future<String?> _sendText({

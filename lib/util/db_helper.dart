@@ -1,4 +1,5 @@
 
+import 'package:prysm/crypto/ratchet/ratchet_service.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/call_logs_db.dart';
@@ -18,6 +19,9 @@ class DBHelper {
   /// Override the app database in unit tests (in-memory).
   static void setDatabaseForTest(Database? db) {
     _testDb = db;
+    if (db != null) {
+      RatchetService.instance.setSessionStore(RatchetSessionStore(db));
+    }
   }
 
   static Future<Database> get database async {
@@ -39,7 +43,15 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
-    return await openDatabase(path, version: 9, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(
+      path,
+      version: 9,
+      onCreate: _createDB,
+      onUpgrade: _onUpgrade,
+      onOpen: (db) {
+        RatchetService.instance.setSessionStore(RatchetSessionStore(db));
+      },
+    );
   }
 
   static Future _createDB(Database db, int version) async {

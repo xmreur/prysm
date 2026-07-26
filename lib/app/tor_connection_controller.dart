@@ -41,7 +41,7 @@ Future<String> _resolveTorDataDir() async {
 }
 
 Future<String> _resolveTorBinaryPath({bool allowDownload = true}) async {
-  if (Platform.isAndroid) return '';
+  if (Platform.isAndroid || Platform.isIOS) return '';
   if (allowDownload) {
     final torDownloader = TorDownloader();
     return torDownloader.getOrDownloadTor();
@@ -345,8 +345,9 @@ class TorConnectionController extends ChangeNotifier {
   }
 
   Future<void> checkHealth() async {
-    if (_disposed || torStopped || restartInProgress) {
-      if (!_disposed && connectionState != TorConnectionState.disconnected) {
+    if (_disposed || restartInProgress) return;
+    if (torStopped) {
+      if (connectionState != TorConnectionState.disconnected) {
         lastDisconnectedAt = DateTime.now();
         connectionState = TorConnectionState.disconnected;
         needsAttention = false;
@@ -430,13 +431,9 @@ class TorConnectionController extends ChangeNotifier {
     TorConnectionNotifier.instance.update(TorConnectionState.connecting);
 
     try {
-      await torManager!.stopTor();
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await Future.delayed(TorManager.restartSettleDelay);
-      }
       TorBootstrapNotifier.instance.reset();
       TorLifecycleNotifier.instance.update(TorLifecycleState.bootstrapping);
-      await torManager!.startTor();
+      await torManager!.restartTor();
       torStopped = false;
       TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
       final onion = await torManager!.getOnionAddress();

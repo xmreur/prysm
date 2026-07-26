@@ -39,6 +39,15 @@ class _FakeTorManager extends TorManager {
   }
 
   @override
+  Future<void> restartTor() async {
+    stopCallCount++;
+    startCallCount++;
+    if (startTorThrows || (startTorFailsOnce && startCallCount == 1)) {
+      throw Exception('restart failed');
+    }
+  }
+
+  @override
   Future<void> stopTor() async {
     stopCallCount++;
   }
@@ -240,6 +249,27 @@ void main() {
 
       expect(controller.connectionState, TorConnectionState.disconnected);
     });
+
+    test(
+      'restart in progress leaves connectionState untouched (PR #92: no '
+      'forced disconnect while a restart is in flight)',
+      () async {
+        final fakeManager = _FakeTorManager(health: TorHealthStatus.healthy);
+        final controller = TorConnectionController(keyManager: KeyManager())
+          ..torManager = fakeManager
+          ..restartInProgress = true
+          ..connectionState = TorConnectionState.connected;
+        addTearDown(controller.dispose);
+
+        var notified = 0;
+        controller.addListener(() => notified++);
+
+        await controller.checkHealth();
+
+        expect(controller.connectionState, TorConnectionState.connected);
+        expect(notified, 0);
+      },
+    );
 
     test('reconnecting after a disconnect invokes onReconnected', () async {
       final fakeManager = _FakeTorManager(

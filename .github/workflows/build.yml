@@ -78,7 +78,6 @@ jobs:
           path: build/linux/x64/release/bundle/
 
   # ----------------------
-  # ----------------------
   # IOS BUILD
   # ----------------------
   build-ios:
@@ -115,8 +114,9 @@ jobs:
         with:
           name: ios-build
           path: build/ios/iphoneos/prysm-ios.zip
-  # ANDROID BUILD
+
   # ----------------------
+  # ANDROID BUILD
   build-android:
     runs-on: ubuntu-latest
 

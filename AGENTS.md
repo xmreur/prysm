@@ -1,0 +1,1 @@
+all the skills are in ./.agents

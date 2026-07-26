@@ -412,7 +412,7 @@ void main() {
       const groupId = 'group-1';
       const targetId = 'peer.onion';
       const senderId = 'me.onion';
-      const rowId = 'modify::$wireId\__$targetId';
+      const rowId = 'modify::${wireId}__$targetId';
       await db.insert('pending_messages', {
         'id': rowId,
         'senderId': senderId,

@@ -18,7 +18,7 @@
         android:maxSdkVersion="29" />
 
     <application
-        android:label="prysm"
+        android:label="Prysm"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true"

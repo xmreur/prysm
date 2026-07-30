@@ -191,6 +191,7 @@ class DetachedChatBridge {
                   wire: wireStr,
                   transportSenderId: authorId,
                   keyManager: keyManager,
+                  localUserId: userId,
                 )
               : await GroupCryptoV2.decryptText(groupKey, wireStr);
           result.add(
@@ -256,10 +257,12 @@ class DetachedChatBridge {
     required String wire,
     required String transportSenderId,
     required KeyManager keyManager,
+    required String localUserId,
   }) async {
-    final senderKeys = await loadPeerIdentityFromDb(
+    final senderKeys = await loadGroupSenderIdentity(
       keyManager,
       transportSenderId,
+      localUserId: localUserId,
     );
     if (senderKeys == null) {
       throw ArgumentError('Unknown sender identity');

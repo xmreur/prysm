@@ -721,9 +721,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     required String wire,
     required String transportSenderId,
   }) async {
-    final senderKeys = await loadPeerIdentityFromDb(
+    final senderKeys = await loadGroupSenderIdentity(
       widget.keyManager,
       transportSenderId,
+      localUserId: widget.userId,
     );
     if (senderKeys == null) {
       throw ArgumentError('Unknown sender identity');

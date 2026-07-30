@@ -19,6 +19,7 @@ import 'package:prysm/util/file_bytes_reader.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prysm/services/message_draft_store.dart';
+import 'package:prysm/services/scheduled_message_service.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/transport/transport_preference.dart';
@@ -920,6 +921,26 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
+  Future<bool> _scheduleText(String text, DateTime sendAt) async {
+    try {
+      await ScheduledMessageService(
+        userId: widget.userId,
+        keyManager: widget.keyManager,
+      ).schedule(
+        conversationId: widget.peerId,
+        isGroup: false,
+        text: text,
+        sendAt: sendAt,
+        replyToId: _controller.replyToMessageId,
+      );
+    } catch (e) {
+      if (mounted) showPrysmToast(context, 'Could not schedule message: $e');
+      return false;
+    }
+    _controller.clearReplyState();
+    return true;
+  }
+
   Future<void> _dispatchFile({
     required Uint8List bytes,
     required String fileName,
@@ -1662,6 +1683,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 onSendImage: _handleSendImage,
                 onSendFile: _handleSendFile,
                 onSendVoice: _controller.sendVoice,
+                onScheduleText:
+                    widget.detachedClient == null ? _scheduleText : null,
                 onTypingChanged: _controller.onComposerTypingChanged,
               ),
           ],

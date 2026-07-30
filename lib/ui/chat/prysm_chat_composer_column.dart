@@ -14,6 +14,7 @@ class PrysmChatComposerColumn extends StatelessWidget {
     this.replyPreview,
     this.typingTypistNames = const [],
     this.onSendVoice,
+    this.onScheduleText,
     this.onTypingChanged,
     this.draftKey,
     this.topBanner,
@@ -26,6 +27,7 @@ class PrysmChatComposerColumn extends StatelessWidget {
   final VoidCallback onSendImage;
   final VoidCallback onSendFile;
   final void Function(Uint8List bytes, int durationMs)? onSendVoice;
+  final Future<bool> Function(String text, DateTime sendAt)? onScheduleText;
   final ValueChanged<bool>? onTypingChanged;
   final String? draftKey;
   final Widget? topBanner;
@@ -45,6 +47,7 @@ class PrysmChatComposerColumn extends StatelessWidget {
           onSendImage: onSendImage,
           onSendFile: onSendFile,
           onSendVoice: onSendVoice,
+          onScheduleText: onScheduleText,
           onTypingChanged: onTypingChanged,
         ),
       ],

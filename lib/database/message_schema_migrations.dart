@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 11;
+  static const int dbVersion = 12;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -31,6 +31,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 8) await _upgradeToV8(db);
     if (oldVersion < 9) await _upgradeToV9(db);
     if (oldVersion < 10) await _upgradeToV10(db);
+    if (oldVersion < 12) await _upgradeToV12(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -124,6 +125,7 @@ class MessageSchemaMigrations {
     await createReactionsTable(db);
     await createReadReceiptsTable(db);
     await createSelfMessagesTable(db);
+    await createScheduledMessagesTable(db);
   }
 
   /// CHANGES: added readAt timestamp
@@ -231,6 +233,11 @@ class MessageSchemaMigrations {
     await createSelfMessagesTable(db);
   }
 
+  static Future<void> _upgradeToV12(Database db) async {
+    Logging.info('UPGRADING DB TO v12', 'MessagesDb');
+    await createScheduledMessagesTable(db);
+  }
+
   /// Owns message_reactions' schema; MessageReactionsDb.createTable delegates here.
   static Future<void> createReactionsTable(Database db) async {
     await db.execute('''
@@ -286,6 +293,29 @@ class MessageSchemaMigrations {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_self_messages_ts ON self_messages(timestamp)',
+    );
+  }
+
+  /// Owns scheduled_messages' schema; ScheduledMessagesDb.createTable delegates
+  /// here. `body` holds the message text encrypted for self, so a pending
+  /// scheduled message is never stored as plaintext.
+  static Future<void> createScheduledMessagesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS scheduled_messages (
+        id TEXT PRIMARY KEY,
+        conversationId TEXT NOT NULL,
+        isGroup INTEGER NOT NULL DEFAULT 0,
+        body TEXT NOT NULL,
+        replyTo TEXT,
+        sendAt INTEGER NOT NULL,
+        createdAt INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_scheduled_send_at ON scheduled_messages(sendAt)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_scheduled_conversation ON scheduled_messages(conversationId, sendAt)',
     );
   }
 }

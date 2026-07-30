@@ -73,6 +73,7 @@ void main() {
       expect(await _tableExists(db, 'message_reactions'), isTrue);
       expect(await _tableExists(db, 'message_read_receipts'), isTrue);
       expect(await _tableExists(db, 'self_messages'), isTrue);
+      expect(await _tableExists(db, 'scheduled_messages'), isTrue);
 
       await db.close();
     });
@@ -192,6 +193,7 @@ void main() {
       expect(await _tableExists(db, 'message_reactions'), isTrue);
       expect(await _tableExists(db, 'message_read_receipts'), isTrue);
       expect(await _tableExists(db, 'self_messages'), isTrue);
+      expect(await _tableExists(db, 'scheduled_messages'), isTrue);
 
       final indexes = (await db.rawQuery('PRAGMA index_list(messages)'))
           .map((r) => r['name'])
@@ -270,6 +272,8 @@ void main() {
 
       // v10 still runs since 9 < 10.
       expect(await _tableExists(db, 'self_messages'), isTrue);
+      // v12 runs too, so an already-v9 install still gains scheduled sends.
+      expect(await _tableExists(db, 'scheduled_messages'), isTrue);
 
       // v9 is gated out at oldVersion=9 (9 < 9 is false): neither the
       // read_receipts table nor the readAt reset happen on this call.

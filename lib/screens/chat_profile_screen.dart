@@ -15,6 +15,7 @@ import 'widgets/block_user_tile.dart';
 import 'widgets/contact_avatar.dart';
 import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
+import 'widgets/scheduled_messages_tile.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
@@ -365,10 +366,20 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                     ),
                   ],
                 ),
-                child: NotificationMuteTile(
-                  target: MuteTarget.user,
-                  id: widget.peer.id,
-                  label: widget.peer.displayName,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ScheduledMessagesTile(
+                      userId: widget.userId,
+                      keyManager: widget.keyManager,
+                      conversationId: widget.peer.id,
+                    ),
+                    NotificationMuteTile(
+                      target: MuteTarget.user,
+                      id: widget.peer.id,
+                      label: widget.peer.displayName,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 20),

@@ -59,6 +59,7 @@ class PrysmIconButton extends StatelessWidget {
     required this.onPressed,
     this.color,
     this.tooltip,
+    this.onLongPress,
     this.onLongPressStart,
     super.key,
   });
@@ -67,6 +68,7 @@ class PrysmIconButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String? tooltip;
   final Color? color;
+  final VoidCallback? onLongPress;
   final GestureLongPressStartCallback? onLongPressStart;
 
   @override
@@ -75,6 +77,7 @@ class PrysmIconButton extends StatelessWidget {
     final iconColor = color ?? tokens.textSecondary;
     final button = PrysmPressable(
       onTap: onPressed,
+      onLongPress: onLongPress,
       onLongPressStart: onLongPressStart,
       borderRadius: BorderRadius.circular(PrysmTokens.radiusButton),
       child: SizedBox(

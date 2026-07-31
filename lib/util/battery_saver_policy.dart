@@ -16,6 +16,12 @@ class BatterySaverPolicy {
       ? const Duration(seconds: 30)
       : const Duration(seconds: 10);
 
+  /// Wait before retrying a scheduled message whose send just failed, so an
+  /// overdue row cannot spin the send timer.
+  static Duration scheduledMessageRetry([bool? saving]) => (saving ?? active)
+      ? const Duration(seconds: 30)
+      : const Duration(seconds: 10);
+
   static Duration syncTickIdle([bool? saving]) => (saving ?? active)
       ? const Duration(seconds: 120)
       : const Duration(seconds: 30);

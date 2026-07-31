@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:prysm/screens/widgets/schedule_message_sheet.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
@@ -17,6 +18,7 @@ import 'package:prysm/services/message_draft_store.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/util/desktop_platform.dart';
+import 'package:prysm/util/schedule_time_format.dart';
 import 'package:prysm/util/waveform_extractor.dart';
 
 class MessageComposer extends StatefulWidget {
@@ -24,6 +26,11 @@ class MessageComposer extends StatefulWidget {
   final VoidCallback onSendImage;
   final VoidCallback onSendFile;
   final Function(Uint8List bytes, int durationMs)? onSendVoice;
+
+  /// Queues [text] for delivery at [sendAt]. Returning false keeps the draft in
+  /// the composer. Long-pressing send is inert when this is null.
+  final Future<bool> Function(String text, DateTime sendAt)? onScheduleText;
+
   final ValueChanged<bool>? onTypingChanged;
   final VoidCallback? onLayoutChanged;
   final String? draftKey;
@@ -34,6 +41,7 @@ class MessageComposer extends StatefulWidget {
     required this.onSendImage,
     required this.onSendFile,
     this.onSendVoice,
+    this.onScheduleText,
     this.onTypingChanged,
     this.onLayoutChanged,
     this.draftKey,
@@ -116,6 +124,24 @@ class MessageComposerState extends State<MessageComposer> {
     final text = currentText.trim();
     if (text.isEmpty) return;
     widget.onSendText(text);
+    _clearComposer();
+  }
+
+  Future<void> _handleSchedule() async {
+    final schedule = widget.onScheduleText;
+    if (schedule == null) return;
+    final text = currentText.trim();
+    if (text.isEmpty) return;
+
+    final sendAt = await showScheduleMessageSheet(context: context);
+    if (sendAt == null || !mounted) return;
+    if (!await schedule(text, sendAt) || !mounted) return;
+
+    _clearComposer();
+    showPrysmToast(context, 'Will send ${formatScheduleLabel(sendAt)}');
+  }
+
+  void _clearComposer() {
     widget.onTypingChanged?.call(false);
     _textController.clear();
     setState(() {
@@ -405,7 +431,12 @@ class MessageComposerState extends State<MessageComposer> {
                   key: const ValueKey('send'),
                   icon: PrysmIcons.send,
                   color: tokens.accent,
+                  tooltip: widget.onScheduleText == null
+                      ? null
+                      : 'Send. Hold to schedule',
                   onPressed: _handleSend,
+                  onLongPress:
+                      widget.onScheduleText == null ? null : _handleSchedule,
                 ),
         ),
       ],

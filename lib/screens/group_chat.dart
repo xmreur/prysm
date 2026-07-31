@@ -49,6 +49,7 @@ import 'package:prysm/services/message_actions_service.dart';
 import 'package:prysm/services/message_view_mapper.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/scheduled_message_service.dart';
 import 'package:prysm/services/chat_screen_controller.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/database/message_read_receipts.dart';
@@ -945,6 +946,26 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     widget.reloadConversations();
   }
 
+  Future<bool> _scheduleText(String text, DateTime sendAt) async {
+    try {
+      await ScheduledMessageService(
+        userId: widget.userId,
+        keyManager: widget.keyManager,
+      ).schedule(
+        conversationId: widget.group.id,
+        isGroup: true,
+        text: text,
+        sendAt: sendAt,
+        replyToId: _controller.replyToMessageId,
+      );
+    } catch (e) {
+      if (mounted) showPrysmToast(context, 'Could not schedule message: $e');
+      return false;
+    }
+    _controller.clearReplyState();
+    return true;
+  }
+
   Future<void> _dispatchFile({
     required Uint8List bytes,
     required String fileName,
@@ -1579,6 +1600,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               onSendImage: _handleSendImage,
               onSendFile: _handleSendFile,
               onSendVoice: _controller.sendVoice,
+              onScheduleText:
+                  widget.detachedClient == null ? _scheduleText : null,
               onTypingChanged: _controller.onComposerTypingChanged,
             ),
           ],

@@ -18,6 +18,7 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
 import 'package:prysm/screens/widgets/notification_mute_tile.dart';
+import 'package:prysm/screens/widgets/scheduled_messages_tile.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
@@ -432,6 +433,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   label: _groupName,
                 ),
                 const PrysmDivider(),
+                ScheduledMessagesTile(
+                  userId: widget.userId,
+                  keyManager: widget.keyManager,
+                  conversationId: widget.group.id,
+                ),
                 if (_isAdmin && _members.length < maxGroupMembers)
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.personAddOutlined),

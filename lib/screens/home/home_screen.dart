@@ -1652,7 +1652,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
-    widget.torConnectionController.shutdown();
+    // Deliberately no shutdown() here: the controller is owned by _MyAppState
+    // and outlives this widget, so a rebuild that remounts HomeScreen would
+    // kill a Tor process the new instance still needs. Real exit stops Tor via
+    // quitApp() and the `detached` lifecycle branch below.
     super.dispose();
   }
 

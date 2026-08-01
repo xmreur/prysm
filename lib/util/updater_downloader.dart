@@ -10,8 +10,8 @@ class UpdaterDownloader {
   /// Downloads the updater executable for the current platform if not already present.
   /// Returns the path to the updater executable.
   Future<String> getOrDownloadUpdater({ReleaseInfo? release}) async {
-    final docDir = await getApplicationDocumentsDirectory();
-    final String updaterDirPath = path.join(docDir.path, 'prysm', 'updater');
+    final supportDir = await getApplicationSupportDirectory();
+    final String updaterDirPath = path.join(supportDir.path, 'updater');
     final Directory updaterDir = Directory(updaterDirPath);
     if (!updaterDir.existsSync()) {
       updaterDir.createSync(recursive: true);

@@ -91,11 +91,7 @@ class AppUpdateService {
 
       if (!context.mounted) return;
 
-      if (Platform.isAndroid) {
-        await _showAndroidUpdateDialog(context, result.release!);
-      } else {
-        await _launchDesktopUpdater(result.release!);
-      }
+      await _promptAndApplyUpdate(context, result.release!);
     } catch (e) {
       Logging.error('Startup update check failed: $e', 'AppUpdateService');
     }
@@ -111,11 +107,7 @@ class AppUpdateService {
       case UpdateCheckStatus.updateAvailable:
         final release = result.release!;
         if (!context.mounted) return null;
-        if (Platform.isAndroid) {
-          await _showAndroidUpdateDialog(context, release);
-        } else {
-          await _launchDesktopUpdater(release);
-        }
+        await _promptAndApplyUpdate(context, release);
         return null;
     }
   }
@@ -163,6 +155,39 @@ class AppUpdateService {
       mode: ProcessStartMode.detached,
     );
     exit(0);
+  }
+
+  Future<void> _promptAndApplyUpdate(
+    BuildContext context,
+    ReleaseInfo release,
+  ) async {
+    if (Platform.isAndroid) {
+      await _showAndroidUpdateDialog(context, release);
+    } else {
+      await _showDesktopUpdateDialog(context, release);
+    }
+  }
+
+  Future<void> _showDesktopUpdateDialog(
+    BuildContext context,
+    ReleaseInfo release,
+  ) async {
+    if (desktopPackageUrl(release) == null) {
+      Logging.warning(
+        'No desktop package in release ${release.tagName}',
+        'AppUpdateService',
+      );
+      return;
+    }
+
+    final accepted = await showUpdateAvailableDialog(
+      context: context,
+      tagName: release.tagName,
+      releaseNotes: release.body,
+    );
+    if (accepted != true || !context.mounted) return;
+
+    await _launchDesktopUpdater(release);
   }
 
   Future<void> _showAndroidUpdateDialog(
@@ -237,14 +262,14 @@ class AppUpdateService {
         return 'No desktop package in release ${release.tagName}.';
       }
 
-      final installDir = getDesktopInstallDir();
       if (dryRunDesktop) {
+        final installDir = getDesktopInstallDir();
         return 'Dry run (${release.tagName})\n'
             'url: $packageUrl\n'
             'install-dir: $installDir';
       }
 
-      await _launchDesktopUpdater(release);
+      await _showDesktopUpdateDialog(context, release);
       return null;
     } catch (e, st) {
       Logging.error('Debug update test failed: $e\n$st', 'AppUpdateService');

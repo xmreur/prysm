@@ -93,6 +93,8 @@ dependencies:
     path: packages/prysm_linux_audio
   argon2: ^1.0.1
   crypto: ^3.0.7
+  ota_update: ^7.1.0
+  package_info_plus: ^8.3.0
 
 flutter_launcher_icons:
   windows:

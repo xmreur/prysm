@@ -7,6 +7,7 @@ import 'package:prysm/screens/widgets/backup_flow.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
+import 'package:prysm/services/app_update_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/call/linux_audio_settings.dart';
 import 'package:prysm_linux_audio/prysm_linux_audio.dart';
@@ -402,6 +403,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _checkForUpdates() async {
+    if (Platform.isIOS) {
+      showPrysmToast(context, 'Updates are not available on iOS.');
+      return;
+    }
+    final message = await AppUpdateService().checkFromSettings(context);
+    if (!mounted || message == null) return;
+    showPrysmToast(context, message);
+  }
+
+  Future<void> _debugPreviewUpdateDialog() async {
+    await AppUpdateService().debugPreviewUpdateDialog(context);
+  }
+
+  Future<void> _debugTestUpdateFlow() async {
+    final message = await AppUpdateService().debugTestUpdateFlow(context);
+    if (!mounted) return;
+    if (message != null) showPrysmToast(context, message);
+  }
+
   void _showAboutDialog() {
     showPrysmDialog(
       context: context,
@@ -711,17 +732,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: 'Request a new circuit when connections are stuck',
                   ),
                 ],
-                if (kDebugMode) ...[
-                  _buildSwitchTile(
-                    'Enable Relay Server',
-                    'COMING SOON, NOT WORKING', //'Use relay for offline message delivery',
-                    PrysmIcons.cloudOutlined,
-                    _enableRelay,
-                    (bool value) {
-                      return true;
-                    }, //_onEnableRelayToggle,
-                  ),
-                ]
                 // if (_enableRelay) ...[
                 //   const PrysmDivider(),
                 //   _buildNavigationTile(
@@ -897,6 +907,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               _buildCard([
                 _buildNavigationTile(
+                  'Check for updates',
+                  PrysmIcons.refreshOutlined,
+                  () => unawaited(_checkForUpdates()),
+                  subtitle: 'Download from GitHub releases',
+                ),
+                const PrysmDivider(),
+                _buildNavigationTile(
                   'About ${settings.name}',
                   PrysmIcons.infoOutlined,
                   _showAboutDialog,
@@ -915,6 +932,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'View on GitHub',
                 ),
               ]),
+
+              if (kDebugMode) ...[
+                const SizedBox(height: 30),
+                _buildSectionHeader('Debug options'),
+                const SizedBox(height: 12),
+                _buildCard([
+                  _buildSwitchTile(
+                    'Enable Relay Server',
+                    'COMING SOON, NOT WORKING',
+                    PrysmIcons.cloudOutlined,
+                    _enableRelay,
+                    (bool value) {
+                      return true;
+                    },
+                  ),
+                  const PrysmDivider(),
+                  _buildNavigationTile(
+                    'Preview update dialog',
+                    PrysmIcons.codeOutlined,
+                    () => unawaited(_debugPreviewUpdateDialog()),
+                    subtitle: 'Mock update UI (no download)',
+                  ),
+                  const PrysmDivider(),
+                  _buildNavigationTile(
+                    'Test update flow',
+                    PrysmIcons.codeOutlined,
+                    () => unawaited(_debugTestUpdateFlow()),
+                    subtitle: 'Skip version check (desktop dry-run)',
+                  ),
+                ]),
+              ],
 
               const SizedBox(height: 30),
 

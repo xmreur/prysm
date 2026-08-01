@@ -18,7 +18,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:prysm/app/app_composition.dart';
 import 'package:prysm/app/conversation_list_repository.dart';
 import 'package:prysm/app/tor_connection_controller.dart';
@@ -34,7 +33,7 @@ import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
-import 'package:prysm/util/updater_downloader.dart';
+import 'package:prysm/services/app_update_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/screens/chat.dart';
@@ -80,69 +79,6 @@ import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
-
-/// Desktop updater check — deferred until after HomeScreen is visible.
-/// Moved verbatim from `main.dart` (Fase 5B) alongside `HomeScreen`: these
-/// three had no other caller in the codebase, so they came with it rather
-/// than leaving a circular `home_screen.dart` -> `main.dart` import behind.
-Future<void> runDesktopUpdaterCheck() async {
-  if (Platform.isAndroid || Platform.isIOS) return;
-  try {
-    await UpdaterDownloader().getOrDownloadUpdater();
-    checkForUpdatesAndLaunchUpdater();
-  } catch (e) {
-    Logging.error('Error downloading updater: $e', 'Main');
-  }
-}
-
-Future<bool> isNewerVersion(String current, String latest) async {
-  List<int> toNums(String v) =>
-      v.replaceFirst('v', '').split('.').map((s) => int.parse(s.replaceAll(RegExp(r'\D.*'), ''))).toList();
-
-  final currNums = toNums(current);
-  final latestNums = toNums(latest);
-  for (int i = 0; i < currNums.length && i < latestNums.length; i++) {
-    if (latestNums[i] > currNums[i]) return true;
-    if (latestNums[i] < currNums[i]) return false;
-  }
-  return latestNums.length > currNums.length;
-}
-
-const String currentVersion = SettingsService.appVersion;
-
-Future<void> checkForUpdatesAndLaunchUpdater() async {
-  final url = Uri.parse(
-    'https://api.github.com/repos/xmreur/prysm/releases/latest',
-  );
-
-  try {
-    final response = await http.get(url);
-    if (response.statusCode == 200) {
-      final jsonData = jsonDecode(response.body);
-
-      final latestVersion = jsonData['tag_name'] as String;
-
-      if (await isNewerVersion(currentVersion, latestVersion)) {
-        final updaterPath = await UpdaterDownloader().getOrDownloadUpdater();
-
-        Logging.info('Launching updater process...', 'Main');
-        await Process.start(updaterPath, [], mode: ProcessStartMode.detached);
-
-        // Exit app to allow updater to proceed
-        exit(0);
-      } else {
-        Logging.info('Already at latest version $currentVersion', 'Main');
-      }
-    } else {
-      Logging.warning(
-        'Failed to fetch latest release info. Status: ${response.statusCode}',
-        'Main',
-      );
-    }
-  } catch (e) {
-    Logging.error('Error checking updates: $e', 'Main');
-  }
-}
 
 class HomeScreen extends StatefulWidget {
   final TorManager torManager;
@@ -456,7 +392,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(runDesktopUpdaterCheck());
+      if (!mounted) return;
+      unawaited(AppUpdateService().checkOnStartup(context));
     });
 
     _startAutoRefresh();

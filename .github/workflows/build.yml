@@ -184,3 +184,55 @@ jobs:
         with:
           name: android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+  # ----------------------
+  # PUBLISH GITHUB RELEASE
+  # ----------------------
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-windows
+      - build-linux
+      - build-macos
+      - build-android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package release assets
+        run: |
+          mkdir -p release-assets
+
+          cp artifacts/android-apk/app-release.apk release-assets/prysm-android.apk
+
+          cd artifacts/windows-build
+          zip -r ../../release-assets/prysm-windows.zip .
+          cd ../../
+
+          tar -czf release-assets/prysm-linux.tar.gz -C artifacts/linux-build .
+
+          cp artifacts/macos-build/prysm-macos.zip release-assets/prysm-macos.zip
+
+          # Updater binaries from prysm-auto-updater until built in this repo.
+          UPDATER_TAG="v0.0.1"
+          BASE="https://github.com/xmreur/prysm-auto-updater/releases/download/${UPDATER_TAG}"
+          curl -fsSL -o release-assets/prysm-updater-linux "${BASE}/prysm-updater-linux"
+          curl -fsSL -o release-assets/prysm-updater-windows.exe "${BASE}/prysm-updater-windows.exe"
+          curl -fsSL -o release-assets/prysm-updater-macos "${BASE}/prysm-updater-macos"
+          chmod +x release-assets/prysm-updater-linux release-assets/prysm-updater-macos
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*

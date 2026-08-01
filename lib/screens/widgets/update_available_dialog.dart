@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:ota_update/ota_update.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -61,9 +63,13 @@ class _UpdateProgressDialog extends StatefulWidget {
 }
 
 class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
+  final OtaUpdate _otaUpdate = OtaUpdate();
+  StreamSubscription<OtaEvent>? _subscription;
+
   double _progress = 0;
   String _status = 'Downloading update…';
   bool _failed = false;
+  bool _canceled = false;
 
   @override
   void initState() {
@@ -71,20 +77,35 @@ class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
     _startDownload();
   }
 
-  Future<void> _startDownload() async {
-    try {
-      await for (final event in OtaUpdate().execute(
-        widget.apkUrl,
-        destinationFilename: 'prysm-update.apk',
-      )) {
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _cancelDownload() async {
+    if (_canceled) return;
+    _canceled = true;
+    await _otaUpdate.cancel();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _startDownload() {
+    _subscription = _otaUpdate
+        .execute(
+          widget.apkUrl,
+          destinationFilename: 'prysm-update.apk',
+        )
+        .listen(
+      (event) {
         if (!mounted) return;
         switch (event.status) {
           case OtaStatus.DOWNLOADING:
             setState(() {
               _status = 'Downloading update…';
-              final value = event.value;
-              if (value is int || value is double) {
-                _progress = (value as num) / 100;
+              final parsed = double.tryParse(event.value ?? '');
+              if (parsed != null) {
+                _progress = parsed / 100;
               }
             });
           case OtaStatus.INSTALLING:
@@ -102,19 +123,20 @@ class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
           case OtaStatus.CHECKSUM_ERROR:
             setState(() {
               _failed = true;
-              _status = event.value?.toString() ?? 'Update failed';
+              _status = event.value ?? 'Update failed';
             });
           case OtaStatus.CANCELED:
             if (mounted) Navigator.of(context).pop();
         }
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _failed = true;
-        _status = e.toString();
-      });
-    }
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() {
+          _failed = true;
+          _status = e.toString();
+        });
+      },
+    );
   }
 
   @override
@@ -137,12 +159,25 @@ class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
               const SizedBox(height: 16),
               Text(_status, style: style.bodyStyle),
               const SizedBox(height: 12),
-              if (!_failed)
+              if (!_failed && !_canceled)
                 _DownloadProgressBar(
                   progress: _progress,
                   trackColor: style.tokens.outline.withValues(alpha: 0.3),
                   fillColor: style.tokens.accent,
                 ),
+              if (!_failed && !_canceled) ...[
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: PrysmPressable(
+                    onTap: () => unawaited(_cancelDownload()),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text('Cancel', style: style.bodyStyle),
+                    ),
+                  ),
+                ),
+              ],
               if (_failed) ...[
                 const SizedBox(height: 12),
                 PrysmPressable(

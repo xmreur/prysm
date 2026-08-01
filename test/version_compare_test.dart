@@ -22,5 +22,17 @@ void main() {
     test('handles tags without v prefix on current', () {
       expect(isNewerVersion('0.5.0', 'v0.5.1'), isTrue);
     });
+
+    test('GA release is newer than pre-release with same base', () {
+      expect(isNewerVersion('v0.5.1-beta', 'v0.5.1'), isTrue);
+    });
+
+    test('pre-release is not newer than GA with same base', () {
+      expect(isNewerVersion('v0.5.1', 'v0.5.1-beta'), isFalse);
+    });
+
+    test('pre-releases with same base compare by pre-release label', () {
+      expect(isNewerVersion('v0.5.1-beta', 'v0.5.1-beta.2'), isTrue);
+    });
   });
 }

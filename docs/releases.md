@@ -42,6 +42,8 @@ The [prysm-auto-updater](https://github.com/xmreur/prysm-auto-updater) binary mu
 3. Extract/replace files under `--install-dir` while the main app is not running.
 4. Optionally relaunch the app after installation.
 
+Updater binaries are cached per release tag under `<Application Support>/updater/<tag>/`. SHA-256 checksums are required before execution, loaded from `prysm-resources` (`updater/manifest.json`) keyed as `<tag>/<asset-name>`, with embedded fallbacks for `v0.0.1`. When a release reuses the v0.0.1 updater binary, checksum lookup falls back to the `v0.0.1` entry. Add manifest entries when shipping new updater builds.
+
 ## Debug testing
 
 In **debug builds only**, Settings includes a **Debug options** section with:

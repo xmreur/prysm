@@ -1,16 +1,21 @@
-bool isNewerVersion(String current, String latest) {
-  List<int> toNums(String v) =>
-      v
-          .replaceFirst('v', '')
-          .split('.')
-          .map((s) => int.parse(s.replaceAll(RegExp(r'\D.*'), '')))
-          .toList();
+import 'package:pub_semver/pub_semver.dart';
 
-  final currNums = toNums(current);
-  final latestNums = toNums(latest);
-  for (int i = 0; i < currNums.length && i < latestNums.length; i++) {
-    if (latestNums[i] > currNums[i]) return true;
-    if (latestNums[i] < currNums[i]) return false;
+/// Returns true when [latest] is a newer semver than [current].
+///
+/// Tags may use a leading `v` (e.g. `v0.5.1-beta`). Pre-releases sort below
+/// the corresponding GA release (`0.5.1` > `0.5.1-beta`).
+bool isNewerVersion(String current, String latest) {
+  final currentVersion = _parseVersionTag(current);
+  final latestVersion = _parseVersionTag(latest);
+  if (currentVersion == null || latestVersion == null) return false;
+  return latestVersion > currentVersion;
+}
+
+Version? _parseVersionTag(String tag) {
+  final normalized = tag.startsWith('v') ? tag.substring(1) : tag;
+  try {
+    return Version.parse(normalized);
+  } catch (_) {
+    return null;
   }
-  return latestNums.length > currNums.length;
 }

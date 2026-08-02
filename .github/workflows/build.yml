@@ -194,6 +194,7 @@ jobs:
       - build-linux
       - build-macos
       - build-android
+      - build-ios
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -208,17 +209,24 @@ jobs:
 
       - name: Package release assets
         run: |
+          VERSION="${{ github.ref_name }}"
           mkdir -p release-assets
 
-          cp artifacts/android-apk/app-release.apk release-assets/prysm-android.apk
+          cp artifacts/android-apk/app-release.apk "release-assets/Prysm-android-${VERSION}.apk"
 
           cd artifacts/windows-build
-          zip -r ../../release-assets/prysm-windows.zip .
+          zip -r "../../release-assets/Prysm-windows-x86_64-${VERSION}.zip" .
           cd ../../
 
-          tar -czf release-assets/prysm-linux.tar.gz -C artifacts/linux-build .
+          cd artifacts/linux-build
+          zip -r "../../release-assets/Prysm-linux-x86_64-${VERSION}.zip" .
+          cd ../../
 
-          cp artifacts/macos-build/prysm-macos.zip release-assets/prysm-macos.zip
+          unzip -q artifacts/macos-build/prysm-macos.zip -d /tmp/prysm-macos
+          cd /tmp/prysm-macos
+          zip -r "$GITHUB_WORKSPACE/release-assets/Prysm-macos-${VERSION}.zip" prysm.app
+
+          cp artifacts/ios-build/prysm-ios.ipa "release-assets/Prysm-ios-${VERSION}.ipa"
 
           # Updater binaries from prysm-auto-updater until built in this repo.
           UPDATER_TAG="v0.0.2"

@@ -54,10 +54,19 @@ class ReleaseInfo {
 
 /// GitHub release asset filenames published by CI.
 abstract final class ReleaseAssetNames {
-  static const androidApk = 'prysm-android.apk';
-  static const windowsZip = 'prysm-windows.zip';
-  static const linuxTarGz = 'prysm-linux.tar.gz';
-  static const macosZip = 'prysm-macos.zip';
+  static String androidApk(String tagName) => 'Prysm-android-$tagName.apk';
+  static String iosIpa(String tagName) => 'Prysm-ios-$tagName.ipa';
+  static String windowsZip(String tagName) =>
+      'Prysm-windows-x86_64-$tagName.zip';
+  static String linuxZip(String tagName) => 'Prysm-linux-x86_64-$tagName.zip';
+  static String macosZip(String tagName) => 'Prysm-macos-$tagName.zip';
+
+  /// Legacy filenames from releases before versioned asset naming.
+  static const legacyAndroidApk = 'prysm-android.apk';
+  static const legacyWindowsZip = 'prysm-windows.zip';
+  static const legacyLinuxTarGz = 'prysm-linux.tar.gz';
+  static const legacyMacosZip = 'prysm-macos.zip';
+
   static const updaterWindows = 'prysm-updater-windows.exe';
   static const updaterLinux = 'prysm-updater-linux';
   static const updaterMacos = 'prysm-updater-macos';

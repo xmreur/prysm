@@ -10,6 +10,12 @@ set(BINARY_NAME "Prysm")
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
 
+# Some Flutter Windows plugins (permission_handler_windows,
+# flutter_local_notifications_windows) still compile with the deprecated
+# <experimental/coroutine> on /await. Newer MSVC toolchains turn that into a
+# hard error (STL1011), so silence it until those plugins catch up.
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Define build configuration option.
 get_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(IS_MULTICONFIG)

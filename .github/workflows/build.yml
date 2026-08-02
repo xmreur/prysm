@@ -24,10 +24,6 @@ jobs:
       - run: |
           flutter config --enable-windows-desktop
           flutter pub get
-      - name: Patch opus_flutter_windows
-        run: |
-          $symlink = "windows/flutter/ephemeral/.plugin_symlinks/opus_flutter_windows/windows"
-          if (-not (Test-Path $symlink)) { New-Item -ItemType Directory -Path $symlink -Force }
       - run: flutter build windows --release
         env:
           CMAKE_POLICY_VERSION_MINIMUM: 3.5

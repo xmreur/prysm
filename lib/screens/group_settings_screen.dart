@@ -19,6 +19,7 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
 import 'package:prysm/screens/widgets/notification_mute_tile.dart';
 import 'package:prysm/screens/widgets/scheduled_messages_tile.dart';
+import 'package:prysm/screens/widgets/disappearing_messages_tile.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
@@ -437,6 +438,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   userId: widget.userId,
                   keyManager: widget.keyManager,
                   conversationId: widget.group.id,
+                ),
+                DisappearingMessagesTile(
+                  conversationId: widget.group.id,
+                  userId: widget.userId,
+                  keyManager: widget.keyManager,
+                  isGroup: true,
+                  groupService: _groupService,
+                  memberIds: _members.map((m) => m.memberId).toList(),
                 ),
                 if (_isAdmin && _members.length < maxGroupMembers)
                   PrysmListRow(

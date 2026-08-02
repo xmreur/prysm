@@ -14,13 +14,8 @@ class ConversationPreferencesService {
     final existing = await ConversationPreferencesDb.get(conversationId);
     final now = DateTime.now().millisecondsSinceEpoch;
     await ConversationPreferencesDb.upsert(
-      ConversationPreferences(
-        conversationId: conversationId,
-        isPinned: true,
-        pinnedAt: now,
-        isArchived: existing?.isArchived ?? false,
-        archivedAt: existing?.archivedAt,
-      ),
+      (existing ?? ConversationPreferences(conversationId: conversationId))
+          .copyWith(isPinned: true, pinnedAt: now),
     );
   }
 
@@ -32,6 +27,7 @@ class ConversationPreferencesService {
         isPinned: false,
         isArchived: existing?.isArchived ?? false,
         archivedAt: existing?.archivedAt,
+        disappearingTimerSeconds: existing?.disappearingTimerSeconds,
       ),
     );
   }
@@ -40,13 +36,8 @@ class ConversationPreferencesService {
     final existing = await ConversationPreferencesDb.get(conversationId);
     final now = DateTime.now().millisecondsSinceEpoch;
     await ConversationPreferencesDb.upsert(
-      ConversationPreferences(
-        conversationId: conversationId,
-        isPinned: existing?.isPinned ?? false,
-        pinnedAt: existing?.pinnedAt,
-        isArchived: true,
-        archivedAt: now,
-      ),
+      (existing ?? ConversationPreferences(conversationId: conversationId))
+          .copyWith(isArchived: true, archivedAt: now),
     );
   }
 
@@ -59,6 +50,7 @@ class ConversationPreferencesService {
         isPinned: existing.isPinned,
         pinnedAt: existing.pinnedAt,
         isArchived: false,
+        disappearingTimerSeconds: existing.disappearingTimerSeconds,
       ),
     );
   }

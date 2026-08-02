@@ -6,6 +6,7 @@ const String groupInviteType = 'group_invite';
 const String groupKeyRotateType = 'group_key_rotate';
 const String groupMemberRemovedType = 'group_member_removed';
 const String groupProfileUpdateType = 'group_profile_update';
+const String groupDisappearingTimerType = 'group_disappearing_timer';
 const String groupHistoryRelayType = 'group_history_relay';
 
 // Group chat message types (AES group-key encrypted payload)
@@ -26,11 +27,15 @@ const String groupReadReceiptType = 'group_read_receipt';
 const String readWaterlineType = 'read_waterline';
 const String groupReadWaterlineType = 'group_read_waterline';
 
+const String disappearingTimerType = 'disappearing_timer';
+const String disappearingTimerNoticeType = 'disappearing_timer_notice';
+
 const Set<String> groupControlTypes = {
   groupInviteType,
   groupKeyRotateType,
   groupMemberRemovedType,
   groupProfileUpdateType,
+  groupDisappearingTimerType,
 };
 
 const Set<String> groupMessageTypes = {
@@ -54,11 +59,17 @@ const Set<String> readReceiptTypes = {
   groupReadWaterlineType,
 };
 
+const Set<String> disappearingTimerTypes = {
+  disappearingTimerType,
+};
+
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
 bool isReactionType(String type) => reactionTypes.contains(type);
 bool isMessageModifyType(String type) => messageModifyTypes.contains(type);
 bool isReadReceiptType(String type) => readReceiptTypes.contains(type);
+bool isDisappearingTimerType(String type) =>
+    disappearingTimerTypes.contains(type);
 
 const Set<String> directMessageTypes = {
   'text',
@@ -72,7 +83,8 @@ bool isDirectMessageType(String type) => directMessageTypes.contains(type);
 bool isSideChannelPendingType(String type) =>
     isReadReceiptType(type) ||
     isReactionType(type) ||
-    isMessageModifyType(type);
+    isMessageModifyType(type) ||
+    isDisappearingTimerType(type);
 
 bool isPendingOutboundChatType(String type) =>
     !isSideChannelPendingType(type) &&

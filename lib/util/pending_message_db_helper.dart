@@ -16,7 +16,7 @@ class PendingMessageDbHelper {
 
     _database = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       singleInstance: true,
       onCreate: (db, version) async {
         await db.execute('''
@@ -33,7 +33,8 @@ class PendingMessageDbHelper {
             replyTo TEXT,
             viewOnce INTEGER DEFAULT 0,
             groupId TEXT,
-            targetMemberId TEXT
+            targetMemberId TEXT,
+            expiresAt INTEGER
           )
         ''');
         await db.execute('CREATE INDEX idx_pending_receiver ON pending_messages(receiverId)');
@@ -57,6 +58,12 @@ class PendingMessageDbHelper {
           }
           if (!columns.any((col) => col['name'] == 'targetMemberId')) {
             await db.execute('ALTER TABLE pending_messages ADD COLUMN targetMemberId TEXT');
+          }
+        }
+        if (oldVersion < 5) {
+          final columns = await db.rawQuery('PRAGMA table_info(pending_messages)');
+          if (!columns.any((col) => col['name'] == 'expiresAt')) {
+            await db.execute('ALTER TABLE pending_messages ADD COLUMN expiresAt INTEGER');
           }
         }
       },

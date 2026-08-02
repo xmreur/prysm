@@ -6,8 +6,10 @@ import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/disappearing_message_purge_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/scheduled_message_service.dart';
+import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -32,8 +34,10 @@ class SyncCoordinator {
   Timer? _tickTimer;
   Timer? _pendingFlushDebounce;
   Timer? _scheduledTimer;
+  Timer? _expiryTimer;
   StreamSubscription<void>? _pendingActivitySub;
   StreamSubscription<void>? _scheduledActivitySub;
+  StreamSubscription<void>? _expiryActivitySub;
   bool _flushing = false;
   bool _hasPendingBacklog = false;
   bool _disposed = false;
@@ -41,6 +45,7 @@ class SyncCoordinator {
   /// Bumped on every arm request so a slower in-flight arm loses to a newer one
   /// instead of leaving a stale timer behind.
   int _armGeneration = 0;
+  int _expiryArmGeneration = 0;
 
   SyncCoordinator({
     required this.userId,
@@ -61,10 +66,14 @@ class SyncCoordinator {
     _pendingFlushDebounce = null;
     _scheduledTimer?.cancel();
     _scheduledTimer = null;
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
     _pendingActivitySub?.cancel();
     _pendingActivitySub = null;
     _scheduledActivitySub?.cancel();
     _scheduledActivitySub = null;
+    _expiryActivitySub?.cancel();
+    _expiryActivitySub = null;
     _disposed = true;
   }
 
@@ -90,7 +99,12 @@ class SyncCoordinator {
       // so re-aim the timer rather than waiting out the old one.
       unawaited(_armScheduledTimer());
     });
+    _expiryActivitySub ??=
+        DisappearingActivityNotifier.instance.onChanged.listen((_) {
+      unawaited(_armExpiryTimer());
+    });
     unawaited(_armScheduledTimer());
+    unawaited(_armExpiryTimer());
   }
 
   /// Arms a one-shot timer for the moment the next scheduled message is due.
@@ -143,6 +157,45 @@ class SyncCoordinator {
     }
   }
 
+  Future<void> _armExpiryTimer({Duration? minDelay}) async {
+    final generation = ++_expiryArmGeneration;
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (_disposed) return;
+
+    final DateTime? next;
+    try {
+      next = await DisappearingMessagePurgeService.instance.nextExpiryAt();
+    } catch (e) {
+      Logging.error(
+        'Could not read next expiry time: $e',
+        'SyncCoordinator',
+      );
+      return;
+    }
+    if (_disposed || generation != _expiryArmGeneration) return;
+    if (next == null) return;
+
+    var wait = next.difference(DateTime.now());
+    if (wait.isNegative) wait = Duration.zero;
+    if (minDelay != null && wait < minDelay) wait = minDelay;
+    if (wait > _maxArmDelay) wait = _maxArmDelay;
+
+    _expiryTimer = Timer(wait, () => unawaited(_purgeExpired()));
+  }
+
+  Future<void> _purgeExpired() async {
+    try {
+      await DisappearingMessagePurgeService.instance.purgeDue();
+    } catch (e) {
+      Logging.error('Expiry purge failed: $e', 'SyncCoordinator');
+    } finally {
+      await _armExpiryTimer(
+        minDelay: const Duration(seconds: 1),
+      );
+    }
+  }
+
   void _scheduleTick(Duration interval) {
     _tickTimer?.cancel();
     _tickTimer = Timer(interval, () async {
@@ -155,6 +208,7 @@ class SyncCoordinator {
 
   Future<void> _onTick() async {
     if (TorRuntimeGate.blocked || isTorStopped()) return;
+    await DisappearingMessagePurgeService.instance.purgeDue();
     await flushAllPending();
   }
 
@@ -228,7 +282,8 @@ class SyncCoordinator {
       if (isGroupControlType(type) || type == groupHistoryRelayType) {
         return m['senderId'] == userId;
       }
-      if (isReactionType(type) || isReadReceiptType(type)) {
+      if (isReactionType(type) || isReadReceiptType(type) ||
+          isDisappearingTimerType(type)) {
         return m['senderId'] == userId;
       }
       if (m['groupId'] != null) {
@@ -244,6 +299,7 @@ class SyncCoordinator {
     // Scheduled sends get their own kick: anything that came due while Tor was
     // down should not have to wait for the retry queues to finish first.
     unawaited(_armScheduledTimer());
+    unawaited(_armExpiryTimer());
     return flushAllPending();
   }
 

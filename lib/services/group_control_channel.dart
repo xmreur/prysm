@@ -168,6 +168,28 @@ class GroupControlChannel {
     );
   }
 
+  Future<void> sendDisappearingTimer({
+    required String groupId,
+    required int? timerSeconds,
+    required int updatedAt,
+    required String updatedBy,
+    required String targetMemberId,
+  }) async {
+    final payload = jsonEncode({
+      'groupId': groupId,
+      'timerSeconds': timerSeconds,
+      'updatedAt': updatedAt,
+      'updatedBy': updatedBy,
+    });
+
+    await _sendControlMessage(
+      type: groupDisappearingTimerType,
+      targetMemberId: targetMemberId,
+      groupId: groupId,
+      payload: payload,
+    );
+  }
+
   Future<void> sendMemberRemoved({
     required String groupId,
     required String removedMemberId,
@@ -330,6 +352,13 @@ class GroupControlChannel {
           'groupId': data['groupId'],
           if (data['name'] != null) 'name': data['name'],
           if (data['avatarBase64'] != null) 'avatarBase64': data['avatarBase64'],
+        });
+      case groupDisappearingTimerType:
+        return jsonEncode({
+          'groupId': data['groupId'],
+          'timerSeconds': data['timerSeconds'],
+          'updatedAt': data['updatedAt'],
+          'updatedBy': data['updatedBy'],
         });
       default:
         return null;

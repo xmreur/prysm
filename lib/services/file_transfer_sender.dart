@@ -57,6 +57,8 @@ class FileTransferSender {
     required String peerPayload,
     String? replyToId,
     bool viewOnce = false,
+    int? expiresAt,
+    int? timestamp,
     Duration timeout = const Duration(minutes: 5),
   }) async {
     final parts = parseFileTransferParts(peerPayload);
@@ -138,7 +140,7 @@ class FileTransferSender {
           'type': type,
           'fileName': fileName,
           'fileSize': fileSize,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
           'wrappedKey': parts.wrappedKey,
           'nonce': base64Encode(parts.nonce),
           'ciphertextSize': ciphertext.length,
@@ -146,6 +148,7 @@ class FileTransferSender {
           'chunkSize': chunkSize,
           'replyTo': ?replyToId,
           'viewOnce': viewOnce,
+          'expiresAt': ?expiresAt,
         },
         bypassQueue: true,
         timeout: const Duration(seconds: 30),

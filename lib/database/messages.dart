@@ -160,6 +160,12 @@ class MessagesDb {
   static Future<void> deleteMessageById(String id) =>
       _crudDao.deleteMessageById(id);
 
+  static Future<void> hardDeleteMessage(
+    String wireId, {
+    String? groupId,
+  }) =>
+      _crudDao.hardDeleteMessage(wireId, groupId: groupId);
+
   static Future<void> setAsRead(String id, {String? groupId}) =>
       _readReceiptDao.setAsRead(id, groupId: groupId);
 
@@ -217,6 +223,14 @@ class MessagesDb {
     String? groupId,
   }) =>
       _crudDao.updateMessageStatus(messageId, status, groupId: groupId);
+
+  static Future<int?> getNextExpiresAt() => _crudDao.getNextExpiresAt();
+
+  static Future<List<Map<String, dynamic>>> getExpiredMessages({
+    required int cutoff,
+    int limit = 100,
+  }) =>
+      _crudDao.getExpiredMessages(cutoff: cutoff, limit: limit);
 
   /// Get messages for a group, newest first (dedupe by id in caller)
   static Future<List<Map<String, dynamic>>> getMessagesForGroupBatch(

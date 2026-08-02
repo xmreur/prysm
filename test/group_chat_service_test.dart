@@ -75,6 +75,16 @@ Future<Database> _openDbHelperDb() async {
   final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
   await RatchetSessionStore.ensureTable(db);
   await GroupSenderIndexStore.ensureTable(db);
+  await db.execute('''
+    CREATE TABLE conversation_preferences (
+      conversationId TEXT PRIMARY KEY,
+      isPinned INTEGER NOT NULL DEFAULT 0,
+      pinnedAt INTEGER,
+      isArchived INTEGER NOT NULL DEFAULT 0,
+      archivedAt INTEGER,
+      disappearingTimerSeconds INTEGER
+    )
+  ''');
   return db;
 }
 
@@ -97,7 +107,8 @@ Future<Database> _openMessagesDb() async {
       viewed INTEGER DEFAULT 0,
       groupId TEXT,
       deletedAt INTEGER,
-      editedAt INTEGER
+      editedAt INTEGER,
+      expiresAt INTEGER
     )
   ''');
   return db;

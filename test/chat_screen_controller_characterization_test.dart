@@ -51,7 +51,8 @@ Future<Database> _openMessagesDb() async {
       viewed INTEGER DEFAULT 0,
       groupId TEXT,
       deletedAt INTEGER,
-      editedAt INTEGER
+      editedAt INTEGER,
+      expiresAt INTEGER
     )
   ''');
   await MessageReadReceiptsDb.createTable(db);

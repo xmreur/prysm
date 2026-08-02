@@ -23,6 +23,7 @@ Map<String, Object?> metadataFromDbRow(Map<String, dynamic> row) {
   final meta = <String, Object?>{};
   if (row['deletedAt'] != null) meta['deleted'] = true;
   if (row['editedAt'] != null) meta['edited'] = true;
+  if (row['expiresAt'] != null) meta['expiresAt'] = row['expiresAt'];
   return meta;
 }
 

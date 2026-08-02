@@ -14,7 +14,9 @@ import 'package:prysm/services/pending_queue_reconciler.dart';
 import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -90,6 +92,8 @@ class ChatService {
             fileName: row['fileName'] as String?,
             fileSize: row['fileSize'] as int?,
             viewOnce: (row['viewOnce'] ?? 0) == 1,
+            expiresAt: row['expiresAt'] as int?,
+            timestamp: row['timestamp'] as int?,
           ),
           markAsSent: _markAsSent,
         );
@@ -210,6 +214,10 @@ class ChatService {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id =
         messageId ?? const Uuid().v4(); // ✅ Use provided ID or generate new
+    final expiresAt = await DisappearingTimerService.expiresAtForSend(
+      peerId,
+      at: DateTime.fromMillisecondsSinceEpoch(timestamp),
+    );
 
     final encryptedForPeer = await keyManager.encryptForPeer(
       text,
@@ -228,13 +236,20 @@ class ChatService {
       'status': 'pending',
       'timestamp': timestamp,
       'replyTo': replyToId,
+      'expiresAt': ?expiresAt,
     }, notifyListeners: false);
+
+    if (expiresAt != null) {
+      DisappearingActivityNotifier.instance.notify();
+    }
 
     final success = await _sendOverTor(
       id,
       encryptedForPeer,
       'text',
       replyToId: replyToId,
+      expiresAt: expiresAt,
+      timestamp: timestamp,
     );
 
     // If the user deleted the message while the send was in flight, do not
@@ -256,6 +271,8 @@ class ChatService {
         encryptedForPeer,
         'text',
         replyToId: replyToId,
+        expiresAt: expiresAt,
+        timestamp: timestamp,
       );
       _processSendQueue();
     }
@@ -285,6 +302,10 @@ class ChatService {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id =
         messageId ?? const Uuid().v4(); // ✅ Use provided ID or generate new
+    final expiresAt = await DisappearingTimerService.expiresAtForSend(
+      peerId,
+      at: DateTime.fromMillisecondsSinceEpoch(timestamp),
+    );
 
     await MessagesDb.insertMessage({
       'id': id,
@@ -298,7 +319,12 @@ class ChatService {
       'replyTo': replyToId,
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
+      'expiresAt': ?expiresAt,
     }, notifyListeners: false);
+
+    if (expiresAt != null) {
+      DisappearingActivityNotifier.instance.notify();
+    }
 
     if (TransportProvider.isConfigured) {
       final wsConnected =
@@ -322,6 +348,8 @@ class ChatService {
       fileSize: bytes.length,
       replyToId: replyToId,
       viewOnce: viewOnce,
+      expiresAt: expiresAt,
+      timestamp: timestamp,
     );
 
     if (!success) {
@@ -350,6 +378,8 @@ class ChatService {
         fileSize: bytes.length,
         replyToId: replyToId,
         viewOnce: viewOnce,
+        expiresAt: expiresAt,
+        timestamp: timestamp,
       );
       _processSendQueue();
     }
@@ -495,6 +525,8 @@ class ChatService {
             fileName: msg['fileName'],
             fileSize: msg['fileSize'],
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            expiresAt: msg['expiresAt'] as int?,
+            timestamp: msg['timestamp'] as int?,
           );
 
           if (success) {
@@ -550,11 +582,14 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    int? expiresAt,
+    int? timestamp,
   }) {
     return _serializedOutbound(() async {
     if (BlockService.instance.isBlocked(peerId)) return false;
     if (TorRuntimeGate.blocked) return false;
 
+    final wireTimestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
     final isLargeMedia = type == 'file' || type == 'image' || type == 'audio';
     final timeout = isLargeMedia
         ? const Duration(minutes: 5)
@@ -570,6 +605,8 @@ class ChatService {
         replyToId: replyToId,
         viewOnce: viewOnce,
         timeout: timeout,
+        expiresAt: expiresAt,
+        timestamp: wireTimestamp,
       );
       if (chunked) return true;
 
@@ -593,7 +630,8 @@ class ChatService {
           'fileSize': fileSize,
           'replyTo': replyToId,
           'viewOnce': viewOnce,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'timestamp': wireTimestamp,
+          'expiresAt': ?expiresAt,
         },
         timeout: timeout,
       );
@@ -619,6 +657,8 @@ class ChatService {
     String? replyToId,
     bool viewOnce = false,
     required Duration timeout,
+    int? expiresAt,
+    int? timestamp,
   }) async {
     if (!TransportProvider.isConfigured) return false;
 
@@ -648,6 +688,8 @@ class ChatService {
         replyToId: replyToId,
         viewOnce: viewOnce,
         timeout: timeout,
+        expiresAt: expiresAt,
+        timestamp: timestamp,
       );
     } catch (e) {
       Logging.error('Chunked file send failed: $e', 'ChatService');
@@ -825,6 +867,8 @@ class ChatService {
       fileName: msg['fileName'] as String?,
       fileSize: msg['fileSize'] as int?,
       viewOnce: (msg['viewOnce'] ?? 0) == 1,
+      expiresAt: msg['expiresAt'] as int?,
+      timestamp: msg['timestamp'] as int?,
     );
 
     if (!_disposed && !wasPending) {
@@ -857,6 +901,8 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    int? expiresAt,
+    int? timestamp,
   }) async {
     await PendingMessageDbHelper.insertPendingMessage({
       'id': id,
@@ -866,9 +912,10 @@ class ChatService {
       'type': type,
       'fileName': fileName,
       'fileSize': fileSize,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
       'replyTo': replyToId,
       'viewOnce': viewOnce ? 1 : 0,
+      'expiresAt': ?expiresAt,
     });
   }
 

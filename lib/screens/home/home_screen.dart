@@ -2066,6 +2066,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
       return ChatScreen(
+        key: ValueKey('dm_${selectedContact!.id}'),
         userId: appUser.id,
         userName: appUser.name,
         peerId: selectedContact!.id,

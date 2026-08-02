@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/group_crypto.dart';
@@ -150,6 +151,22 @@ class MessageViewMapper {
               name: msg['fileName'] ?? 'voice_message.wav',
               size: msg['fileSize'] ?? 0,
               source: msg['message'],
+            ),
+          );
+        } else if (msg['type'] == disappearingTimerNoticeType) {
+          final payload = jsonDecode((msg['message'] as String?) ?? '{}')
+              as Map<String, dynamic>;
+          messages.add(
+            TextMessage(
+              id: msg['id'],
+              authorId: msg['senderId'] as String,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
+              text: '',
+              metadata: {
+                'systemNotice': 'disappearing_timer',
+                'timerSeconds': payload['timerSeconds'],
+                'actorId': payload['actorId'],
+              },
             ),
           );
         } else if (msg['type'] == 'call') {

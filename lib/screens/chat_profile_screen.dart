@@ -16,6 +16,7 @@ import 'widgets/contact_avatar.dart';
 import 'widgets/conversation_prefs_tiles.dart';
 import 'widgets/notification_mute_tile.dart';
 import 'widgets/scheduled_messages_tile.dart';
+import 'widgets/disappearing_messages_tile.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
@@ -373,6 +374,11 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       userId: widget.userId,
                       keyManager: widget.keyManager,
                       conversationId: widget.peer.id,
+                    ),
+                    DisappearingMessagesTile(
+                      conversationId: widget.peer.id,
+                      userId: widget.userId,
+                      keyManager: widget.keyManager,
                     ),
                     NotificationMuteTile(
                       target: MuteTarget.user,

@@ -1,5 +1,7 @@
 import 'package:prysm/database/message_id_codec.dart';
 import 'package:prysm/database/message_query_filters.dart';
+import 'package:prysm/database/message_reactions.dart';
+import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/util/logging.dart';
@@ -281,6 +283,21 @@ class MessageCrudDao {
     });
   }
 
+  /// Permanently removes a message and its related rows (reactions, receipts).
+  Future<void> hardDeleteMessage(
+    String wireId, {
+    String? groupId,
+  }) async {
+    final storageId = MessageIdCodec.scopedId(wireId: wireId, groupId: groupId);
+    await MessageReactionsDb.deleteReactionsForMessage(storageId);
+    await MessageReadReceiptsDb.deleteReceiptsForMessage(
+      wireMessageId: wireId,
+      groupId: groupId,
+    );
+    await deleteMessageById(storageId);
+    await MessageBlobStore.delete(storageId);
+  }
+
   Future<void> updateMessageStatus(
     String messageId,
     String status, {
@@ -294,6 +311,40 @@ class MessageCrudDao {
         {'status': status},
         where: 'id = ?',
         whereArgs: [storageId],
+      );
+    });
+  }
+
+  /// Earliest [expiresAt] among live rows, or null when nothing is scheduled.
+  Future<int?> getNextExpiresAt() async {
+    return await _protect(() async {
+      final db = await _database;
+      final rows = await db.rawQuery(
+        'SELECT MIN(expiresAt) AS nextAt FROM messages '
+        'WHERE expiresAt IS NOT NULL AND deletedAt IS NULL '
+        'AND expiresAt > ?',
+        [DateTime.now().millisecondsSinceEpoch],
+      );
+      final value = rows.first['nextAt'];
+      if (value == null) return null;
+      return value is int ? value : int.tryParse(value.toString());
+    });
+  }
+
+  /// Rows whose [expiresAt] is at or before [cutoff].
+  Future<List<Map<String, dynamic>>> getExpiredMessages({
+    required int cutoff,
+    int limit = 100,
+  }) async {
+    return await _protect(() async {
+      final db = await _database;
+      return db.query(
+        'messages',
+        columns: const ['id', 'groupId'],
+        where: 'expiresAt IS NOT NULL AND deletedAt IS NULL AND expiresAt <= ?',
+        whereArgs: [cutoff],
+        orderBy: 'expiresAt ASC',
+        limit: limit,
       );
     });
   }

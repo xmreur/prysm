@@ -75,4 +75,19 @@ class MessageReadReceiptsDb {
       return result;
     });
   }
+
+  static Future<void> deleteReceiptsForMessage({
+    required String wireMessageId,
+    String? groupId,
+  }) async {
+    await MessagesDatabase.mutex.protect(() async {
+      final db = await MessagesDb.database;
+      final messageId = _storageId(wireMessageId, groupId: groupId);
+      await db.delete(
+        'message_read_receipts',
+        where: 'messageId = ?',
+        whereArgs: [messageId],
+      );
+    });
+  }
 }

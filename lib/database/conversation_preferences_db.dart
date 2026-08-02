@@ -12,7 +12,8 @@ class ConversationPreferencesDb {
         isPinned INTEGER NOT NULL DEFAULT 0,
         pinnedAt INTEGER,
         isArchived INTEGER NOT NULL DEFAULT 0,
-        archivedAt INTEGER
+        archivedAt INTEGER,
+        disappearingTimerSeconds INTEGER
       )
     ''');
   }

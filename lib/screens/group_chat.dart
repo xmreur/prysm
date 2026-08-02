@@ -25,11 +25,11 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
-import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
@@ -44,6 +44,9 @@ import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/screens/widgets/view_once_image_screen.dart';
+import 'package:prysm/screens/widgets/disappearing_messages_tile.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
+import 'package:prysm/util/disappearing_timer_refresh_notifier.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/message_actions_service.dart';
 import 'package:prysm/services/message_view_mapper.dart';
@@ -138,6 +141,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final _typingTracker = TypingStateTracker();
   StreamSubscription<TypingIndicatorEvent>? _typingSub;
   StreamSubscription<void>? _typingTrackerSub;
+  int? _disappearingTimerSeconds;
+  StreamSubscription<String>? _disappearingTimerSub;
 
   @override
   void initState() {
@@ -274,12 +279,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       });
     }
     _init();
+    unawaited(_loadDisappearingTimer());
+    _disappearingTimerSub =
+        DisappearingTimerRefreshNotifier.instance.onChanged.listen((id) {
+      if (id == widget.group.id) unawaited(_loadDisappearingTimer());
+    });
+  }
+
+  Future<void> _loadDisappearingTimer() async {
+    final seconds =
+        await DisappearingTimerService.getTimerSeconds(widget.group.id);
+    if (!mounted) return;
+    setState(() => _disappearingTimerSeconds = seconds);
   }
 
   @override
   void didUpdateWidget(GroupChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.group.id != widget.group.id) {
+      setState(() => _disappearingTimerSeconds = null);
       _teardown();
       _senderNames.clear();
       _memberCount = 0;
@@ -301,6 +319,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _detachedStatusSub?.cancel();
     _membershipSub?.cancel();
     _readReceiptRefreshSub?.cancel();
+    _disappearingTimerSub?.cancel();
+    _disappearingTimerSub = null;
     _controller.removeListener(_onControllerChanged);
     _controller.dispose();
     _chatService.unpinMembersForWebSocket();
@@ -538,6 +558,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final msg =
           _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
       Message updated;
+      if (update.isRemove) {
+        setState(() {
+          _messages.removeMessage(msg);
+        });
+        return;
+      }
       if (update.isDelete) {
         updated = markMessageDeleted(msg);
       } else if (msg is TextMessage && update.newText != null) {
@@ -840,6 +866,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               metadata: meta.isEmpty ? null : meta,
             ));
           }
+        } else if (type == disappearingTimerNoticeType) {
+          final payload = jsonDecode((wire as String?) ?? '{}')
+              as Map<String, dynamic>;
+          result.add(TextMessage(
+            authorId: authorId,
+            createdAt: createdAt,
+            id: id,
+            replyToMessageId: replyTo,
+            text: '',
+            metadata: {
+              'systemNotice': 'disappearing_timer',
+              'timerSeconds': payload['timerSeconds'],
+              'actorId': payload['actorId'],
+            },
+          ));
         } else if (type == groupFileType || type == groupAudioType) {
           final fileName = msg['fileName'] as String? ??
               (type == groupAudioType ? 'voice_message.wav' : 'file');
@@ -1517,10 +1558,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final style = context.prysmStyle;
     return Row(
       children: [
-        ContactAvatar(
+        DisappearingTimerAvatar(
           name: widget.group.name,
           radius: 20,
           avatarBase64: widget.group.avatarBase64,
+          timerSeconds: _disappearingTimerSeconds,
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -1648,6 +1690,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     Message message,
     int index,
   ) {
+    if (message is TextMessage &&
+        message.metadata?['systemNotice'] == 'disappearing_timer') {
+      return _buildDisappearingTimerNoticeRow(message, index);
+    }
+
     final isSentByMe = message.authorId == widget.userId;
     final isSelected = selectedMessageIds.contains(message.id);
     final child = _groupMessageChildFor(context, message, index, isSentByMe);
@@ -1679,6 +1726,54 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       reactionBar: isMessageDeleted(message)
           ? const SizedBox.shrink()
           : _reactionBarFor(message, isSentByMe),
+    );
+  }
+
+  Widget _buildDisappearingTimerNoticeRow(TextMessage message, int index) {
+    final timerSeconds = message.metadata?['timerSeconds'] as int?;
+    final actorId = message.metadata?['actorId'] as String? ?? message.authorId;
+    final label = disappearingTimerNoticeLabel(
+      timerSeconds: timerSeconds,
+      actorId: actorId,
+      localUserId: widget.userId,
+      actorDisplayName: _senderNames[actorId],
+    );
+    final showDateHeader = shouldShowChatDateHeader(_messages.messages, index);
+    final tokens = context.prysmStyle.tokens;
+    return Column(
+      children: [
+        if (showDateHeader) PrysmDateHeader(date: message.createdAt!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 320),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: tokens.surfaceElevated,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(PrysmIcons.timer, size: 16, color: tokens.textSecondary),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: context.prysmStyle.captionStyle.copyWith(
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

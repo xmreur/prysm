@@ -7,6 +7,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_control_channel.dart';
 import 'package:prysm/services/group_key_provider.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -268,6 +269,23 @@ class GroupService {
   Future<bool> processPendingControlMessages({int maxPerCycle = 20}) =>
       _controlChannel.processPendingControlMessages(maxPerCycle: maxPerCycle);
 
+  Future<void> syncDisappearingTimer({
+    required String groupId,
+    required List<String> memberIds,
+    required int? timerSeconds,
+    required int updatedAt,
+  }) async {
+    for (final target in memberIds.where((m) => m != userId)) {
+      await _controlChannel.sendDisappearingTimer(
+        groupId: groupId,
+        timerSeconds: timerSeconds,
+        updatedAt: updatedAt,
+        updatedBy: userId,
+        targetMemberId: target,
+      );
+    }
+  }
+
   Future<void> addMember(String groupId, String memberOnion) async {
     if (!await isAdmin(groupId, userId)) {
       throw GroupServiceException('Only admins can add members');
@@ -465,7 +483,29 @@ class GroupService {
       case groupProfileUpdateType:
         await _handleProfileUpdate(data);
         break;
+      case groupDisappearingTimerType:
+        await _handleDisappearingTimer(data);
+        break;
     }
+  }
+
+  Future<void> _handleDisappearingTimer(Map<String, dynamic> data) async {
+    final groupId = data['groupId'] as String;
+    final raw = data['timerSeconds'];
+    int? timerSeconds;
+    if (raw is int && raw > 0) timerSeconds = raw;
+    final updatedAt = data['updatedAt'] as int? ??
+        DateTime.now().millisecondsSinceEpoch;
+    final updatedBy = data['updatedBy'] as String?;
+    await DisappearingTimerService.applyInboundGroup(
+      groupId: groupId,
+      payload: DisappearingTimerPayload(
+        timerSeconds: timerSeconds,
+        updatedAt: updatedAt,
+        updatedBy: updatedBy,
+      ),
+      localUserId: userId,
+    );
   }
 
   Future<void> _handleInvite(Map<String, dynamic> data) async {

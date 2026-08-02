@@ -44,6 +44,20 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "prysm/app_lifecycle"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "finishForUpdate" -> {
+                    finishAndRemoveTask()
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {

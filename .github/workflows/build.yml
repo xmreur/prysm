@@ -221,7 +221,7 @@ jobs:
           cp artifacts/macos-build/prysm-macos.zip release-assets/prysm-macos.zip
 
           # Updater binaries from prysm-auto-updater until built in this repo.
-          UPDATER_TAG="v0.0.1"
+          UPDATER_TAG="v0.0.2"
           BASE="https://github.com/xmreur/prysm-auto-updater/releases/download/${UPDATER_TAG}"
           curl -fsSL -o release-assets/prysm-updater-linux "${BASE}/prysm-updater-linux"
           curl -fsSL -o release-assets/prysm-updater-windows.exe "${BASE}/prysm-updater-windows.exe"

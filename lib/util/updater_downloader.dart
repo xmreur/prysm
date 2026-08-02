@@ -9,12 +9,18 @@ import 'package:prysm/models/release_info.dart';
 import 'package:prysm/util/logging.dart';
 
 class UpdaterDownloader {
-  static const _fallbackUpdaterTag = 'v0.0.1';
+  static const _fallbackUpdaterTag = 'v0.0.2';
   static const _manifestUrl =
       'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/updater/manifest.json';
 
-  /// SHA-256 of prysm-auto-updater v0.0.1 binaries (verified at import time).
+  /// SHA-256 of prysm-auto-updater v0.0.1/v0.0.2 binaries (verified at import time).
   static const _embeddedHashes = <String, String>{
+    'v0.0.2/${ReleaseAssetNames.updaterLinux}':
+        '1a71394475247707209829e478a07be0c4773894c3de072ce944531227724dad',
+    'v0.0.2/${ReleaseAssetNames.updaterWindows}':
+        'c2b7534aeec7c1154abff48754ee7f1e14d425e2ed53a0627adbdd6c9e875f8e',
+    'v0.0.2/${ReleaseAssetNames.updaterMacos}':
+        '3b32b568046c87f8152977a8bbc2a212b96f427ed19591bcce97ed9dffa3f471',
     'v0.0.1/${ReleaseAssetNames.updaterLinux}':
         'ae667c8940ae4215ffe03998c8deb808dcbe8bff29166a51f0aa67e986ed1ca4',
     'v0.0.1/${ReleaseAssetNames.updaterWindows}':

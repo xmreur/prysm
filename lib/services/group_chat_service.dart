@@ -5,9 +5,11 @@ import 'dart:typed_data';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/crypto/group_crypto.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
@@ -145,6 +147,10 @@ class GroupChatService {
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
+    final expiresAt = await DisappearingTimerService.expiresAtForSend(
+      groupId,
+      at: DateTime.fromMillisecondsSinceEpoch(timestamp),
+    );
     final index = await GroupSenderIndexStore.nextIndex(
       groupId: groupId,
       senderId: userId,
@@ -168,7 +174,12 @@ class GroupChatService {
       'status': 'pending',
       'timestamp': timestamp,
       'replyTo': replyToId,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     });
+
+    if (expiresAt != null) {
+      DisappearingActivityNotifier.instance.notify();
+    }
 
     final targets = _memberIds.where((m) => m != userId).toList();
     var successCount = 0;
@@ -181,6 +192,7 @@ class GroupChatService {
         type: groupTextType,
         replyToId: replyToId,
         timestamp: timestamp,
+        expiresAt: expiresAt,
       );
       if (success) {
         successCount++;
@@ -192,6 +204,7 @@ class GroupChatService {
           type: groupTextType,
           replyToId: replyToId,
           timestamp: timestamp,
+          expiresAt: expiresAt,
         );
       }
     }
@@ -230,6 +243,10 @@ class GroupChatService {
     final groupType = _groupTypeForMedia(type);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
+    final expiresAt = await DisappearingTimerService.expiresAtForSend(
+      groupId,
+      at: DateTime.fromMillisecondsSinceEpoch(timestamp),
+    );
     final encrypted = await GroupCryptoV2.encryptGroupFile(_groupKey!, bytes);
 
     await MessagesDb.insertMessage({
@@ -245,7 +262,12 @@ class GroupChatService {
       'replyTo': replyToId,
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     });
+
+    if (expiresAt != null) {
+      DisappearingActivityNotifier.instance.notify();
+    }
 
     final targets = _memberIds.where((m) => m != userId).toList();
     var successCount = 0;
@@ -261,6 +283,7 @@ class GroupChatService {
         fileName: fileName,
         fileSize: bytes.length,
         viewOnce: viewOnce,
+        expiresAt: expiresAt,
       );
       if (success) {
         successCount++;
@@ -275,6 +298,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: bytes.length,
           viewOnce: viewOnce,
+          expiresAt: expiresAt,
         );
       }
     }
@@ -409,6 +433,7 @@ class GroupChatService {
             fileName: msg['fileName'] as String?,
             fileSize: msg['fileSize'] as int?,
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            expiresAt: msg['expiresAt'] as int?,
           );
 
           if (success) {
@@ -454,6 +479,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    int? expiresAt,
   }) async {
     if (TorRuntimeGate.blocked) return false;
 
@@ -482,6 +508,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: fileSize,
           viewOnce: viewOnce,
+          expiresAt: expiresAt,
           timeout: timeout,
         ),
       );
@@ -503,6 +530,7 @@ class GroupChatService {
     int? fileSize,
     bool viewOnce = false,
     Duration timeout = const Duration(seconds: 30),
+    int? expiresAt,
   }) async {
     final payload = <String, dynamic>{
       'id': id,
@@ -516,6 +544,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     };
     await _postman.postGroup(
       targetMemberId: targetMemberId,
@@ -542,6 +571,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    int? expiresAt,
   }) async {
     await PendingMessageDbHelper.insertPendingMessage({
       'id': _pendingId(messageId, targetMemberId),
@@ -557,6 +587,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       'viewOnce': viewOnce ? 1 : 0,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     });
   }
 
@@ -647,6 +678,7 @@ class GroupChatService {
           fileName: msg['fileName'] as String?,
           fileSize: msg['fileSize'] as int?,
           viewOnce: (msg['viewOnce'] ?? 0) == 1,
+          expiresAt: msg['expiresAt'] as int?,
         );
         if (success) {
           sentIds.add(pendingId);
@@ -700,6 +732,7 @@ class GroupChatService {
     final fileName = row['fileName'] as String?;
     final fileSize = row['fileSize'] as int?;
     final viewOnce = (row['viewOnce'] ?? 0) == 1;
+    final expiresAt = row['expiresAt'] as int?;
 
     await MessagesDb.updateMessageStatus(messageId, 'pending', groupId: groupId);
 
@@ -717,6 +750,7 @@ class GroupChatService {
         fileName: fileName,
         fileSize: fileSize,
         viewOnce: viewOnce,
+        expiresAt: expiresAt,
       );
       if (success) {
         successCount++;
@@ -731,6 +765,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: fileSize,
           viewOnce: viewOnce,
+          expiresAt: expiresAt,
         );
       }
     }

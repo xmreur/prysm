@@ -48,6 +48,9 @@ import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview_loader.dart';
 import 'package:prysm/screens/widgets/view_once_image_screen.dart';
+import 'package:prysm/screens/widgets/disappearing_messages_tile.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
+import 'package:prysm/util/disappearing_timer_refresh_notifier.dart';
 import 'package:prysm/util/reply_preview_label.dart';
 import 'package:prysm/services/file_attachment_resolver.dart';
 import 'package:prysm/services/file_transfer_progress.dart';
@@ -170,6 +173,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final _typingTracker = TypingStateTracker();
   StreamSubscription<TypingIndicatorEvent>? _typingSub;
   StreamSubscription<void>? _typingTrackerSub;
+  int? _disappearingTimerSeconds;
+  StreamSubscription<String>? _disappearingTimerSub;
 
   String get _draftKey => 'dm:${widget.peerId}';
 
@@ -277,10 +282,27 @@ class _ChatScreenState extends State<ChatScreen> {
     _initializeChat();
     _initPeerPresence();
     _setupDetachedClientSubscriptions();
+    unawaited(_loadDisappearingTimer());
+    _setupDisappearingTimerSubscription();
     _batterySaverSub = BatterySaverService.instance.onChanged.listen((_) {
       if (mounted) {
         _startPresenceStaleTimer();
       }
+    });
+  }
+
+  Future<void> _loadDisappearingTimer() async {
+    final seconds =
+        await DisappearingTimerService.getTimerSeconds(widget.peerId);
+    if (!mounted) return;
+    setState(() => _disappearingTimerSeconds = seconds);
+  }
+
+  void _setupDisappearingTimerSubscription() {
+    _disappearingTimerSub?.cancel();
+    _disappearingTimerSub =
+        DisappearingTimerRefreshNotifier.instance.onChanged.listen((id) {
+      if (id == widget.peerId) unawaited(_loadDisappearingTimer());
     });
   }
 
@@ -488,6 +510,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _wsPresenceSub = null;
     _batterySaverSub?.cancel();
     _batterySaverSub = null;
+    _disappearingTimerSub?.cancel();
+    _disappearingTimerSub = null;
     _presenceStaleTimer?.cancel();
     _presenceStaleTimer = null;
     _debounceTimer?.cancel();
@@ -621,6 +645,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _peerName = widget.peerName;
           _peerAvatarBase64 = widget.peerAvatarBase64;
           _peerOnline = null;
+          _disappearingTimerSeconds = null;
         });
       }
 
@@ -666,6 +691,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _initializeChat();
       _initPeerPresence();
+      unawaited(_loadDisappearingTimer());
+      _setupDisappearingTimerSubscription();
     }
 
     if (oldWidget.currentTheme != widget.currentTheme) {
@@ -685,6 +712,13 @@ class _ChatScreenState extends State<ChatScreen> {
       final msg =
           _messages.messages.firstWhere((m) => m.id == update.targetMessageId);
       Message updated;
+      if (update.isRemove) {
+        setState(() {
+          _messages.removeMessage(msg);
+          _messageCache.remove(msg.id);
+        });
+        return;
+      }
       if (update.isDelete) {
         updated = markMessageDeleted(msg);
       } else if (msg is TextMessage && update.newText != null) {
@@ -1528,10 +1562,11 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(
         children: [
           RepaintBoundary(
-            child: ContactAvatar(
+            child: DisappearingTimerAvatar(
               name: _peerName,
               radius: 20,
               avatarBase64: _peerAvatarBase64,
+              timerSeconds: _disappearingTimerSeconds,
             ),
           ),
           const SizedBox(width: 12),
@@ -1706,6 +1741,54 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildDisappearingTimerNoticeRow(TextMessage message, int index) {
+    final timerSeconds = message.metadata?['timerSeconds'] as int?;
+    final actorId = message.metadata?['actorId'] as String? ?? message.authorId;
+    final label = disappearingTimerNoticeLabel(
+      timerSeconds: timerSeconds,
+      actorId: actorId,
+      localUserId: widget.userId,
+      actorDisplayName: actorId == widget.peerId ? _peerName : null,
+    );
+    final showDateHeader = shouldShowChatDateHeader(_messages.messages, index);
+    final tokens = context.prysmStyle.tokens;
+    return Column(
+      children: [
+        if (showDateHeader) PrysmDateHeader(date: message.createdAt!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 320),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: tokens.surfaceElevated,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(PrysmIcons.timer, size: 16, color: tokens.textSecondary),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: context.prysmStyle.captionStyle.copyWith(
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _messageChildFor(
     BuildContext context,
     Message message,
@@ -1747,6 +1830,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (message is PrysmCallMessage) {
       return _buildCallMessageRow(message, index);
+    }
+
+    if (message is TextMessage &&
+        message.metadata?['systemNotice'] == 'disappearing_timer') {
+      return _buildDisappearingTimerNoticeRow(message, index);
     }
 
     final isSelected = selectedMessageIds.contains(message.id);

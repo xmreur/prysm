@@ -45,7 +45,7 @@ class DBHelper {
     final path = join(docDir.path, 'prysm', 'chat_app.db');
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       onOpen: (db) {
@@ -154,6 +154,15 @@ class DBHelper {
     }
     if (oldVersion < 9) {
       await CallLogsDb.createTable(db);
+    }
+    if (oldVersion < 10) {
+      final cols = await db.rawQuery('PRAGMA table_info(conversation_preferences)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (!colNames.contains('disappearingTimerSeconds')) {
+        await db.execute(
+          'ALTER TABLE conversation_preferences ADD COLUMN disappearingTimerSeconds INTEGER',
+        );
+      }
     }
   }
 

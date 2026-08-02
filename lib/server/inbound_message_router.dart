@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
@@ -13,6 +14,7 @@ import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
@@ -205,6 +207,10 @@ class InboundMessageRouter {
       return _validateAddressedToLocal(data);
     }
 
+    if (isDisappearingTimerType(type)) {
+      return _validateAddressedToLocal(data);
+    }
+
     return _validateAddressedToLocal(data);
   }
 
@@ -235,6 +241,10 @@ class InboundMessageRouter {
 
     if (isReactionType(type)) {
       return _handleReaction(data, type);
+    }
+
+    if (isDisappearingTimerType(type)) {
+      return _handleDisappearingTimer(data);
     }
 
     return _handleChatMessage(data, type);
@@ -393,6 +403,36 @@ class InboundMessageRouter {
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
   }
 
+  Future<InboundHandleResult> _handleDisappearingTimer(
+    Map<String, dynamic> data,
+  ) async {
+    final receiverId = data['receiverId'] as String;
+    final senderId = data['senderId'] as String;
+    final local = localOnionAddress();
+
+    await DBHelper.ensureUserExist(senderId);
+
+    final localId = local ?? receiverId;
+    try {
+      await DisappearingTimerService.applyInboundDirect(
+        keyManager: keyManager,
+        encrypted: data['message'] as String,
+        senderId: senderId,
+        localUserId: localId,
+      );
+    } catch (e) {
+      Logging.error(
+        'Disappearing timer handling failed: $e',
+        'InboundMessageRouter',
+      );
+      return InboundHandleResult.internalError(
+        'Disappearing timer processing failed',
+      );
+    }
+
+    return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+  }
+
   Future<InboundHandleResult> _handleChatMessage(
     Map<String, dynamic> data,
     String type,
@@ -423,6 +463,13 @@ class InboundMessageRouter {
     }
 
     final localId = local ?? receiverId;
+    final conversationId = inboundGroupId ?? senderId;
+    final expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
+      data: data,
+      conversationId: conversationId,
+      messageTimestamp: messageTimestamp,
+    );
+
     final inserted = await MessagesDb.insertInboundMessage({
       'id': data['id'] as String,
       'senderId': senderId,
@@ -436,7 +483,12 @@ class InboundMessageRouter {
       'status': (data['status'] ?? 'received') as String,
       if (data['replyTo'] != null) 'replyTo': data['replyTo'],
       'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     }, localId);
+
+    if (inserted != null && expiresAt != null) {
+      DisappearingActivityNotifier.instance.notify();
+    }
 
     if (inserted != null) {
       InboundMessageNotifier.instance.notify(

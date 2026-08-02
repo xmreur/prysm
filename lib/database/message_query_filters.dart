@@ -1,3 +1,5 @@
+import 'package:prysm/constants/group_constants.dart';
+
 /// Shared SQL fragments for querying the `messages` table, reused by
 /// multiple DAOs (ConversationQueriesDao, ReadReceiptQueriesDao,
 /// ConversationListQueriesDao) so the direct-chat conversation/type
@@ -6,7 +8,7 @@ class MessageQueryFilters {
   MessageQueryFilters._();
 
   static const String directChatTypeFilter =
-      "(type IS NULL OR type IN ('text', 'file', 'image', 'audio', 'call'))";
+      "(type IS NULL OR type IN ('text', 'file', 'image', 'audio', 'call', '$disappearingTimerNoticeType'))";
 
   /// Only rows we can decrypt: our outbound copy or peer deliveries to us.
   /// Also includes local system rows (e.g. call events) from either side.
@@ -34,5 +36,6 @@ class MessageQueryFilters {
     'deletedAt',
     'editedAt',
     'readAt',
+    'expiresAt',
   ];
 }

@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 12;
+  static const int dbVersion = 13;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -32,6 +32,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 9) await _upgradeToV9(db);
     if (oldVersion < 10) await _upgradeToV10(db);
     if (oldVersion < 12) await _upgradeToV12(db);
+    if (oldVersion < 13) await _upgradeToV13(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -107,7 +108,8 @@ class MessageSchemaMigrations {
                 viewed INTEGER DEFAULT 0,
                 groupId TEXT,
                 deletedAt INTEGER,
-                editedAt INTEGER
+                editedAt INTEGER,
+                expiresAt INTEGER
             )
         ''');
 
@@ -121,6 +123,10 @@ class MessageSchemaMigrations {
     await db.execute('CREATE INDEX idx_status ON messages(status)');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_read_status ON messages(readAt, status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_expires_at '
+      'ON messages(expiresAt) WHERE expiresAt IS NOT NULL AND deletedAt IS NULL',
     );
     await createReactionsTable(db);
     await createReadReceiptsTable(db);
@@ -236,6 +242,18 @@ class MessageSchemaMigrations {
   static Future<void> _upgradeToV12(Database db) async {
     Logging.info('UPGRADING DB TO v12', 'MessagesDb');
     await createScheduledMessagesTable(db);
+  }
+
+  static Future<void> _upgradeToV13(Database db) async {
+    Logging.info('UPGRADING DB TO v13', 'MessagesDb');
+    final columns = await db.rawQuery('PRAGMA table_info(messages)');
+    if (!columns.any((col) => col['name'] == 'expiresAt')) {
+      await db.execute('ALTER TABLE messages ADD COLUMN expiresAt INTEGER');
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_expires_at '
+      'ON messages(expiresAt) WHERE expiresAt IS NOT NULL AND deletedAt IS NULL',
+    );
   }
 
   /// Owns message_reactions' schema; MessageReactionsDb.createTable delegates here.

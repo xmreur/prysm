@@ -4,6 +4,8 @@ class ConversationPreferences {
   final int? pinnedAt;
   final bool isArchived;
   final int? archivedAt;
+  /// Per-conversation disappearing-messages timer in seconds; null = off.
+  final int? disappearingTimerSeconds;
 
   const ConversationPreferences({
     required this.conversationId,
@@ -11,6 +13,7 @@ class ConversationPreferences {
     this.pinnedAt,
     this.isArchived = false,
     this.archivedAt,
+    this.disappearingTimerSeconds,
   });
 
   factory ConversationPreferences.fromMap(Map<String, dynamic> map) {
@@ -20,6 +23,7 @@ class ConversationPreferences {
       pinnedAt: map['pinnedAt'] as int?,
       isArchived: (map['isArchived'] as int? ?? 0) == 1,
       archivedAt: map['archivedAt'] as int?,
+      disappearingTimerSeconds: map['disappearingTimerSeconds'] as int?,
     );
   }
 
@@ -29,7 +33,28 @@ class ConversationPreferences {
         'pinnedAt': pinnedAt,
         'isArchived': isArchived ? 1 : 0,
         'archivedAt': archivedAt,
+        'disappearingTimerSeconds': disappearingTimerSeconds,
       };
+
+  ConversationPreferences copyWith({
+    bool? isPinned,
+    int? pinnedAt,
+    bool? isArchived,
+    int? archivedAt,
+    int? disappearingTimerSeconds,
+    bool clearDisappearingTimer = false,
+  }) {
+    return ConversationPreferences(
+      conversationId: conversationId,
+      isPinned: isPinned ?? this.isPinned,
+      pinnedAt: pinnedAt ?? this.pinnedAt,
+      isArchived: isArchived ?? this.isArchived,
+      archivedAt: archivedAt ?? this.archivedAt,
+      disappearingTimerSeconds: clearDisappearingTimer
+          ? null
+          : (disappearingTimerSeconds ?? this.disappearingTimerSeconds),
+    );
+  }
 
   @override
   bool operator ==(Object other) {
@@ -39,7 +64,8 @@ class ConversationPreferences {
             other.isPinned == isPinned &&
             other.pinnedAt == pinnedAt &&
             other.isArchived == isArchived &&
-            other.archivedAt == archivedAt;
+            other.archivedAt == archivedAt &&
+            other.disappearingTimerSeconds == disappearingTimerSeconds;
   }
 
   @override
@@ -49,5 +75,6 @@ class ConversationPreferences {
         pinnedAt,
         isArchived,
         archivedAt,
+        disappearingTimerSeconds,
       );
 }

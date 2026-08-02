@@ -14,6 +14,7 @@ class MessageModifyUpdate {
   });
 
   bool get isDelete => action == 'delete';
+  bool get isRemove => action == 'remove';
   bool get isEdit => action == 'edit';
 }
 

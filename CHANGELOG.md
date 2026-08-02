@@ -2,13 +2,30 @@
 
 ---
 
-## Unreleased
+## 0.6.0
+
+### Platforms
+
+- Full iOS support: Tor hidden service runs natively, VoIP call audio sessions wired into `AudioEngine`, Tor manager and connection controller ported
+- macOS support and a dedicated CI build job (updater downloads required dylibs)
+- CI now builds PR artifacts for testing, alongside the release workflow fixes
 
 ### Features
 
-- File attachment previews: inline snippets for text, PDF, .xlsx, and .docx; tap to open full viewer with download button; warning before downloading risky file types
-- Desktop system tray (Linux, Windows, macOS): close hides to tray by default, unread badge, Tor status and pending queue in tooltip/menu
-- Message reactions (emoji) on all message types in 1:1 and group chats — one emoji per user, synced over Tor
+- Scheduled messages: long-press the send button to pick a date/time; the message is queued and delivered once its time arrives in both direct chats and groups. A message whose time passed while the app was closed is sent on the next flush rather than dropped
+- In-app auto-updater: checks GitHub for the latest release on startup and from Settings, shows release notes, downloads and installs via the system APK installer on Android or a detached updater binary on desktop
+- Update dialog preview and test flow for debug builds (no network, or dry-run against the latest release)
+
+### Refactoring
+
+- Solid modularization: DI-friendly crypto and facade layers, split `GroupService`/`ChatService` with interface segregation, `SideChannelTransport` split out, `MessagesDb` split into DAOs, composition root and bootstrap, `ChatScreenController` and `MessageViewMapper` extracted
+
+### Fixes
+
+- Group chat messages from your own other devices/sessions decrypt correctly (own sender identity resolved from keystore)
+- App label and executable name show as "Prysm" instead of lowercase "prysm" on Android and desktop
+- Updater stores its binary in the application support directory
+- CI: fixed wrong path in the Windows build for CD, Android/iOS bundle identifiers and debug keystore configuration
 
 ---
 

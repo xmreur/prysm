@@ -8,13 +8,11 @@
 
 Prysm è un messenger P2P basato su Tor, costruito con Flutter.
 
-Non c'è nessun server centrale. Ogni client espone un servizio hidden Tor, riceve messaggi direttamente sul suo indirizzo `.onion` e invia messaggi in uscita tramite Tor. Se un peer è offline, i messaggi restano in una coda locale e vengono riprovati più tardi.
+Non c'è nessun server centrale. Ogni client espone il proprio servizio hidden Tor, riceve messaggi direttamente sul suo indirizzo `.onion` e invia messaggi in uscita tramite Tor. Se un peer è offline, i messaggi restano in una coda locale e vengono riprovati più tardi.
 
 ## Panoramica
 
-Prysm funziona come un messenger peer-to-peer diretto su servizi hidden Tor.
-
-Su desktop, Tor viene avviato come processo child. Su Android, è avviato tramite un servizio nativo. L'app espone anche un server HTTP locale con `shelf`, in ascolto sulla porta `12345`, che Tor rende disponibile come `your-address.onion:80`. I messaggi in uscita sono inviati tramite il proxy SOCKS5 di Tor verso `peer-address.onion:80/message`. `shelf` è una libreria Dart per middleware HTTP, spesso usata per costruire server leggeri e compositi, che si adatta bene a questo modello di trasporto locale.
+Su desktop, Tor viene avviato come processo child. Su Android e iOS viene avviato tramite un servizio nativo. L'app espone anche un server HTTP locale con `shelf`, in ascolto sulla porta `12345`, che Tor rende disponibile come `your-address.onion:80`. I messaggi in uscita sono inviati tramite il proxy SOCKS5 di Tor verso `peer-address.onion:80/message`.
 
 Non ci sono server relay al momento. Le impostazioni relay esistono nell'UI, ma sono placeholder e non implementate.
 
@@ -22,66 +20,81 @@ Non ci sono server relay al momento. Le impostazioni relay esistono nell'UI, ma 
 
 Se entrambi i peer sono online, i messaggi arrivano in genere entro pochi secondi.
 
-Se il destinatario è offline o irraggiungibile, Prysm salva il messaggio localmente in SQLite e riprova con backoff esponenziale. Questo permette all'app di comportarsi come un messenger asincrono senza introdurre infrastrutture centralizzate.
+Se il destinatario è offline o irraggiungibile, Prysm salva il messaggio localmente in SQLite e riprova con backoff esponenziale. Questo permette all'app di comportarsi come un messenger asincrono senza infrastruttura centralizzata.
 
 ## Crittografia
 
+Dalla versione 0.4.0 in poi, Prysm usa la **Crypto v2**: chiavi di identità Curve25519, formati wire solo-AEAD, protezione passphrase con Argon2id e sessioni Double Ratchet per la forward secrecy nelle chat 1:1. L'aggiornamento da 0.2.x richiede una migrazione pulita (esportare se serve, cancellare, riconfigurare).
+
 ### Identità
 
-- Keypair RSA-4096, generato localmente.
-- Chiave privata crittografata a riposo con AES-256-GCM.
-- Chiave di crittografia derivata dal PIN dell'utente con PBKDF2-HMAC-SHA256 in 100k iterazioni.
+- Chiave di firma **Ed25519** e chiave di accordo **X25519**, generate localmente.
+- Chiave privata crittografata a riposo con **AES-256-GCM**.
+- Chiave di crittografia derivata da una **passphrase** (minimo 12 caratteri) con **Argon2id** (64 MiB, 3 iterazioni).
+- Chiavi pubbliche pubblicate su `/profile` come JSON versionato (`crypto: v2`). I QR code includono un **fingerprint** dell'identità per la verifica fuori banda.
 
-Gli indirizzi onion Tor sono separati dalle chiavi di identità di Prysm. Tor genera l'identità del servizio `.onion` dal suo materiale chiave. Le chiavi RSA di Prysm sono usate solo per la crittografia a livello applicativo.
+Gli indirizzi onion Tor sono separati dalle chiavi di identità di Prysm.
 
-### Messaggi diretti
+### Messaggi diretti (1:1)
 
-- Messaggi di testo usano RSA PKCS#1 v1.5.
-- File, immagini e audio usano un'inviluppo ibrido:
-  - chiave AES-256-CBC random per ogni allegato
-  - allegato crittografato con AES
-  - chiave AES crittografata con RSA per mittente e destinatario
+- **Double Ratchet** (`ratchet-1`) con bundle prekey in stile X3DH per il bootstrap della sessione.
+- **AES-256-GCM** per messaggio con chiavi derivate dalla catena (forward secrecy).
+- I file usano X25519 effimero + HKDF + AES-GCM (`dh-aead-1` / `file-aead-1`).
 
 ### Messaggi di gruppo
 
-- I contenuti di gruppo usano AES-256-GCM con una chiave di gruppo condivisa.
-- All'invito, la chiave di gruppo è crittografata con RSA per ogni membro.
-- Alla rimozione di un membro, la chiave di gruppo è ruotata.
+- Crittografia **sender-key** (`group-sender-1`): chiavi per messaggio derivate dalla chiave di epoch del gruppo.
+- Chiave di epoch distribuita tramite payload di controllo cifrati con X25519.
+- L'epoch ruota quando i membri vengono rimossi.
+
+### Trasporto
+
+- Il server locale si lega a **tutte le interfacce IPv4** (`InternetAddress.anyIPv4`) così Tor può raggiungere la porta del servizio hidden.
+- Il server si avvia all'apertura dell'app.
+
+### Backup
+
+- Formato backup **v2**: Argon2id + AES-GCM. I backup v1 non possono essere ripristinati in v2.
 
 ## Implementato
 
 - Messaggistica 1:1 crittografata
+- Chiamate vocali con cronologia
 - Allegati: immagini, file, audio, messaggi vocali
-- Chat di gruppo con flusso di invito, rotazione chiave e rimozione membri
+- Chat di gruppo (fino a 5 membri) con flusso di invito, rotazione chiave e rimozione membri
 - Reazioni emoji
-- Modificazione e cancellazione dei messaggi
-- Confirmation di lettura con toggle
+- Modifica, cancellazione e messaggi usa-e-getta
+- Ricevute di lettura con toggle
 - Anteprima inline per PDF, `.docx`, `.xlsx`, immagini, audio e video
-- Coda offline con ripartenza
+- Coda offline con riprova
 - Scambio contatti tramite QR code o indirizzo `.onion` in base58
 - Integrazione con tray su desktop
-- Modalità panico con wipe o sessione deco
+- Modalità panico con wipe o sessione decoy
 - Pin e archiviazione delle conversazioni
 - Polling batteria-aware
-- Link previews
+- Anteprime dei link
+- Indicatori di digitazione
+- Messaggi programmati (accodati e consegnati all'orario scelto)
+- Chat con te stesso
+- Finestre chat separate su desktop
+- Contatti bloccati
+- Backup crittografati
+- Sblocco con biometrico e PIN
+- Auto-aggiornamento integrato (APK Android e installer desktop)
 
 ## Non implementato
 
-- Relay / proxy forwarding  
+- Relay / proxy forwarding
   Le impostazioni esistono nell'UI, ma non c'è nessun backend relay al momento.
 
 ## Piattaforme
 
-Costruito con Flutter.
-
-Obiettivi attuali:
+Costruito con Flutter. Target supportati:
 - Linux
 - Windows
 - macOS
 - Android
 - iOS
-
-La pagina pubblica di Prysm descrive l'app come un messenger Tor basato su Flutter e cross-platform, ancora in sviluppo attivo.
 
 ## Build
 
@@ -109,17 +122,13 @@ Su desktop, il binario Tor viene scaricato automaticamente al primo avvio.
 
 ## Rilascio
 
-Ultimo rilascio: [v0.5.0](https://github.com/xmreur/prysm/releases)
+Ultimo rilascio: [v0.6.0](https://github.com/xmreur/prysm/releases)
 
 ## Note
 
 Questo è ancora un prototipo.
 
-Il modello di base è presente, ma il trasporto, lo storage e alcune parti di UX/sicurezza sono ancora in evoluzione. Sono previsti breaking changes mentre gli interni si stabilizzano.
-
-## Note di sicurezza
-
-Questo progetto non è stato auditato. Il design crittografico e l'implementazione del trasporto non sono ancora pensati per casi d'uso ad alto rischio. Consideralo come software sperimentale.
+Il modello di base è presente, ma trasporto, storage e alcune parti di UX e sicurezza sono ancora in evoluzione. Sono previsti breaking change mentre gli interni si stabilizzano.
 
 ## Supporto
 
@@ -132,11 +141,3 @@ Se vuoi supportare lo sviluppo, le donazioni sono benvenute.
 - XMR: `47ndq7fCdW9jTGKtXafwMgDJjxAw3cnWwjR6eq31pfXXKfqNHXq5w4B2D49oTKnTHGCRCgcU6D24oiyUD8Ha7iEJLCPGJsC`
 - TON: `UQDEeapruNlAmSt9j4J9CNiuasJbF3OlCxzTZPJiq6hzKOFu`
 - LTC: `ltc1qnsp6alkn2gzd4vpekya05l2caa3aqfmk9m7882`
-
-## Roadmap
-
-- Implementare relay / proxy forwarding
-- Aggiungere riconoscimenti di consegna oltre "POST succeeded"
-- Migliorare la latenza di startup di Tor su mobile
-- Pulire il protocollo di trasporto e la gestione degli errori
-- Aggiungere documentazione più esplicita del threat model

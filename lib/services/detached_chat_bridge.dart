@@ -276,6 +276,60 @@ class DetachedChatBridge {
     );
   }
 
+  static Future<String?> sendSharedText({
+    required DetachedChatKind chatKind,
+    required String conversationId,
+    required String text,
+    String? replyToId,
+    required String messageId,
+    required String userId,
+    required KeyManager keyManager,
+    required List<Contact> contacts,
+    required Group? Function(String groupId) groupById,
+  }) {
+    return _sendText(
+      chatKind: chatKind,
+      conversationId: conversationId,
+      text: text,
+      replyToId: replyToId,
+      messageId: messageId,
+      userId: userId,
+      keyManager: keyManager,
+      contacts: contacts,
+      groupById: groupById,
+    );
+  }
+
+  static Future<String?> sendSharedFile({
+    required DetachedChatKind chatKind,
+    required String conversationId,
+    required Uint8List bytes,
+    required String fileName,
+    required String type,
+    String? replyToId,
+    required String messageId,
+    bool viewOnce = false,
+    required String userId,
+    required KeyManager keyManager,
+    required List<Contact> contacts,
+    required Group? Function(String groupId) groupById,
+  }) {
+    return _sendFile(
+      chatKind: chatKind,
+      conversationId: conversationId,
+      bytes: bytes,
+      fileName: fileName,
+      type: type,
+      replyToId: replyToId,
+      messageId: messageId,
+      viewOnce: viewOnce,
+      userId: userId,
+      keyManager: keyManager,
+      contacts: contacts,
+      groupById: groupById,
+    );
+  }
+
   static Future<String?> _sendText({
     required DetachedChatKind chatKind,
     required String conversationId,

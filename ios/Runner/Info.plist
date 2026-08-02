@@ -8,6 +8,19 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Prysm</string>
+	<key>AppGroupId</key>
+	<string>$(CUSTOM_GROUP_ID)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ShareMedia-$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -32,6 +45,8 @@
 	<string>Prysm needs microphone access for voice messages and calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Prysm needs access to save images to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Prysm needs access to your photo library when you share images into the app.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

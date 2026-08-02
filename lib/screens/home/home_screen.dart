@@ -28,6 +28,8 @@ import 'package:prysm/services/active_conversation_tracker.dart';
 import 'package:prysm/services/notification_open_chat_resolver.dart';
 import 'package:prysm/services/pending_call_action.dart';
 import 'package:prysm/services/pending_notification_route.dart';
+import 'package:prysm/services/pending_share_store.dart';
+import 'package:prysm/services/share_intent_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
@@ -45,6 +47,8 @@ import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
+import 'package:prysm/models/share_target.dart';
+import 'package:prysm/screens/share_target_picker_screen.dart';
 import 'package:prysm/services/detached_chat_bridge.dart';
 import 'package:prysm/services/detached_chat_host.dart';
 import 'package:prysm/services/detached_chat_window_registry.dart';
@@ -150,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadUsersInProgress = false;
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
+  bool _sharePickerOpen = false;
 
   int get _archivedCount => conversations
       .where((c) => _conversationPrefs[c.id]?.isArchived ?? false)
@@ -421,6 +426,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     NotificationService.onNotificationTap = _handleNotificationTap;
     NotificationService.onCallNotificationTap = _handleCallNotificationAction;
+    ShareIntentService.instance.onPendingShare = _handlePendingShareIntent;
 
     if (!Platform.isAndroid && !Platform.isIOS) {
       unawaited(TrayService.instance.start(userId: widget.onionAddress));
@@ -632,6 +638,74 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _consumePendingNotificationRoute() async {
     if (PendingNotificationRouteStore.instance.peek() == null) return;
     await _openChatFromNotificationPayload(null);
+  }
+
+  void _handlePendingShareIntent() {
+    if (!mounted || widget.decoyMode) return;
+    unawaited(_consumePendingShare());
+  }
+
+  List<Conversation> get _shareableConversations {
+    return conversations.where((conversation) {
+      if (conversation is DirectConversation &&
+          BlockService.instance.isBlocked(conversation.id)) {
+        return false;
+      }
+      return !(_conversationPrefs[conversation.id]?.isArchived ?? false);
+    }).toList();
+  }
+
+  Group? _groupById(String groupId) {
+    try {
+      return groups.firstWhere((group) => group.id == groupId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _openChatFromShareTarget(ShareTarget target) {
+    switch (target.kind) {
+      case DetachedChatKind.direct:
+        final contact = contacts.cast<Contact?>().firstWhere(
+          (c) => c?.id == target.conversationId,
+          orElse: () => null,
+        );
+        if (contact != null) onSelectContact(contact);
+      case DetachedChatKind.group:
+        final group = _groupById(target.conversationId);
+        if (group != null) onSelectGroup(group);
+      case DetachedChatKind.self:
+        onSelectSelfChat();
+    }
+  }
+
+  Future<void> _consumePendingShare() async {
+    if (widget.decoyMode || !mounted || _sharePickerOpen) return;
+    final content = PendingShareStore.instance.peek();
+    if (content == null) return;
+
+    _sharePickerOpen = true;
+    final target = await Navigator.of(context).push<ShareTarget>(
+      PrysmPageRoute(
+        page: ShareTargetPickerScreen(
+          content: content,
+          conversations: _shareableConversations,
+          userId: appUser.id,
+          userName: appUser.name,
+          userAvatarBase64: appUser.avatarBase64,
+          contacts: contacts,
+          keyManager: widget.keyManager,
+          groupById: _groupById,
+        ),
+      ),
+    );
+    _sharePickerOpen = false;
+
+    if (!mounted) return;
+    if (target != null) {
+      _openChatFromShareTarget(target);
+      scheduleLoadUsers(light: true);
+    }
   }
 
   void _closeMobileDrawerIfOpen() {
@@ -913,6 +987,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _syncActiveConversationTracker();
     unawaited(_consumePendingNotificationRoute());
     unawaited(_consumePendingCallAction());
+    unawaited(_consumePendingShare());
   }
 
   bool _mapsEqual<K, V>(Map<K, V> a, Map<K, V> b) {
@@ -1586,6 +1661,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (NotificationService.onCallNotificationTap ==
         _handleCallNotificationAction) {
       NotificationService.onCallNotificationTap = null;
+    }
+    if (ShareIntentService.instance.onPendingShare == _handlePendingShareIntent) {
+      ShareIntentService.instance.onPendingShare = null;
     }
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();

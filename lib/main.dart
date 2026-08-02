@@ -44,6 +44,7 @@ import 'package:prysm/ui/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/util/notification_service.dart';
+import 'package:prysm/services/share_intent_service.dart';
 import 'package:prysm/util/decoy_session_data.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:flutter_background/flutter_background.dart';
@@ -212,6 +213,9 @@ Future<void> _runMainApp() async {
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(NotificationService().init());
+    if (Platform.isAndroid || Platform.isIOS) {
+      unawaited(ShareIntentService.instance.init());
+    }
   });
 
   // Request notification permissions after runApp so dialogs appear over UI.
@@ -344,6 +348,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    ShareIntentService.instance.isDecoyMode = () => _panicDecoySession;
     _startupError = widget.startupError;
     _loadSavedTheme();
     _checkMigration();

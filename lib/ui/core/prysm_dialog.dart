@@ -89,6 +89,7 @@ class PrysmDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
     final tokens = style.tokens;
+    final maxContentHeight = MediaQuery.sizeOf(context).height * 0.55;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 400),
       child: DecoratedBox(
@@ -104,7 +105,12 @@ class PrysmDialog extends StatelessWidget {
               children: [
                 Text(title, style: style.headlineStyle),
                 const SizedBox(height: 16),
-                content,
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxContentHeight),
+                  child: SingleChildScrollView(
+                    child: content,
+                  ),
+                ),
                 if (confirmLabel != null || cancelLabel != null) ...[
                   const SizedBox(height: 20),
                   Row(

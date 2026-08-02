@@ -71,6 +71,31 @@ Future<void> quitApp({TorManager? torManager}) async {
   }
 }
 
+/// Stops Android background work and removes the app from recents before OTA install.
+Future<void> shutdownForAndroidUpdate() async {
+  if (!Platform.isAndroid) {
+    exit(0);
+  }
+
+  try {
+    await FlutterBackground.disableBackgroundExecution();
+  } catch (_) {}
+
+  final torManager = _globalTorManager;
+  if (torManager != null) {
+    try {
+      await torManager.stopTor();
+    } catch (_) {}
+  }
+
+  try {
+    const channel = MethodChannel('prysm/app_lifecycle');
+    await channel.invokeMethod<void>('finishForUpdate');
+  } catch (_) {}
+
+  exit(0);
+}
+
 void main(List<String> args) {
   runZonedGuarded(
     () async {

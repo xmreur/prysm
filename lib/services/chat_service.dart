@@ -236,7 +236,7 @@ class ChatService {
       'status': 'pending',
       'timestamp': timestamp,
       'replyTo': replyToId,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
     if (expiresAt != null) {
@@ -319,7 +319,7 @@ class ChatService {
       'replyTo': replyToId,
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
     if (expiresAt != null) {
@@ -631,7 +631,7 @@ class ChatService {
           'replyTo': replyToId,
           'viewOnce': viewOnce,
           'timestamp': wireTimestamp,
-          if (expiresAt != null) 'expiresAt': expiresAt,
+          'expiresAt': ?expiresAt,
         },
         timeout: timeout,
       );
@@ -915,7 +915,7 @@ class ChatService {
       'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
       'replyTo': replyToId,
       'viewOnce': viewOnce ? 1 : 0,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     });
   }
 

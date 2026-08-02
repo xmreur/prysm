@@ -174,7 +174,7 @@ class GroupChatService {
       'status': 'pending',
       'timestamp': timestamp,
       'replyTo': replyToId,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     });
 
     if (expiresAt != null) {
@@ -262,7 +262,7 @@ class GroupChatService {
       'replyTo': replyToId,
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     });
 
     if (expiresAt != null) {
@@ -544,7 +544,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     };
     await _postman.postGroup(
       targetMemberId: targetMemberId,
@@ -587,7 +587,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       'viewOnce': viewOnce ? 1 : 0,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     });
   }
 

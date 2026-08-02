@@ -483,7 +483,7 @@ class InboundMessageRouter {
       'status': (data['status'] ?? 'received') as String,
       if (data['replyTo'] != null) 'replyTo': data['replyTo'],
       'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
-      if (expiresAt != null) 'expiresAt': expiresAt,
+      'expiresAt': ?expiresAt,
     }, localId);
 
     if (inserted != null && expiresAt != null) {

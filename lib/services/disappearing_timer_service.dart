@@ -326,7 +326,7 @@ class DisappearingTimerService {
         'id': const Uuid().v4(),
         'senderId': actorId,
         'receiverId': receiverId,
-        if (groupId != null) 'groupId': groupId,
+        'groupId': ?groupId,
         'message': jsonEncode({
           'timerSeconds': timerSeconds,
           'actorId': actorId,

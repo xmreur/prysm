@@ -148,7 +148,7 @@ class FileTransferSender {
           'chunkSize': chunkSize,
           'replyTo': ?replyToId,
           'viewOnce': viewOnce,
-          if (expiresAt != null) 'expiresAt': expiresAt,
+          'expiresAt': ?expiresAt,
         },
         bypassQueue: true,
         timeout: const Duration(seconds: 30),

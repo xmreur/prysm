@@ -96,6 +96,7 @@ dependencies:
   ota_update: ^7.1.0
   package_info_plus: ^8.3.0
   pub_semver: ^2.2.0
+  receive_sharing_intent: ^1.9.0
 
 # opus_flutter_windows 3.0.0 on pub.dev declares `pluginClass: none`, which
 # newer Flutter tooling treats as a native method-channel plugin. That makes

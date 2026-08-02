@@ -2,6 +2,22 @@
 
 ---
 
+## 0.6.2
+
+### Features
+
+- Android share sheet integration: share media from other apps directly into a Prysm chat
+
+### Fixes
+
+- Auto-updater version comparison now treats `-fix`/similar suffixes as older than the release and `-rc`/`-beta` as pre-release versions
+
+### Platform
+
+- CI: release assets use versioned filenames and iOS builds are bundled for upload
+
+---
+
 ## 0.6.1
 
 ### Features

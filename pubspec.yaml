@@ -97,6 +97,15 @@ dependencies:
   package_info_plus: ^8.3.0
   pub_semver: ^2.2.0
 
+# opus_flutter_windows 3.0.0 on pub.dev declares `pluginClass: none`, which
+# newer Flutter tooling treats as a native method-channel plugin. That makes
+# `flutter build windows` emit an add_subdirectory for a package that has no
+# windows/CMakeLists.txt, breaking the Windows build. We vendor a fixed copy
+# (dart-only plugin, no pluginClass) in packages/opus_flutter_windows/.
+dependency_overrides:
+  opus_flutter_windows:
+    path: packages/opus_flutter_windows
+
 flutter_launcher_icons:
   windows:
     generate: true

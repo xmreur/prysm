@@ -34,5 +34,18 @@ void main() {
     test('pre-releases with same base compare by pre-release label', () {
       expect(isNewerVersion('v0.5.1-beta', 'v0.5.1-beta.2'), isTrue);
     });
+
+    test('hotfix release is newer than GA with same base', () {
+      expect(isNewerVersion('v0.6.1', 'v0.6.1-fix'), isTrue);
+      expect(isNewerVersion('0.6.1', 'v0.6.1-fix'), isTrue);
+    });
+
+    test('GA is not newer than hotfix with same base', () {
+      expect(isNewerVersion('v0.6.1-fix', 'v0.6.1'), isFalse);
+    });
+
+    test('matching hotfix tags are not newer', () {
+      expect(isNewerVersion('v0.6.1-fix', 'v0.6.1-fix'), isFalse);
+    });
   });
 }

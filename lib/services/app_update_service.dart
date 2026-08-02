@@ -113,19 +113,24 @@ class AppUpdateService {
   }
 
   String? androidApkUrl(ReleaseInfo release) {
-    return release.assetUrl(ReleaseAssetNames.androidApk) ??
+    return release.assetUrl(ReleaseAssetNames.androidApk(release.tagName)) ??
+        release.assetUrl(ReleaseAssetNames.legacyAndroidApk) ??
         release.assetUrlEndingWith('.apk');
   }
 
   String? desktopPackageUrl(ReleaseInfo release) {
     if (Platform.isWindows) {
-      return release.assetUrl(ReleaseAssetNames.windowsZip);
+      return release.assetUrl(ReleaseAssetNames.windowsZip(release.tagName)) ??
+          release.assetUrl(ReleaseAssetNames.legacyWindowsZip);
     }
     if (Platform.isLinux) {
-      return release.assetUrl(ReleaseAssetNames.linuxTarGz);
+      return release.assetUrl(ReleaseAssetNames.linuxZip(release.tagName)) ??
+          release.assetUrl(ReleaseAssetNames.legacyLinuxTarGz) ??
+          release.assetUrlEndingWith('.zip');
     }
     if (Platform.isMacOS) {
-      return release.assetUrl(ReleaseAssetNames.macosZip);
+      return release.assetUrl(ReleaseAssetNames.macosZip(release.tagName)) ??
+          release.assetUrl(ReleaseAssetNames.legacyMacosZip);
     }
     return null;
   }

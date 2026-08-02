@@ -4,21 +4,26 @@ Prysm publishes tagged releases (`v*`) to [GitHub Releases](https://github.com/x
 
 ## Asset naming
 
-| Filename | Platform |
-|----------|----------|
-| `prysm-android.apk` | Android |
-| `prysm-windows.zip` | Windows |
-| `prysm-linux.tar.gz` | Linux |
-| `prysm-macos.zip` | macOS |
+Versioned assets use the release tag in the filename (e.g. tag `v0.6.1-fix`):
+
+| Filename pattern | Platform |
+|------------------|----------|
+| `Prysm-android-v0.6.1-fix.apk` | Android |
+| `Prysm-ios-v0.6.1-fix.ipa` | iOS (unsigned, sideload) |
+| `Prysm-windows-x86_64-v0.6.1-fix.zip` | Windows |
+| `Prysm-linux-x86_64-v0.6.1-fix.zip` | Linux |
+| `Prysm-macos-v0.6.1-fix.zip` | macOS (contains `prysm.app`) |
 | `prysm-updater-windows.exe` | Desktop updater (Windows) |
 | `prysm-updater-linux` | Desktop updater (Linux) |
 | `prysm-updater-macos` | Desktop updater (macOS) |
 
 Tag format: `v0.5.1` (semver with `v` prefix).
 
+Older releases may use legacy names (`prysm-android.apk`, `prysm-linux.tar.gz`, etc.); the in-app updater falls back to those when the versioned asset is not found.
+
 ## Android updates
 
-The app checks `api.github.com/repos/xmreur/prysm/releases/latest`, compares the tag to the installed version, and downloads `prysm-android.apk` (or any `.apk` asset as fallback). The APK must be signed with the same key as the installed app.
+The app checks `api.github.com/repos/xmreur/prysm/releases/latest`, compares the tag to the installed version, and downloads `Prysm-android-<tag>.apk` (with legacy `.apk` fallback). The APK must be signed with the same key as the installed app.
 
 ## Desktop updates
 
@@ -28,7 +33,7 @@ The main app spawns the external updater with CLI arguments:
 prysm-updater-<platform> --url <package_download_url> --install-dir <app_directory>
 ```
 
-- `--url`: direct download URL for the platform package (`prysm-windows.zip`, `prysm-linux.tar.gz`, or `prysm-macos.zip`).
+- `--url`: direct download URL for the platform package (e.g. `Prysm-linux-x86_64-v0.6.1-fix.zip`).
 - `--install-dir`: directory containing the running app (Windows/Linux: executable directory; macOS: `.app` bundle path).
 
 The main app exits after launching the updater so files can be replaced.

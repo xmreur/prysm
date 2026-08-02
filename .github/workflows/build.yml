@@ -140,15 +140,18 @@ jobs:
 
       - run: flutter build ios --release --no-codesign
 
-      - name: Package .app as zip
+      - name: Package .app as ipa
         run: |
           cd build/ios/iphoneos
-          zip -r prysm-ios.zip Runner.app
+          mkdir Payload
+          mv Runner.app Payload/
+          zip -r prysm-ios.zip Payload
+          mv prysm-ios.zip prysm-ios.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: ios-build
-          path: build/ios/iphoneos/prysm-ios.zip
+          path: build/ios/iphoneos/prysm-ios.ipa
 
   # ----------------------
   # ANDROID BUILD

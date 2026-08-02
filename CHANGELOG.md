@@ -2,6 +2,20 @@
 
 ---
 
+## 0.6.1
+
+### Features
+
+- Disappearing messages: per-conversation disappearing timer lets sent messages auto-delete after a configurable delay
+- iOS release builds are now packaged as an unsigned `.ipa` for sideloading
+
+### Fixes
+
+- Tapping a notification on iOS opens the conversation it belongs to (notification center delegate was never wired up)
+- Tests: characterizations aligned with the current schema (`expiresAt` column and `conversation_preferences` table)
+
+---
+
 ## 0.6.0
 
 ### Platforms

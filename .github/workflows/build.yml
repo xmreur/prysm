@@ -135,9 +135,6 @@ jobs:
           flutter config --enable-swift-package-manager
           flutter pub get
 
-      - name: Prepare Share Extension Swift packages
-        run: bash ios/scripts/prepare_share_extension_spm.sh
-
       - name: Pod install
         working-directory: ios
         run: pod install

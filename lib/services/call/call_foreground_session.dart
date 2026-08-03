@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/call_ringtone.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -30,6 +32,7 @@ class CallForegroundSession implements CallForegroundSessionPort {
     testOverride = null;
     _defaultInstance._active = false;
     _defaultInstance._lastSnapshot = null;
+    CallRingtone.resetState();
   }
 
   bool _active = false;
@@ -58,6 +61,7 @@ class CallForegroundSession implements CallForegroundSessionPort {
 
   Future<void> _onEnterCall(CallSnapshot snapshot) async {
     _setActive(true);
+    await _syncRingtone(snapshot, null);
     if (snapshot.state == CallState.incoming) {
       await _syncIncomingCallNotification(snapshot);
     } else if (snapshot.state == CallState.active) {
@@ -67,6 +71,7 @@ class CallForegroundSession implements CallForegroundSessionPort {
 
   Future<void> _onLeaveCall() async {
     _setActive(false);
+    await CallRingtone.instance.stop();
     await NotificationService().cancelCallNotifications();
     if (Platform.isAndroid) {
       await WakelockPlus.disable();
@@ -77,6 +82,8 @@ class CallForegroundSession implements CallForegroundSessionPort {
     CallSnapshot snapshot,
     CallSnapshot? previous,
   ) async {
+    await _syncRingtone(snapshot, previous);
+
     if (snapshot.state == CallState.incoming &&
         previous?.state != CallState.incoming) {
       await _syncIncomingCallNotification(snapshot);
@@ -95,6 +102,13 @@ class CallForegroundSession implements CallForegroundSessionPort {
     if (previous?.state == CallState.incoming) {
       await NotificationService().cancelIncomingCallNotification();
     }
+  }
+
+  Future<void> _syncRingtone(
+    CallSnapshot snapshot,
+    CallSnapshot? previous,
+  ) async {
+    await CallRingtone.syncForState(snapshot, previous);
   }
 
   void _setActive(bool value) {

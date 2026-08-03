@@ -213,7 +213,7 @@ Future<void> _runMainApp() async {
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(NotificationService().init());
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (Platform.isAndroid) {
       unawaited(ShareIntentService.instance.init());
     }
   });

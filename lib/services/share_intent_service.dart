@@ -9,7 +9,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 typedef ShareDecoyModeCheck = bool Function();
 
-/// Listens for inbound OS share intents on Android and iOS.
+/// Listens for inbound OS share intents on Android.
 class ShareIntentService {
   ShareIntentService._();
 
@@ -23,7 +23,7 @@ class ShareIntentService {
 
   Future<void> init() async {
     if (_initialized) return;
-    if (!Platform.isAndroid && !Platform.isIOS) return;
+    if (!Platform.isAndroid) return;
 
     _initialized = true;
 

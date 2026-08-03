@@ -225,6 +225,7 @@ jobs:
           unzip -q artifacts/macos-build/prysm-macos.zip -d /tmp/prysm-macos
           cd /tmp/prysm-macos
           zip -r "$GITHUB_WORKSPACE/release-assets/Prysm-macos-${VERSION}.zip" prysm.app
+          cd "$GITHUB_WORKSPACE"
 
           cp artifacts/ios-build/prysm-ios.ipa "release-assets/Prysm-ios-${VERSION}.ipa"
 

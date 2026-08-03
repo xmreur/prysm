@@ -206,7 +206,9 @@ jobs:
           brew install cocoapods
           brew link --overwrite cocoapods
 
-      - run: flutter pub get
+      - run: |
+          flutter config --enable-swift-package-manager
+          flutter pub get
 
       - name: Pod install
         working-directory: ios

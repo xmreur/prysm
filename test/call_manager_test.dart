@@ -11,6 +11,7 @@ import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_logs_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/call_ringtone.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/call/call_transport.dart';
@@ -252,6 +253,35 @@ void main() {
     expect(transport.sentFrames.where((f) => f.op == 'call_end'), isNotEmpty);
   });
 
+  test('incoming call state maps to ringtone start and stop', () async {
+    final ringtone = _RecordingCallRingtone();
+    CallRingtone.testOverride = ringtone;
+
+    final caller = CallSession.createOutbound(
+      callId: 'ringtone-1',
+      sessionId: 12,
+      peerOnion: 'local.onion',
+    );
+    notifier.applyInbound('peer.onion', 'call_offer', {
+      'callId': caller.callId,
+      'sessionId': caller.sessionId,
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.snapshot.state, CallState.incoming);
+
+    await CallRingtone.syncForState(
+      manager.snapshot,
+      const CallSnapshot(state: CallState.idle),
+    );
+    expect(ringtone.startCount, 1);
+
+    final previous = manager.snapshot;
+    await manager.rejectIncoming();
+    await CallRingtone.syncForState(manager.snapshot, previous);
+    expect(ringtone.stopCount, 1);
+  });
+
   test('foreground session syncs on call state transitions', () async {
     final caller = CallSession.createOutbound(
       callId: 'fg-1',
@@ -373,6 +403,27 @@ Future<void> _waitFor(bool Function() condition, {int timeoutMs = 2000}) async {
       throw TimeoutException('Condition not met within ${timeoutMs}ms');
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+class _RecordingCallRingtone implements CallRingtonePort {
+  int startCount = 0;
+  int stopCount = 0;
+  bool _playing = false;
+
+  @override
+  bool get isPlaying => _playing;
+
+  @override
+  Future<void> start() async {
+    startCount++;
+    _playing = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+    _playing = false;
   }
 }
 

@@ -2,6 +2,23 @@
 
 ---
 
+## 0.6.3
+
+### Features
+
+- Incoming call ringtone: a bundled ringtone loops while an incoming call is ringing (played via the platform audio session on iOS/macOS and via `paplay`/`pw-play`/`ffplay` on Linux)
+
+### Fixes
+
+- Incoming call notifications no longer play the default system sound — the ringtone plays through the call audio session instead
+- iOS: OS share sheet removed so the iOS build succeeds again (sharing stays Android-only)
+
+### Platform
+
+- CI: build-pr workflow updates and iOS build fixes
+
+---
+
 ## 0.6.2
 
 ### Features

@@ -142,7 +142,7 @@ class AboutScreen extends StatelessWidget {
                     'This application is provided "as is" without any warranties. '
                     'The developers are not responsible for any damages or losses '
                     'arising from the use of this application.\n\n'
-                    '© 2025 ${settings.name} Team. All rights reserved.',
+                    '© ${DateTime.now().year} ${settings.name} Team. All rights reserved.',
                 muted: true,
               ),
             ],

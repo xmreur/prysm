@@ -203,6 +203,47 @@ void main() {
     expect(plain2, 'second');
   });
 
+  test('concurrent encrypts assign unique counters', () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final bobPub = await _publicKeys(bob);
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    await RatchetService.instance.encryptText(
+      peerId: bobOnion,
+      plaintext: 'bootstrap',
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+    );
+
+    const batchSize = 12;
+    final wires = await Future.wait(
+      List.generate(
+        batchSize,
+        (i) => RatchetService.instance.encryptText(
+          peerId: bobOnion,
+          plaintext: 'msg-$i',
+          local: alice,
+          peer: bobPub,
+          peerBundle: bobBundle,
+        ),
+      ),
+    );
+
+    final counters = wires
+        .map((w) => (jsonDecode(w) as Map<String, dynamic>)['counter'] as int)
+        .toList();
+    expect(counters.toSet().length, batchSize);
+    expect(counters, containsAll(List.generate(batchSize, (i) => i + 1)));
+
+    final session = await RatchetSessionStore(await DBHelper.database)
+        .load(bobOnion);
+    expect(session!.sendCounter, batchSize + 1);
+  });
+
   test('failed handshake does not burn the one-time prekey', () async {
     final alice = await IdentityKeyPair.generate();
     final bob = await IdentityKeyPair.generate();

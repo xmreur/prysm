@@ -73,7 +73,8 @@ class DirectMessageAuth {
 
     final peerKeys = await resolveIdentity(senderId);
 
-    if (scheme == CryptoConstants.schemeDmSigned1) {
+    if (scheme == CryptoConstants.schemeDmSigned1 ||
+        scheme == CryptoConstants.schemeDmSigned2) {
       if (peerKeys == null) {
         return fullDecrypt
             ? DirectAuthOutcome.rejected
@@ -124,7 +125,8 @@ class DirectMessageAuth {
       }
     }
 
-    if (scheme == CryptoConstants.schemeRatchet1) {
+    if (scheme == CryptoConstants.schemeRatchet1 ||
+        scheme == CryptoConstants.schemeRatchet2) {
       if (!fullDecrypt || !keyManager.isUnlocked || peerKeys == null) {
         return DirectAuthOutcome.pendingAuth;
       }
@@ -142,7 +144,8 @@ class DirectMessageAuth {
       }
     }
 
-    if (scheme == CryptoConstants.schemeDhAead1) {
+    if (scheme == CryptoConstants.schemeDhAead1 ||
+        scheme == CryptoConstants.schemeDhAead2) {
       if (peerKeys != null) {
         return DirectAuthOutcome.rejected;
       }

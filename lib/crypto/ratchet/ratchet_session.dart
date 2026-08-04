@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:prysm/crypto/aead.dart';
 import 'package:prysm/crypto/constants.dart';
+import 'package:prysm/crypto/envelope.dart';
 import 'package:prysm/crypto/kdf.dart';
 
 /// Simplified Double Ratchet session for 1:1 chats (Phase 2).
@@ -45,9 +46,12 @@ class RatchetSession {
   }
 
   Future<({String wire, Map<String, dynamic> handshake})> encryptMessage(
-    Uint8List plaintext,
-  ) async {
+    Uint8List plaintext, {
+    Map<String, dynamic>? handshake,
+  }) async {
     final counter = sendCounter;
+    final scheme = CryptoConstants.schemeRatchet2;
+    const alg = 'aes-gcm';
     final messageKey = await _messageKey(
       role: isInitiator ? 'send' : 'recv',
       counter: counter,
@@ -56,27 +60,39 @@ class RatchetSession {
     final aeadKey = await CryptoAead.secretKeyFromBytes(
       Uint8List.fromList(messageKey),
     );
-    final enc = await CryptoAead.encryptAesGcm(plaintext, key: aeadKey);
+    final aad = CryptoEnvelope.ratchetAad(
+      scheme: scheme,
+      counter: counter,
+      alg: alg,
+      handshake: handshake,
+    );
+    final enc = await CryptoAead.encryptAesGcm(
+      plaintext,
+      key: aeadKey,
+      associatedData: aad,
+    );
     final wire = jsonEncode({
       'crypto': CryptoConstants.cryptoVersion,
-      'scheme': CryptoConstants.schemeRatchet1,
+      'scheme': scheme,
+      'alg': alg,
       'nonce': base64Encode(enc.nonce),
       'ciphertext': base64Encode(enc.ciphertext),
       'counter': counter,
     });
-    return (wire: wire, handshake: <String, dynamic>{});
+    return (wire: wire, handshake: handshake ?? <String, dynamic>{});
   }
 
   Future<Uint8List> decryptMessage(String wire) async {
     final envelope = jsonDecode(wire) as Map<String, dynamic>;
-    if (envelope['scheme'] != CryptoConstants.schemeRatchet1) {
+    final scheme = envelope['scheme'] as String?;
+    if (scheme != CryptoConstants.schemeRatchet1 &&
+        scheme != CryptoConstants.schemeRatchet2) {
       throw FormatException('Not a ratchet message');
     }
     final counter = envelope['counter'] as int;
     if (counter <= recvCounter) {
       throw StateError('Replay detected');
     }
-    recvCounter = counter;
     final messageKey = await _messageKey(
       role: isInitiator ? 'recv' : 'send',
       counter: counter,
@@ -84,11 +100,24 @@ class RatchetSession {
     final aeadKey = await CryptoAead.secretKeyFromBytes(
       Uint8List.fromList(messageKey),
     );
-    return CryptoAead.decryptAesGcm(
+    final associatedData = scheme == CryptoConstants.schemeRatchet2
+        ? CryptoEnvelope.ratchetAad(
+            scheme: scheme!,
+            counter: counter,
+            alg: envelope['alg'] as String? ?? 'aes-gcm',
+            crypto: envelope['crypto'] as String? ??
+                CryptoConstants.cryptoVersion,
+            handshake: envelope['handshake'] as Map<String, dynamic>?,
+          )
+        : const <int>[];
+    final plain = await CryptoAead.decryptAesGcm(
       ciphertextWithTag: base64Decode(envelope['ciphertext'] as String),
       key: aeadKey,
       nonce: base64Decode(envelope['nonce'] as String),
+      associatedData: associatedData,
     );
+    recvCounter = counter;
+    return plain;
   }
 
   Future<List<int>> _messageKey({

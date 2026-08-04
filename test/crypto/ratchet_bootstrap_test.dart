@@ -150,7 +150,7 @@ void main() {
 
     final envelope = jsonDecode(wire) as Map<String, dynamic>;
     expect(envelope['handshake'], isNotNull);
-    expect(envelope['scheme'], CryptoConstants.schemeRatchet1);
+    expect(envelope['scheme'], CryptoConstants.schemeRatchet2);
 
     final plain = await RatchetService.instance.decryptText(
       peerId: aliceOnion,

@@ -22,6 +22,73 @@ class CryptoWire {
   }) =>
       '$ephemeralPub|$nonce|$ciphertext';
 
+  static String _dmSignPayloadV2({
+    required String crypto,
+    required String scheme,
+    required String alg,
+    required String ephemeralPub,
+    required String nonce,
+    required String ciphertext,
+  }) =>
+      '$crypto|$scheme|$alg|$ephemeralPub|$nonce|$ciphertext';
+
+  static List<int> _signPayloadBytes(Map<String, dynamic> envelope) {
+    final ephemeralPubB64 = envelope['ephemeralPub'] as String;
+    final nonceB64 = envelope['nonce'] as String;
+    final ciphertextB64 = envelope['ciphertext'] as String;
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme == CryptoConstants.schemeDmSigned2) {
+      return utf8.encode(
+        _dmSignPayloadV2(
+          crypto: envelope['crypto'] as String? ??
+              CryptoConstants.cryptoVersion,
+          scheme: scheme,
+          alg: envelope['alg'] as String? ?? 'aes-gcm',
+          ephemeralPub: ephemeralPubB64,
+          nonce: nonceB64,
+          ciphertext: ciphertextB64,
+        ),
+      );
+    }
+    return utf8.encode(
+      _dmSignPayload(
+        ephemeralPub: ephemeralPubB64,
+        nonce: nonceB64,
+        ciphertext: ciphertextB64,
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _wrapMapFromEnvelope(
+    Map<String, dynamic> parsed,
+  ) =>
+      {
+        'crypto': parsed['crypto'],
+        'scheme': parsed['scheme'],
+        'alg': parsed['alg'] ?? 'aes-gcm',
+        'ephemeralPub': parsed['ephemeralPub'],
+        'nonce': parsed['nonce'],
+        'ciphertext': parsed['ciphertext'],
+      };
+
+  static Map<String, dynamic> _envelopeFromWrap(Map<String, dynamic> wrapped) {
+    final scheme = wrapped['scheme'] as String? ?? CryptoConstants.schemeDhAead1;
+    final envelope = <String, dynamic>{
+      'crypto':
+          wrapped['crypto'] as String? ?? CryptoConstants.cryptoVersion,
+      'scheme': scheme,
+      'alg': wrapped['alg'] as String? ?? 'aes-gcm',
+      'ephemeralPub': wrapped['ephemeralPub'],
+      'nonce': wrapped['nonce'],
+      'ciphertext': wrapped['ciphertext'],
+    };
+    final sig = wrapped['sig'];
+    if (sig != null) {
+      envelope['sig'] = sig;
+    }
+    return envelope;
+  }
+
   /// Ephemeral X25519 + HKDF + AES-GCM for 1:1 text/binary (unsigned).
   static Future<String> encryptForPeer(
     Uint8List plaintext,
@@ -40,8 +107,15 @@ class CryptoWire {
       info: utf8.encode(CryptoConstants.hkdfInfoDhAead),
       salt: ephemeralPublic.bytes,
     );
-    final enc = await CryptoAead.encryptAesGcm(plaintext, key: aeadKey);
-    final envelope = CryptoEnvelope.dhAead1(
+    const scheme = CryptoConstants.schemeDhAead2;
+    const alg = 'aes-gcm';
+    final aad = CryptoEnvelope.headerAad(scheme: scheme, alg: alg);
+    final enc = await CryptoAead.encryptAesGcm(
+      plaintext,
+      key: aeadKey,
+      associatedData: aad,
+    );
+    final envelope = CryptoEnvelope.dhAead2(
       ephemeralPublic: Uint8List.fromList(ephemeralPublic.bytes),
       ciphertext: enc.ciphertext,
       nonce: enc.nonce,
@@ -74,19 +148,29 @@ class CryptoWire {
       info: utf8.encode(CryptoConstants.hkdfInfoDhAead),
       salt: ephemeralPublic.bytes,
     );
-    final enc = await CryptoAead.encryptAesGcm(plaintext, key: aeadKey);
+    const scheme = CryptoConstants.schemeDmSigned2;
+    const alg = 'aes-gcm';
+    final aad = CryptoEnvelope.headerAad(scheme: scheme, alg: alg);
+    final enc = await CryptoAead.encryptAesGcm(
+      plaintext,
+      key: aeadKey,
+      associatedData: aad,
+    );
     final ephemeralPubB64 = base64Encode(ephemeralPublic.bytes);
     final nonceB64 = base64Encode(enc.nonce);
     final ciphertextB64 = base64Encode(enc.ciphertext);
     final signPayload = utf8.encode(
-      _dmSignPayload(
+      _dmSignPayloadV2(
+        crypto: CryptoConstants.cryptoVersion,
+        scheme: scheme,
+        alg: alg,
         ephemeralPub: ephemeralPubB64,
         nonce: nonceB64,
         ciphertext: ciphertextB64,
       ),
     );
     final signature = await sender.sign(signPayload);
-    final envelope = CryptoEnvelope.dmSigned1(
+    final envelope = CryptoEnvelope.dmSigned2(
       ephemeralPublic: Uint8List.fromList(ephemeralPublic.bytes),
       ciphertext: enc.ciphertext,
       nonce: enc.nonce,
@@ -110,16 +194,7 @@ class CryptoWire {
     if (sigRaw == null) {
       throw const FormatException('Missing DM signature');
     }
-    final ephemeralPubB64 = envelope['ephemeralPub'] as String;
-    final nonceB64 = envelope['nonce'] as String;
-    final ciphertextB64 = envelope['ciphertext'] as String;
-    final signPayload = utf8.encode(
-      _dmSignPayload(
-        ephemeralPub: ephemeralPubB64,
-        nonce: nonceB64,
-        ciphertext: ciphertextB64,
-      ),
-    );
+    final signPayload = _signPayloadBytes(envelope);
     final valid = await _ed25519.verify(
       signPayload,
       signature: Signature(
@@ -132,7 +207,7 @@ class CryptoWire {
     }
   }
 
-  static Future<Uint8List> _decryptDhAead1Envelope(
+  static Future<Uint8List> _decryptDhAeadEnvelope(
     Map<String, dynamic> envelope,
     IdentityKeyPair recipient,
   ) async {
@@ -157,10 +232,11 @@ class CryptoWire {
       ciphertextWithTag: ciphertext,
       key: aeadKey,
       nonce: nonce,
+      associatedData: CryptoEnvelope.dhAeadAssociatedData(envelope),
     );
   }
 
-  /// Decrypts a signed peer DM (`dm-signed-1`).
+  /// Decrypts a signed peer DM (`dm-signed-1` or `dm-signed-2`).
   static Future<Uint8List> decryptSignedFromPeer(
     String wire,
     IdentityKeyPair recipient,
@@ -170,11 +246,13 @@ class CryptoWire {
     if (envelope == null) {
       throw FormatException('Not a v2 crypto envelope');
     }
-    if (CryptoEnvelope.schemeOf(envelope) != CryptoConstants.schemeDmSigned1) {
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme != CryptoConstants.schemeDmSigned1 &&
+        scheme != CryptoConstants.schemeDmSigned2) {
       throw FormatException('Unsupported scheme');
     }
     await _verifyDmSignedEnvelope(envelope, sender);
-    return _decryptDhAead1Envelope(envelope, recipient);
+    return _decryptDhAeadEnvelope(envelope, recipient);
   }
 
   static Future<String> decryptSignedTextFromPeer(
@@ -186,7 +264,7 @@ class CryptoWire {
     return utf8.decode(bytes);
   }
 
-  /// Legacy unsigned `dh-aead-1` decrypt (confidentiality only, no sender auth).
+  /// Legacy unsigned `dh-aead-1` / `dh-aead-2` decrypt (confidentiality only).
   static Future<Uint8List> decryptLegacyFromPeer(
     String wire,
     IdentityKeyPair recipient,
@@ -195,10 +273,12 @@ class CryptoWire {
     if (envelope == null) {
       throw FormatException('Not a v2 crypto envelope');
     }
-    if (CryptoEnvelope.schemeOf(envelope) != CryptoConstants.schemeDhAead1) {
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme != CryptoConstants.schemeDhAead1 &&
+        scheme != CryptoConstants.schemeDhAead2) {
       throw FormatException('Unsupported scheme');
     }
-    return _decryptDhAead1Envelope(envelope, recipient);
+    return _decryptDhAeadEnvelope(envelope, recipient);
   }
 
   static Future<String> decryptLegacyTextFromPeer(
@@ -244,7 +324,16 @@ class CryptoWire {
     String wire,
     IdentityKeyPair identity,
   ) async {
-    return decryptLegacyFromPeer(wire, identity);
+    final envelope = CryptoEnvelope.tryParse(wire);
+    if (envelope == null) {
+      throw FormatException('Not a v2 crypto envelope');
+    }
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme != CryptoConstants.schemeDhAead1 &&
+        scheme != CryptoConstants.schemeDhAead2) {
+      throw FormatException('Unsupported scheme');
+    }
+    return _decryptDhAeadEnvelope(envelope, identity);
   }
 
   static Future<String> decryptTextForSelf(
@@ -263,11 +352,7 @@ class CryptoWire {
   ) async {
     final wire = await encryptForPeer(keyBytes, sender, peerAgreePublic);
     final parsed = CryptoEnvelope.tryParse(wire)!;
-    return {
-      'ephemeralPub': parsed['ephemeralPub'],
-      'nonce': parsed['nonce'],
-      'ciphertext': parsed['ciphertext'],
-    };
+    return _wrapMapFromEnvelope(parsed);
   }
 
   /// Signed key wrap for authenticated peer file/binary payloads.
@@ -279,9 +364,7 @@ class CryptoWire {
     final wire = await encryptSignedForPeer(keyBytes, sender, peerAgreePublic);
     final parsed = CryptoEnvelope.tryParse(wire)!;
     return {
-      'ephemeralPub': parsed['ephemeralPub'],
-      'nonce': parsed['nonce'],
-      'ciphertext': parsed['ciphertext'],
+      ..._wrapMapFromEnvelope(parsed),
       'sig': parsed['sig'],
     };
   }
@@ -294,16 +377,19 @@ class CryptoWire {
     if (sigRaw == null) {
       throw const FormatException('Missing signed wrap signature');
     }
-    final ephemeralPubB64 = wrapped['ephemeralPub'] as String;
-    final nonceB64 = wrapped['nonce'] as String;
-    final ciphertextB64 = wrapped['ciphertext'] as String;
-    final signPayload = utf8.encode(
-      _dmSignPayload(
-        ephemeralPub: ephemeralPubB64,
-        nonce: nonceB64,
-        ciphertext: ciphertextB64,
-      ),
-    );
+    final scheme =
+        wrapped['scheme'] as String? ?? CryptoConstants.schemeDmSigned1;
+    final envelope = <String, dynamic>{
+      'crypto':
+          wrapped['crypto'] as String? ?? CryptoConstants.cryptoVersion,
+      'scheme': scheme,
+      'alg': wrapped['alg'] as String? ?? 'aes-gcm',
+      'ephemeralPub': wrapped['ephemeralPub'],
+      'nonce': wrapped['nonce'],
+      'ciphertext': wrapped['ciphertext'],
+      'sig': sigRaw,
+    };
+    final signPayload = _signPayloadBytes(envelope);
     final valid = await _ed25519.verify(
       signPayload,
       signature: Signature(
@@ -320,14 +406,7 @@ class CryptoWire {
     Map<String, dynamic> wrapped,
     IdentityKeyPair recipient,
   ) async {
-    final wire = CryptoEnvelope.encode({
-      'crypto': CryptoConstants.cryptoVersion,
-      'scheme': CryptoConstants.schemeDhAead1,
-      'alg': 'aes-gcm',
-      'ephemeralPub': wrapped['ephemeralPub'],
-      'nonce': wrapped['nonce'],
-      'ciphertext': wrapped['ciphertext'],
-    });
+    final wire = CryptoEnvelope.encode(_envelopeFromWrap(wrapped));
     return decryptLegacyFromPeer(wire, recipient);
   }
 
@@ -337,15 +416,7 @@ class CryptoWire {
     IdentityPublicKeys sender,
   ) async {
     await _verifySignedWrap(wrapped, sender);
-    final wire = CryptoEnvelope.encode({
-      'crypto': CryptoConstants.cryptoVersion,
-      'scheme': CryptoConstants.schemeDmSigned1,
-      'alg': 'aes-gcm',
-      'ephemeralPub': wrapped['ephemeralPub'],
-      'nonce': wrapped['nonce'],
-      'ciphertext': wrapped['ciphertext'],
-      'sig': wrapped['sig'],
-    });
+    final wire = CryptoEnvelope.encode(_envelopeFromWrap(wrapped));
     return decryptSignedFromPeer(wire, recipient, sender);
   }
 
@@ -460,14 +531,18 @@ class CryptoWire {
     await _verifySignedWrap(wrapped, sender);
   }
 
-  /// Verifies dm-signed-1 signature without decrypting plaintext.
+  /// Verifies dm-signed-1 / dm-signed-2 signature without decrypting plaintext.
   static Future<void> verifyDmSignedWire(
     String wire,
     IdentityPublicKeys sender,
   ) async {
     final envelope = CryptoEnvelope.tryParse(wire);
-    if (envelope == null ||
-        envelope['scheme'] != CryptoConstants.schemeDmSigned1) {
+    if (envelope == null) {
+      throw const FormatException('Not a dm-signed envelope');
+    }
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme != CryptoConstants.schemeDmSigned1 &&
+        scheme != CryptoConstants.schemeDmSigned2) {
       throw const FormatException('Not a dm-signed envelope');
     }
     await _verifyDmSignedEnvelope(envelope, sender);

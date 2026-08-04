@@ -81,7 +81,10 @@ class RatchetService {
       };
     }
 
-    final result = await session.encryptMessage(plaintext);
+    final result = await session.encryptMessage(
+      plaintext,
+      handshake: handshake.isEmpty ? null : handshake,
+    );
     await _store.save(peerId, session);
     if (handshake.isEmpty) {
       return result.wire;
@@ -116,18 +119,21 @@ class RatchetService {
     final envelope = jsonDecode(wire) as Map<String, dynamic>;
     final scheme = envelope['scheme'] as String?;
 
-    if (scheme == CryptoConstants.schemeDmSigned1) {
+    if (scheme == CryptoConstants.schemeDmSigned1 ||
+        scheme == CryptoConstants.schemeDmSigned2) {
       return CryptoWire.decryptSignedFromPeer(wire, local, peer);
     }
 
-    if (scheme == CryptoConstants.schemeDhAead1) {
+    if (scheme == CryptoConstants.schemeDhAead1 ||
+        scheme == CryptoConstants.schemeDhAead2) {
       if (!allowLegacyUnsignedDhAead) {
         throw const FormatException('Unsigned peer message rejected');
       }
       return CryptoWire.decryptLegacyFromPeer(wire, local);
     }
 
-    if (scheme != CryptoConstants.schemeRatchet1) {
+    if (scheme != CryptoConstants.schemeRatchet1 &&
+        scheme != CryptoConstants.schemeRatchet2) {
       throw FormatException('Unsupported ciphertext scheme: $scheme');
     }
 

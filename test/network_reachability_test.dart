@@ -27,11 +27,13 @@ void main() {
   final originalProbe = NetworkReachability.probe;
   final originalCheckConnectivity = NetworkReachability.checkConnectivity;
   final originalListNetworkInterfaces = NetworkReachability.listNetworkInterfaces;
+  final originalIsDesktop = NetworkReachability.isDesktop;
 
   tearDown(() {
     NetworkReachability.probe = originalProbe;
     NetworkReachability.checkConnectivity = originalCheckConnectivity;
     NetworkReachability.listNetworkInterfaces = originalListNetworkInterfaces;
+    NetworkReachability.isDesktop = originalIsDesktop;
   });
 
   group('hasInternet probe override', () {
@@ -67,7 +69,9 @@ void main() {
     Future<bool> runDefaultProbe({
       required List<ConnectivityResult> connectivity,
       required List<NetworkInterface> interfaces,
+      bool isDesktop = true,
     }) async {
+      NetworkReachability.isDesktop = isDesktop;
       NetworkReachability.checkConnectivity = () async => connectivity;
       NetworkReachability.listNetworkInterfaces = () async => interfaces;
       return NetworkReachability.hasInternet();
@@ -103,14 +107,37 @@ void main() {
       );
     });
 
-    test('no connectivity returns false', () async {
+    test('no connectivity returns false on mobile', () async {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.none],
           interfaces: _ifaces('192.168.1.5'),
+          isDesktop: false,
         ),
         isFalse,
       );
+    });
+
+    test('desktop falls back to interfaces when connectivity is none', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.none],
+          interfaces: _ifaces('192.168.1.71'),
+          isDesktop: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('desktop falls back to interfaces when connectivity throws', () async {
+      NetworkReachability.isDesktop = true;
+      NetworkReachability.checkConnectivity = () async {
+        throw Exception('NetworkManager unavailable');
+      };
+      NetworkReachability.listNetworkInterfaces =
+          () async => _ifaces('192.168.1.71');
+
+      expect(await NetworkReachability.hasInternet(), isTrue);
     });
 
     test('wifi with only loopback returns false', () async {
@@ -123,13 +150,25 @@ void main() {
       );
     });
 
-    test('vpn only with local IPv4 returns false', () async {
+    test('vpn only with local IPv4 returns false on mobile', () async {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.vpn],
           interfaces: _ifaces('192.168.1.5'),
+          isDesktop: false,
         ),
         isFalse,
+      );
+    });
+
+    test('desktop other with local IPv4 returns true', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.other],
+          interfaces: _ifaces('192.168.1.5'),
+          isDesktop: true,
+        ),
+        isTrue,
       );
     });
   });

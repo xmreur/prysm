@@ -39,6 +39,44 @@ class CryptoConstants {
   /// Max message counters that may be skipped when receiving out of order.
   static const int ratchetMaxSkip = 256;
 
+  /// Ordering rank for ratchet wire schemes (0 = unknown).
+  static int ratchetSchemeRank(String scheme) {
+    switch (scheme) {
+      case schemeRatchet3:
+        return 3;
+      case schemeRatchet2:
+        return 2;
+      case schemeRatchet1:
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  /// Returns the higher-ranked ratchet scheme, or the non-null operand.
+  static String? maxRatchetScheme(String? a, String? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return ratchetSchemeRank(a) >= ratchetSchemeRank(b) ? a : b;
+  }
+
+  /// Validates a profile or wire ratchet scheme string.
+  static String? parseRatchetScheme(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    switch (trimmed) {
+      case schemeRatchet1:
+      case schemeRatchet2:
+      case schemeRatchet3:
+        return trimmed;
+      default:
+        return null;
+    }
+  }
+
+  static bool peerSupportsRatchet3(String? scheme) =>
+      scheme == schemeRatchet3;
+
   static const int backupVersion = 2;
   static const int cryptoGeneration = 2;
 }

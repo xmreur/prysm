@@ -24,11 +24,12 @@ class RatchetSession {
     required this.sendCounter,
     required this.recvCounter,
     Set<int>? skippedCounters,
-  })  : version = 2,
-        sendChainKey = null,
-        recvChainKey = null,
-        recvSkippedKeys = const <int, String>{},
-        skippedCounters = skippedCounters ?? <int>{};
+    this.peerWireScheme,
+  }) : version = 2,
+       sendChainKey = null,
+       recvChainKey = null,
+       recvSkippedKeys = const <int, String>{},
+       skippedCounters = skippedCounters ?? <int>{};
 
   /// Forward-secret session backed by one-way chain keys.
   RatchetSession.v3({
@@ -38,10 +39,13 @@ class RatchetSession {
     required this.sendCounter,
     required this.recvCounter,
     Map<int, String>? recvSkippedKeys,
-  })  : version = 3,
-        sharedMaterial = null,
-        recvSkippedKeys = recvSkippedKeys ?? <int, String>{},
-        skippedCounters = const <int>{};
+    String? peerWireScheme,
+  }) : version = 3,
+       sharedMaterial = null,
+       recvSkippedKeys = recvSkippedKeys ?? <int, String>{},
+       skippedCounters = const <int>{},
+       peerWireScheme =
+           peerWireScheme ?? CryptoConstants.schemeRatchet3;
 
   /// 2 for legacy sessions, 3 for hash-chain sessions.
   final int version;
@@ -67,42 +71,55 @@ class RatchetSession {
   /// Skipped counters — v2 only.
   final Set<int> skippedCounters;
 
-  static final Uint8List _ratchetSalt =
-      Uint8List.fromList(utf8.encode('prysm/ratchet/root-salt'));
+  /// Highest ratchet wire scheme known for the remote peer (learned from
+  /// profile or inbound messages). Governs outbound scheme selection.
+  String? peerWireScheme;
+
+  static final Uint8List _ratchetSalt = Uint8List.fromList(
+    utf8.encode('prysm/ratchet/root-salt'),
+  );
 
   /// Two distinct chain-seed infos so initiator and responder derive
   /// mirrored chains: init.send == resp.recv (info a) and
   /// init.recv == resp.send (info b).
-  static final Uint8List _chainSeedInfoA =
-      Uint8List.fromList(utf8.encode('prysm/ratchet/chain/a'));
-  static final Uint8List _chainSeedInfoB =
-      Uint8List.fromList(utf8.encode('prysm/ratchet/chain/b'));
-  static final Uint8List _chainMsgInfo =
-      Uint8List.fromList(utf8.encode('prysm/ratchet/chain/msg'));
-  static final Uint8List _chainNextInfo =
-      Uint8List.fromList(utf8.encode('prysm/ratchet/chain/next'));
+  static final Uint8List _chainSeedInfoA = Uint8List.fromList(
+    utf8.encode('prysm/ratchet/chain/a'),
+  );
+  static final Uint8List _chainSeedInfoB = Uint8List.fromList(
+    utf8.encode('prysm/ratchet/chain/b'),
+  );
+  static final Uint8List _chainMsgInfo = Uint8List.fromList(
+    utf8.encode('prysm/ratchet/chain/msg'),
+  );
+  static final Uint8List _chainNextInfo = Uint8List.fromList(
+    utf8.encode('prysm/ratchet/chain/next'),
+  );
 
   /// Legacy v2 session (static HKDF from [sharedMaterial]). Retained for
   /// sessions already persisted in the DB.
   static Future<RatchetSession> initializeAsInitiator(
-    Uint8List sharedMaterial,
-  ) async {
+    Uint8List sharedMaterial, {
+    String? peerWireScheme,
+  }) async {
     return RatchetSession.v2(
       sharedMaterial: sharedMaterial,
       isInitiator: true,
       sendCounter: 0,
       recvCounter: -1,
+      peerWireScheme: peerWireScheme,
     );
   }
 
   static Future<RatchetSession> initializeAsResponder(
-    Uint8List sharedMaterial,
-  ) async {
+    Uint8List sharedMaterial, {
+    String? peerWireScheme,
+  }) async {
     return RatchetSession.v2(
       sharedMaterial: sharedMaterial,
       isInitiator: false,
       sendCounter: 0,
       recvCounter: -1,
+      peerWireScheme: peerWireScheme,
     );
   }
 
@@ -110,8 +127,9 @@ class RatchetSession {
   /// [sharedMaterial] and does not retain it; the caller should drop its
   /// own reference too.
   static Future<RatchetSession> initializeV3AsInitiator(
-    Uint8List sharedMaterial,
-  ) async {
+    Uint8List sharedMaterial, {
+    String? peerWireScheme,
+  }) async {
     final send = await _chainSeed(sharedMaterial, _chainSeedInfoA);
     final recv = await _chainSeed(sharedMaterial, _chainSeedInfoB);
     return RatchetSession.v3(
@@ -120,12 +138,14 @@ class RatchetSession {
       recvChainKey: recv,
       sendCounter: 0,
       recvCounter: -1,
+      peerWireScheme: peerWireScheme,
     );
   }
 
   static Future<RatchetSession> initializeV3AsResponder(
-    Uint8List sharedMaterial,
-  ) async {
+    Uint8List sharedMaterial, {
+    String? peerWireScheme,
+  }) async {
     final send = await _chainSeed(sharedMaterial, _chainSeedInfoB);
     final recv = await _chainSeed(sharedMaterial, _chainSeedInfoA);
     return RatchetSession.v3(
@@ -134,7 +154,24 @@ class RatchetSession {
       recvChainKey: recv,
       sendCounter: 0,
       recvCounter: -1,
+      peerWireScheme: peerWireScheme,
     );
+  }
+
+  String _emitWireScheme() {
+    if (version == 3) {
+      if (!CryptoConstants.peerSupportsRatchet3(peerWireScheme)) {
+        throw StateError('v3 session requires peer ratchet-3 capability');
+      }
+      return CryptoConstants.schemeRatchet3;
+    }
+    return peerWireScheme == CryptoConstants.schemeRatchet2
+        ? CryptoConstants.schemeRatchet2
+        : CryptoConstants.schemeRatchet1;
+  }
+
+  void _notePeerWireScheme(String scheme) {
+    peerWireScheme = CryptoConstants.maxRatchetScheme(peerWireScheme, scheme);
   }
 
   Future<({String wire, Map<String, dynamic> handshake})> encryptMessage(
@@ -152,25 +189,23 @@ class RatchetSession {
       );
     }
     sendCounter++;
-    // v2 sessions keep emitting ratchet-2 so an unupgraded peer can still
-    // decrypt; only brand-new (v3) sessions speak ratchet-3.
-    final scheme = version == 3
-        ? CryptoConstants.schemeRatchet3
-        : CryptoConstants.schemeRatchet2;
+    final scheme = _emitWireScheme();
     const alg = 'aes-gcm';
     final aeadKey = await CryptoAead.secretKeyFromBytes(
       Uint8List.fromList(messageKey),
     );
-    final aad = CryptoEnvelope.ratchetAad(
-      scheme: scheme,
-      counter: counter,
-      alg: alg,
-      handshake: handshake,
-    );
+    final associatedData = scheme == CryptoConstants.schemeRatchet1
+        ? const <int>[]
+        : CryptoEnvelope.ratchetAad(
+            scheme: scheme,
+            counter: counter,
+            alg: alg,
+            handshake: handshake,
+          );
     final enc = await CryptoAead.encryptAesGcm(
       plaintext,
       key: aeadKey,
-      associatedData: aad,
+      associatedData: associatedData,
     );
     final wire = jsonEncode({
       'crypto': CryptoConstants.cryptoVersion,
@@ -225,7 +260,10 @@ class RatchetSession {
         crypto: envelope['crypto'] as String? ?? CryptoConstants.cryptoVersion,
         handshake: envelope['handshake'] as Map<String, dynamic>?,
       ),
-    );
+    ).then((plain) {
+      _notePeerWireScheme(scheme);
+      return plain;
+    });
   }
 
   /// Legacy v2 inbound path — exact prior behavior.
@@ -256,8 +294,8 @@ class RatchetSession {
             scheme: scheme,
             counter: counter,
             alg: envelope['alg'] as String? ?? 'aes-gcm',
-            crypto: envelope['crypto'] as String? ??
-                CryptoConstants.cryptoVersion,
+            crypto:
+                envelope['crypto'] as String? ?? CryptoConstants.cryptoVersion,
             handshake: envelope['handshake'] as Map<String, dynamic>?,
           )
         : const <int>[];
@@ -277,6 +315,7 @@ class RatchetSession {
     } else {
       recvCounter = counter;
     }
+    _notePeerWireScheme(scheme);
     return plain;
   }
 
@@ -389,6 +428,7 @@ class RatchetSession {
         },
         'sendCounter': sendCounter,
         'recvCounter': recvCounter,
+        if (peerWireScheme != null) 'peerWireScheme': peerWireScheme,
       };
     }
     return {
@@ -397,6 +437,7 @@ class RatchetSession {
       'sendCounter': sendCounter,
       'recvCounter': recvCounter,
       'skippedCounters': (skippedCounters.toList()..sort()),
+      if (peerWireScheme != null) 'peerWireScheme': peerWireScheme,
     };
   }
 
@@ -417,6 +458,10 @@ class RatchetSession {
         },
         sendCounter: json['sendCounter'] as int,
         recvCounter: json['recvCounter'] as int,
+        peerWireScheme: CryptoConstants.parseRatchetScheme(
+          json['peerWireScheme'] as String?,
+        ) ??
+            CryptoConstants.schemeRatchet3,
       );
     }
     return RatchetSession.v2(
@@ -426,6 +471,9 @@ class RatchetSession {
       recvCounter: json['recvCounter'] as int,
       skippedCounters: Set<int>.from(
         (json['skippedCounters'] as List<dynamic>?) ?? const [],
+      ),
+      peerWireScheme: CryptoConstants.parseRatchetScheme(
+        json['peerWireScheme'] as String?,
       ),
     );
   }

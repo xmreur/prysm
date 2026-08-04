@@ -17,6 +17,7 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
+import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/direct_message_auth.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
@@ -102,6 +103,7 @@ class InboundMessageRouter {
       'publicKeyPem': identityJson,
       'username': username,
       'avatar': settings.avatar ?? '',
+      'ratchetScheme': CryptoConstants.schemeRatchet3,
     };
     if (keyManager.isUnlocked) {
       final bundle = await PrekeyBundle.loadStored(keyManager.identity);

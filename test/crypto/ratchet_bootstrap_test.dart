@@ -34,6 +34,9 @@ void main() {
 
   setUp(() async {
     CryptoKeyStore.resetInMemoryStorageForTest();
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
+      (_) async => CryptoConstants.schemeRatchet3,
+    );
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -48,6 +51,7 @@ void main() {
   });
 
   tearDown(() {
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
     DBHelper.setDatabaseForTest(null);
   });
 

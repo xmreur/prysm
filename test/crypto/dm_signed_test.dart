@@ -17,7 +17,7 @@ Future<IdentityPublicKeys> _publicKeys(IdentityKeyPair id) async {
 }
 
 void main() {
-  group('dm-signed-1', () {
+  group('dm-signed', () {
     test('signed 1:1 text round trip', () async {
       final alice = await IdentityKeyPair.generate();
       final bob = await IdentityKeyPair.generate();
@@ -31,7 +31,7 @@ void main() {
       );
       expect(CryptoEnvelope.isV2(wire), isTrue);
       final parsed = CryptoEnvelope.tryParse(wire)!;
-      expect(parsed['scheme'], CryptoConstants.schemeDmSigned1);
+      expect(parsed['scheme'], CryptoConstants.schemeDmSigned2);
 
       final plain = await CryptoWire.decryptSignedTextFromPeer(
         wire,
@@ -98,7 +98,7 @@ void main() {
       expect(plain, 'legacy');
     });
 
-    test('encryptBytesForPeer produces dm-signed-1', () async {
+    test('encryptBytesForPeer produces dm-signed-2', () async {
       final alice = await IdentityKeyPair.generate();
       final bob = await IdentityKeyPair.generate();
       final keyManager = KeyManager.fromIdentity(alice);
@@ -109,7 +109,7 @@ void main() {
         bobPub,
       );
       final parsed = CryptoEnvelope.tryParse(wire)!;
-      expect(parsed['scheme'], CryptoConstants.schemeDmSigned1);
+      expect(parsed['scheme'], CryptoConstants.schemeDmSigned2);
     });
   });
 }

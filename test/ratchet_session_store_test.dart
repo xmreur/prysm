@@ -6,6 +6,13 @@ import 'package:prysm/crypto/ratchet/ratchet_session.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+Future<({RatchetSession init, RatchetSession resp})> _pairedSessions() async {
+  final shared = Uint8List.fromList(List.generate(32, (i) => i));
+  final init = await RatchetSession.initializeAsInitiator(shared);
+  final resp = await RatchetSession.initializeAsResponder(shared);
+  return (init: init, resp: resp);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -55,6 +62,25 @@ void main() {
     expect(loaded.recvCounter, session.recvCounter);
     expect(loaded.isInitiator, session.isInitiator);
     expect(loaded.sharedMaterial, session.sharedMaterial);
+    expect(loaded.skippedCounters, session.skippedCounters);
+  });
+
+  test('skipped counters survive save and load', () async {
+    final pair = await _pairedSessions();
+    final enc0 = await pair.init.encryptMessage(utf8.encode('zero'));
+    final enc1 = await pair.init.encryptMessage(utf8.encode('one'));
+
+    await pair.resp.decryptMessage(enc1.wire);
+    expect(pair.resp.skippedCounters, {0});
+
+    await store.save('peer.onion', pair.resp);
+    final loaded = await store.load('peer.onion');
+    expect(loaded!.skippedCounters, {0});
+
+    final plain0 = await loaded.decryptMessage(enc0.wire);
+    expect(utf8.decode(plain0), 'zero');
+    expect(loaded.recvCounter, 1);
+    expect(loaded.skippedCounters, isEmpty);
   });
 
   test('save overwrites existing session', () async {

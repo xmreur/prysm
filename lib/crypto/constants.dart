@@ -34,6 +34,9 @@ class CryptoConstants {
   static const String hkdfInfoCall = 'prysm/call-session';
   static const String hkdfInfoRatchet = 'prysm/ratchet';
 
+  /// Max message counters that may be skipped when receiving out of order.
+  static const int ratchetMaxSkip = 256;
+
   static const int backupVersion = 2;
   static const int cryptoGeneration = 2;
 }

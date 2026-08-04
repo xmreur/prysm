@@ -43,7 +43,7 @@ void main() {
       final pair = await _pairedSessions();
       final enc = await pair.init.encryptMessage(utf8.encode('hello'));
       final envelope = jsonDecode(enc.wire) as Map<String, dynamic>;
-      envelope['counter'] = 999999;
+      envelope['counter'] = 10;
       envelope['ciphertext'] = base64Encode(List.filled(32, 0));
 
       expect(
@@ -59,11 +59,12 @@ void main() {
 
     test('large counter gap decrypts successfully', () async {
       final pair = await _pairedSessions();
-      pair.init.sendCounter = 500;
+      pair.init.sendCounter = 200;
       final enc = await pair.init.encryptMessage(utf8.encode('far ahead'));
       final plain = await pair.resp.decryptMessage(enc.wire);
       expect(utf8.decode(plain), 'far ahead');
-      expect(pair.resp.recvCounter, 500);
+      expect(pair.resp.recvCounter, 200);
+      expect(pair.resp.skippedCounters.length, 200);
     });
 
     test('scheme relabel fails decrypt on ratchet-2', () async {
@@ -112,6 +113,91 @@ void main() {
       final wire = await _legacyRatchet1Wire(pair.init, utf8.encode('legacy'));
       final plain = await pair.resp.decryptMessage(wire);
       expect(utf8.decode(plain), 'legacy');
+    });
+
+    test('out-of-order 1 then 0 decrypts both', () async {
+      final pair = await _pairedSessions();
+      final enc0 = await pair.init.encryptMessage(utf8.encode('zero'));
+      final enc1 = await pair.init.encryptMessage(utf8.encode('one'));
+
+      final plain1 = await pair.resp.decryptMessage(enc1.wire);
+      expect(utf8.decode(plain1), 'one');
+      expect(pair.resp.recvCounter, 1);
+      expect(pair.resp.skippedCounters, {0});
+
+      final plain0 = await pair.resp.decryptMessage(enc0.wire);
+      expect(utf8.decode(plain0), 'zero');
+      expect(pair.resp.recvCounter, 1);
+      expect(pair.resp.skippedCounters, isEmpty);
+    });
+
+    test('out-of-order 2 then 0 then 1 decrypts all', () async {
+      final pair = await _pairedSessions();
+      final enc0 = await pair.init.encryptMessage(utf8.encode('zero'));
+      final enc1 = await pair.init.encryptMessage(utf8.encode('one'));
+      final enc2 = await pair.init.encryptMessage(utf8.encode('two'));
+
+      expect(utf8.decode(await pair.resp.decryptMessage(enc2.wire)), 'two');
+      expect(utf8.decode(await pair.resp.decryptMessage(enc0.wire)), 'zero');
+      expect(utf8.decode(await pair.resp.decryptMessage(enc1.wire)), 'one');
+      expect(pair.resp.recvCounter, 2);
+      expect(pair.resp.skippedCounters, isEmpty);
+    });
+
+    test('replay after in-order decrypt is rejected', () async {
+      final pair = await _pairedSessions();
+      final enc = await pair.init.encryptMessage(utf8.encode('once'));
+
+      await pair.resp.decryptMessage(enc.wire);
+      expect(
+        () => pair.resp.decryptMessage(enc.wire),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('replay after late fill is rejected', () async {
+      final pair = await _pairedSessions();
+      final enc0 = await pair.init.encryptMessage(utf8.encode('zero'));
+      final enc1 = await pair.init.encryptMessage(utf8.encode('one'));
+
+      await pair.resp.decryptMessage(enc1.wire);
+      await pair.resp.decryptMessage(enc0.wire);
+      expect(
+        () => pair.resp.decryptMessage(enc0.wire),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('gap larger than maxSkip is rejected without state change', () async {
+      final pair = await _pairedSessions();
+      pair.init.sendCounter = CryptoConstants.ratchetMaxSkip + 2;
+      final enc = await pair.init.encryptMessage(utf8.encode('too far'));
+
+      expect(
+        () => pair.resp.decryptMessage(enc.wire),
+        throwsA(
+          predicate(
+            (e) => e is StateError && e.message == 'Counter too far ahead',
+          ),
+        ),
+      );
+      expect(pair.resp.recvCounter, -1);
+      expect(pair.resp.skippedCounters, isEmpty);
+    });
+
+    test('skipped counters survive json round trip', () async {
+      final pair = await _pairedSessions();
+      final enc0 = await pair.init.encryptMessage(utf8.encode('zero'));
+      final enc1 = await pair.init.encryptMessage(utf8.encode('one'));
+
+      await pair.resp.decryptMessage(enc1.wire);
+      expect(pair.resp.skippedCounters, {0});
+
+      final restored = RatchetSession.fromJson(pair.resp.toJson());
+      final plain0 = await restored.decryptMessage(enc0.wire);
+      expect(utf8.decode(plain0), 'zero');
+      expect(restored.recvCounter, 1);
+      expect(restored.skippedCounters, isEmpty);
     });
   });
 }

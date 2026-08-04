@@ -13,12 +13,14 @@ class RatchetSession {
     required this.isInitiator,
     required this.sendCounter,
     required this.recvCounter,
-  });
+    Set<int>? skippedCounters,
+  }) : skippedCounters = skippedCounters ?? <int>{};
 
   final Uint8List sharedMaterial;
   final bool isInitiator;
   int sendCounter;
   int recvCounter;
+  final Set<int> skippedCounters;
 
   static final Uint8List _ratchetSalt =
       Uint8List.fromList(utf8.encode('prysm/ratchet/root-salt'));
@@ -90,8 +92,15 @@ class RatchetSession {
       throw FormatException('Not a ratchet message');
     }
     final counter = envelope['counter'] as int;
-    if (counter <= recvCounter) {
+    final isLateSkipped = skippedCounters.contains(counter);
+    if (counter <= recvCounter && !isLateSkipped) {
       throw StateError('Replay detected');
+    }
+    if (!isLateSkipped && counter > recvCounter + 1) {
+      final gap = counter - (recvCounter + 1);
+      if (gap > CryptoConstants.ratchetMaxSkip) {
+        throw StateError('Counter too far ahead');
+      }
     }
     final messageKey = await _messageKey(
       role: isInitiator ? 'recv' : 'send',
@@ -116,7 +125,16 @@ class RatchetSession {
       nonce: base64Decode(envelope['nonce'] as String),
       associatedData: associatedData,
     );
-    recvCounter = counter;
+    if (isLateSkipped) {
+      skippedCounters.remove(counter);
+    } else if (counter > recvCounter + 1) {
+      for (var i = recvCounter + 1; i < counter; i++) {
+        skippedCounters.add(i);
+      }
+      recvCounter = counter;
+    } else {
+      recvCounter = counter;
+    }
     return plain;
   }
 
@@ -139,6 +157,7 @@ class RatchetSession {
         'isInitiator': isInitiator,
         'sendCounter': sendCounter,
         'recvCounter': recvCounter,
+        'skippedCounters': (skippedCounters.toList()..sort()),
       };
 
   static RatchetSession fromJson(Map<String, dynamic> json) {
@@ -147,6 +166,9 @@ class RatchetSession {
       isInitiator: json['isInitiator'] as bool? ?? true,
       sendCounter: json['sendCounter'] as int,
       recvCounter: json['recvCounter'] as int,
+      skippedCounters: Set<int>.from(
+        (json['skippedCounters'] as List<dynamic>?) ?? const [],
+      ),
     );
   }
 }

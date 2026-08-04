@@ -234,6 +234,13 @@ class KeyManager {
     return CryptoWire.decryptForSelf(wire, identity);
   }
 
+  Future<Uint8List> decryptBytesFromPeer({
+    required String wire,
+    required IdentityPublicKeys peer,
+  }) async {
+    return CryptoWire.decryptSignedFromPeer(wire, identity, peer);
+  }
+
   Future<Uint8List> decryptMyMessageBytes(String wire) => decryptBytes(wire);
 
   Future<String> encryptBytesForPeer(

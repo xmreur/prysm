@@ -390,12 +390,18 @@ class CallManager extends ChangeNotifier {
     if (callId == null || sessionId == 0 || wrappedKey == null) return;
 
     try {
+      final peerKey = await _keyResolver!.resolve(event.peerOnion);
+      if (peerKey == null) {
+        await _sendEnd(event.peerOnion, callId, reason: 'error');
+        return;
+      }
       final session = await CallSession.fromInbound(
         callId: callId,
         sessionId: sessionId,
         peerOnion: event.peerOnion,
         wrappedKey: wrappedKey,
         keyManager: _keyManager,
+        peer: peerKey,
         codec: _codecFromPayload(payload['codec']),
       );
       _session = session;

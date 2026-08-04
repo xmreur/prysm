@@ -303,6 +303,7 @@ class InboundMessageRouter {
       await groupService.handleIncomingControlMessage(
         type,
         data['message'] as String,
+        data['senderId'] as String,
       );
     } catch (e) {
       Logging.error('Group control handling failed: $e', 'InboundMessageRouter');

@@ -140,6 +140,20 @@ class CryptoEnvelope {
     };
   }
 
+  static Map<String, dynamic> controlWrap2({
+    required Map<String, dynamic> wrappedKey,
+    required Uint8List iv,
+    required Uint8List ciphertext,
+  }) {
+    return {
+      'crypto': CryptoConstants.cryptoVersion,
+      'scheme': CryptoConstants.schemeControlWrap2,
+      'wrappedKey': wrappedKey,
+      'iv': base64Encode(iv),
+      'ct': base64Encode(ciphertext),
+    };
+  }
+
   static Map<String, dynamic> fileAead1({
     required Map<String, dynamic> wrappedKey,
     required Uint8List nonce,

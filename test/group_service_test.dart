@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/constants/group_constants.dart';
@@ -117,6 +118,77 @@ class _FakePostman implements SideChannelPostman {
   void clear() => groupCalls.clear();
 }
 
+/// Records control-channel calls at method level so tests can assert on
+/// exactly which member receives a key rotation vs. a member-removed notice.
+class _FakeGroupControlChannel implements GroupControlChannel {
+  _FakeGroupControlChannel({
+    required this.keyManager,
+    required this.keyProvider,
+  });
+
+  @override
+  String get userId => '';
+  @override
+  final KeyManager keyManager;
+  @override
+  final GroupKeyProvider keyProvider;
+
+  final List<Map<String, String>> keyRotateCalls = [];
+  final List<Map<String, String>> memberRemovedCalls = [];
+
+  @override
+  Future<void> sendInvite({
+    required String groupId,
+    required String name,
+    String? avatarBase64,
+    required List<Map<String, String>> members,
+    required Uint8List groupKey,
+    required int keyVersion,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendKeyRotate({
+    required String groupId,
+    required Uint8List groupKey,
+    required int keyVersion,
+    required String removedMemberId,
+    required String targetMemberId,
+  }) async {
+    keyRotateCalls.add({'targetMemberId': targetMemberId});
+  }
+
+  @override
+  Future<void> sendProfileUpdate({
+    required String groupId,
+    required String name,
+    String? avatarBase64,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendDisappearingTimer({
+    required String groupId,
+    required int? timerSeconds,
+    required int updatedAt,
+    required String updatedBy,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendMemberRemoved({
+    required String groupId,
+    required String removedMemberId,
+    required int keyVersion,
+    required String targetMemberId,
+  }) async {
+    memberRemovedCalls.add({'targetMemberId': targetMemberId});
+  }
+
+  @override
+  Future<bool> processPendingControlMessages({int maxPerCycle = 20}) async => false;
+}
+
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -222,7 +294,7 @@ void main() {
       }
     });
 
-    test('removeMember sends key rotate + member removed to the removed and remaining members', () async {
+    test('removeMember rotates the key only to remaining members, never the removed one', () async {
       await _insertPeerIdentity(db, peerId);
       const otherMemberId = 'other.onion';
       await _insertPeerIdentity(db, otherMemberId);
@@ -232,11 +304,50 @@ void main() {
 
       await service.removeMember(group.id, peerId);
 
-      final types = postman.groupCalls.map((c) => (c['payload'] as Map)['type']).toSet();
-      expect(types, {groupKeyRotateType, groupMemberRemovedType});
-      final targets = postman.groupCalls.map((c) => c['targetMemberId']).toSet();
-      // Removed member is told directly, and the remaining member is updated.
-      expect(targets, {peerId, otherMemberId});
+      final rotateTargets = postman.groupCalls
+          .where((c) => (c['payload'] as Map)['type'] == groupKeyRotateType)
+          .map((c) => c['targetMemberId'])
+          .toSet();
+      // The removed member never receives the new group key.
+      expect(rotateTargets, isNot(contains(peerId)));
+      expect(rotateTargets, {otherMemberId});
+
+      final removedTargets = postman.groupCalls
+          .where((c) => (c['payload'] as Map)['type'] == groupMemberRemovedType)
+          .map((c) => c['targetMemberId'])
+          .toSet();
+      // Removed member is told to drop the group; remaining member is updated.
+      expect(removedTargets, {peerId, otherMemberId});
+    });
+
+    test('removeMember never delivers the new group key to the removed member (forward access revocation)', () async {
+      await _insertPeerIdentity(db, peerId);
+      const otherMemberId = 'other.onion';
+      await _insertPeerIdentity(db, otherMemberId);
+
+      final group = await service.createGroup('Squad', [peerId, otherMemberId]);
+
+      final fakeChannel = _FakeGroupControlChannel(
+        keyManager: keyManager,
+        keyProvider: keyProvider,
+      );
+      final serviceWithFakeChannel = GroupService(
+        userId: userId,
+        keyManager: keyManager,
+        keyProvider: keyProvider,
+        controlChannel: fakeChannel,
+      );
+
+      await serviceWithFakeChannel.removeMember(group.id, peerId);
+
+      // Key rotations reach every remaining member, never the removed one.
+      final rotateTargets = fakeChannel.keyRotateCalls.map((c) => c['targetMemberId']).toSet();
+      expect(rotateTargets, isNot(contains(peerId)));
+      expect(rotateTargets, {otherMemberId});
+
+      // The removed member is still told to drop the group.
+      final removedTargets = fakeChannel.memberRemovedCalls.map((c) => c['targetMemberId']).toSet();
+      expect(removedTargets, contains(peerId));
     });
 
     test('updateGroupName sends a profile update to other members', () async {

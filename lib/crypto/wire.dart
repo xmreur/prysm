@@ -72,7 +72,10 @@ class CryptoWire {
       };
 
   static Map<String, dynamic> _envelopeFromWrap(Map<String, dynamic> wrapped) {
-    final scheme = wrapped['scheme'] as String? ?? CryptoConstants.schemeDhAead1;
+    final scheme = wrapped['scheme'] as String? ??
+        (wrapped['sig'] != null
+            ? CryptoConstants.schemeDmSigned1
+            : CryptoConstants.schemeDhAead1);
     final envelope = <String, dynamic>{
       'crypto':
           wrapped['crypto'] as String? ?? CryptoConstants.cryptoVersion,

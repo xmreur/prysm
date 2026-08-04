@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -15,7 +14,7 @@ import 'package:prysm/transport/transport_provider.dart';
 /// High-level 1:1 ratchet encrypt/decrypt with SQLite session persistence.
 class RatchetService {
   RatchetService._({RatchetSessionStore? sessionStore})
-      : _sessionStore = sessionStore;
+    : _sessionStore = sessionStore;
 
   static final RatchetService instance = RatchetService._();
 
@@ -98,52 +97,51 @@ class RatchetService {
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
     PrekeyBundle? peerBundle,
-  }) =>
-      _lockFor(peerId).protect(() async {
-        var session = await _store.load(peerId);
-        Map<String, dynamic> handshake = {};
+  }) => _lockFor(peerId).protect(() async {
+    var session = await _store.load(peerId);
+    Map<String, dynamic> handshake = {};
 
-        if (session == null) {
-          final bundle = peerBundle;
-          if (bundle == null) {
-            throw StateError('Missing prekey bundle for $peerId');
-          }
-          final ephemeral = await _x25519.newKeyPair();
-          final ephemeralPublic = await ephemeral.extractPublicKey();
-          final shared = await PrekeyBundle.sharedSecretAsInitiator(
-            local: local,
-            peer: peer,
-            peerBundle: bundle,
-            ephemeral: ephemeral,
-          );
-          final peerScheme = await _resolvePeerRatchetScheme(peerId, null);
-          session = CryptoConstants.peerSupportsRatchet3(peerScheme)
-              ? await RatchetSession.initializeV3AsInitiator(
-                  shared,
-                  peerWireScheme: peerScheme,
-                )
-              : await RatchetSession.initializeAsInitiator(
-                  shared,
-                  peerWireScheme: peerScheme,
-                );
-          handshake = {
-            'ephemeralPub': base64Encode(ephemeralPublic.bytes),
-            'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
-          };
-        }
+    if (session == null) {
+      final bundle = peerBundle;
+      if (bundle == null) {
+        throw StateError('Missing prekey bundle for $peerId');
+      }
+      final ephemeral = await _x25519.newKeyPair();
+      final ephemeralPublic = await ephemeral.extractPublicKey();
+      final shared = await PrekeyBundle.sharedSecretAsInitiator(
+        local: local,
+        peer: peer,
+        peerBundle: bundle,
+        ephemeral: ephemeral,
+      );
+      final peerScheme = await _resolvePeerRatchetScheme(peerId, null);
+      session = CryptoConstants.peerSupportsRatchet3(peerScheme)
+          ? await RatchetSession.initializeV3AsInitiator(
+              shared,
+              peerWireScheme: peerScheme,
+            )
+          : await RatchetSession.initializeAsInitiator(
+              shared,
+              peerWireScheme: peerScheme,
+            );
+      handshake = {
+        'ephemeralPub': base64Encode(ephemeralPublic.bytes),
+        'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
+      };
+    }
 
-        final result = await session.encryptMessage(
-          plaintext,
-          handshake: handshake.isEmpty ? null : handshake,
-        );
-        await _store.save(peerId, session);
-        if (handshake.isEmpty) {
-          return result.wire;
-        }
-        final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
-        envelope['handshake'] = handshake;
-        return jsonEncode(envelope);
-      });
+    final result = await session.encryptMessage(
+      plaintext,
+      handshake: handshake.isEmpty ? null : handshake,
+    );
+    await _store.save(peerId, session);
+    if (handshake.isEmpty) {
+      return result.wire;
+    }
+    final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
+    envelope['handshake'] = handshake;
+    return jsonEncode(envelope);
+  });
 
   Future<String> decryptText({
     required String peerId,
@@ -151,14 +149,13 @@ class RatchetService {
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
     bool allowLegacyUnsignedDhAead = false,
-  }) =>
-      decryptBytes(
-        peerId: peerId,
-        wire: wire,
-        local: local,
-        peer: peer,
-        allowLegacyUnsignedDhAead: allowLegacyUnsignedDhAead,
-      ).then(utf8.decode);
+  }) => decryptBytes(
+    peerId: peerId,
+    wire: wire,
+    local: local,
+    peer: peer,
+    allowLegacyUnsignedDhAead: allowLegacyUnsignedDhAead,
+  ).then(utf8.decode);
 
   Future<Uint8List> decryptBytes({
     required String peerId,
@@ -201,8 +198,9 @@ class RatchetService {
           if (handshake == null) {
             throw StateError('Missing ratchet handshake for $peerId');
           }
-          final ephemeralBytes =
-              base64Decode(handshake['ephemeralPub'] as String);
+          final ephemeralBytes = base64Decode(
+            handshake['ephemeralPub'] as String,
+          );
           final ephemeralPublic = SimplePublicKey(
             ephemeralBytes,
             type: KeyPairType.x25519,

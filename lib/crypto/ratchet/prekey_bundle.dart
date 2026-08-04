@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:mutex/mutex.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
@@ -17,7 +17,12 @@ class PrekeyBundle {
 
   final SimplePublicKey signedPreKeyPublic;
   final List<int> signedPreKeySignature;
-  final SimplePublicKey oneTimePreKeyPublic;
+
+  /// Null when the one-time prekey pool has no servable entry (all entries
+  /// reserved by deliveries or claimed by in-flight handshakes): the bundle
+  /// is then served without an OTK. X3DH without a one-time prekey is valid;
+  /// the initiator simply skips the DH4 term.
+  final SimplePublicKey? oneTimePreKeyPublic;
 
   static const String storageSignedPreKeyPrivate = 'SIGNED_PREKEY_PRIVATE_V2';
   static const String storageOneTimePreKeyPrivate = 'ONETIME_PREKEY_PRIVATE_V2';
@@ -26,15 +31,51 @@ class PrekeyBundle {
   static const int _oneTimePoolSize = 16;
   static const int _oneTimeReplenishThreshold = 4;
 
+  /// How long a delivered one-time prekey stays reserved before it becomes
+  /// servable again: a handshake that never arrives must not burn the key
+  /// permanently. Also bounds the in-use mark left by a lookup whose
+  /// handshake never completed (e.g. after a process crash).
+  static const Duration _reservationTtl = Duration(minutes: 30);
+
   static final X25519 _x25519 = X25519();
 
   static final Mutex _poolMutex = Mutex();
+
+  static DateTime Function() _now = DateTime.now;
+
+  /// Test seam: replaces the clock used for reservation expiry. Mirrors the
+  /// `now ?? DateTime.now` injection convention used elsewhere in the repo.
+  @visibleForTesting
+  static void setClockForTest(DateTime Function()? clock) {
+    _now = clock ?? DateTime.now;
+  }
+
+  static bool _isUnexpired(String? atMillis, DateTime now) {
+    if (atMillis == null) return false;
+    final at = DateTime.fromMillisecondsSinceEpoch(int.parse(atMillis));
+    return now.difference(at) < _reservationTtl;
+  }
+
+  /// Whether the entry is tied to a delivered bundle whose reservation has
+  /// not yet expired.
+  static bool _isReserved(Map<String, String> entry, DateTime now) =>
+      _isUnexpired(entry['reservedAt'], now);
+
+  /// Whether the entry is claimed by an in-flight handshake lookup whose
+  /// mark has not yet expired.
+  static bool _isInUse(Map<String, String> entry, DateTime now) =>
+      _isUnexpired(entry['inUseAt'], now);
+
+  /// Servable by [_nextOneTimePublic]: neither delivery-reserved nor claimed
+  /// by an in-flight handshake.
+  static bool _isAvailable(Map<String, String> entry, DateTime now) =>
+      !_isReserved(entry, now) && !_isInUse(entry, now);
 
   static Future<PrekeyBundle> generate(
     IdentityKeyPair identity, {
     bool persist = true,
   }) async {
-    final SimplePublicKey oneTimePreKeyPublic;
+    final SimplePublicKey? oneTimePreKeyPublic;
     if (persist) {
       await _ensureOneTimePool(identity);
       oneTimePreKeyPublic = await _nextOneTimePublic();
@@ -144,34 +185,60 @@ class PrekeyBundle {
     });
   }
 
-  static Future<SimplePublicKey> _nextOneTimePublic() async {
-    final pool = await _readOneTimePool();
-    if (pool.isEmpty) {
-      throw StateError('One-time prekey pool is empty');
-    }
-    final entry = pool.first;
-    final pubBytes = base64Decode(entry['pub']!);
-    return SimplePublicKey(pubBytes, type: KeyPairType.x25519);
+  /// Serves the first non-reserved one-time prekey and marks it reserved at
+  /// delivery time, so a later [loadStored] serves a different entry. When
+  /// every entry is reserved (or claimed by an in-flight handshake), returns
+  /// null: the caller serves the bundle without an OTK (X3DH without a
+  /// one-time prekey) instead of failing, so [loadStored] can never throw for
+  /// reservation exhaustion. The reservation expires after [_reservationTtl]
+  /// and the entry becomes servable again.
+  static Future<SimplePublicKey?> _nextOneTimePublic() {
+    return _poolMutex.protect(() async {
+      final pool = await _readOneTimePool();
+      if (pool.isEmpty) {
+        return null;
+      }
+      final now = _now();
+      final index = pool.indexWhere((e) => _isAvailable(e, now));
+      if (index < 0) {
+        // All entries are reserved or in use: serve without an OTK.
+        return null;
+      }
+      final entry = pool[index];
+      entry['reservedAt'] = '${now.millisecondsSinceEpoch}';
+      await _writeOneTimePool(pool);
+      final pubBytes = base64Decode(entry['pub']!);
+      return SimplePublicKey(pubBytes, type: KeyPairType.x25519);
+    });
   }
 
     /// Non-destructive lookup of the one-time prekey private key. The pool entry
   /// is only removed by [commitOneTimePreKeyConsumption] once the handshake
-  /// message has been successfully decrypted.
+  /// message has been successfully decrypted. The resolved entry is marked
+  /// in-use so that two concurrent handshakes cannot both resolve it;
+  /// [releaseOneTimePreKey] clears the mark when a handshake fails.
   static Future<(KeyPair, SimplePublicKey)?> _lookupOneTimePreKey(
     SimplePublicKey? requestedPublic,
   ) {
     return _poolMutex.protect(() async {
       final pool = await _readOneTimePool();
       if (pool.isEmpty) return null;
-      final Map<String, String> entry;
+      final now = _now();
+      final int index;
       if (requestedPublic == null) {
-        entry = pool.first;
+        index = pool.indexWhere((e) => _isAvailable(e, now));
       } else {
         final pubB64 = base64Encode(requestedPublic.bytes);
-        final index = pool.indexWhere((e) => e['pub'] == pubB64);
-        if (index < 0) return null;
-        entry = pool[index];
+        index = pool.indexWhere((e) => e['pub'] == pubB64);
+        if (index >= 0 && _isInUse(pool[index], now)) {
+          // Already claimed by another in-flight handshake.
+          return null;
+        }
       }
+      if (index < 0) return null;
+      final entry = pool[index];
+      entry['inUseAt'] = '${now.millisecondsSinceEpoch}';
+      await _writeOneTimePool(pool);
       final keyPair = await _x25519.newKeyPairFromSeed(
         base64Decode(entry['priv']!),
       );
@@ -180,6 +247,20 @@ class PrekeyBundle {
         type: KeyPairType.x25519,
       );
       return (keyPair, public);
+    });
+  }
+
+  /// Clears the in-use mark set by [_lookupOneTimePreKey] when a handshake
+  /// fails before [commitOneTimePreKeyConsumption] ran, so the entry becomes
+  /// resolvable again. No-op when the entry is absent or was never marked.
+  static Future<void> releaseOneTimePreKey(SimplePublicKey public) {
+    return _poolMutex.protect(() async {
+      final pool = await _readOneTimePool();
+      final pubB64 = base64Encode(public.bytes);
+      final index = pool.indexWhere((e) => e['pub'] == pubB64);
+      if (index < 0 || pool[index]['inUseAt'] == null) return;
+      pool[index].remove('inUseAt');
+      await _writeOneTimePool(pool);
     });
   }
 
@@ -210,19 +291,28 @@ class PrekeyBundle {
     });
   }
 
-  Map<String, dynamic> toJson() => {
-        'crypto': CryptoConstants.cryptoVersion,
-        'signedPreKey': base64Encode(signedPreKeyPublic.bytes),
-        'signedPreKeySig': base64Encode(signedPreKeySignature),
-        'oneTimePreKey': base64Encode(oneTimePreKeyPublic.bytes),
-      };
+  Map<String, dynamic> toJson() {
+    final oneTime = oneTimePreKeyPublic;
+    return {
+      'crypto': CryptoConstants.cryptoVersion,
+      'signedPreKey': base64Encode(signedPreKeyPublic.bytes),
+      'signedPreKeySig': base64Encode(signedPreKeySignature),
+      'oneTimePreKey': oneTime == null ? null : base64Encode(oneTime.bytes),
+    };
+  }
 
   static PrekeyBundle fromJson(Map<String, dynamic> json) {
     if (json['crypto'] != CryptoConstants.cryptoVersion) {
       throw FormatException('Unsupported prekey bundle version');
     }
     final signedBytes = base64Decode(json['signedPreKey'] as String);
-    final oneTimeBytes = base64Decode(json['oneTimePreKey'] as String);
+    final oneTimeRaw = json['oneTimePreKey'] as String?;
+    final oneTimePublic = oneTimeRaw == null
+        ? null
+        : SimplePublicKey(
+            base64Decode(oneTimeRaw),
+            type: KeyPairType.x25519,
+          );
     return PrekeyBundle(
       signedPreKeyPublic: SimplePublicKey(
         signedBytes,
@@ -230,10 +320,7 @@ class PrekeyBundle {
       ),
       signedPreKeySignature:
           base64Decode(json['signedPreKeySig'] as String),
-      oneTimePreKeyPublic: SimplePublicKey(
-        oneTimeBytes,
-        type: KeyPairType.x25519,
-      ),
+      oneTimePreKeyPublic: oneTimePublic,
     );
   }
 
@@ -261,7 +348,10 @@ class PrekeyBundle {
     );
   }
 
-  /// X3DH-style shared secret for session bootstrap (initiator side).
+  /// X3DH-style shared secret for session bootstrap (initiator side). When
+  /// [peerBundle] carries no one-time prekey (degraded bundle served with an
+  /// exhausted reservation pool), the DH4 term is omitted: X3DH without an
+  /// OTK is valid.
   static Future<Uint8List> sharedSecretAsInitiator({
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
@@ -280,23 +370,33 @@ class PrekeyBundle {
       keyPair: ephemeral,
       remotePublicKey: peerBundle.signedPreKeyPublic,
     );
-    final dh4 = await _x25519.sharedSecretKey(
-      keyPair: ephemeral,
-      remotePublicKey: peerBundle.oneTimePreKeyPublic,
-    );
-    final material = Uint8List.fromList([
+    final materialBytes = <int>[
       ...await dh1.extractBytes(),
       ...await dh2.extractBytes(),
       ...await dh3.extractBytes(),
-      ...await dh4.extractBytes(),
-    ]);
-    return material;
+    ];
+    final oneTime = peerBundle.oneTimePreKeyPublic;
+    if (oneTime != null) {
+      final dh4 = await _x25519.sharedSecretKey(
+        keyPair: ephemeral,
+        remotePublicKey: oneTime,
+      );
+      materialBytes.addAll(await dh4.extractBytes());
+    }
+    return Uint8List.fromList(materialBytes);
   }
 
   /// Responder-side shared secret using stored one-time prekey.
   /// Non-destructive: the used one-time prekey remains in the pool until
   /// [commitOneTimePreKeyConsumption] is called after a successful decrypt.
-  static Future<({Uint8List material, SimplePublicKey usedOneTimePreKeyPublic})?>
+  ///
+  /// An initiator that omits the OTK from its handshake is served the first
+  /// servable pool entry, as before. When no servable entry exists (every
+  /// entry is delivery-reserved) and no OTK was requested, the material is
+  /// derived without an OTK term: this is the responder side of a degraded
+  /// bundle served by [loadStored]. A requested OTK that cannot be resolved
+  /// still fails (unknown or already claimed by a concurrent handshake).
+  static Future<({Uint8List material, SimplePublicKey? usedOneTimePreKeyPublic})?>
       sharedSecretAsResponder({
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
@@ -314,10 +414,15 @@ class PrekeyBundle {
     );
 
     final lookup = await _lookupOneTimePreKey(usedOneTimePreKeyPublic);
-    if (lookup == null) {
+    KeyPair? oneTimePreKey;
+    SimplePublicKey? oneTimePublic;
+    if (lookup != null) {
+      (oneTimePreKey, oneTimePublic) = lookup;
+    } else if (usedOneTimePreKeyPublic != null) {
+      // The requested OTK is unknown or claimed by an in-flight handshake:
+      // derivation must fail (exactly one of the concurrent handshakes wins).
       return null;
     }
-    final (oneTimePreKey, oneTimePublic) = lookup;
 
     final dh1 = await _x25519.sharedSecretKey(
       keyPair: signedPreKey,
@@ -331,17 +436,21 @@ class PrekeyBundle {
       keyPair: signedPreKey,
       remotePublicKey: initiatorEphemeralPublic,
     );
-    final dh4 = await _x25519.sharedSecretKey(
-      keyPair: oneTimePreKey,
-      remotePublicKey: initiatorEphemeralPublic,
-    );
+    final materialBytes = <int>[
+      ...await dh1.extractBytes(),
+      ...await dh2.extractBytes(),
+      ...await dh3.extractBytes(),
+    ];
+    final oneTime = oneTimePreKey;
+    if (oneTime != null) {
+      final dh4 = await _x25519.sharedSecretKey(
+        keyPair: oneTime,
+        remotePublicKey: initiatorEphemeralPublic,
+      );
+      materialBytes.addAll(await dh4.extractBytes());
+    }
     return (
-      material: Uint8List.fromList([
-        ...await dh1.extractBytes(),
-        ...await dh2.extractBytes(),
-        ...await dh3.extractBytes(),
-        ...await dh4.extractBytes(),
-      ]),
+      material: Uint8List.fromList(materialBytes),
       usedOneTimePreKeyPublic: oneTimePublic,
     );
   }

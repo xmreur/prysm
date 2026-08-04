@@ -256,6 +256,10 @@ class DBHelper {
       where: 'id = ?',
       whereArgs: [userId],
     );
+    // A removed contact's Double Ratchet session must not survive the
+    // removal: the same db handle that hosts `users` also hosts
+    // `session_state` (wired by setDatabaseForTest / _initDB).
+    await RatchetSessionStore(db).delete(userId);
   }
 
   // --- Group helpers ---

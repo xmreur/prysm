@@ -1,0 +1,143 @@
+import 'dart:convert';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/crypto/crypto.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
+import 'package:prysm/util/db_helper.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+Future<IdentityPublicKeys> _publicKeys(IdentityKeyPair id) async {
+  final sign = await id.signPublicKey;
+  final agree = await id.agreePublicKey;
+  return IdentityPublicKeys(
+    signPublic: sign,
+    agreePublic: agree,
+    fingerprint: IdentityKeyPair.fingerprintFromPublicJson(
+      await id.toPublicJson(),
+    ),
+  );
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    CryptoKeyStore.setUseInMemoryStorageOnly(true);
+  });
+
+  tearDownAll(() {
+    CryptoKeyStore.setUseInMemoryStorageOnly(false);
+  });
+
+  setUp(() async {
+    CryptoKeyStore.resetInMemoryStorageForTest();
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, _) async {
+          await RatchetSessionStore.ensureTable(db);
+        },
+      ),
+    );
+    DBHelper.setDatabaseForTest(db);
+    await RatchetSessionStore(db).deleteAll();
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
+  });
+
+  tearDown(() {
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
+    DBHelper.setDatabaseForTest(null);
+  });
+
+  group('Ratchet wire-scheme interop', () {
+    test('unknown peer bootstraps v2 and emits ratchet-1', () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final bobPub = await _publicKeys(bob);
+      const aliceOnion = 'alice.peer.onion';
+      const bobOnion = 'bob.peer.onion';
+
+      final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+      final wire = await RatchetService.instance.encryptText(
+        peerId: bobOnion,
+        plaintext: 'hello old peer',
+        local: alice,
+        peer: bobPub,
+        peerBundle: bobBundle,
+      );
+
+      final envelope = jsonDecode(wire) as Map<String, dynamic>;
+      expect(envelope['scheme'], CryptoConstants.schemeRatchet1);
+
+      final plain = await RatchetService.instance.decryptText(
+        peerId: aliceOnion,
+        wire: wire,
+        local: bob,
+        peer: alicePub,
+      );
+      expect(plain, 'hello old peer');
+
+      final session = await RatchetSessionStore(await DBHelper.database)
+          .load(bobOnion);
+      expect(session!.version, 2);
+    });
+
+    test('profile ratchet-3 bootstraps v3 session', () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final bobPub = await _publicKeys(bob);
+      const aliceOnion = 'alice.peer.onion';
+      const bobOnion = 'bob.peer.onion';
+
+      final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+      RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
+        (_) async => CryptoConstants.schemeRatchet3,
+      );
+
+      final wire = await RatchetService.instance.encryptText(
+        peerId: bobOnion,
+        plaintext: 'hello v3 peer',
+        local: alice,
+        peer: bobPub,
+        peerBundle: bobBundle,
+      );
+
+      final envelope = jsonDecode(wire) as Map<String, dynamic>;
+      expect(envelope['scheme'], CryptoConstants.schemeRatchet3);
+
+      final plain = await RatchetService.instance.decryptText(
+        peerId: aliceOnion,
+        wire: wire,
+        local: bob,
+        peer: alicePub,
+      );
+      expect(plain, 'hello v3 peer');
+
+      final session = await RatchetSessionStore(await DBHelper.database)
+          .load(bobOnion);
+      expect(session!.version, 3);
+    });
+
+    test('peer identity resolver parses ratchetScheme from profile', () {
+      expect(
+        PeerIdentityResolver.ratchetSchemeFromProfile({
+          'ratchetScheme': CryptoConstants.schemeRatchet3,
+        }),
+        CryptoConstants.schemeRatchet3,
+      );
+      expect(
+        PeerIdentityResolver.ratchetSchemeFromProfile({
+          'ratchetScheme': 'bogus',
+        }),
+        isNull,
+      );
+    });
+  });
+}

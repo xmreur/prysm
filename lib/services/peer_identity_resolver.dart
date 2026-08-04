@@ -41,6 +41,10 @@ class PeerIdentityResolver {
   })  : _fetchProfile = fetchProfile ?? TransportProvider.getProfileOrFallback,
         _fetchPublic = fetchPublic ?? TransportProvider.getPublicOrFallback;
 
+  /// Parsed ratchet wire scheme from a profile JSON object, if advertised.
+  static String? ratchetSchemeFromProfile(Map<String, dynamic> data) =>
+      CryptoConstants.parseRatchetScheme(data['ratchetScheme'] as String?);
+
   /// The identity JSON cached in the local user store for [peerId], if any.
   Future<String?> getCachedIdentityJson() async {
     try {

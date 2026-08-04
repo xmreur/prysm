@@ -67,8 +67,38 @@ void main() {
       expect(pair.resp.skippedCounters.length, 200);
     });
 
+    test('v2 session defaults to ratchet-1 wire scheme', () async {
+      final pair = await _pairedSessions();
+      final enc = await pair.init.encryptMessage(utf8.encode('compat'));
+      expect(
+        (jsonDecode(enc.wire) as Map)['scheme'],
+        CryptoConstants.schemeRatchet1,
+      );
+      expect(utf8.decode(await pair.resp.decryptMessage(enc.wire)), 'compat');
+    });
+
+    test('inbound ratchet-2 upgrades peerWireScheme and outbound emit', () async {
+      final pair = await _pairedSessions();
+      pair.init.peerWireScheme = CryptoConstants.schemeRatchet2;
+      final enc = await pair.init.encryptMessage(utf8.encode('with aad'));
+      expect(
+        (jsonDecode(enc.wire) as Map)['scheme'],
+        CryptoConstants.schemeRatchet2,
+      );
+
+      await pair.resp.decryptMessage(enc.wire);
+      expect(pair.resp.peerWireScheme, CryptoConstants.schemeRatchet2);
+
+      final reply = await pair.resp.encryptMessage(utf8.encode('reply'));
+      expect(
+        (jsonDecode(reply.wire) as Map)['scheme'],
+        CryptoConstants.schemeRatchet2,
+      );
+    });
+
     test('scheme relabel fails decrypt on ratchet-2', () async {
       final pair = await _pairedSessions();
+      pair.init.peerWireScheme = CryptoConstants.schemeRatchet2;
       final enc = await pair.init.encryptMessage(utf8.encode('bound'));
       final envelope = jsonDecode(enc.wire) as Map<String, dynamic>;
       envelope['scheme'] = CryptoConstants.schemeRatchet1;
@@ -82,6 +112,7 @@ void main() {
 
     test('handshake rebind fails bootstrap decrypt', () async {
       final pair = await _pairedSessions();
+      pair.init.peerWireScheme = CryptoConstants.schemeRatchet2;
       final handshake = {
         'ephemeralPub': base64Encode(List.filled(32, 1)),
         'oneTimePreKey': base64Encode(List.filled(32, 2)),
@@ -91,6 +122,7 @@ void main() {
         handshake: handshake,
       );
       final envelope = jsonDecode(enc.wire) as Map<String, dynamic>;
+      envelope['handshake'] = handshake;
       envelope['handshake'] = {
         ...handshake,
         'ephemeralPub': base64Encode(List.filled(32, 9)),

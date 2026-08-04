@@ -34,6 +34,9 @@ void main() {
 
   setUp(() async {
     CryptoKeyStore.resetInMemoryStorageForTest();
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
+      (_) async => CryptoConstants.schemeRatchet3,
+    );
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -48,6 +51,7 @@ void main() {
   });
 
   tearDown(() {
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
     DBHelper.setDatabaseForTest(null);
   });
 
@@ -253,7 +257,7 @@ void main() {
     const bobOnion = 'bob.peer.onion';
 
     final bobBundle = await PrekeyBundle.generate(bob, persist: true);
-    final usedOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic.bytes);
+    final usedOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic!.bytes);
 
     final goodWire = await RatchetService.instance.encryptText(
       peerId: bobOnion,
@@ -304,7 +308,7 @@ void main() {
     );
   });
 
-  test('handshake without oneTimePreKey falls back to pool.first and consumes it',
+  test('handshake without oneTimePreKey falls back to the first servable entry and consumes it',
       () async {
     final alice = await IdentityKeyPair.generate();
     final bob = await IdentityKeyPair.generate();
@@ -313,14 +317,33 @@ void main() {
     const aliceOnion = 'alice.peer.onion';
 
     final bobBundle = await PrekeyBundle.generate(bob, persist: true);
-    final bundleOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic.bytes);
+    final bundleOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic!.bytes);
+
+    // The responder resolves the first servable entry (the bundle OTK is
+    // reserved at delivery and skipped). Derive the X3DH material with that
+    // entry, as the initiator of a legacy fallback handshake would.
+    final poolBefore = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    final fallbackEntry = poolBefore
+        .cast<Map>()
+        .firstWhere((e) => e['reservedAt'] == null && e['inUseAt'] == null);
+    final fallbackOtpB64 = fallbackEntry['pub'] as String;
+    final fallbackBundle = PrekeyBundle(
+      signedPreKeyPublic: bobBundle.signedPreKeyPublic,
+      signedPreKeySignature: bobBundle.signedPreKeySignature,
+      oneTimePreKeyPublic: SimplePublicKey(
+        base64Decode(fallbackOtpB64),
+        type: KeyPairType.x25519,
+      ),
+    );
 
     final ephemeral = await X25519().newKeyPair();
     final ephemeralPub = await ephemeral.extractPublicKey();
     final shared = await PrekeyBundle.sharedSecretAsInitiator(
       local: alice,
       peer: bobPub,
-      peerBundle: bobBundle,
+      peerBundle: fallbackBundle,
       ephemeral: ephemeral,
     );
     final initSession = await RatchetSession.initializeV3AsInitiator(shared);
@@ -341,20 +364,21 @@ void main() {
     );
     expect(plain, 'fallback');
 
-    final pool = jsonDecode(
+    final after = jsonDecode(
       (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
     ) as List;
-    expect((pool.first as Map)['pub'], isNot(bundleOtpB64));
-    expect(
-      pool.map((e) => (e as Map)['pub']),
-      isNot(contains(bundleOtpB64)),
-    );
+    final beforePubs = poolBefore.map((e) => (e as Map)['pub']).toSet();
+    final afterPubs = after.map((e) => (e as Map)['pub']).toSet();
+    final consumed = beforePubs.difference(afterPubs);
+    expect(consumed, {fallbackOtpB64});
+    // The delivered OTK stays in the pool (reserved, not consumed).
+    expect(afterPubs, contains(bundleOtpB64));
   });
 
   test('commitOneTimePreKeyConsumption is idempotent', () async {
     final bob = await IdentityKeyPair.generate();
     final bobBundle = await PrekeyBundle.generate(bob, persist: true);
-    final otp = bobBundle.oneTimePreKeyPublic;
+    final otp = bobBundle.oneTimePreKeyPublic!;
 
     await PrekeyBundle.commitOneTimePreKeyConsumption(otp);
     final afterFirst = jsonDecode(
@@ -370,6 +394,202 @@ void main() {
     expect(
       afterFirst.map((e) => (e as Map)['pub']),
       isNot(contains(base64Encode(otp.bytes))),
+    );
+  });
+
+  test('two consecutive loadStored deliveries serve distinct one-time prekeys',
+      () async {
+    final bob = await IdentityKeyPair.generate();
+    final first = (await PrekeyBundle.loadStored(bob))!;
+    final second = (await PrekeyBundle.loadStored(bob))!;
+    expect(
+      base64Encode(first.oneTimePreKeyPublic!.bytes),
+      isNot(base64Encode(second.oneTimePreKeyPublic!.bytes)),
+    );
+  });
+
+  test('concurrent handshakes with the same one-time prekey: exactly one succeeds',
+      () async {
+    final alice1 = await IdentityKeyPair.generate();
+    final alice2 = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alice1Pub = await _publicKeys(alice1);
+    final alice2Pub = await _publicKeys(alice2);
+    final bobPub = await _publicKeys(bob);
+    const alice1Onion = 'alice1.peer.onion';
+    const alice2Onion = 'alice2.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    // Two initiators bootstrap with the SAME one-time prekey.
+    Future<String> wireFor(
+      IdentityKeyPair local,
+      IdentityPublicKeys peer,
+    ) async {
+      final ephemeral = await X25519().newKeyPair();
+      final ephemeralPub = await ephemeral.extractPublicKey();
+      final shared = await PrekeyBundle.sharedSecretAsInitiator(
+        local: local,
+        peer: peer,
+        peerBundle: bobBundle,
+        ephemeral: ephemeral,
+      );
+      final initSession = await RatchetSession.initializeV3AsInitiator(shared);
+      final handshake = {
+        'ephemeralPub': base64Encode(ephemeralPub.bytes),
+        'oneTimePreKey': base64Encode(bobBundle.oneTimePreKeyPublic!.bytes),
+      };
+      final result = await initSession.encryptMessage(
+        utf8.encode('race'),
+        handshake: handshake,
+      );
+      final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
+      envelope['handshake'] = handshake;
+      return jsonEncode(envelope);
+    }
+
+    final wire1 = await wireFor(alice1, bobPub);
+    final wire2 = await wireFor(alice2, bobPub);
+
+    final outcomes = await Future.wait([
+      RatchetService.instance
+          .decryptText(
+            peerId: alice1Onion,
+            wire: wire1,
+            local: bob,
+            peer: alice1Pub,
+          )
+          .then((_) => true, onError: (_) => false),
+      RatchetService.instance
+          .decryptText(
+            peerId: alice2Onion,
+            wire: wire2,
+            local: bob,
+            peer: alice2Pub,
+          )
+          .then((_) => true, onError: (_) => false),
+    ]);
+    expect(outcomes.where((ok) => ok).length, 1);
+  });
+
+  test('all-reserved pool serves a bundle without one-time prekey', () async {
+    final bob = await IdentityKeyPair.generate();
+    // Pool size is 16; serving 16 bundles reserves every entry.
+    final first = (await PrekeyBundle.loadStored(bob))!;
+    final served = <String>{base64Encode(first.oneTimePreKeyPublic!.bytes)};
+    for (var i = 1; i < 16; i++) {
+      final bundle = (await PrekeyBundle.loadStored(bob))!;
+      final otp = bundle.oneTimePreKeyPublic;
+      expect(otp, isNotNull);
+      served.add(base64Encode(otp!.bytes));
+    }
+    expect(served.length, 16);
+
+    // 17th delivery: every entry is reserved, so the bundle is served
+    // WITHOUT a one-time prekey instead of throwing. The signed prekey and
+    // its signature are unchanged.
+    final degraded = (await PrekeyBundle.loadStored(bob))!;
+    expect(degraded.oneTimePreKeyPublic, isNull);
+    expect(degraded.signedPreKeyPublic.bytes, first.signedPreKeyPublic.bytes);
+    expect(degraded.signedPreKeySignature, first.signedPreKeySignature);
+  });
+
+  test('responder handles an OTK-less handshake while the pool is fully reserved',
+      () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alicePub = await _publicKeys(alice);
+    final bobPub = await _publicKeys(bob);
+    const aliceOnion = 'alice.peer.onion';
+
+    // Reserve every one-time prekey via delivery.
+    for (var i = 0; i < 16; i++) {
+      await PrekeyBundle.loadStored(bob);
+    }
+    // The 17th delivery is a degraded bundle: no one-time prekey.
+    final degraded = (await PrekeyBundle.loadStored(bob))!;
+    expect(degraded.oneTimePreKeyPublic, isNull);
+
+    // The initiator derives X3DH material without the DH4 (OTK) term and
+    // omits oneTimePreKey from the handshake, as the degraded bundle implies.
+    final ephemeral = await X25519().newKeyPair();
+    final ephemeralPub = await ephemeral.extractPublicKey();
+    final shared = await PrekeyBundle.sharedSecretAsInitiator(
+      local: alice,
+      peer: bobPub,
+      peerBundle: degraded,
+      ephemeral: ephemeral,
+    );
+    final initSession = await RatchetSession.initializeV3AsInitiator(shared);
+    final handshake = {'ephemeralPub': base64Encode(ephemeralPub.bytes)};
+    final result = await initSession.encryptMessage(
+      utf8.encode('degraded'),
+      handshake: handshake,
+    );
+    final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
+    envelope['handshake'] = handshake;
+    final wire = jsonEncode(envelope);
+
+    final plain = await RatchetService.instance.decryptText(
+      peerId: aliceOnion,
+      wire: wire,
+      local: bob,
+      peer: alicePub,
+    );
+    expect(plain, 'degraded');
+
+    // Nothing was consumed: the pool still holds all 16 reserved entries.
+    final pool = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    expect(pool.length, 16);
+  });
+
+  test('degraded bundle survives JSON round trip without an OTK', () async {
+    final bob = await IdentityKeyPair.generate();
+    // Exhaust the pool by delivery so the next bundle is served degraded.
+    for (var i = 0; i < 16; i++) {
+      await PrekeyBundle.loadStored(bob);
+    }
+    final degraded = (await PrekeyBundle.loadStored(bob))!;
+    expect(degraded.oneTimePreKeyPublic, isNull);
+
+    // A degraded bundle travels over /profile as JSON and must parse back
+    // identically (signed prekey + signature intact, still no OTK).
+    final json = degraded.toJson();
+    expect(json['oneTimePreKey'], isNull);
+    final parsed = PrekeyBundle.fromJson(json);
+    expect(parsed.oneTimePreKeyPublic, isNull);
+    expect(parsed.signedPreKeyPublic.bytes, degraded.signedPreKeyPublic.bytes);
+    expect(parsed.signedPreKeySignature, degraded.signedPreKeySignature);
+
+    final verified = await PrekeyBundle.parseVerified(
+      json,
+      await _publicKeys(bob),
+    );
+    expect(verified.oneTimePreKeyPublic, isNull);
+  });
+
+  test('delivery reservation expires after 30 minutes (injected clock)',
+      () async {
+    final bob = await IdentityKeyPair.generate();
+    final first = (await PrekeyBundle.loadStored(bob))!;
+    final second = (await PrekeyBundle.loadStored(bob))!;
+    expect(
+      base64Encode(first.oneTimePreKeyPublic!.bytes),
+      isNot(base64Encode(second.oneTimePreKeyPublic!.bytes)),
+    );
+
+    PrekeyBundle.setClockForTest(
+      () => DateTime.now().add(const Duration(minutes: 31)),
+    );
+    addTearDown(() => PrekeyBundle.setClockForTest(null));
+
+    final third = (await PrekeyBundle.loadStored(bob))!;
+    // The first reservation expired: its entry is servable again.
+    expect(
+      base64Encode(third.oneTimePreKeyPublic!.bytes),
+      base64Encode(first.oneTimePreKeyPublic!.bytes),
     );
   });
 }

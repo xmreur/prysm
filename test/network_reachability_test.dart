@@ -1,33 +1,136 @@
+import 'dart:io';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/network_reachability.dart';
 
+class _FakeNetworkInterface implements NetworkInterface {
+  _FakeNetworkInterface(this._addresses);
+
+  final List<InternetAddress> _addresses;
+
+  @override
+  List<InternetAddress> get addresses => _addresses;
+
+  @override
+  int get index => 1;
+
+  @override
+  String get name => 'fake0';
+}
+
+List<NetworkInterface> _ifaces(String host) => [
+  _FakeNetworkInterface([InternetAddress(host)]),
+];
+
 void main() {
   final originalProbe = NetworkReachability.probe;
+  final originalCheckConnectivity = NetworkReachability.checkConnectivity;
+  final originalListNetworkInterfaces = NetworkReachability.listNetworkInterfaces;
 
   tearDown(() {
     NetworkReachability.probe = originalProbe;
+    NetworkReachability.checkConnectivity = originalCheckConnectivity;
+    NetworkReachability.listNetworkInterfaces = originalListNetworkInterfaces;
   });
 
-  test('hasInternet returns true when probe succeeds', () async {
-    NetworkReachability.probe =
-        ({Duration timeout = const Duration(seconds: 3)}) async => true;
+  group('hasInternet probe override', () {
+    test('returns true when probe succeeds', () async {
+      NetworkReachability.probe =
+          ({Duration timeout = const Duration(seconds: 3)}) async => true;
 
-    expect(await NetworkReachability.hasInternet(), isTrue);
+      expect(await NetworkReachability.hasInternet(), isTrue);
+    });
+
+    test('returns false when probe fails', () async {
+      NetworkReachability.probe =
+          ({Duration timeout = const Duration(seconds: 3)}) async => false;
+
+      expect(await NetworkReachability.hasInternet(), isFalse);
+    });
+
+    test('returns false when probe throws', () async {
+      NetworkReachability.probe =
+          ({Duration timeout = const Duration(seconds: 3)}) async {
+        throw Exception('network down');
+      };
+
+      expect(await NetworkReachability.hasInternet(), isFalse);
+    });
   });
 
-  test('hasInternet returns false when probe fails', () async {
-    NetworkReachability.probe =
-        ({Duration timeout = const Duration(seconds: 3)}) async => false;
+  group('default probe', () {
+    setUp(() {
+      NetworkReachability.probe = originalProbe;
+    });
 
-    expect(await NetworkReachability.hasInternet(), isFalse);
-  });
+    Future<bool> runDefaultProbe({
+      required List<ConnectivityResult> connectivity,
+      required List<NetworkInterface> interfaces,
+    }) async {
+      NetworkReachability.checkConnectivity = () async => connectivity;
+      NetworkReachability.listNetworkInterfaces = () async => interfaces;
+      return NetworkReachability.hasInternet();
+    }
 
-  test('hasInternet returns false when probe throws', () async {
-    NetworkReachability.probe =
-        ({Duration timeout = const Duration(seconds: 3)}) async {
-      throw Exception('network down');
-    };
+    test('wifi with local IPv4 returns true', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.wifi],
+          interfaces: _ifaces('192.168.1.5'),
+        ),
+        isTrue,
+      );
+    });
 
-    expect(await NetworkReachability.hasInternet(), isFalse);
+    test('mobile with local IPv4 returns true', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.mobile],
+          interfaces: _ifaces('10.0.0.2'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('ethernet with local IPv4 returns true', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.ethernet],
+          interfaces: _ifaces('192.168.0.10'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('no connectivity returns false', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.none],
+          interfaces: _ifaces('192.168.1.5'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('wifi with only loopback returns false', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.wifi],
+          interfaces: _ifaces('127.0.0.1'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('vpn only with local IPv4 returns false', () async {
+      expect(
+        await runDefaultProbe(
+          connectivity: [ConnectivityResult.vpn],
+          interfaces: _ifaces('192.168.1.5'),
+        ),
+        isFalse,
+      );
+    });
   });
 }

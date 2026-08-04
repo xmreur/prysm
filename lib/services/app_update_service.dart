@@ -10,6 +10,7 @@ import 'package:prysm/models/release_info.dart';
 import 'package:prysm/screens/widgets/update_available_dialog.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/network_reachability.dart';
 import 'package:prysm/util/updater_downloader.dart';
 import 'package:prysm/util/version_compare.dart';
 
@@ -61,6 +62,13 @@ class AppUpdateService {
 
   Future<UpdateCheckResult> checkForUpdate() async {
     try {
+      if (!await NetworkReachability.hasInternet()) {
+        return const UpdateCheckResult(
+          status: UpdateCheckStatus.error,
+          errorMessage: 'No network connection.',
+        );
+      }
+
       final release = await fetchLatestRelease();
       final current = await getCurrentVersion();
       if (isNewerVersion(current, release.tagName)) {
@@ -71,12 +79,24 @@ class AppUpdateService {
       }
       return const UpdateCheckResult(status: UpdateCheckStatus.upToDate);
     } catch (e, st) {
-      Logging.error('Update check failed: $e\n$st', 'AppUpdateService');
+      if (!_isConnectivityError(e)) {
+        Logging.error('Update check failed: $e\n$st', 'AppUpdateService');
+      }
       return UpdateCheckResult(
         status: UpdateCheckStatus.error,
-        errorMessage: e.toString(),
+        errorMessage: _isConnectivityError(e)
+            ? 'No network connection.'
+            : e.toString(),
       );
     }
+  }
+
+  static bool _isConnectivityError(Object error) {
+    if (error is SocketException) return true;
+    final text = error.toString();
+    return text.contains('SocketException') ||
+        text.contains('Failed host lookup') ||
+        text.contains('No address associated with hostname');
   }
 
   Future<void> checkOnStartup(BuildContext context) async {

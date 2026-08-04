@@ -137,6 +137,7 @@ class RatchetService {
       throw FormatException('Unsupported ciphertext scheme: $scheme');
     }
 
+    SimplePublicKey? consumedOneTime;
     try {
       var session = await _store.load(peerId);
       if (session == null) {
@@ -167,11 +168,16 @@ class RatchetService {
         if (shared == null) {
           throw StateError('Cannot derive ratchet session for $peerId');
         }
-        session = await RatchetSession.initializeAsResponder(shared);
+        consumedOneTime = shared.usedOneTimePreKeyPublic;
+        session = await RatchetSession.initializeAsResponder(shared.material);
       }
 
       final plain = await session.decryptMessage(wire);
       await _store.save(peerId, session);
+      final consumed = consumedOneTime;
+      if (consumed != null) {
+        await PrekeyBundle.commitOneTimePreKeyConsumption(consumed);
+      }
       return plain;
     } on FormatException {
       rethrow;

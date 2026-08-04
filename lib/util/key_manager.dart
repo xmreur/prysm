@@ -276,8 +276,33 @@ class KeyManager {
   static bool isHybridEnvelope(String encrypted) =>
       CryptoEnvelope.isV2(encrypted);
 
+  IdentityPublicKeys? tryImportPeerIdentity(String? jsonOrPem) =>
+      IdentityKeyPair.tryParsePublicJsonString(jsonOrPem);
+
+  IdentityPublicKeys? tryImportStoredPeerIdentity({
+    String? identityJson,
+    String? publicKeyPem,
+  }) =>
+      tryImportPeerIdentity(
+        IdentityKeyPair.storedPeerIdentityRaw(identityJson, publicKeyPem),
+      );
+
   IdentityPublicKeys importPeerIdentity(String jsonOrPem) {
-    final keys = IdentityKeyPair.tryParsePublicJsonString(jsonOrPem);
+    final keys = tryImportPeerIdentity(jsonOrPem);
+    if (keys == null) {
+      throw FormatException('Expected v2 identity JSON');
+    }
+    return keys;
+  }
+
+  IdentityPublicKeys importStoredPeerIdentity({
+    String? identityJson,
+    String? publicKeyPem,
+  }) {
+    final keys = tryImportStoredPeerIdentity(
+      identityJson: identityJson,
+      publicKeyPem: publicKeyPem,
+    );
     if (keys == null) {
       throw FormatException('Expected v2 identity JSON');
     }

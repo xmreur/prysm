@@ -62,12 +62,12 @@ class DbCallKeyResolver implements CallKeyResolver {
   @override
   Future<IdentityPublicKeys?> resolve(String peerOnion) async {
     final user = await DBHelper.getUserById(peerOnion);
-    final cached = (user?['identityJson'] as String?) ??
-        (user?['publicKeyPem'] as String?);
-    if (cached != null && cached.isNotEmpty && cached != 'NONE') {
-      try {
-        return _keyManager.importPeerIdentity(cached);
-      } catch (_) {}
+    final cached = _keyManager.tryImportStoredPeerIdentity(
+      identityJson: user?['identityJson'] as String?,
+      publicKeyPem: user?['publicKeyPem'] as String?,
+    );
+    if (cached != null) {
+      return cached;
     }
 
     try {

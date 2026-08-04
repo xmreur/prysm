@@ -8,14 +8,10 @@ Future<IdentityPublicKeys?> loadPeerIdentityFromDb(
   String peerId,
 ) async {
   final user = await DBHelper.getUserById(peerId);
-  final json = (user?['identityJson'] as String?) ??
-      (user?['publicKeyPem'] as String?);
-  if (json == null || json.isEmpty) return null;
-  try {
-    return keyManager.importPeerIdentity(json);
-  } catch (_) {
-    return null;
-  }
+  return keyManager.tryImportStoredPeerIdentity(
+    identityJson: user?['identityJson'] as String?,
+    publicKeyPem: user?['publicKeyPem'] as String?,
+  );
 }
 
 /// Resolves peer identity for ingress: local DB first, then awaited Tor fetch.

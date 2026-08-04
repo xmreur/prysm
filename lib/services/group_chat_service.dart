@@ -397,7 +397,7 @@ class GroupChatService {
       while (!_disposed) {
         await _refreshSession();
         final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-            .where((m) => !isGroupControlType(m['type'] as String))
+            .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
             .toList();
         if (pending.isEmpty) break;
 
@@ -410,6 +410,27 @@ class GroupChatService {
           final pendingId = msg['id'] as String;
           final messageId = _messageIdFromPendingId(pendingId);
           final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String;
+
+          final stored = await MessagesDb.getMessageById(
+            messageId,
+            groupId: groupId,
+          );
+          if (stored.isEmpty || stored.first['deletedAt'] != null) {
+            await PendingMessageDbHelper.removeOutboundPendingForWireId(
+              messageId,
+              groupId: groupId,
+            );
+            continue;
+          }
+          final encrypted = msg['message'] as String?;
+          if (encrypted == null || encrypted.isEmpty) {
+            await PendingMessageDbHelper.removeOutboundPendingForWireId(
+              messageId,
+              groupId: groupId,
+            );
+            continue;
+          }
+
           final retries = _retryCounts[pendingId] ?? 0;
 
           if (retries >= _maxRetries) {
@@ -426,7 +447,7 @@ class GroupChatService {
           final success = await _sendOverTor(
             id: messageId,
             targetMemberId: target,
-            encrypted: msg['message'] as String,
+            encrypted: encrypted,
             type: msg['type'] as String,
             replyToId: msg['replyTo'] as String?,
             timestamp: msg['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
@@ -456,7 +477,7 @@ class GroupChatService {
         }
 
         final remaining = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-            .where((m) => !isGroupControlType(m['type'] as String))
+            .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
             .toList();
         if (remaining.isEmpty) break;
 
@@ -593,7 +614,7 @@ class GroupChatService {
 
   Future<void> _checkAllTargetsDelivered(String messageId) async {
     final remaining = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-        .where((m) => !isGroupControlType(m['type'] as String))
+        .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
         .where((m) => _messageIdFromPendingId(m['id'] as String) == messageId)
         .toList();
     if (remaining.isEmpty) {
@@ -611,8 +632,7 @@ class GroupChatService {
       senderId: userId,
       limit: maxPerCycle,
     ))
-        .where((m) => !isGroupControlType(m['type'] as String))
-        .where((m) => m['type'] != groupHistoryRelayType)
+        .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
         .toList();
     if (pending.isEmpty) return false;
 
@@ -638,8 +658,7 @@ class GroupChatService {
     _isSending = true;
     try {
       final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-          .where((m) => !isGroupControlType(m['type'] as String))
-          .where((m) => m['type'] != groupHistoryRelayType)
+          .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
           .toList();
       if (pending.isEmpty) return;
 
@@ -652,7 +671,7 @@ class GroupChatService {
           messageId,
           groupId: groupId,
         );
-        if (stored.isNotEmpty && stored.first['deletedAt'] != null) {
+        if (stored.isEmpty || stored.first['deletedAt'] != null) {
           await PendingMessageDbHelper.removeOutboundPendingForWireId(
             messageId,
             groupId: groupId,

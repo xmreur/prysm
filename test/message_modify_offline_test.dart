@@ -60,6 +60,14 @@ void main() {
       expect(isPendingOutboundChatType(messageModifyType), isFalse);
       expect(isPendingOutboundChatType(reactionType), isFalse);
       expect(isPendingOutboundChatType(readReceiptType), isFalse);
+      expect(isPendingOutboundChatType(groupReactionType), isFalse);
+      expect(isPendingOutboundChatType(groupMessageModifyType), isFalse);
+      expect(isPendingOutboundChatType(groupReadWaterlineType), isFalse);
+    });
+
+    test('excludes group control and history relay types', () {
+      expect(isPendingOutboundChatType(groupInviteType), isFalse);
+      expect(isPendingOutboundChatType(groupHistoryRelayType), isFalse);
     });
   });
 

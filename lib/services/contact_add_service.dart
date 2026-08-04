@@ -124,8 +124,10 @@ class ContactAddService {
     try {
       final profileBody = await _fetchProfile(onionId);
       final profileData = jsonDecode(profileBody) as Map<String, dynamic>;
-      final identityJson = (profileData['identityJson'] as String?)?.trim() ??
-          (profileData['publicKeyPem'] as String?)?.trim();
+      final identityJson = IdentityKeyPair.storedPeerIdentityRaw(
+        (profileData['identityJson'] as String?)?.trim(),
+        (profileData['publicKeyPem'] as String?)?.trim(),
+      );
       if (identityJson == null || identityJson.isEmpty) {
         return;
       }

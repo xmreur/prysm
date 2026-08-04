@@ -329,5 +329,209 @@ void main() {
       final stored = await MessagesDb.getMessageById(id!, groupId: groupId);
       expect(stored.first['status'], 'sent');
     });
+
+    test('startSendQueue skips soft-deleted pending messages', () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      const wireId = 'msg-deleted';
+
+      await MessagesDb.insertMessage({
+        'id': wireId,
+        'senderId': userId,
+        'receiverId': userId,
+        'groupId': groupId,
+        'message': 'self-cipher',
+        'type': groupTextType,
+        'status': 'failed',
+        'timestamp': 1,
+      }, notifyListeners: false);
+
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': '${wireId}__$memberA',
+        'senderId': userId,
+        'receiverId': memberA,
+        'message': 'peer-cipher-a',
+        'type': groupTextType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': memberA,
+      });
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': '${wireId}__$memberB',
+        'senderId': userId,
+        'receiverId': memberB,
+        'message': 'peer-cipher-b',
+        'type': groupTextType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': memberB,
+      });
+
+      await MessagesDb.softDeleteMessage(
+        wireId,
+        groupId: groupId,
+        deletedAt: 5000,
+      );
+
+      final fakeGroupService = _FakeGroupService(
+        userId: userId,
+        keyManager: keyManager,
+        groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+        members: [
+          GroupMember(
+            groupId: groupId,
+            memberId: userId,
+            role: GroupRole.admin,
+            joinedAt: 0,
+          ),
+          GroupMember(
+            groupId: groupId,
+            memberId: memberA,
+            role: GroupRole.member,
+            joinedAt: 0,
+          ),
+          GroupMember(
+            groupId: groupId,
+            memberId: memberB,
+            role: GroupRole.member,
+            joinedAt: 0,
+          ),
+        ],
+      );
+      final injectedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: fakeGroupService,
+        postman: postman,
+      );
+      addTearDown(injectedService.dispose);
+      await injectedService.initialize();
+
+      injectedService.startSendQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(postman.groupCalls, isEmpty);
+      final remaining = await PendingMessageDbHelper.getPendingMessages(
+        groupId: groupId,
+      );
+      expect(remaining, isEmpty);
+    });
+
+    test('startSendQueue ignores side-channel pending rows', () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      const eventId = 'msg1::$userId';
+
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': '${eventId}__$memberA',
+        'senderId': userId,
+        'receiverId': memberA,
+        'message': 'encrypted-reaction',
+        'type': groupReactionType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': memberA,
+      });
+
+      final fakeGroupService = _FakeGroupService(
+        userId: userId,
+        keyManager: keyManager,
+        groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+        members: [
+          GroupMember(
+            groupId: groupId,
+            memberId: userId,
+            role: GroupRole.admin,
+            joinedAt: 0,
+          ),
+          GroupMember(
+            groupId: groupId,
+            memberId: memberA,
+            role: GroupRole.member,
+            joinedAt: 0,
+          ),
+        ],
+      );
+      final injectedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: fakeGroupService,
+        postman: postman,
+      );
+      addTearDown(injectedService.dispose);
+      await injectedService.initialize();
+
+      injectedService.startSendQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(postman.groupCalls, isEmpty);
+      final remaining = await PendingMessageDbHelper.getPendingMessages(
+        groupId: groupId,
+      );
+      expect(remaining, hasLength(1));
+      expect(remaining.first['type'], groupReactionType);
+    });
+
+    test('startSendQueue ignores group_history_relay pending rows', () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      const relayId = 'history-relay-1';
+
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': '${relayId}__$memberA',
+        'senderId': userId,
+        'receiverId': memberA,
+        'message': 'encrypted-relay',
+        'type': groupHistoryRelayType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': memberA,
+      });
+
+      final fakeGroupService = _FakeGroupService(
+        userId: userId,
+        keyManager: keyManager,
+        groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+        members: [
+          GroupMember(
+            groupId: groupId,
+            memberId: userId,
+            role: GroupRole.admin,
+            joinedAt: 0,
+          ),
+          GroupMember(
+            groupId: groupId,
+            memberId: memberA,
+            role: GroupRole.member,
+            joinedAt: 0,
+          ),
+        ],
+      );
+      final injectedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: fakeGroupService,
+        postman: postman,
+      );
+      addTearDown(injectedService.dispose);
+      await injectedService.initialize();
+
+      injectedService.startSendQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(postman.groupCalls, isEmpty);
+      final remaining = await PendingMessageDbHelper.getPendingMessages(
+        groupId: groupId,
+      );
+      expect(remaining, hasLength(1));
+      expect(remaining.first['type'], groupHistoryRelayType);
+    });
   });
 }

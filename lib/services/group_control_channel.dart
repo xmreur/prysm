@@ -422,14 +422,12 @@ class GroupControlChannel {
 
   Future<IdentityPublicKeys?> _fetchPeerPublicKey(String peerId) async {
     final cached = await DBHelper.getUserById(peerId);
-    final pem = (cached?['identityJson'] as String?) ??
-        (cached?['publicKeyPem'] as String?);
-    if (pem != null && pem.isNotEmpty && pem != 'NONE') {
-      try {
-        return keyManager.importPeerIdentity(pem);
-      } catch (e) {
-        Logging.error('Invalid cached peer public key for $peerId: $e', 'GroupControlChannel');
-      }
+    final stored = keyManager.tryImportStoredPeerIdentity(
+      identityJson: cached?['identityJson'] as String?,
+      publicKeyPem: cached?['publicKeyPem'] as String?,
+    );
+    if (stored != null) {
+      return stored;
     }
 
     try {

@@ -83,6 +83,33 @@ void main() {
       expect(cached, 'legacy-pem');
     });
 
+    test('falls back to publicKeyPem when identityJson is empty', () async {
+      final peerKeyPair = await IdentityKeyPair.generate();
+      final peerIdentityJson = jsonEncode(await peerKeyPair.toPublicJson());
+
+      await DBHelper.insertOrUpdateUser({
+        'id': peerId,
+        'name': 'Peer',
+        'identityJson': '',
+        'publicKeyPem': peerIdentityJson,
+      });
+
+      final cached = await resolver.getCachedIdentityJson();
+      final imported = keyManager.tryImportStoredPeerIdentity(
+        identityJson: '',
+        publicKeyPem: peerIdentityJson,
+      );
+
+      expect(cached, peerIdentityJson);
+      expect(imported, isNotNull);
+      expect(
+        imported!.fingerprint,
+        IdentityKeyPair.fingerprintFromPublicJson(
+          await peerKeyPair.toPublicJson(),
+        ),
+      );
+    });
+
     test('returns null when no user row exists', () async {
       final cached = await resolver.getCachedIdentityJson();
       expect(cached, isNull);

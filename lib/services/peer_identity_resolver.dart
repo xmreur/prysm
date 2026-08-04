@@ -49,8 +49,10 @@ class PeerIdentityResolver {
   Future<String?> getCachedIdentityJson() async {
     try {
       final user = await DBHelper.getUserById(peerId);
-      return (user?['identityJson'] as String?) ??
-          (user?['publicKeyPem'] as String?);
+      return IdentityKeyPair.storedPeerIdentityRaw(
+        user?['identityJson'] as String?,
+        user?['publicKeyPem'] as String?,
+      );
     } catch (_) {
       return null;
     }
@@ -79,8 +81,10 @@ class PeerIdentityResolver {
       try {
         final profileBody = await _fetchProfile(peerId);
         final data = jsonDecode(profileBody) as Map<String, dynamic>;
-        identityJson = (data['identityJson'] as String?)?.trim() ??
-            (data['publicKeyPem'] as String?)?.trim();
+        identityJson = IdentityKeyPair.storedPeerIdentityRaw(
+          (data['identityJson'] as String?)?.trim(),
+          (data['publicKeyPem'] as String?)?.trim(),
+        );
         final prekeyRaw = data['prekeyBundle'];
         identity = keyManager.importPeerIdentity(identityJson!);
         onIdentityResolved?.call(identity);

@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/block_service.dart';
@@ -19,9 +21,11 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/direct_message_auth.dart';
+import 'package:prysm/crypto/envelope.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/notification_preview.dart';
@@ -518,6 +522,23 @@ class InboundMessageRouter {
     }
 
     final localId = local ?? receiverId;
+    if (inboundGroupId != null &&
+        _isLegacyGroupAeadEnvelope(data)) {
+      // The legacy group-aead envelope has no sender binding (iv/ct only):
+      // any group member could craft a message attributed to another member.
+      // Reject it at ingress; the display path still renders already-stored
+      // legacy messages.
+      return InboundHandleResult.badRequest(
+        'Legacy group envelope scheme rejected: '
+        '${CryptoConstants.schemeGroupAead1}',
+      );
+    }
+    if (inboundGroupId != null &&
+        await _isGroupSenderKeyReplay(data, inboundGroupId)) {
+      // Idempotent ack, same shape as the blocked-DM and pre-join drops: a
+      // replayer gets no oracle beyond what a successful delivery returns.
+      return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+    }
     final conversationId = inboundGroupId ?? senderId;
     final expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
       data: data,
@@ -615,6 +636,84 @@ class InboundMessageRouter {
       'id': data['id'],
       'timestamp': timeReceived,
     });
+  }
+
+  /// Returns true when [data]'s `message` is a legacy group-aead envelope.
+  ///
+  /// The legacy scheme (`group-aead-1`) authenticates only the group key, not
+  /// the sender, so it must be rejected at ingress. The sender-key scheme
+  /// (and non-group traffic) is not affected.
+  bool _isLegacyGroupAeadEnvelope(Map<String, dynamic> data) {
+    final wire = data['message'];
+    if (wire is! String) return false;
+    final envelope = CryptoEnvelope.tryParse(wire);
+    return envelope != null &&
+        envelope['scheme'] == CryptoConstants.schemeGroupAead1;
+  }
+
+  /// Anti-replay gate for inbound group chat messages.
+  ///
+  /// The group sender-key envelope carries `senderId` and `index` in clear
+  /// (they are used to derive the message key), so the router can authenticate
+  /// and gate on them before decrypting. Returns true when the message must be
+  /// acked-but-dropped:
+  /// - the envelope can never decrypt (envelope senderId != transport
+  ///   senderId; [GroupCryptoV2.decryptWithSenderKey] rejects the mismatch),
+  ///   or
+  /// - the envelope signature is valid and its index is a replay (<= the
+  ///   highest index already seen from that sender in this group).
+  ///
+  /// Only envelopes with a valid Ed25519 signature advance the inbound
+  /// watermark: an unauthenticated peer must not be able to poison the window
+  /// for a legitimate sender. When the sender's public keys are unavailable,
+  /// or the envelope is not a sender-key envelope (legacy group-aead
+  /// traffic), the gate passes the message through untouched (pre-fix
+  /// behavior).
+  Future<bool> _isGroupSenderKeyReplay(
+    Map<String, dynamic> data,
+    String groupId,
+  ) async {
+    final wire = data['message'];
+    if (wire is! String) return false;
+    final envelope = CryptoEnvelope.tryParse(wire);
+    if (envelope == null ||
+        envelope['scheme'] != CryptoConstants.schemeGroupSender1) {
+      return false;
+    }
+    final senderId = envelope['senderId'];
+    final index = envelope['index'];
+    if (senderId is! String || index is! int) return false;
+    if (senderId != data['senderId']) {
+      // Undecryptable junk by construction; storing it only archives noise.
+      return true;
+    }
+    final peer = await _resolvePeerIdentity(senderId);
+    if (peer == null) return false;
+    final ivB64 = envelope['iv'];
+    final ctB64 = envelope['ct'];
+    final sigRaw = envelope['sig'];
+    if (ivB64 is! String || ctB64 is! String || sigRaw is! String) {
+      return false;
+    }
+    // Mirror decryptWithSenderKey's signed payload byte-for-byte so the
+    // router and the decrypt path can never disagree on authenticity.
+    final signPayload = utf8.encode(
+      '$groupId|$senderId|$index|$ivB64|$ctB64',
+    );
+    Signature signature;
+    try {
+      signature = Signature(base64Decode(sigRaw), publicKey: peer.signPublic);
+    } catch (_) {
+      return false;
+    }
+    if (!await IdentityKeyPair.verify(signPayload, signature)) {
+      return false;
+    }
+    return !(await GroupSenderIndexStore.recordInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: index,
+    ));
   }
 
   Future<IdentityPublicKeys?> _resolvePeerIdentity(String senderId) async {

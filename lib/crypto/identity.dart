@@ -111,6 +111,21 @@ class IdentityKeyPair {
     }
   }
 
+  /// First non-empty stored identity payload from [identityJson] or legacy
+  /// [publicKeyPem] column values.
+  static String? storedPeerIdentityRaw(
+    String? identityJson,
+    String? publicKeyPem,
+  ) {
+    for (final raw in [identityJson, publicKeyPem]) {
+      if (raw == null) continue;
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty || trimmed == 'NONE') continue;
+      return raw;
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> toPrivateJson() async {
     final signPrivate = await signKeyPair.extractPrivateKeyBytes();
     final agreePrivate = await agreeKeyPair.extractPrivateKeyBytes();

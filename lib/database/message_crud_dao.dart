@@ -94,12 +94,17 @@ class MessageCrudDao {
       final id = normalized['id'] as String;
       final existing = await db.query(
         'messages',
-        columns: const ['id', 'senderId', 'status'],
+        columns: const ['id', 'senderId', 'status', 'deletedAt'],
         where: 'id = ?',
         whereArgs: [id],
       );
       if (existing.isNotEmpty) {
         final row = existing.first;
+        // A soft-delete tombstone wins over a re-delivery: a captured inbound
+        // message re-POSTed after deletion must not resurrect the row.
+        if (row['deletedAt'] != null) {
+          return null;
+        }
         final wasOutbound =
             row['senderId'] == localUserId && row['status'] != 'received';
         if (wasOutbound) {

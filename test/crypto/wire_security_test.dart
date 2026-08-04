@@ -1,11 +1,9 @@
 import 'dart:convert';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/crypto.dart';
-import 'package:prysm/crypto/direct_message_auth.dart';
 import 'package:prysm/util/key_manager.dart';
 
 Future<IdentityPublicKeys> _publicKeys(IdentityKeyPair id) async {
@@ -143,7 +141,6 @@ void main() {
     });
 
     test('legacy wrap map without scheme still unwraps as dh-aead-1', () async {
-      final alice = await IdentityKeyPair.generate();
       final bob = await IdentityKeyPair.generate();
       final bobPub = await bob.agreePublicKey;
 

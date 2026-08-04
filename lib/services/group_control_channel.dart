@@ -267,7 +267,8 @@ class GroupControlChannel {
       final parsed = jsonDecode(wire);
       return parsed is Map<String, dynamic> &&
           parsed['crypto'] == CryptoConstants.cryptoVersion &&
-          parsed['scheme'] == CryptoConstants.schemeControlWrap1;
+          (parsed['scheme'] == CryptoConstants.schemeControlWrap1 ||
+              parsed['scheme'] == CryptoConstants.schemeControlWrap2);
     } catch (_) {
       return false;
     }

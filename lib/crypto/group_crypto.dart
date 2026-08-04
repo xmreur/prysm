@@ -56,12 +56,12 @@ class GroupCryptoV2 {
       utf8.encode(plaintextJson),
       key: aeadKey,
     );
-    final wrapped = await CryptoWire.wrapKeyForPeer(
+    final wrapped = await CryptoWire.wrapKeyForPeerSigned(
       sessionKey,
       sender,
       peerAgreePublic,
     );
-    return CryptoEnvelope.encode(CryptoEnvelope.controlWrap1(
+    return CryptoEnvelope.encode(CryptoEnvelope.controlWrap2(
       wrappedKey: wrapped,
       iv: enc.nonce,
       ciphertext: enc.ciphertext,
@@ -71,16 +71,27 @@ class GroupCryptoV2 {
   static Future<String> decryptControlPayload(
     String wire,
     IdentityKeyPair recipient,
+    IdentityPublicKeys sender,
   ) async {
     final envelope = CryptoEnvelope.tryParse(wire);
-    if (envelope == null ||
-        envelope['scheme'] != CryptoConstants.schemeControlWrap1) {
+    if (envelope == null) {
+      throw ArgumentError('Invalid control envelope');
+    }
+    final scheme = CryptoEnvelope.schemeOf(envelope);
+    if (scheme == CryptoConstants.schemeControlWrap1) {
+      throw const FormatException('Unsigned group control message rejected');
+    }
+    if (scheme != CryptoConstants.schemeControlWrap2) {
       throw ArgumentError('Invalid control envelope');
     }
     final wrapped = envelope['wrappedKey'] as Map<String, dynamic>;
     final iv = base64Decode(envelope['iv'] as String);
     final ct = base64Decode(envelope['ct'] as String);
-    final sessionKey = await CryptoWire.unwrapKeyFromPeer(wrapped, recipient);
+    final sessionKey = await CryptoWire.unwrapSignedKeyFromPeer(
+      wrapped,
+      recipient,
+      sender,
+    );
     final aeadKey = await CryptoAead.secretKeyFromBytes(sessionKey);
     final plain = await CryptoAead.decryptAesGcm(
       ciphertextWithTag: ct,

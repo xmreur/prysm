@@ -10,11 +10,14 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_control_channel.dart';
 import 'package:prysm/services/group_key_provider.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/group_crypto.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:uuid/uuid.dart';
 
@@ -348,13 +351,8 @@ class GroupService {
     );
 
     // Tell the removed member to drop the group (queued if they are offline).
-    await _controlChannel.sendKeyRotate(
-      groupId: groupId,
-      groupKey: newKey,
-      keyVersion: newVersion,
-      removedMemberId: memberOnion,
-      targetMemberId: memberOnion,
-    );
+    // Never send them the new key: doing so would let them decrypt the group
+    // forever (broken forward access revocation).
     await _controlChannel.sendMemberRemoved(
       groupId: groupId,
       removedMemberId: memberOnion,
@@ -463,12 +461,54 @@ class GroupService {
   }
 
   /// Handle incoming control messages (from PrysmServer).
-  Future<void> handleIncomingControlMessage(String type, String encryptedPayload) async {
-    final plaintext = await GroupCryptoV2.decryptControlPayload(
-      encryptedPayload,
-      keyManager.identity,
-    );
+  ///
+  /// Authenticates the sender before processing: the sender's identity is
+  /// resolved (cached user store, then Tor fetch) and [encryptedPayload]
+  /// must be a `control-wrap-2` envelope whose Ed25519 signature verifies
+  /// against that identity's signing key. Unsigned legacy envelopes and
+  /// forged signatures are dropped. For all types except invites the sender
+  /// must additionally be a member of the target group.
+  Future<void> handleIncomingControlMessage(
+    String type,
+    String encryptedPayload,
+    String senderId,
+  ) async {
+    final senderKeys = await _resolveSenderIdentity(senderId);
+    if (senderKeys == null) {
+      Logging.error(
+        'Dropping $type from $senderId: sender identity unresolvable',
+        'GroupService',
+      );
+      return;
+    }
+
+    final String plaintext;
+    try {
+      plaintext = await GroupCryptoV2.decryptControlPayload(
+        encryptedPayload,
+        keyManager.identity,
+        senderKeys,
+      );
+    } catch (e) {
+      Logging.error(
+        'Dropping $type from $senderId: control payload authentication failed: $e',
+        'GroupService',
+      );
+      return;
+    }
+
     final data = jsonDecode(plaintext) as Map<String, dynamic>;
+
+    if (type != groupInviteType) {
+      final groupId = data['groupId'] as String?;
+      if (groupId == null || !await DBHelper.isGroupMember(groupId, senderId)) {
+        Logging.error(
+          'Dropping $type from non-member $senderId for group $groupId',
+          'GroupService',
+        );
+        return;
+      }
+    }
 
     switch (type) {
       case groupInviteType:
@@ -487,6 +527,19 @@ class GroupService {
         await _handleDisappearingTimer(data);
         break;
     }
+  }
+
+  /// Resolves the sender's public identity (cached store first, then Tor).
+  Future<IdentityPublicKeys?> _resolveSenderIdentity(String senderId) async {
+    final resolver = PeerIdentityResolver(
+      peerId: senderId,
+      keyManager: keyManager,
+    );
+    return resolvePeerIdentityForIngress(
+      keyManager,
+      senderId,
+      fetchOverTor: () => resolver.fetchOverTor(),
+    );
   }
 
   Future<void> _handleDisappearingTimer(Map<String, dynamic> data) async {

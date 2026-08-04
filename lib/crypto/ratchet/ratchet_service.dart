@@ -79,7 +79,8 @@ class RatchetService {
             peerBundle: bundle,
             ephemeral: ephemeral,
           );
-          session = await RatchetSession.initializeAsInitiator(shared);
+          // New sessions always start as forward-secret v3.
+          session = await RatchetSession.initializeV3AsInitiator(shared);
           handshake = {
             'ephemeralPub': base64Encode(ephemeralPublic.bytes),
             'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
@@ -138,7 +139,11 @@ class RatchetService {
     }
 
     if (scheme != CryptoConstants.schemeRatchet1 &&
-        scheme != CryptoConstants.schemeRatchet2) {
+        scheme != CryptoConstants.schemeRatchet2 &&
+        scheme != CryptoConstants.schemeRatchet3) {
+      // A peer running an older build rejects ratchet-3 here with this clean
+      // error; that is expected and safe (v3 is only spoken between updated
+      // peers that both bootstrap fresh v3 sessions).
       throw FormatException('Unsupported ciphertext scheme: $scheme');
     }
 
@@ -175,7 +180,13 @@ class RatchetService {
             throw StateError('Cannot derive ratchet session for $peerId');
           }
           consumedOneTime = shared.usedOneTimePreKeyPublic;
-          session = await RatchetSession.initializeAsResponder(shared.material);
+          // Pick the session version from the envelope: an updated peer
+          // bootstraps with ratchet-3 (forward-secret), a pre-v3 peer with
+          // ratchet-1/2 (legacy static KDF). Matching the scheme keeps
+          // cross-version chats working.
+          session = scheme == CryptoConstants.schemeRatchet3
+              ? await RatchetSession.initializeV3AsResponder(shared.material)
+              : await RatchetSession.initializeAsResponder(shared.material);
         }
 
         final plain = await session.decryptMessage(wire);

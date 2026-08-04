@@ -22,11 +22,13 @@ class CryptoConstants {
   static const String schemeDmSigned2 = 'dm-signed-2';
   static const String schemeGroupAead1 = 'group-aead-1';
   static const String schemeControlWrap1 = 'control-wrap-1';
+  static const String schemeControlWrap2 = 'control-wrap-2';
   static const String schemeFileAead1 = 'file-aead-1';
   static const String schemeFileSigned1 = 'file-signed-1';
   static const String schemeCallAead1 = 'call-aead-1';
   static const String schemeRatchet1 = 'ratchet-1';
   static const String schemeRatchet2 = 'ratchet-2';
+  static const String schemeRatchet3 = 'ratchet-3';
   static const String schemeGroupSender1 = 'group-sender-1';
 
   static const String hkdfInfoDhAead = 'prysm/dh-aead-1';

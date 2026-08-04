@@ -102,7 +102,12 @@ class ChatMediaService {
     if (isGroup) {
       return _decryptGroupBytes(row);
     }
-    return FileAttachmentResolver.decryptEncryptedSource(wire, keyManager);
+    return FileAttachmentResolver.decryptEncryptedSource(
+      wire,
+      keyManager,
+      senderId: row['senderId'] as String,
+      localUserId: userId,
+    );
   }
 
   Future<Uint8List> resolveFileBytes(ChatMediaItem item) async {
@@ -111,7 +116,11 @@ class ChatMediaService {
       return _decryptGroupBytes(row);
     }
     final message = _fileMessageFromRow(row, item);
-    return FileAttachmentResolver.resolve(message, keyManager: keyManager);
+    return FileAttachmentResolver.resolve(
+      message,
+      keyManager: keyManager,
+      localUserId: userId,
+    );
   }
 
   Future<VoicePlaybackInfo> resolveVoicePlayback(ChatMediaItem item) async {
@@ -156,6 +165,7 @@ class ChatMediaService {
     final bytes = await FileAttachmentResolver.resolve(
       message,
       keyManager: keyManager,
+      localUserId: userId,
     );
     await File(cachePath).writeAsBytes(bytes);
     final durationMs = WaveformExtractor.estimateDurationMs(bytes);

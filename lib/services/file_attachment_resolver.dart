@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/crypto/wire.dart';
+import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 
 class FileAttachmentResolver {
@@ -16,7 +17,9 @@ class FileAttachmentResolver {
   static Future<Uint8List> resolve(
     FileMessage message, {
     KeyManager? keyManager,
+    String? localUserId,
     void Function(double progress)? onProgress,
+    bool allowLegacyUnsignedFile = true,
   }) async {
     final cached = _cache[message.id];
     if (cached != null) {
@@ -25,7 +28,12 @@ class FileAttachmentResolver {
     }
 
     onProgress?.call(0.1);
-    final bytes = await _resolveUncached(message, keyManager: keyManager);
+    final bytes = await _resolveUncached(
+      message,
+      keyManager: keyManager,
+      localUserId: localUserId,
+      allowLegacyUnsignedFile: allowLegacyUnsignedFile,
+    );
     onProgress?.call(0.7);
     _putCache(message.id, bytes);
     onProgress?.call(1.0);
@@ -35,6 +43,8 @@ class FileAttachmentResolver {
   static Future<Uint8List> _resolveUncached(
     FileMessage message, {
     KeyManager? keyManager,
+    String? localUserId,
+    bool allowLegacyUnsignedFile = true,
   }) async {
     var source = message.source;
     if (source.isEmpty) {
@@ -67,7 +77,13 @@ class FileAttachmentResolver {
       }
     }
 
-    return decryptEncryptedSource(source, keyManager);
+    return decryptEncryptedSource(
+      source,
+      keyManager,
+      senderId: message.authorId,
+      localUserId: localUserId,
+      allowLegacyUnsignedFile: allowLegacyUnsignedFile,
+    );
   }
 
   static bool _looksLikeBase64Payload(String source) {
@@ -88,8 +104,28 @@ class FileAttachmentResolver {
 
   static Future<Uint8List> decryptEncryptedSource(
     String encryptedJson,
-    KeyManager keyManager,
-  ) async {
+    KeyManager keyManager, {
+    String? senderId,
+    String? localUserId,
+    bool allowLegacyUnsignedFile = true,
+  }) async {
+    if (senderId != null &&
+        localUserId != null &&
+        senderId != localUserId) {
+      final user = await DBHelper.getUserById(senderId);
+      final identityJson = (user?['identityJson'] as String?) ??
+          (user?['publicKeyPem'] as String?);
+      if (identityJson == null || identityJson.isEmpty) {
+        throw const FormatException('Missing peer identity');
+      }
+      final peerKey = keyManager.importPeerIdentity(identityJson);
+      return CryptoWire.decryptFileFromPeer(
+        encryptedJson,
+        keyManager.identity,
+        peerKey,
+        allowLegacyUnsignedFile: allowLegacyUnsignedFile,
+      );
+    }
     return CryptoWire.decryptFile(encryptedJson, keyManager.identity);
   }
 

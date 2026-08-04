@@ -2,6 +2,7 @@ import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
+import 'package:prysm/services/pending_auth_message_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -74,6 +75,8 @@ class UnlockController {
               keyManager.safeRead(CryptoKeyStore.publicIdentityKey),
           contactCount: await _contactCount(),
         );
+        await PendingAuthMessageService(keyManager: keyManager)
+            .promotePendingAfterUnlock();
         return const UnlockOutcome(unlocked: true);
       }
       await lockout.recordPrimaryFailure();

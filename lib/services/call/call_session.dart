@@ -71,9 +71,13 @@ class CallSession {
     required String peerOnion,
     required String wrappedKey,
     required KeyManager keyManager,
+    required IdentityPublicKeys peer,
     CallCodecParams codec = const CallCodecParams(),
   }) async {
-    final material = await keyManager.decryptBytes(wrappedKey);
+    final material = await keyManager.decryptBytesFromPeer(
+      wire: wrappedKey,
+      peer: peer,
+    );
     if (material.length < 36) {
       throw const FormatException('Invalid wrapped call key');
     }

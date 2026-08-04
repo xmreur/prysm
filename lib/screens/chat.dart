@@ -850,6 +850,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return FileAttachmentResolver.decryptEncryptedSource(
       msg['message'] as String,
       keyManager,
+      senderId: msg['senderId'] as String?,
+      localUserId: widget.userId,
+      allowLegacyUnsignedFile: true,
     );
   }
 

@@ -30,6 +30,7 @@ void main() {
   late _FakeTransport transport;
   late _FakeKeyResolver keyResolver;
   late KeyManager keyManager;
+  late KeyManager peerKeyManager;
   late CallSignalingNotifier notifier;
   late CallManager manager;
   late _RecordingForegroundSession foreground;
@@ -59,6 +60,7 @@ void main() {
     final local = await IdentityKeyPair.generate();
     final peer = await IdentityKeyPair.generate();
     keyManager = KeyManager.fromIdentity(local);
+    peerKeyManager = KeyManager.fromIdentity(peer);
     localKeys = IdentityPublicKeys(
       signPublic: await local.signPublicKey,
       agreePublic: await local.agreePublicKey,
@@ -148,7 +150,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -171,7 +173,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
 
     await Future<void>.delayed(Duration.zero);
@@ -189,7 +191,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -220,7 +222,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -242,7 +244,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     await manager.acceptIncoming();
@@ -265,7 +267,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     expect(manager.snapshot.state, CallState.incoming);
@@ -291,7 +293,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     expect(foreground.syncCalls, isNotEmpty);
@@ -311,7 +313,7 @@ void main() {
     notifier.applyInbound('peer.onion', 'call_offer', {
       'callId': caller.callId,
       'sessionId': caller.sessionId,
-      'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+      'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
     });
     await Future<void>.delayed(Duration.zero);
     expect(manager.snapshot.state, CallState.incoming);
@@ -337,7 +339,7 @@ void main() {
       notifier.applyInbound('blocked.onion', 'call_offer', {
         'callId': caller.callId,
         'sessionId': caller.sessionId,
-        'wrappedKey': await caller.wrapKeyForPeer(localKeys, keyManager),
+        'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
       });
 
       await Future<void>.delayed(Duration.zero);

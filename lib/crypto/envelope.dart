@@ -23,6 +23,24 @@ class CryptoEnvelope {
     };
   }
 
+  static Map<String, dynamic> dmSigned1({
+    required Uint8List ephemeralPublic,
+    required Uint8List ciphertext,
+    required Uint8List nonce,
+    required List<int> signature,
+    String alg = 'aes-gcm',
+  }) {
+    return {
+      'crypto': CryptoConstants.cryptoVersion,
+      'scheme': CryptoConstants.schemeDmSigned1,
+      'alg': alg,
+      'ephemeralPub': base64Encode(ephemeralPublic),
+      'nonce': base64Encode(nonce),
+      'ciphertext': base64Encode(ciphertext),
+      'sig': base64Encode(signature),
+    };
+  }
+
   static Map<String, dynamic> groupAead1({
     required Uint8List iv,
     required Uint8List ciphertext,
@@ -57,6 +75,20 @@ class CryptoEnvelope {
     return {
       'crypto': CryptoConstants.cryptoVersion,
       'scheme': CryptoConstants.schemeFileAead1,
+      'wrappedKey': wrappedKey,
+      'nonce': base64Encode(nonce),
+      'ciphertext': base64Encode(ciphertext),
+    };
+  }
+
+  static Map<String, dynamic> fileSigned1({
+    required Map<String, dynamic> wrappedKey,
+    required Uint8List nonce,
+    required Uint8List ciphertext,
+  }) {
+    return {
+      'crypto': CryptoConstants.cryptoVersion,
+      'scheme': CryptoConstants.schemeFileSigned1,
       'wrappedKey': wrappedKey,
       'nonce': base64Encode(nonce),
       'ciphertext': base64Encode(ciphertext),

@@ -3,8 +3,9 @@ import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
-import 'package:prysm/util/message_modify_policy.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/message_auth_status.dart';
+import 'package:prysm/util/message_modify_policy.dart';
 
 /// Decrypts direct-chat DB rows using the main window's unlocked [KeyManager].
 class DirectChatMessageDecrypt {
@@ -36,6 +37,7 @@ class DirectChatMessageDecrypt {
       peerId: senderId,
       wire: wire,
       peer: peerKey,
+      allowLegacyUnsignedDhAead: true,
     );
   }
 
@@ -48,6 +50,9 @@ class DirectChatMessageDecrypt {
 
     for (final msg in rawMessages) {
       final meta = metadataFromDbRow(msg);
+      if (MessageAuthStatus.isUndisplayable(msg['status'] as String?)) {
+        continue;
+      }
       if (rowShowsAsDeleted(msg, meta)) {
         messages.add(
           TextMessage(

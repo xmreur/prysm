@@ -232,6 +232,9 @@ class MessagesDb {
   }) =>
       _crudDao.getExpiredMessages(cutoff: cutoff, limit: limit);
 
+  static Future<List<Map<String, dynamic>>> getPendingAuthDirectMessages() =>
+      _crudDao.getPendingAuthDirectMessages();
+
   /// Get messages for a group, newest first (dedupe by id in caller)
   static Future<List<Map<String, dynamic>>> getMessagesForGroupBatch(
     String groupId, {

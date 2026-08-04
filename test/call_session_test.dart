@@ -10,12 +10,16 @@ void main() {
     final local = await IdentityKeyPair.generate();
     final peer = await IdentityKeyPair.generate();
     final km = KeyManager.fromIdentity(local);
+    final localPub = IdentityPublicKeys(
+      signPublic: await local.signPublicKey,
+      agreePublic: await local.agreePublicKey,
+      fingerprint: 'local',
+    );
     final peerPub = IdentityPublicKeys(
       signPublic: await peer.signPublicKey,
       agreePublic: await peer.agreePublicKey,
       fingerprint: 'test',
     );
-
     final session = CallSession.createOutbound(
       callId: 'c1',
       sessionId: 42,
@@ -29,6 +33,7 @@ void main() {
       peerOnion: 'peer.onion',
       wrappedKey: wrapped,
       keyManager: KeyManager.fromIdentity(peer),
+      peer: localPub,
     );
 
     final frame = await session.encryptAudioFrame(Uint8List.fromList([1, 2, 3]));

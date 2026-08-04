@@ -96,12 +96,14 @@ class RatchetService {
     required String wire,
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
+    bool allowLegacyUnsignedDhAead = false,
   }) =>
       decryptBytes(
         peerId: peerId,
         wire: wire,
         local: local,
         peer: peer,
+        allowLegacyUnsignedDhAead: allowLegacyUnsignedDhAead,
       ).then(utf8.decode);
 
   Future<Uint8List> decryptBytes({
@@ -109,18 +111,23 @@ class RatchetService {
     required String wire,
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
+    bool allowLegacyUnsignedDhAead = false,
   }) async {
     final envelope = jsonDecode(wire) as Map<String, dynamic>;
     final scheme = envelope['scheme'] as String?;
 
+    if (scheme == CryptoConstants.schemeDmSigned1) {
+      return CryptoWire.decryptSignedFromPeer(wire, local, peer);
+    }
+
     if (scheme == CryptoConstants.schemeDhAead1) {
-      return CryptoWire.decryptFromPeer(wire, local, peer.agreePublic);
+      if (!allowLegacyUnsignedDhAead) {
+        throw const FormatException('Unsigned peer message rejected');
+      }
+      return CryptoWire.decryptLegacyFromPeer(wire, local);
     }
 
     if (scheme != CryptoConstants.schemeRatchet1) {
-      if (envelope['crypto'] == CryptoConstants.cryptoVersion) {
-        return CryptoWire.decryptFromPeer(wire, local, peer.agreePublic);
-      }
       throw FormatException('Unsupported ciphertext scheme: $scheme');
     }
 

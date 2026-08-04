@@ -1,4 +1,5 @@
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 
@@ -15,6 +16,18 @@ Future<IdentityPublicKeys?> loadPeerIdentityFromDb(
   } catch (_) {
     return null;
   }
+}
+
+/// Resolves peer identity for ingress: local DB first, then awaited Tor fetch.
+Future<IdentityPublicKeys?> resolvePeerIdentityForIngress(
+  KeyManager keyManager,
+  String peerId, {
+  required Future<ResolvedPeerIdentity?> Function() fetchOverTor,
+}) async {
+  final cached = await loadPeerIdentityFromDb(keyManager, peerId);
+  if (cached != null) return cached;
+  final resolved = await fetchOverTor();
+  return resolved?.identity;
 }
 
 /// Resolves the public keys that signed a group message.

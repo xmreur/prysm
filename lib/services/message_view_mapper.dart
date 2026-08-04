@@ -60,12 +60,13 @@ class MessageViewMapper {
     }
 
     final user = await DBHelper.getUserById(senderId);
-    final identityJson = (user?['identityJson'] as String?) ??
-        (user?['publicKeyPem'] as String?);
-    if (identityJson == null || identityJson.isEmpty) {
+    final peerKey = keyManager.tryImportStoredPeerIdentity(
+      identityJson: user?['identityJson'] as String?,
+      publicKeyPem: user?['publicKeyPem'] as String?,
+    );
+    if (peerKey == null) {
       throw const FormatException('Missing peer identity');
     }
-    final peerKey = keyManager.importPeerIdentity(identityJson);
     return keyManager.decryptPeerMessage(
       peerId: senderId,
       wire: wire,

@@ -302,10 +302,11 @@ class ReactionService {
     try {
       if (type == reactionType) {
         final user = await DBHelper.getUserById(senderId);
-        final identityJson = (user?['identityJson'] as String?) ??
-            (user?['publicKeyPem'] as String?);
-        if (identityJson == null || identityJson.isEmpty) return null;
-        final peerKey = keyManager.importPeerIdentity(identityJson);
+        final peerKey = keyManager.tryImportStoredPeerIdentity(
+          identityJson: user?['identityJson'] as String?,
+          publicKeyPem: user?['publicKeyPem'] as String?,
+        );
+        if (peerKey == null) return null;
         return keyManager.decryptPeerMessage(
           peerId: senderId,
           wire: encrypted,

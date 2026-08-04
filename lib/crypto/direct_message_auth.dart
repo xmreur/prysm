@@ -146,27 +146,16 @@ class DirectMessageAuth {
 
     if (scheme == CryptoConstants.schemeDhAead1 ||
         scheme == CryptoConstants.schemeDhAead2) {
-      if (peerKeys != null) {
+      if (peerKeys == null) {
+        return fullDecrypt
+            ? DirectAuthOutcome.rejected
+            : DirectAuthOutcome.pendingAuth;
+      }
+      if (!allowLegacyUnsignedDhAead) {
         return DirectAuthOutcome.rejected;
       }
-      return DirectAuthOutcome.pendingAuth;
-    }
-
-    if (_isDirectMediaType(type) &&
-        scheme == CryptoConstants.schemeFileAead1) {
-      if (peerKeys != null) {
-        return DirectAuthOutcome.rejected;
-      }
-      return DirectAuthOutcome.pendingAuth;
-    }
-
-    if (!fullDecrypt) {
-      return DirectAuthOutcome.pendingAuth;
-    }
-
-    if (type == 'text' && scheme == CryptoConstants.schemeDhAead1) {
-      if (!allowLegacyUnsignedDhAead || peerKeys == null) {
-        return DirectAuthOutcome.rejected;
+      if (!fullDecrypt || !keyManager.isUnlocked) {
+        return DirectAuthOutcome.pendingAuth;
       }
       try {
         await keyManager.decryptPeerMessage(
@@ -182,10 +171,18 @@ class DirectMessageAuth {
     }
 
     if (_isDirectMediaType(type) &&
-        scheme == CryptoConstants.schemeFileAead1 &&
-        allowLegacyUnsignedFile &&
-        peerKeys != null &&
-        keyManager.isUnlocked) {
+        scheme == CryptoConstants.schemeFileAead1) {
+      if (peerKeys == null) {
+        return fullDecrypt
+            ? DirectAuthOutcome.rejected
+            : DirectAuthOutcome.pendingAuth;
+      }
+      if (!allowLegacyUnsignedFile) {
+        return DirectAuthOutcome.rejected;
+      }
+      if (!fullDecrypt || !keyManager.isUnlocked) {
+        return DirectAuthOutcome.pendingAuth;
+      }
       try {
         await CryptoWire.decryptFileFromPeer(
           wire,
@@ -197,6 +194,10 @@ class DirectMessageAuth {
       } catch (_) {
         return DirectAuthOutcome.rejected;
       }
+    }
+
+    if (!fullDecrypt) {
+      return DirectAuthOutcome.pendingAuth;
     }
 
     return DirectAuthOutcome.rejected;

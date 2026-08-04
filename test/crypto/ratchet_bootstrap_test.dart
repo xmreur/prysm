@@ -76,7 +76,7 @@ void main() {
     );
 
     expect(sharedResp, isNotNull);
-    expect(sharedInit, sharedResp);
+    expect(sharedInit, sharedResp!.material);
   });
 
   test('hkdf derives non-empty key', () async {
@@ -119,11 +119,11 @@ void main() {
       initiatorEphemeralPublic: ephemeralPub,
       usedOneTimePreKeyPublic: bobBundle.oneTimePreKeyPublic,
     );
-    expect(shared, sharedResp);
+    expect(shared, sharedResp!.material);
 
     final initSession = await RatchetSession.initializeAsInitiator(shared);
     final respSession =
-        await RatchetSession.initializeAsResponder(sharedResp!);
+        await RatchetSession.initializeAsResponder(sharedResp.material);
 
     final enc = await initSession.encryptMessage(utf8.encode('direct'));
     final plain = await respSession.decryptMessage(enc.wire);
@@ -201,5 +201,134 @@ void main() {
       peer: alicePub,
     );
     expect(plain2, 'second');
+  });
+
+  test('failed handshake does not burn the one-time prekey', () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alicePub = await _publicKeys(alice);
+    final bobPub = await _publicKeys(bob);
+    const aliceOnion = 'alice.peer.onion';
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+    final usedOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic.bytes);
+
+    final goodWire = await RatchetService.instance.encryptText(
+      peerId: bobOnion,
+      plaintext: 'ratchet hello',
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+    );
+
+    final envelope = jsonDecode(goodWire) as Map<String, dynamic>;
+    final cipher = base64Decode(envelope['ciphertext'] as String);
+    cipher[0] ^= 0xff;
+    envelope['ciphertext'] = base64Encode(cipher);
+    final tamperedWire = jsonEncode(envelope);
+
+    await expectLater(
+      RatchetService.instance.decryptText(
+        peerId: aliceOnion,
+        wire: tamperedWire,
+        local: bob,
+        peer: alicePub,
+      ),
+      throwsA(anything),
+    );
+
+    final poolAfterFailure = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    expect(
+      poolAfterFailure.map((e) => (e as Map)['pub']),
+      contains(usedOtpB64),
+    );
+
+    final plain = await RatchetService.instance.decryptText(
+      peerId: aliceOnion,
+      wire: goodWire,
+      local: bob,
+      peer: alicePub,
+    );
+    expect(plain, 'ratchet hello');
+
+    final poolAfterSuccess = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    expect(
+      poolAfterSuccess.map((e) => (e as Map)['pub']),
+      isNot(contains(usedOtpB64)),
+    );
+  });
+
+  test('handshake without oneTimePreKey falls back to pool.first and consumes it',
+      () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alicePub = await _publicKeys(alice);
+    final bobPub = await _publicKeys(bob);
+    const aliceOnion = 'alice.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+    final bundleOtpB64 = base64Encode(bobBundle.oneTimePreKeyPublic.bytes);
+
+    final ephemeral = await X25519().newKeyPair();
+    final ephemeralPub = await ephemeral.extractPublicKey();
+    final shared = await PrekeyBundle.sharedSecretAsInitiator(
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+      ephemeral: ephemeral,
+    );
+    final initSession = await RatchetSession.initializeAsInitiator(shared);
+    final handshake = {'ephemeralPub': base64Encode(ephemeralPub.bytes)};
+    final result = await initSession.encryptMessage(
+      utf8.encode('fallback'),
+      handshake: handshake,
+    );
+    final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
+    envelope['handshake'] = handshake;
+    final wire = jsonEncode(envelope);
+
+    final plain = await RatchetService.instance.decryptText(
+      peerId: aliceOnion,
+      wire: wire,
+      local: bob,
+      peer: alicePub,
+    );
+    expect(plain, 'fallback');
+
+    final pool = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    expect((pool.first as Map)['pub'], isNot(bundleOtpB64));
+    expect(
+      pool.map((e) => (e as Map)['pub']),
+      isNot(contains(bundleOtpB64)),
+    );
+  });
+
+  test('commitOneTimePreKeyConsumption is idempotent', () async {
+    final bob = await IdentityKeyPair.generate();
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+    final otp = bobBundle.oneTimePreKeyPublic;
+
+    await PrekeyBundle.commitOneTimePreKeyConsumption(otp);
+    final afterFirst = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+
+    await PrekeyBundle.commitOneTimePreKeyConsumption(otp);
+    final afterSecond = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+
+    expect(afterSecond.length, afterFirst.length);
+    expect(
+      afterFirst.map((e) => (e as Map)['pub']),
+      isNot(contains(base64Encode(otp.bytes))),
+    );
   });
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:mutex/mutex.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/key_store.dart';
@@ -26,6 +27,8 @@ class PrekeyBundle {
   static const int _oneTimeReplenishThreshold = 4;
 
   static final X25519 _x25519 = X25519();
+
+  static final Mutex _poolMutex = Mutex();
 
   static Future<PrekeyBundle> generate(
     IdentityKeyPair identity, {
@@ -89,23 +92,25 @@ class PrekeyBundle {
   }
 
   static Future<void> _migrateLegacyOneTimeKey() async {
-    final legacy = await CryptoKeyStore.read(storageOneTimePreKeyPrivate);
-    if (legacy == null) return;
-    final poolRaw = await CryptoKeyStore.read(storageOneTimePreKeyPool);
-    if (poolRaw != null && poolRaw.isNotEmpty) {
+    await _poolMutex.protect(() async {
+      final legacy = await CryptoKeyStore.read(storageOneTimePreKeyPrivate);
+      if (legacy == null) return;
+      final poolRaw = await CryptoKeyStore.read(storageOneTimePreKeyPool);
+      if (poolRaw != null && poolRaw.isNotEmpty) {
+        await CryptoKeyStore.delete(storageOneTimePreKeyPrivate);
+        return;
+      }
+      final private = base64Decode(legacy);
+      final keyPair = await _x25519.newKeyPairFromSeed(private);
+      final public = await keyPair.extractPublicKey();
+      await _writeOneTimePool([
+        {
+          'pub': base64Encode(public.bytes),
+          'priv': legacy,
+        },
+      ]);
       await CryptoKeyStore.delete(storageOneTimePreKeyPrivate);
-      return;
-    }
-    final private = base64Decode(legacy);
-    final keyPair = await _x25519.newKeyPairFromSeed(private);
-    final public = await keyPair.extractPublicKey();
-    await _writeOneTimePool([
-      {
-        'pub': base64Encode(public.bytes),
-        'priv': legacy,
-      },
-    ]);
-    await CryptoKeyStore.delete(storageOneTimePreKeyPrivate);
+    });
   }
 
   static Future<List<Map<String, String>>> _readOneTimePool() async {
@@ -124,17 +129,19 @@ class PrekeyBundle {
   }
 
   static Future<void> _ensureOneTimePool(IdentityKeyPair identity) async {
-    var pool = await _readOneTimePool();
-    while (pool.length < _oneTimePoolSize) {
-      final oneTime = await _x25519.newKeyPair();
-      final oneTimePublic = await oneTime.extractPublicKey();
-      final oneTimePrivate = await oneTime.extractPrivateKeyBytes();
-      pool.add({
-        'pub': base64Encode(oneTimePublic.bytes),
-        'priv': base64Encode(oneTimePrivate),
-      });
-    }
-    await _writeOneTimePool(pool);
+    await _poolMutex.protect(() async {
+      var pool = await _readOneTimePool();
+      while (pool.length < _oneTimePoolSize) {
+        final oneTime = await _x25519.newKeyPair();
+        final oneTimePublic = await oneTime.extractPublicKey();
+        final oneTimePrivate = await oneTime.extractPrivateKeyBytes();
+        pool.add({
+          'pub': base64Encode(oneTimePublic.bytes),
+          'priv': base64Encode(oneTimePrivate),
+        });
+      }
+      await _writeOneTimePool(pool);
+    });
   }
 
   static Future<SimplePublicKey> _nextOneTimePublic() async {
@@ -147,28 +154,60 @@ class PrekeyBundle {
     return SimplePublicKey(pubBytes, type: KeyPairType.x25519);
   }
 
-  static Future<KeyPair?> _consumeOneTimePrivateForPublic(
+    /// Non-destructive lookup of the one-time prekey private key. The pool entry
+  /// is only removed by [commitOneTimePreKeyConsumption] once the handshake
+  /// message has been successfully decrypted.
+  static Future<(KeyPair, SimplePublicKey)?> _lookupOneTimePreKey(
+    SimplePublicKey? requestedPublic,
+  ) {
+    return _poolMutex.protect(() async {
+      final pool = await _readOneTimePool();
+      if (pool.isEmpty) return null;
+      final Map<String, String> entry;
+      if (requestedPublic == null) {
+        entry = pool.first;
+      } else {
+        final pubB64 = base64Encode(requestedPublic.bytes);
+        final index = pool.indexWhere((e) => e['pub'] == pubB64);
+        if (index < 0) return null;
+        entry = pool[index];
+      }
+      final keyPair = await _x25519.newKeyPairFromSeed(
+        base64Decode(entry['priv']!),
+      );
+      final public = SimplePublicKey(
+        base64Decode(entry['pub']!),
+        type: KeyPairType.x25519,
+      );
+      return (keyPair, public);
+    });
+  }
+
+  /// Removes a one-time prekey from the persistent pool only after its
+  /// handshake message has been successfully decrypted, then replenishes the
+  /// pool below the threshold. Idempotent: no-op if already consumed.
+  static Future<void> commitOneTimePreKeyConsumption(
     SimplePublicKey public,
-  ) async {
-    final pool = await _readOneTimePool();
-    final pubB64 = base64Encode(public.bytes);
-    final index = pool.indexWhere((e) => e['pub'] == pubB64);
-    if (index < 0) return null;
-    final entry = pool.removeAt(index);
-    await _writeOneTimePool(pool);
-  if (pool.length < _oneTimeReplenishThreshold) {
-      while (pool.length < _oneTimePoolSize) {
-        final oneTime = await _x25519.newKeyPair();
-        final oneTimePublic = await oneTime.extractPublicKey();
-        final oneTimePrivate = await oneTime.extractPrivateKeyBytes();
-        pool.add({
-          'pub': base64Encode(oneTimePublic.bytes),
-          'priv': base64Encode(oneTimePrivate),
-        });
+  ) {
+    return _poolMutex.protect(() async {
+      final pool = await _readOneTimePool();
+      final pubB64 = base64Encode(public.bytes);
+      final before = pool.length;
+      pool.removeWhere((e) => e['pub'] == pubB64);
+      if (pool.length == before) return;
+      if (pool.length < _oneTimeReplenishThreshold) {
+        while (pool.length < _oneTimePoolSize) {
+          final oneTime = await _x25519.newKeyPair();
+          final oneTimePublic = await oneTime.extractPublicKey();
+          final oneTimePrivate = await oneTime.extractPrivateKeyBytes();
+          pool.add({
+            'pub': base64Encode(oneTimePublic.bytes),
+            'priv': base64Encode(oneTimePrivate),
+          });
+        }
       }
       await _writeOneTimePool(pool);
-    }
-    return _x25519.newKeyPairFromSeed(base64Decode(entry['priv']!));
+    });
   }
 
   Map<String, dynamic> toJson() => {
@@ -255,7 +294,10 @@ class PrekeyBundle {
   }
 
   /// Responder-side shared secret using stored one-time prekey.
-  static Future<Uint8List?> sharedSecretAsResponder({
+  /// Non-destructive: the used one-time prekey remains in the pool until
+  /// [commitOneTimePreKeyConsumption] is called after a successful decrypt.
+  static Future<({Uint8List material, SimplePublicKey usedOneTimePreKeyPublic})?>
+      sharedSecretAsResponder({
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
     required SimplePublicKey initiatorEphemeralPublic,
@@ -271,11 +313,11 @@ class PrekeyBundle {
       base64Decode(signedPrivateB64),
     );
 
-    final oneTimePublic = usedOneTimePreKeyPublic ?? await _nextOneTimePublic();
-    final oneTimePreKey = await _consumeOneTimePrivateForPublic(oneTimePublic);
-    if (oneTimePreKey == null) {
+    final lookup = await _lookupOneTimePreKey(usedOneTimePreKeyPublic);
+    if (lookup == null) {
       return null;
     }
+    final (oneTimePreKey, oneTimePublic) = lookup;
 
     final dh1 = await _x25519.sharedSecretKey(
       keyPair: signedPreKey,
@@ -293,11 +335,14 @@ class PrekeyBundle {
       keyPair: oneTimePreKey,
       remotePublicKey: initiatorEphemeralPublic,
     );
-    return Uint8List.fromList([
-      ...await dh1.extractBytes(),
-      ...await dh2.extractBytes(),
-      ...await dh3.extractBytes(),
-      ...await dh4.extractBytes(),
-    ]);
+    return (
+      material: Uint8List.fromList([
+        ...await dh1.extractBytes(),
+        ...await dh2.extractBytes(),
+        ...await dh3.extractBytes(),
+        ...await dh4.extractBytes(),
+      ]),
+      usedOneTimePreKeyPublic: oneTimePublic,
+    );
   }
 }

@@ -113,5 +113,68 @@ void main() {
       );
       expect(outcome, DirectAuthOutcome.accepted);
     });
+
+    test('rejects dh-aead-2 from known peer without legacy flag', () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final bobPub = await bob.agreePublicKey;
+
+      final wire = await CryptoWire.encryptTextForPeer('unsigned', alice, bobPub);
+
+      final outcome = await DirectMessageAuth.authenticateInboundDirect(
+        senderId: 'alice.onion',
+        wire: wire,
+        type: 'text',
+        localUserId: 'bob.onion',
+        keyManager: KeyManager.fromIdentity(bob),
+        resolveIdentity: (_) async => alicePub,
+        fullDecrypt: true,
+      );
+      expect(outcome, DirectAuthOutcome.rejected);
+    });
+
+    test('accepts dh-aead-2 from known peer with legacy flag when unlocked',
+        () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final bobPub = await bob.agreePublicKey;
+
+      final wire = await CryptoWire.encryptTextForPeer('legacy', alice, bobPub);
+
+      final outcome = await DirectMessageAuth.authenticateInboundDirect(
+        senderId: 'alice.onion',
+        wire: wire,
+        type: 'text',
+        localUserId: 'bob.onion',
+        keyManager: KeyManager.fromIdentity(bob),
+        resolveIdentity: (_) async => alicePub,
+        fullDecrypt: true,
+        allowLegacyUnsignedDhAead: true,
+      );
+      expect(outcome, DirectAuthOutcome.accepted);
+    });
+
+    test('dh-aead-2 with legacy flag stays pendingAuth while locked', () async {
+      final alice = await IdentityKeyPair.generate();
+      final bob = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final bobPub = await bob.agreePublicKey;
+
+      final wire = await CryptoWire.encryptTextForPeer('legacy', alice, bobPub);
+
+      final outcome = await DirectMessageAuth.authenticateInboundDirect(
+        senderId: 'alice.onion',
+        wire: wire,
+        type: 'text',
+        localUserId: 'bob.onion',
+        keyManager: KeyManager(),
+        resolveIdentity: (_) async => alicePub,
+        fullDecrypt: false,
+        allowLegacyUnsignedDhAead: true,
+      );
+      expect(outcome, DirectAuthOutcome.pendingAuth);
+    });
   });
 }

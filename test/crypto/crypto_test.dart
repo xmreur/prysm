@@ -148,10 +148,9 @@ void main() {
       );
       expect(CryptoEnvelope.isV2(wire), isTrue);
 
-      final plain = await CryptoWire.decryptTextFromPeer(
+      final plain = await CryptoWire.decryptLegacyTextFromPeer(
         wire,
         bob,
-        await alice.agreePublicKey,
       );
       expect(plain, 'hello prysm');
     });
@@ -160,10 +159,21 @@ void main() {
       final alice = await IdentityKeyPair.generate();
       final bob = await IdentityKeyPair.generate();
       final bobPub = await bob.agreePublicKey;
+      final alicePub = IdentityPublicKeys(
+        signPublic: await alice.signPublicKey,
+        agreePublic: await alice.agreePublicKey,
+        fingerprint: IdentityKeyPair.fingerprintFromPublicJson(
+          await alice.toPublicJson(),
+        ),
+      );
       final bytes = Uint8List.fromList([10, 20, 30, 40, 50]);
 
       final payloads = await CryptoWire.encryptFile(bytes, alice, bobPub);
-      final dec = await CryptoWire.decryptFile(payloads.peerPayload, bob);
+      final dec = await CryptoWire.decryptFileFromPeer(
+        payloads.peerPayload,
+        bob,
+        alicePub,
+      );
       expect(dec, bytes);
     });
   });

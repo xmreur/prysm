@@ -17,11 +17,14 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
+import 'package:prysm/crypto/direct_message_auth.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/notification_preview.dart';
 import 'package:prysm/util/notification_service.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 
 class InboundHandleResult {
   final int statusCode;
@@ -55,12 +58,15 @@ class InboundMessageRouter {
     required this.settings,
     required this.localOnionAddress,
     this.fetchSenderProfile,
+    this.resolvePeerIdentity,
   });
 
   final KeyManager keyManager;
   final SettingsService settings;
   final String? Function() localOnionAddress;
   final void Function(String senderId)? fetchSenderProfile;
+  final Future<IdentityPublicKeys?> Function(String senderId)?
+      resolvePeerIdentity;
 
   Future<InboundHandleResult> buildPublicKey() async {
     final body = await _publicIdentityBody();
@@ -452,6 +458,7 @@ class InboundMessageRouter {
 
     final inboundGroupId = data['groupId'] as String?;
     final localUserId = local;
+    var messageStatus = (data['status'] as String?) ?? 'received';
     if (inboundGroupId != null && localUserId != null) {
       final joinedAt = await DBHelper.getMemberJoinedAt(
         inboundGroupId,
@@ -459,6 +466,28 @@ class InboundMessageRouter {
       );
       if (joinedAt != null && messageTimestamp < joinedAt) {
         return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+      }
+    }
+
+    if (inboundGroupId == null && isDirectMessageType(type)) {
+      final auth = await DirectMessageAuth.authenticateInboundDirect(
+        senderId: senderId,
+        wire: data['message'] as String,
+        type: type,
+        localUserId: localUserId,
+        keyManager: keyManager,
+        resolveIdentity: _resolvePeerIdentity,
+        fullDecrypt: keyManager.isUnlocked,
+      );
+      switch (auth) {
+        case DirectAuthOutcome.rejected:
+          return InboundHandleResult.badRequest(
+            'Invalid or unsigned direct message',
+          );
+        case DirectAuthOutcome.pendingAuth:
+          messageStatus = 'pending_auth';
+        case DirectAuthOutcome.accepted:
+          break;
       }
     }
 
@@ -480,7 +509,7 @@ class InboundMessageRouter {
       if (data['fileName'] != null) 'fileName': data['fileName'] as String,
       if (data['fileSize'] != null) 'fileSize': data['fileSize'],
       'timestamp': messageTimestamp,
-      'status': (data['status'] ?? 'received') as String,
+      'status': messageStatus,
       if (data['replyTo'] != null) 'replyTo': data['replyTo'],
       'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
       'expiresAt': ?expiresAt,
@@ -490,15 +519,16 @@ class InboundMessageRouter {
       DisappearingActivityNotifier.instance.notify();
     }
 
-    if (inserted != null) {
+    if (inserted != null && inserted['status'] != 'pending_auth') {
       InboundMessageNotifier.instance.notify(
         InboundMessageEvent.fromRow(inserted),
       );
+      ConversationRefreshNotifier.instance.notifyInboundMessage();
     }
 
-    ConversationRefreshNotifier.instance.notifyInboundMessage();
-
-    if (settings.enableNotifications) {
+    if (settings.enableNotifications &&
+        inserted != null &&
+        inserted['status'] != 'pending_auth') {
       final appState = WidgetsBinding.instance.lifecycleState;
       final isBackground =
           appState == AppLifecycleState.paused ||
@@ -559,6 +589,13 @@ class InboundMessageRouter {
       'id': data['id'],
       'timestamp': timeReceived,
     });
+  }
+
+  Future<IdentityPublicKeys?> _resolvePeerIdentity(String senderId) async {
+    if (resolvePeerIdentity != null) {
+      return resolvePeerIdentity!(senderId);
+    }
+    return loadPeerIdentityFromDb(keyManager, senderId);
   }
 
   bool _isValidMessageData(dynamic data) {

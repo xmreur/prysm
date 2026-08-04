@@ -348,4 +348,16 @@ class MessageCrudDao {
       );
     });
   }
+
+  /// Direct messages awaiting post-unlock authentication.
+  Future<List<Map<String, dynamic>>> getPendingAuthDirectMessages() async {
+    return await _protect(() async {
+      final db = await _database;
+      return db.query(
+        'messages',
+        where: "groupId IS NULL AND status = 'pending_auth'",
+        orderBy: 'timestamp ASC',
+      );
+    });
+  }
 }

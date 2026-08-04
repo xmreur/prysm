@@ -5,6 +5,7 @@ export 'aead.dart';
 export 'identity.dart';
 export 'key_store.dart';
 export 'wire.dart';
+export 'direct_message_auth.dart';
 export 'group_crypto.dart';
 export 'qr_payload.dart';
 export 'ratchet/prekey_bundle.dart';

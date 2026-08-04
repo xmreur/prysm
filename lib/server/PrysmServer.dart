@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/transport/inbound_ws_peer_link.dart';
 import 'package:prysm/transport/transport_preference.dart';
@@ -12,9 +13,11 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/peer_profile_cache.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
@@ -44,6 +47,21 @@ class PrysmServer {
       settings: settings,
       localOnionAddress: () => localOnionAddress,
       fetchSenderProfile: _fetchSenderProfile,
+      resolvePeerIdentity: _resolvePeerIdentityForIngress,
+    );
+  }
+
+  Future<IdentityPublicKeys?> _resolvePeerIdentityForIngress(
+    String senderId,
+  ) async {
+    final resolver = PeerIdentityResolver(
+      peerId: senderId,
+      keyManager: keyManager,
+    );
+    return resolvePeerIdentityForIngress(
+      keyManager,
+      senderId,
+      fetchOverTor: () => resolver.fetchOverTor(),
     );
   }
 

@@ -195,7 +195,11 @@ class KeyManager {
         peerBundle: peerPrekey,
       );
     } on StateError {
-      return CryptoWire.encryptTextForPeer(message, identity, peer.agreePublic);
+      return CryptoWire.encryptSignedTextForPeer(
+        message,
+        identity,
+        peer.agreePublic,
+      );
     }
   }
 
@@ -203,12 +207,14 @@ class KeyManager {
     required String peerId,
     required String wire,
     required IdentityPublicKeys peer,
+    bool allowLegacyUnsignedDhAead = false,
   }) async {
     return RatchetService.instance.decryptText(
       peerId: peerId,
       wire: wire,
       local: identity,
       peer: peer,
+      allowLegacyUnsignedDhAead: allowLegacyUnsignedDhAead,
     );
   }
 
@@ -236,7 +242,7 @@ class KeyManager {
     String? peerId,
     PrekeyBundle? peerPrekey,
   }) async {
-    return CryptoWire.encryptForPeer(data, identity, peer.agreePublic);
+    return CryptoWire.encryptSignedForPeer(data, identity, peer.agreePublic);
   }
 
   Future<String> encryptBytesForSelf(Uint8List data) async {

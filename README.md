@@ -41,7 +41,11 @@ Tor onion addresses are separate from Prysm identity keys.
 
 - **Double Ratchet** (`ratchet-1`) with X3DH-style prekey bundles for session bootstrap.
 - Per-message **AES-256-GCM** with chain-derived keys (forward secrecy).
-- Files use ephemeral X25519 + HKDF + AES-GCM (`dh-aead-1` / `file-aead-1`).
+- Fallback / first-contact messages use **signed** ephemeral DH (`dm-signed-1`): Ed25519 binds the sender's signing key to the ciphertext.
+- Peer attachments use **signed** file envelopes (`file-signed-1`) with an Ed25519-authenticated key wrap.
+- Unsigned `dh-aead-1` / `file-aead-1` are legacy-read-only for messages already stored locally; new inbound peer messages without a valid signature are rejected.
+- While the app is locked, inbound direct messages are stored as `pending_auth` (ciphertext only, no display or content notifications). Signed envelopes with a known sender identity are signature-checked immediately; ratchet and unsigned messages are promoted or quarantined on unlock.
+- First-contact ingress awaits a Tor profile fetch to resolve the sender's identity before authentication.
 
 ### Group messages
 

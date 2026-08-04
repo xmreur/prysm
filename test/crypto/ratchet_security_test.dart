@@ -19,7 +19,7 @@ Future<String> _legacyRatchet1Wire(
   final role = session.isInitiator ? 'send' : 'recv';
   final salt = Uint8List.fromList(utf8.encode('prysm/ratchet/root-salt'));
   final messageKey = await CryptoKdf.hkdf(
-    sharedSecret: session.sharedMaterial,
+    sharedSecret: session.sharedMaterial!,
     info: utf8.encode('${CryptoConstants.hkdfInfoRatchet}/$role/msg/$counter'),
     salt: salt,
   );

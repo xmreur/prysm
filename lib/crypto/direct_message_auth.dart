@@ -126,7 +126,8 @@ class DirectMessageAuth {
     }
 
     if (scheme == CryptoConstants.schemeRatchet1 ||
-        scheme == CryptoConstants.schemeRatchet2) {
+        scheme == CryptoConstants.schemeRatchet2 ||
+        scheme == CryptoConstants.schemeRatchet3) {
       if (!fullDecrypt || !keyManager.isUnlocked || peerKeys == null) {
         return DirectAuthOutcome.pendingAuth;
       }

@@ -150,7 +150,7 @@ void main() {
 
     final envelope = jsonDecode(wire) as Map<String, dynamic>;
     expect(envelope['handshake'], isNotNull);
-    expect(envelope['scheme'], CryptoConstants.schemeRatchet2);
+    expect(envelope['scheme'], CryptoConstants.schemeRatchet3);
 
     final plain = await RatchetService.instance.decryptText(
       peerId: aliceOnion,
@@ -323,7 +323,7 @@ void main() {
       peerBundle: bobBundle,
       ephemeral: ephemeral,
     );
-    final initSession = await RatchetSession.initializeAsInitiator(shared);
+    final initSession = await RatchetSession.initializeV3AsInitiator(shared);
     final handshake = {'ephemeralPub': base64Encode(ephemeralPub.bytes)};
     final result = await initSession.encryptMessage(
       utf8.encode('fallback'),

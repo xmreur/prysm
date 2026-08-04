@@ -28,6 +28,7 @@ class CryptoConstants {
   static const String schemeCallAead1 = 'call-aead-1';
   static const String schemeRatchet1 = 'ratchet-1';
   static const String schemeRatchet2 = 'ratchet-2';
+  static const String schemeRatchet3 = 'ratchet-3';
   static const String schemeGroupSender1 = 'group-sender-1';
 
   static const String hkdfInfoDhAead = 'prysm/dh-aead-1';

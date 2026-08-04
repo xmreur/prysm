@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:mutex/mutex.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
@@ -17,6 +18,9 @@ class RatchetService {
   static final RatchetService instance = RatchetService._();
 
   RatchetSessionStore? _sessionStore;
+  final Map<String, Mutex> _peerLocks = {};
+
+  Mutex _lockFor(String peerId) => _peerLocks.putIfAbsent(peerId, Mutex.new);
 
   /// Injects the [RatchetSessionStore] used for persistence.
   /// The wiring is performed by the application database helper.
@@ -57,42 +61,43 @@ class RatchetService {
     required IdentityKeyPair local,
     required IdentityPublicKeys peer,
     PrekeyBundle? peerBundle,
-  }) async {
-    var session = await _store.load(peerId);
-    Map<String, dynamic> handshake = {};
+  }) =>
+      _lockFor(peerId).protect(() async {
+        var session = await _store.load(peerId);
+        Map<String, dynamic> handshake = {};
 
-    if (session == null) {
-      final bundle = peerBundle;
-      if (bundle == null) {
-        throw StateError('Missing prekey bundle for $peerId');
-      }
-      final ephemeral = await _x25519.newKeyPair();
-      final ephemeralPublic = await ephemeral.extractPublicKey();
-      final shared = await PrekeyBundle.sharedSecretAsInitiator(
-        local: local,
-        peer: peer,
-        peerBundle: bundle,
-        ephemeral: ephemeral,
-      );
-      session = await RatchetSession.initializeAsInitiator(shared);
-      handshake = {
-        'ephemeralPub': base64Encode(ephemeralPublic.bytes),
-        'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
-      };
-    }
+        if (session == null) {
+          final bundle = peerBundle;
+          if (bundle == null) {
+            throw StateError('Missing prekey bundle for $peerId');
+          }
+          final ephemeral = await _x25519.newKeyPair();
+          final ephemeralPublic = await ephemeral.extractPublicKey();
+          final shared = await PrekeyBundle.sharedSecretAsInitiator(
+            local: local,
+            peer: peer,
+            peerBundle: bundle,
+            ephemeral: ephemeral,
+          );
+          session = await RatchetSession.initializeAsInitiator(shared);
+          handshake = {
+            'ephemeralPub': base64Encode(ephemeralPublic.bytes),
+            'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
+          };
+        }
 
-    final result = await session.encryptMessage(
-      plaintext,
-      handshake: handshake.isEmpty ? null : handshake,
-    );
-    await _store.save(peerId, session);
-    if (handshake.isEmpty) {
-      return result.wire;
-    }
-    final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
-    envelope['handshake'] = handshake;
-    return jsonEncode(envelope);
-  }
+        final result = await session.encryptMessage(
+          plaintext,
+          handshake: handshake.isEmpty ? null : handshake,
+        );
+        await _store.save(peerId, session);
+        if (handshake.isEmpty) {
+          return result.wire;
+        }
+        final envelope = jsonDecode(result.wire) as Map<String, dynamic>;
+        envelope['handshake'] = handshake;
+        return jsonEncode(envelope);
+      });
 
   Future<String> decryptText({
     required String peerId,
@@ -137,52 +142,54 @@ class RatchetService {
       throw FormatException('Unsupported ciphertext scheme: $scheme');
     }
 
-    SimplePublicKey? consumedOneTime;
-    try {
-      var session = await _store.load(peerId);
-      if (session == null) {
-        final handshake = envelope['handshake'] as Map<String, dynamic>?;
-        if (handshake == null) {
-          throw StateError('Missing ratchet handshake for $peerId');
-        }
-        final ephemeralBytes =
-            base64Decode(handshake['ephemeralPub'] as String);
-        final ephemeralPublic = SimplePublicKey(
-          ephemeralBytes,
-          type: KeyPairType.x25519,
-        );
-        SimplePublicKey? usedOneTime;
-        final oneTimeRaw = handshake['oneTimePreKey'] as String?;
-        if (oneTimeRaw != null) {
-          usedOneTime = SimplePublicKey(
-            base64Decode(oneTimeRaw),
+    return _lockFor(peerId).protect(() async {
+      SimplePublicKey? consumedOneTime;
+      try {
+        var session = await _store.load(peerId);
+        if (session == null) {
+          final handshake = envelope['handshake'] as Map<String, dynamic>?;
+          if (handshake == null) {
+            throw StateError('Missing ratchet handshake for $peerId');
+          }
+          final ephemeralBytes =
+              base64Decode(handshake['ephemeralPub'] as String);
+          final ephemeralPublic = SimplePublicKey(
+            ephemeralBytes,
             type: KeyPairType.x25519,
           );
+          SimplePublicKey? usedOneTime;
+          final oneTimeRaw = handshake['oneTimePreKey'] as String?;
+          if (oneTimeRaw != null) {
+            usedOneTime = SimplePublicKey(
+              base64Decode(oneTimeRaw),
+              type: KeyPairType.x25519,
+            );
+          }
+          final shared = await PrekeyBundle.sharedSecretAsResponder(
+            local: local,
+            peer: peer,
+            initiatorEphemeralPublic: ephemeralPublic,
+            usedOneTimePreKeyPublic: usedOneTime,
+          );
+          if (shared == null) {
+            throw StateError('Cannot derive ratchet session for $peerId');
+          }
+          consumedOneTime = shared.usedOneTimePreKeyPublic;
+          session = await RatchetSession.initializeAsResponder(shared.material);
         }
-        final shared = await PrekeyBundle.sharedSecretAsResponder(
-          local: local,
-          peer: peer,
-          initiatorEphemeralPublic: ephemeralPublic,
-          usedOneTimePreKeyPublic: usedOneTime,
-        );
-        if (shared == null) {
-          throw StateError('Cannot derive ratchet session for $peerId');
-        }
-        consumedOneTime = shared.usedOneTimePreKeyPublic;
-        session = await RatchetSession.initializeAsResponder(shared.material);
-      }
 
-      final plain = await session.decryptMessage(wire);
-      await _store.save(peerId, session);
-      final consumed = consumedOneTime;
-      if (consumed != null) {
-        await PrekeyBundle.commitOneTimePreKeyConsumption(consumed);
+        final plain = await session.decryptMessage(wire);
+        await _store.save(peerId, session);
+        final consumed = consumedOneTime;
+        if (consumed != null) {
+          await PrekeyBundle.commitOneTimePreKeyConsumption(consumed);
+        }
+        return plain;
+      } on FormatException {
+        rethrow;
+      } on StateError {
+        rethrow;
       }
-      return plain;
-    } on FormatException {
-      rethrow;
-    } on StateError {
-      rethrow;
-    }
+    });
   }
 }

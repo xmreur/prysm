@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:mutex/mutex.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/identity.dart';
@@ -9,6 +10,7 @@ import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/crypto/ratchet/ratchet_session.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/crypto/wire.dart';
+import 'package:prysm/transport/transport_provider.dart';
 
 /// High-level 1:1 ratchet encrypt/decrypt with SQLite session persistence.
 class RatchetService {
@@ -19,6 +21,16 @@ class RatchetService {
 
   RatchetSessionStore? _sessionStore;
   final Map<String, Mutex> _peerLocks = {};
+
+  /// Test override for peer profile ratchet-scheme lookup.
+  Future<String?> Function(String peerId)? _peerRatchetSchemeFetcher;
+
+  @visibleForTesting
+  void setPeerRatchetSchemeFetcherForTest(
+    Future<String?> Function(String peerId)? fetcher,
+  ) {
+    _peerRatchetSchemeFetcher = fetcher;
+  }
 
   Mutex _lockFor(String peerId) => _peerLocks.putIfAbsent(peerId, Mutex.new);
 
@@ -37,6 +49,31 @@ class RatchetService {
   }
 
   static final X25519 _x25519 = X25519();
+
+  Future<String?> _peerRatchetSchemeFromProfile(String peerId) async {
+    final fetcher = _peerRatchetSchemeFetcher;
+    if (fetcher != null) {
+      return CryptoConstants.parseRatchetScheme(await fetcher(peerId));
+    }
+    try {
+      final body = await TransportProvider.getProfileOrFallback(peerId);
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      return CryptoConstants.parseRatchetScheme(
+        data['ratchetScheme'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _resolvePeerRatchetScheme(
+    String peerId,
+    RatchetSession? session,
+  ) async {
+    final cached = session?.peerWireScheme;
+    final profile = await _peerRatchetSchemeFromProfile(peerId);
+    return CryptoConstants.maxRatchetScheme(cached, profile);
+  }
 
   Future<String> encryptText({
     required String peerId,
@@ -79,8 +116,16 @@ class RatchetService {
             peerBundle: bundle,
             ephemeral: ephemeral,
           );
-          // New sessions always start as forward-secret v3.
-          session = await RatchetSession.initializeV3AsInitiator(shared);
+          final peerScheme = await _resolvePeerRatchetScheme(peerId, null);
+          session = CryptoConstants.peerSupportsRatchet3(peerScheme)
+              ? await RatchetSession.initializeV3AsInitiator(
+                  shared,
+                  peerWireScheme: peerScheme,
+                )
+              : await RatchetSession.initializeAsInitiator(
+                  shared,
+                  peerWireScheme: peerScheme,
+                );
           handshake = {
             'ephemeralPub': base64Encode(ephemeralPublic.bytes),
             'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
@@ -180,13 +225,16 @@ class RatchetService {
             throw StateError('Cannot derive ratchet session for $peerId');
           }
           consumedOneTime = shared.usedOneTimePreKeyPublic;
-          // Pick the session version from the envelope: an updated peer
-          // bootstraps with ratchet-3 (forward-secret), a pre-v3 peer with
-          // ratchet-1/2 (legacy static KDF). Matching the scheme keeps
-          // cross-version chats working.
+          final inboundScheme = CryptoConstants.parseRatchetScheme(scheme);
           session = scheme == CryptoConstants.schemeRatchet3
-              ? await RatchetSession.initializeV3AsResponder(shared.material)
-              : await RatchetSession.initializeAsResponder(shared.material);
+              ? await RatchetSession.initializeV3AsResponder(
+                  shared.material,
+                  peerWireScheme: inboundScheme,
+                )
+              : await RatchetSession.initializeAsResponder(
+                  shared.material,
+                  peerWireScheme: inboundScheme,
+                );
         }
 
         final plain = await session.decryptMessage(wire);

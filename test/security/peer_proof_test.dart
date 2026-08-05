@@ -234,5 +234,64 @@ void main() {
       );
       expect(ok, isFalse);
     });
+
+    test('valid base64 signature of the wrong length returns false', () async {
+      final alice = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      final ok = await PeerProof.verify(
+        context: PeerProof.syncHintContext,
+        senderOnion: 'alice.onion',
+        receiverOnion: 'bob.onion',
+        timestampMs: timestamp,
+        // Decodes to 4 bytes; Ed25519 needs exactly 64, and the crypto layer
+        // would throw a StateError for any other length.
+        signature: 'dGVzdA==',
+        peer: alicePub,
+      );
+      expect(ok, isFalse);
+    });
+
+    test('empty signature returns false', () async {
+      final alice = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      final ok = await PeerProof.verify(
+        context: PeerProof.syncHintContext,
+        senderOnion: 'alice.onion',
+        receiverOnion: 'bob.onion',
+        timestampMs: timestamp,
+        signature: '',
+        peer: alicePub,
+      );
+      expect(ok, isFalse);
+    });
+
+    test('64-byte signature from the wrong key returns false', () async {
+      final alice = await IdentityKeyPair.generate();
+      final alicePub = await _publicKeys(alice);
+      final mallory = await IdentityKeyPair.generate();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      final wrongSig = await PeerProof.sign(
+        context: PeerProof.syncHintContext,
+        senderOnion: 'alice.onion',
+        receiverOnion: 'bob.onion',
+        timestampMs: timestamp,
+        identity: mallory,
+      );
+
+      final ok = await PeerProof.verify(
+        context: PeerProof.syncHintContext,
+        senderOnion: 'alice.onion',
+        receiverOnion: 'bob.onion',
+        timestampMs: timestamp,
+        signature: wrongSig,
+        peer: alicePub,
+      );
+      expect(ok, isFalse);
+    });
   });
 }

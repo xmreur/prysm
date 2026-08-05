@@ -52,9 +52,10 @@ class PeerProof {
   }
 
   /// Returns `false` (never throws) when the base64 is malformed, the
-  /// signature does not verify, or `|now - timestampMs|` exceeds [maxSkew].
-  /// The skew check runs before the expensive signature verification so a
-  /// replay flood cannot force Ed25519 work.
+  /// decoded signature is not exactly 64 bytes, the signature does not
+  /// verify, or `|now - timestampMs|` exceeds [maxSkew]. The skew check runs
+  /// before the expensive signature verification so a replay flood cannot
+  /// force Ed25519 work.
   static Future<bool> verify({
     required String context,
     required String senderOnion,
@@ -74,15 +75,24 @@ class PeerProof {
     } on FormatException {
       return false;
     }
-    return _ed25519.verify(
-      canonicalBytes(
-        context: context,
-        senderOnion: senderOnion,
-        receiverOnion: receiverOnion,
-        timestampMs: timestampMs,
-      ),
-      signature: Signature(sigBytes, publicKey: peer.signPublic),
-    );
+    if (sigBytes.length != 64) {
+      return false;
+    }
+    try {
+      return await _ed25519.verify(
+        canonicalBytes(
+          context: context,
+          senderOnion: senderOnion,
+          receiverOnion: receiverOnion,
+          timestampMs: timestampMs,
+        ),
+        signature: Signature(sigBytes, publicKey: peer.signPublic),
+      );
+    } catch (_) {
+      // Totality contract: a peer-supplied signature must never turn into an
+      // exception here — callers treat `false` as a clean rejection.
+      return false;
+    }
   }
 
   /// Composition-time hook, not ambient global state: the outbound transport

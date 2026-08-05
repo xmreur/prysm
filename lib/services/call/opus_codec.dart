@@ -2,12 +2,13 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:opus_dart/opus_dart.dart';
 import 'package:opus_flutter/opus_flutter.dart' as opus_flutter;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/util/logging.dart';
 
 class OpusCodec {
@@ -50,8 +51,15 @@ class OpusCodec {
     return _available;
   }
 
+  static const _torProxyHost = '127.0.0.1';
+  static const _torProxyPort = 9050;
+
   static const _opusDownloadUrl =
       'https://github.com/xmreur/prysm-resources/raw/refs/heads/main/tor/exec/macos/libopus.dylib';
+  static const String _opusSha256 =
+      '435581a316f3dd41982f3101caa6be6ec974572e31765cd0e29c7cbe30198609';
+  static const int _opusSizeBytes = 357824;
+  static const int _maxOpusBytes = 4 * 1024 * 1024;
 
   static Future<dynamic> _loadLibrary() async {
     if (kIsWeb) {
@@ -66,9 +74,16 @@ class OpusCodec {
       ]);
     }
     if (Platform.isMacOS) {
-      final bundled = await _ensureMacOsOpus();
+      String? bundled;
+      try {
+        bundled = await _ensureMacOsOpus();
+      } catch (_) {
+        // A failed or unverifiable download contributes no candidate; the
+        // system paths below are still tried so opus degrades instead of
+        // failing the whole list.
+      }
       return _openFirst([
-        bundled,
+        ?bundled,
         'libopus.dylib',
         'libopus.0.dylib',
         '/opt/homebrew/lib/libopus.dylib',
@@ -78,6 +93,15 @@ class OpusCodec {
     return opus_flutter.load();
   }
 
+  /// True iff [bytes] is exactly the pinned libopus artifact for macOS:
+  /// length check first (cheap reject), then sha256 against [_opusSha256].
+  /// Used by both the cache-verification path and the post-download path.
+  @visibleForTesting
+  static bool isTrustedOpusPayload(List<int> bytes) {
+    if (bytes.length != _opusSizeBytes) return false;
+    return sha256.convert(bytes).toString() == _opusSha256;
+  }
+
   static Future<String> _ensureMacOsOpus() async {
     final dir = await getApplicationDocumentsDirectory();
     final libDir = Directory(p.join(dir.path, 'prysm', 'native_libs'));
@@ -85,15 +109,70 @@ class OpusCodec {
       libDir.createSync(recursive: true);
     }
     final dylibPath = p.join(libDir.path, 'libopus.dylib');
-    if (!File(dylibPath).existsSync()) {
-      Logging.debug('Downloading libopus.dylib ...', 'OpusCodec');
-      final resp = await http.get(Uri.parse(_opusDownloadUrl));
-      if (resp.statusCode != 200) {
-        throw StateError('Failed to download libopus.dylib: ${resp.statusCode}');
+
+    final cachedFile = File(dylibPath);
+    if (cachedFile.existsSync()) {
+      final cachedBytes = cachedFile.readAsBytesSync();
+      if (isTrustedOpusPayload(cachedBytes)) {
+        return dylibPath;
       }
-      await File(dylibPath).writeAsBytes(resp.bodyBytes);
+      Logging.error(
+        'Cached libopus.dylib failed integrity check; removing and '
+        're-downloading over Tor',
+        'OpusCodec',
+      );
+      cachedFile.deleteSync();
     }
+
+    Logging.debug('Downloading libopus.dylib over Tor ...', 'OpusCodec');
+    final bytes = await _downloadMacOsOpus();
+    if (!isTrustedOpusPayload(bytes)) {
+      throw StateError(
+        'Downloaded libopus.dylib failed integrity check: '
+        '${bytes.length} bytes, sha256 ${sha256.convert(bytes)} '
+        '(expected $_opusSizeBytes bytes, sha256 $_opusSha256)',
+      );
+    }
+
+    final partFile = File('$dylibPath.part');
+    await partFile.writeAsBytes(bytes, flush: true);
+    await partFile.rename(dylibPath);
     return dylibPath;
+  }
+
+  static Future<Uint8List> _downloadMacOsOpus() async {
+    final torClient = TorHttpClient(
+      proxyHost: _torProxyHost,
+      proxyPort: _torProxyPort,
+    );
+    try {
+      final response = await torClient
+          .get(Uri.parse(_opusDownloadUrl), const {
+            'Accept': 'application/octet-stream',
+          })
+          .timeout(const Duration(seconds: 120));
+
+      if (response.statusCode < 200 || response.statusCode >= 400) {
+        throw StateError(
+          'Failed to download libopus.dylib: ${response.statusCode}',
+        );
+      }
+
+      final builder = BytesBuilder(copy: false);
+      var received = 0;
+      await for (final chunk in response) {
+        received += chunk.length;
+        if (received > _maxOpusBytes) {
+          throw StateError(
+            'Downloaded libopus.dylib exceeds $_maxOpusBytes bytes',
+          );
+        }
+        builder.add(chunk);
+      }
+      return builder.takeBytes();
+    } finally {
+      await torClient.close();
+    }
   }
 
   static DynamicLibrary _openFirst(List<String> names) {

@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:prysm/client/TorHttpClient.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/server/inbound_limits.dart';
 import 'package:prysm/server/inbound_message_router.dart';
+import 'package:prysm/server/inbound_rate_limiter.dart';
 import 'package:prysm/transport/inbound_ws_peer_link.dart';
 import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -34,6 +38,11 @@ class PrysmServer {
   final settings = SettingsService();
   late final InboundMessageRouter _router;
   final WsFrameRouter _frameRouter = WsFrameRouter();
+
+  InboundRateLimiter _rateLimiter = InboundRateLimiter();
+
+  @visibleForTesting
+  set rateLimiterOverride(InboundRateLimiter limiter) => _rateLimiter = limiter;
 
   InboundMessageRouter get inboundRouter => _router;
 
@@ -98,6 +107,10 @@ class PrysmServer {
     Logging.info('${request.method} - ${request.url}', 'PrysmServer');
 
     try {
+      if (!_rateLimiter.allow(InboundRateLimiter.globalKey)) {
+        return _rateLimited();
+      }
+
       if (request.method == 'POST' && request.url.path == 'message') {
         return await _handlePostMessage(request);
       }
@@ -107,9 +120,15 @@ class PrysmServer {
       }
 
       if (request.method == 'GET' && request.url.path == 'profile') {
+        final requester = request.url.queryParameters['requester'];
+        if (requester is String &&
+            requester.isNotEmpty &&
+            !_rateLimiter.allow(requester)) {
+          return _rateLimited();
+        }
         return _toResponse(
           await _router.buildProfile(
-            requesterOnion: request.url.queryParameters['requester'],
+            requesterOnion: requester,
             requireRequester: true,
           ),
         );
@@ -131,8 +150,11 @@ class PrysmServer {
     }
   }
 
-  Future<Map<String, dynamic>> _readJsonBody(Request request) async {
-    final bodyBytes = await request.read().expand((chunk) => chunk).toList();
+  Future<Map<String, dynamic>> _readJsonBody(
+    Request request, {
+    required int maxBytes,
+  }) async {
+    final bodyBytes = await InboundLimits.readCapped(request.read(), maxBytes);
     if (bodyBytes.isEmpty) {
       throw const FormatException('Empty request body');
     }
@@ -154,9 +176,28 @@ class PrysmServer {
 
   Future<Response> _handlePostMessage(Request request) async {
     try {
-      final data = await _readJsonBody(request);
+      final data = await _readJsonBody(
+        request,
+        maxBytes: InboundLimits.maxMessageBodyBytes,
+      );
+      final senderId = data['senderId'];
+      if (senderId is String &&
+          senderId.isNotEmpty &&
+          !_rateLimiter.allow(senderId)) {
+        return _rateLimited();
+      }
       final result = await _router.handleMessage(data);
       return _toResponse(result);
+    } on PayloadTooLargeException catch (e, stack) {
+      Logging.error(
+        'PrysmServer POST /message body too large: $e\n$stack',
+        'PrysmServer',
+      );
+      return Response(
+        413,
+        body: jsonEncode({'error': 'Request body too large'}),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on FormatException catch (e, stack) {
       Logging.error('PrysmServer POST /message invalid body: $e\n$stack', 'PrysmServer');
       return _badRequest('Invalid message body');
@@ -171,9 +212,28 @@ class PrysmServer {
 
   Future<Response> _handlePostSyncHint(Request request) async {
     try {
-      final data = await _readJsonBody(request);
+      final data = await _readJsonBody(
+        request,
+        maxBytes: InboundLimits.maxControlBodyBytes,
+      );
+      final senderId = data['senderId'];
+      if (senderId is String &&
+          senderId.isNotEmpty &&
+          !_rateLimiter.allow(senderId)) {
+        return _rateLimited();
+      }
       final result = await _router.handleSyncHint(data);
       return _toResponse(result);
+    } on PayloadTooLargeException catch (e, stack) {
+      Logging.error(
+        'PrysmServer POST /sync-hint body too large: $e\n$stack',
+        'PrysmServer',
+      );
+      return Response(
+        413,
+        body: jsonEncode({'error': 'Request body too large'}),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on FormatException catch (e, stack) {
       Logging.error('PrysmServer POST /sync-hint invalid body: $e\n$stack', 'PrysmServer');
       return _badRequest('Invalid sync-hint body');
@@ -278,6 +338,14 @@ class PrysmServer {
     return Response(
       400,
       body: jsonEncode({'error': message}),
+      headers: {'Content-Type': 'application/json'},
+    );
+  }
+
+  Response _rateLimited() {
+    return Response(
+      429,
+      body: jsonEncode({'error': 'Rate limited'}),
       headers: {'Content-Type': 'application/json'},
     );
   }

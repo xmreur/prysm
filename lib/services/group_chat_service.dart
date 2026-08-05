@@ -397,7 +397,7 @@ class GroupChatService {
       while (!_disposed) {
         await _refreshSession();
         final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-            .where((m) => !isGroupControlType(m['type'] as String))
+            .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
             .toList();
         if (pending.isEmpty) break;
 
@@ -477,7 +477,7 @@ class GroupChatService {
         }
 
         final remaining = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-            .where((m) => !isGroupControlType(m['type'] as String))
+            .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
             .toList();
         if (remaining.isEmpty) break;
 
@@ -614,7 +614,7 @@ class GroupChatService {
 
   Future<void> _checkAllTargetsDelivered(String messageId) async {
     final remaining = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-        .where((m) => !isGroupControlType(m['type'] as String))
+        .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
         .where((m) => _messageIdFromPendingId(m['id'] as String) == messageId)
         .toList();
     if (remaining.isEmpty) {
@@ -632,8 +632,7 @@ class GroupChatService {
       senderId: userId,
       limit: maxPerCycle,
     ))
-        .where((m) => !isGroupControlType(m['type'] as String))
-        .where((m) => m['type'] != groupHistoryRelayType)
+        .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
         .toList();
     if (pending.isEmpty) return false;
 
@@ -659,8 +658,7 @@ class GroupChatService {
     _isSending = true;
     try {
       final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
-          .where((m) => !isGroupControlType(m['type'] as String))
-          .where((m) => m['type'] != groupHistoryRelayType)
+          .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
           .toList();
       if (pending.isEmpty) return;
 

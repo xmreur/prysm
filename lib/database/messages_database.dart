@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'package:prysm/database/database_cipher.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 
@@ -35,6 +36,10 @@ class MessagesDatabase {
     final databasesPath = await getApplicationDocumentsDirectory();
     final path = join(databasesPath.path, 'prysm', 'messages.db');
 
+    // Encrypt an existing plaintext file in place, or no-op for a fresh or
+    // already-encrypted database. Must run before openDatabase.
+    await DatabaseCipher.prepare(path);
+
     final db = await openDatabase(
       path,
       version: MessageSchemaMigrations.dbVersion,
@@ -54,6 +59,9 @@ class MessagesDatabase {
   }
 
   static Future<void> _onConfigure(Database db) async {
+    // PRAGMA key must be the first statement on the connection; anything
+    // before it makes the open fail with SQLITE_NOTADB.
+    await DatabaseCipher.applyKey(db);
     await db.execute('PRAGMA foreign_keys = ON');
     // Android rejects some PRAGMA via execute() during onConfigure.
     await db.rawQuery('PRAGMA busy_timeout = 5000');

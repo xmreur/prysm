@@ -27,7 +27,7 @@ void main() {
     TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
     TorRuntimeGate.isTorStopped = () => true;
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-test-2'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-test-2', controlPassword: 'test-password'),
     );
 
     await expectLater(
@@ -40,7 +40,7 @@ void main() {
 
   test('registerLinkForTest marks peer connected', () {
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-inbound'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-inbound', controlPassword: 'test-password'),
     );
 
     final link = _FakeWsPeerLink('peer.onion');
@@ -52,7 +52,7 @@ void main() {
 
   test('prepareForTorReconnect clears links', () {
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-reconnect'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-reconnect', controlPassword: 'test-password'),
     );
 
     manager.registerLinkForTest('peer.onion', _FakeWsPeerLink('peer.onion'));
@@ -66,7 +66,7 @@ void main() {
 
   test('request calls are serialized per peer', () async {
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-queue'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-manager-queue', controlPassword: 'test-password'),
     );
     final link = _RecordingWsPeerLink('peer.onion');
     manager.registerLinkForTest('peer.onion', link);

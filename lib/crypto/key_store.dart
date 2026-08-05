@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -17,6 +18,7 @@ class CryptoKeyStore {
   static const String publicIdentityKey = 'PUBLIC_IDENTITY_V2';
   static const String passphraseSaltKey = 'PASSPHRASE_SALT_V2';
   static const String cryptoGenerationKey = 'CRYPTO_GENERATION';
+  static const String torControlPasswordKey = 'TOR_CONTROL_PASSWORD_V1';
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -127,6 +129,22 @@ class CryptoKeyStore {
 
   static Future<void> setCryptoGeneration(int generation) async {
     await write(cryptoGenerationKey, '$generation');
+  }
+
+  /// Per-installation random Tor control-port password, persisted in secure
+  /// storage so every launch authenticates with the same secret.
+  ///
+  /// The value is base64-url encoded without padding so it is safe to
+  /// interpolate into a quoted `AUTHENTICATE "..."` control-protocol line and
+  /// to pass as a `--hash-password` argv.
+  static Future<String> torControlPassword() async {
+    final existing = await read(torControlPasswordKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    final generated = base64Url.encode(bytes).replaceAll('=', '');
+    await write(torControlPasswordKey, generated);
+    return generated;
   }
 
   /// Detect legacy RSA-era storage.

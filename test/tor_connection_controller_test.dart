@@ -18,7 +18,7 @@ class _FakeTorManager extends TorManager {
     this.cachedOnionAddress,
     TorHealthStatus health = TorHealthStatus.healthy,
   }) : _health = health,
-       super(torPath: '/bin/false', dataDir: '/tmp/tor-connection-ctrl-test');
+       super(torPath: '/bin/false', dataDir: '/tmp/tor-connection-ctrl-test', controlPassword: 'test-password');
 
   String? onionAddress;
   String? cachedOnionAddress;

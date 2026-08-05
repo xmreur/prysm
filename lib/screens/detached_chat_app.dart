@@ -25,6 +25,10 @@ class DetachedChatApp extends StatelessWidget {
         torManager: TorManager(
           torPath: '',
           dataDir: '',
+          // The detached window never starts its own Tor process; it shares
+          // the main window's manager. The real per-install password is only
+          // needed where Tor is actually started (createTorManager).
+          controlPassword: '',
         ),
         settings: settings,
       ),

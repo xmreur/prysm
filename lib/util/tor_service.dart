@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
 import 'package:prysm/util/logging.dart';
@@ -55,7 +56,7 @@ class TorManager {
     required this.dataDir,
     this.controlPort = 9051,
     int socksPort = 9050,
-    this.controlPassword = 'my_password',
+    required this.controlPassword,
   }) : _socksPort = socksPort;
 
   List<String> get recentStderrLines => List.unmodifiable(_recentStderrLines);
@@ -620,7 +621,7 @@ ControlPort $controlPort
 SocksPort $socksPort
 DataDirectory $dataDir
 HashedControlPassword $hashedPassword
-CookieAuthentication 0
+CookieAuthentication 1
 HiddenServiceDir $dataDir/hidden_service/
 HiddenServicePort 80 127.0.0.1:12345
 ''';
@@ -631,9 +632,15 @@ HiddenServicePort 80 127.0.0.1:12345
 
   Future<String> _hashControlPasswordDesktop() async {
     final cacheFile = File('$dataDir/.control_hash');
+    final digest = sha256.convert(utf8.encode(controlPassword)).toString();
     if (cacheFile.existsSync()) {
-      final cached = cacheFile.readAsStringSync().trim();
-      if (cached.startsWith('16:')) return cached;
+      final lines = cacheFile.readAsStringSync().split('\n');
+      if (lines.isNotEmpty &&
+          lines[0] == digest &&
+          lines.length >= 2 &&
+          lines[1].trim().startsWith('16:')) {
+        return lines[1].trim();
+      }
     }
 
     final result =
@@ -647,7 +654,7 @@ HiddenServicePort 80 127.0.0.1:12345
       throw Exception('No hashed password line (16:...) in: $output');
     });
     try {
-      await cacheFile.writeAsString(hash);
+      await cacheFile.writeAsString('$digest\n$hash');
     } catch (_) {}
     return hash;
   }

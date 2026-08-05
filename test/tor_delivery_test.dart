@@ -96,7 +96,7 @@ void main() {
 
     test('does not call refresh when NEWNYM was recent', () async {
       TorDelivery.configure(
-        TorManager(torPath: '/bin/false', dataDir: '/tmp/tor-delivery'),
+        TorManager(torPath: '/bin/false', dataDir: '/tmp/tor-delivery', controlPassword: 'test-password'),
       );
       TorDelivery.setLastNewnymForTest(
         DateTime.now().subtract(const Duration(seconds: 2)),

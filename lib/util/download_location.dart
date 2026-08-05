@@ -47,16 +47,49 @@ class DownloadLocation {
     return custom != null && custom.isNotEmpty;
   }
 
+  /// Reduces a peer-supplied file name to a safe basename that cannot escape
+  /// the download directory: strips directory components, replaces reserved
+  /// characters, rejects traversal sequences, and caps the length at 200
+  /// chars (extension preserved).
+  static String sanitizeFileName(String fileName) {
+    var name = p.posix.basename(fileName.replaceAll(r'\', '/'));
+    final sanitized = StringBuffer();
+    for (final codeUnit in name.codeUnits) {
+      final ch = String.fromCharCode(codeUnit);
+      if (codeUnit < 0x20 || '<>:"|?*'.contains(ch)) {
+        sanitized.write('_');
+      } else {
+        sanitized.write(ch);
+      }
+    }
+    name = sanitized.toString();
+    if (name.isEmpty || name == '.' || name == '..') {
+      return 'download';
+    }
+    final originalExt = p.extension(name);
+    var ext = originalExt;
+    if (ext.length > 20) {
+      ext = ext.substring(0, 20);
+    }
+    if (name.length > 200) {
+      final stem = name.substring(0, name.length - originalExt.length);
+      final keep = 200 - ext.length;
+      name = (stem.length <= keep ? stem : stem.substring(0, keep)) + ext;
+    }
+    return name;
+  }
+
   /// Pick a unique filename inside the download directory.
   static Future<File> uniqueFile(String fileName) async {
     final dir = await resolveDirectory();
     if (dir == null) {
       throw StateError('Downloads folder not available');
     }
-    var file = File(p.join(dir.path, fileName));
+    final safeName = sanitizeFileName(fileName);
+    var file = File(p.join(dir.path, safeName));
     var c = 0;
     while (await file.exists()) {
-      file = File(p.join(dir.path, '$fileName - $c'));
+      file = File(p.join(dir.path, '$safeName - $c'));
       c++;
     }
     return file;

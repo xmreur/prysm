@@ -63,4 +63,28 @@ void main() {
 
     await File(backupPath).delete();
   });
+
+  test('backup round trip restores the database key', () async {
+    const dbKey =
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+    await CryptoKeyStore.write(CryptoKeyStore.databaseKeyName, dbKey);
+
+    final backupPath =
+        '${Directory.systemTemp.path}/prysm_backup_dbkey_${DateTime.now().microsecondsSinceEpoch}.bin';
+    await BackupService.createBackup(backupPath, 'backup-test-passphrase');
+
+    await CryptoKeyStore.delete(CryptoKeyStore.databaseKeyName);
+    expect(await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName), isNull);
+
+    final restored =
+        await BackupService.restoreBackup(backupPath, 'backup-test-passphrase');
+    expect(restored, isTrue);
+    expect(
+      await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName),
+      dbKey,
+    );
+
+    await File(backupPath).delete();
+  });
 }

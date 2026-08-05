@@ -23,6 +23,7 @@ class BackupService {
     CryptoKeyStore.publicIdentityKey,
     CryptoKeyStore.passphraseSaltKey,
     CryptoKeyStore.cryptoGenerationKey,
+    CryptoKeyStore.databaseKeyName,
     PrekeyBundle.storageSignedPreKeyPrivate,
     PrekeyBundle.storageOneTimePreKeyPrivate,
     PrekeyBundle.storageOneTimePreKeyPool,

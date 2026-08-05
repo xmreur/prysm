@@ -23,10 +23,14 @@ class PanicWipeService {
       'chat_app.db',
       'messages.db',
       'pending_messages.db',
-]) {
-      final file = File(p.join(prysmDir.path, name));
-      if (await file.exists()) {
-        await file.delete();
+    ]) {
+      // The -wal/-shm sidecars can carry plaintext pages even when the main
+      // file is encrypted; leaving them defeats the wipe.
+      for (final suffix in ['', '-wal', '-shm']) {
+        final file = File(p.join(prysmDir.path, '$name$suffix'));
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
     }
 

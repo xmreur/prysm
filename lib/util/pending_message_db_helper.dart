@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/database/database_cipher.dart';
 import 'package:prysm/util/pending_activity_notifier.dart';
+import 'package:prysm/util/sqflite_platform.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -9,15 +11,28 @@ class PendingMessageDbHelper {
   static Database? _database;
 
   static Future<Database> get database async {
+    // This opener is the only one that skipped this: without it, the FFI
+    // factory is never installed and openDatabase falls back to the
+    // platform channel (a real problem now that SQLCipher is the
+    // production path on every platform).
+    ensureSqflitePlatformInitialized();
     if (_database != null) return _database!;
 
     final databasesPath = await getApplicationDocumentsDirectory();
     final path = join(databasesPath.path, 'prysm', 'pending_messages.db');
 
+    // Encrypt an existing plaintext file in place, or no-op for a fresh or
+    // already-encrypted database. Must run before openDatabase.
+    await DatabaseCipher.prepare(path);
+
     _database = await openDatabase(
       path,
       version: 5,
       singleInstance: true,
+      // PRAGMA key must be the first statement on the connection.
+      onConfigure: (db) async {
+        await DatabaseCipher.applyKey(db);
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_messages(

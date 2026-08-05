@@ -4,6 +4,7 @@ import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
+import 'package:prysm/database/database_cipher.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/sqflite_platform.dart';
@@ -43,11 +44,18 @@ class DBHelper {
   static Future<Database> _initDB() async {
     final docDir = await getApplicationDocumentsDirectory();
     final path = join(docDir.path, 'prysm', 'chat_app.db');
+    // Encrypt an existing plaintext file in place, or no-op for a fresh or
+    // already-encrypted database. Must run before openDatabase.
+    await DatabaseCipher.prepare(path);
     return await openDatabase(
       path,
       version: 10,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
+      // PRAGMA key must be the first statement on the connection.
+      onConfigure: (db) async {
+        await DatabaseCipher.applyKey(db);
+      },
       onOpen: (db) {
         RatchetService.instance.setSessionStore(RatchetSessionStore(db));
       },

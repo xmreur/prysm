@@ -63,7 +63,10 @@ class DatabaseCipher {
   /// original intact and a stale `$path.migrating` behind, which the next
   /// call drops and retries; a crash between the delete and the rename
   /// leaves `$path.migrating` as the only surviving copy, which the next
-  /// call re-verifies and renames into place instead of deleting.
+  /// call re-verifies and renames into place instead of deleting — unless
+  /// the temp's own content is unreadable (a SQLite-level rejection or an
+  /// empty file), which is genuine garbage and is dropped; any other error
+  /// leaves the temp in place and propagates.
   static Future<void> prepare(String path) async {
     final migratingPath = '$path.migrating';
     final file = File(path);
@@ -79,15 +82,33 @@ class DatabaseCipher {
         // The original is gone but the temp survives: the crash happened
         // between deleting the original and renaming the verified copy into
         // place, so the temp IS the database. Recover it — re-verify it with
-        // the key and rename it into place. Only if verification fails is it
-        // garbage, and then it must be deleted.
+        // the key and rename it into place. The temp is deleted as garbage
+        // only when its own content is unreadable: a SQLite-level rejection
+        // while probing it (SQLITE_NOTADB / "file is not a database" / HMAC
+        // failure), or a 0-byte file that can never be a completed export.
+        // Any other failure — a transient secure-storage error surfacing as
+        // a StateError from applyKey, a FileSystemException, an I/O error —
+        // says nothing about the temp's content: the temp is left exactly
+        // where it is and the error propagates, so the next launch can retry
+        // the recovery.
         var verified = false;
         try {
-          await _verifyTemp(migratingPath, null);
-          verified = true;
-        } catch (_) {
-          if (tempFile.existsSync()) {
+          if (tempFile.lengthSync() == 0) {
+            // A completed export always leaves at least the encrypted first
+            // page (even a migrated empty database is a full page); a
+            // 0-byte temp never held a database.
             tempFile.deleteSync();
+          } else {
+            await _verifyTemp(migratingPath, null);
+            verified = true;
+          }
+        } on DatabaseException catch (e) {
+          if (_isContentRejection(e)) {
+            if (tempFile.existsSync()) {
+              tempFile.deleteSync();
+            }
+          } else {
+            rethrow;
           }
         }
         if (verified) {
@@ -183,6 +204,18 @@ class DatabaseCipher {
     } finally {
       await db.close();
     }
+  }
+
+  /// True when [e] is a SQLite-level rejection of the probed file's own
+  /// content: SQLITE_NOTADB (code 26, "file is not a database") — which is
+  /// also how SQLCipher reports a wrong key, the codec's HMAC failure
+  /// surfacing as NOTADB at the first page read. Anything else (an I/O
+  /// error, an open failure, ...) is an environment failure that says
+  /// nothing about the content and must never destroy the only copy.
+  static bool _isContentRejection(DatabaseException e) {
+    if (e.getResultCode() == 26) return true; // SQLITE_NOTADB
+    final message = e.toString().toLowerCase();
+    return message.contains('not a database') || message.contains('hmac');
   }
 
   /// Reopens the temp file with the key and proves it is a real, complete

@@ -381,6 +381,75 @@ void main() {
     },
   );
 
+  test(
+    'a key-store failure during recovery keeps the temp and propagates',
+    () async {
+      final path = await buildPlaintextDatabase(tempDir);
+      await DatabaseCipher.prepare(path);
+      final key = await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName);
+      expect(key, isNotNull);
+
+      // Interrupted rename: the verified encrypted copy survives only as
+      // the temp file; the plaintext original is gone.
+      File(path).renameSync('$path.migrating');
+      expect(File(path).existsSync(), isFalse);
+      expect(File('$path.migrating').existsSync(), isTrue);
+
+      // Transient secure-storage failure: the key reads back as absent, so
+      // the fail-loud guard in databaseKey() refuses to mint a new key and
+      // throws a StateError before any key is interpolated. The temp is
+      // still perfectly readable with the key that remains in storage —
+      // deleting it on this error would destroy the user's only copy and
+      // the opener would silently create a fresh empty database.
+      CryptoKeyStore.setUseInMemoryStorageOnly(false);
+      await CryptoKeyStore.delete(CryptoKeyStore.databaseKeyName);
+
+      await expectLater(DatabaseCipher.prepare(path), throwsStateError);
+      expect(
+        File('$path.migrating').existsSync(),
+        isTrue,
+        reason: 'an environment failure must not destroy the only copy',
+      );
+      expect(File(path).existsSync(), isFalse);
+
+      // The key is still in storage: the next launch retries and succeeds.
+      CryptoKeyStore.setUseInMemoryStorageOnly(true);
+      await CryptoKeyStore.write(CryptoKeyStore.databaseKeyName, key!);
+
+      await DatabaseCipher.prepare(path);
+      expect(File('$path.migrating').existsSync(), isFalse);
+      expect(File(path).existsSync(), isTrue);
+
+      final db = await openEncrypted(path);
+      addTearDown(db.close);
+      final rows = await db.query('items', orderBy: 'id');
+      expect(rows.map((r) => r['name']).toList(), ['one', 'two', 'three']);
+      final uv = await db.rawQuery('PRAGMA user_version');
+      expect(uv.first.values.single, 7);
+    },
+  );
+
+  test(
+    'a garbage temp with the original absent is deleted, not adopted',
+    () async {
+      final path = p.join(tempDir.path, 'garbage.db');
+      // Genuine garbage on the recovery path: a 0-byte temp. It can never
+      // be a completed export (even a migrated empty database is a full
+      // encrypted page), yet it opens as a valid-but-empty database — so
+      // without a content check the recovery would "verify" it and adopt
+      // the garbage as the database.
+      File('$path.migrating').writeAsStringSync('');
+
+      await DatabaseCipher.prepare(path);
+
+      expect(File('$path.migrating').existsSync(), isFalse,
+          reason: 'genuine garbage must be deleted');
+      expect(File(path).existsSync(), isFalse,
+          reason: 'garbage must not be adopted as the database');
+      expect(File('$path-wal').existsSync(), isFalse);
+    },
+  );
+
   test('applyKey refuses a connection whose cipher_version is empty', () async {
     // On a plain sqlite3 build `PRAGMA key` is a silent no-op and the
     // database would stay plaintext; the cipher_version guard is the only

@@ -1,0 +1,45 @@
+# Prysm — L3 E2E isolated experiment environment
+#
+# Why a container: Prysm's TorManager._killOrphanTorForce runs `pkill -9 tor`
+# with no pattern as a fallback before every start (lib/util/tor_service.dart:488-505).
+# Inside a container the PID namespace confines that blast radius to the
+# container itself — the host's tor processes are unreachable.
+#
+# Base: ubuntu:24.04, glibc 2.39. Constraints:
+#   - bundled tor binary requires GLIBC_2.38 (objdump on tor_executable/tor)
+#   - libsqlite3.so (host-built) requires GLIBC_2.34
+#   - flutter_tester needs only libc/libm/libdl (fully static otherwise)
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Last group: runtime libraries for the bundled tor binary (ldd on
+# tor_executable/tor — it is NOT statically linked).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git xz-utils unzip \
+      build-essential \
+      psmisc procps \
+      libevent-2.1-7t64 libssl3t64 liblzma5 libzstd1 zlib1g \
+      libcap2 libseccomp2 libsystemd0 libbrotli1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Official Flutter SDK, same version as the host toolchain and .dart_tool/version.
+ARG FLUTTER_VERSION=3.44.8
+RUN curl -fsSL -o /tmp/flutter.tar.xz \
+      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+    && tar -xJf /tmp/flutter.tar.xz -C /opt \
+    && rm /tmp/flutter.tar.xz
+
+ENV PATH="/opt/flutter/bin:${PATH}"
+RUN git config --global --add safe.directory /opt/flutter \
+    && flutter --disable-analytics \
+    && flutter precache --linux \
+    && chown -R ubuntu:ubuntu /opt/flutter
+
+# ubuntu:24.04 ships a default uid-1000 user 'ubuntu'; the host user is also
+# uid 1000, so the bind-mounted repo and pub cache stay readable/writable.
+USER ubuntu
+ENV HOME=/home/ubuntu \
+    PUB_CACHE=/home/ubuntu/.pub-cache
+
+WORKDIR /work

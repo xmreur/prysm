@@ -44,6 +44,7 @@ class PendingAuthMessageService {
           localUserId: localUserId,
           keyManager: keyManager,
           resolveIdentity: _resolveIdentity,
+          fromNetwork: true,
           fullDecrypt: true,
         );
         if (auth == DirectAuthOutcome.accepted) {

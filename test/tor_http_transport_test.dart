@@ -21,7 +21,7 @@ void main() {
   group('TorHttpTransport', () {
     test('allows concurrent operations for the same peer', () async {
       final transport = TorHttpTransport.createForTest(
-        TorManager(torPath: '/bin/false', dataDir: '/tmp/http-transport-test'),
+        TorManager(torPath: '/bin/false', dataDir: '/tmp/http-transport-test', controlPassword: 'test-password'),
       );
       final log = <String>[];
 
@@ -41,7 +41,7 @@ void main() {
 
     test('allows another peer while first peer operation is in flight', () async {
       final transport = TorHttpTransport.createForTest(
-        TorManager(torPath: '/bin/false', dataDir: '/tmp/http-transport-test-2'),
+        TorManager(torPath: '/bin/false', dataDir: '/tmp/http-transport-test-2', controlPassword: 'test-password'),
       );
       final peerAStarted = Completer<void>();
       final peerBStarted = Completer<void>();

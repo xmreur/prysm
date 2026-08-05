@@ -39,6 +39,7 @@ void main() {
       final torManager = TorManager(
         torPath: '/bin/false',
         dataDir: '/tmp/app-composition-test',
+        controlPassword: 'test-password',
       );
       bool isTorStopped() => true;
 

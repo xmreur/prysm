@@ -7,7 +7,7 @@ import 'package:prysm/util/tor_service.dart';
 void main() {
   test('notifier fires on link register and remove', () async {
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-notifier-test'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/ws-notifier-test', controlPassword: 'test-password'),
     );
     final events = <PeerWsConnectionEvent>[];
     final sub = PeerWsConnectionNotifier.instance.onChanged.listen(events.add);

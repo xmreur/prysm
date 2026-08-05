@@ -5,7 +5,7 @@ import 'package:prysm/util/tor_supervisor.dart';
 
 class _FakeTorManager extends TorManager {
   _FakeTorManager({required this.status})
-      : super(torPath: '/bin/false', dataDir: '/tmp/tor-fake');
+      : super(torPath: '/bin/false', dataDir: '/tmp/tor-fake', controlPassword: 'test-password');
 
   TorHealthStatus status;
 
@@ -19,7 +19,7 @@ void main() {
 
     setUp(() {
       supervisor = TorSupervisor(
-        torManager: TorManager(torPath: '/bin/false', dataDir: '/tmp/tor-test'),
+        torManager: TorManager(torPath: '/bin/false', dataDir: '/tmp/tor-test', controlPassword: 'test-password'),
         isTorStopped: () => false,
         isRestartInProgress: () => false,
         performRestart: ({bool userInitiated = false}) async {},

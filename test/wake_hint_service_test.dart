@@ -10,6 +10,7 @@ void main() {
           {
             'senderId': 'peer.onion',
             'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'sig': 'dGVzdA==',
           },
           'me.onion',
         ),
@@ -23,6 +24,7 @@ void main() {
           {
             'senderId': 'me.onion',
             'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'sig': 'dGVzdA==',
           },
           'me.onion',
         ),
@@ -36,7 +38,7 @@ void main() {
           .millisecondsSinceEpoch;
       expect(
         WakeHintService.validateSyncHintPayload(
-          {'senderId': 'peer.onion', 'timestamp': stale},
+          {'senderId': 'peer.onion', 'timestamp': stale, 'sig': 'dGVzdA=='},
           'me.onion',
         ),
         isNotNull,

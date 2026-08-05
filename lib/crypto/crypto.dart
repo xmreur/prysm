@@ -4,6 +4,7 @@ export 'kdf.dart';
 export 'aead.dart';
 export 'identity.dart';
 export 'key_store.dart';
+export 'peer_proof.dart';
 export 'wire.dart';
 export 'direct_message_auth.dart';
 export 'group_crypto.dart';

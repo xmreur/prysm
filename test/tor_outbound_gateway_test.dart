@@ -14,7 +14,7 @@ void main() {
     TorOutboundGateway.resetForTest();
     TorDelivery.resetForTest();
     TorOutboundGateway.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/gateway-test'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/gateway-test', controlPassword: 'test-password'),
     );
   });
 

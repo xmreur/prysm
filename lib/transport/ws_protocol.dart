@@ -98,12 +98,16 @@ class WsFrame {
   static WsFrame hello({
     List<String>? supports,
     String? onion,
+    int? timestampMs,
+    String? signature,
   }) =>
       WsFrame(
         op: 'hello',
         payload: {
           'supports': supports ?? wsSupportedOps,
           if (onion != null && onion.isNotEmpty) 'onion': onion,
+          'ts': ?timestampMs,
+          'sig': ?signature,
         },
       );
 

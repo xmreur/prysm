@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:prysm/client/TorHttpClient.dart';
+import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/outbound_transport.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
@@ -501,12 +502,26 @@ class TransportProvider implements OutboundTransport {
         );
       }
 
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final localIdentity = PeerProof.localIdentity;
+      if (localIdentity == null) return;
+      final identity = localIdentity();
+      if (identity == null) return;
+      final sig = await PeerProof.sign(
+        context: PeerProof.syncHintContext,
+        senderOnion: localSender,
+        receiverOnion: peerOnion,
+        timestampMs: timestamp,
+        identity: identity,
+      );
+
       await postJsonOrFallback(
         peerOnion: peerOnion,
         path: 'sync-hint',
         payload: {
           'senderId': localSender,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'timestamp': timestamp,
+          'sig': sig,
         },
         timeout: timeout,
       );

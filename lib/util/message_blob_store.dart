@@ -22,7 +22,24 @@ class MessageBlobStore {
 
   static String marker(String storageId) => '$markerPrefix$storageId';
 
+  static final RegExp _safeStorageId =
+      RegExp(r'^[A-Za-z0-9._:-]+$');
+
+  /// Rejects storage ids that could escape `message_blobs/` when used as a
+  /// file name. Legitimate ids are wire ids (uuid-like, hex, `-`, `_`, `.`)
+  /// optionally prefixed `<groupId>::`; anything else (separators, traversal
+  /// sequences, control characters) is refused before it reaches `File`.
+  static void _validateStorageId(String storageId) {
+    if (storageId.isEmpty ||
+        storageId == '.' ||
+        storageId == '..' ||
+        !_safeStorageId.hasMatch(storageId)) {
+      throw ArgumentError.value(storageId, 'storageId', 'unsafe blob id');
+    }
+  }
+
   static Future<File> _fileFor(String storageId) async {
+    _validateStorageId(storageId);
     final dir = await getApplicationDocumentsDirectory();
     final folder = Directory(p.join(dir.path, 'message_blobs'));
     if (!await folder.exists()) {
@@ -32,7 +49,11 @@ class MessageBlobStore {
   }
 
   static Future<bool> exists(String storageId) async {
-    return (await _fileFor(storageId)).exists();
+    try {
+      return (await _fileFor(storageId)).exists();
+    } on ArgumentError {
+      return false;
+    }
   }
 
   static Future<void> save(String storageId, String content) async {
@@ -45,9 +66,13 @@ class MessageBlobStore {
   }
 
   static Future<void> delete(String storageId) async {
-    final file = await _fileFor(storageId);
-    if (await file.exists()) {
-      await file.delete();
+    try {
+      final file = await _fileFor(storageId);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on ArgumentError {
+      // Unsafe id: refuse to touch the filesystem rather than resolve it.
     }
   }
 

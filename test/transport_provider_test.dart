@@ -23,7 +23,7 @@ void main() {
   test('configure initializes and resets provider', () {
     expect(TransportProvider.isConfigured, isFalse);
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test', controlPassword: 'test-password'),
     );
     expect(TransportProvider.isConfigured, isTrue);
 
@@ -33,7 +33,7 @@ void main() {
 
   test('HTTP-only preference skips realtime connection', () {
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-2'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-2', controlPassword: 'test-password'),
     );
     expect(
       TransportProvider.instance.isRealtimeConnected('legacy.onion'),
@@ -43,7 +43,7 @@ void main() {
 
   test('startWebSocketConnections starts maintain loop', () {
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-3'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-3', controlPassword: 'test-password'),
     );
     TransportProvider.instance.startWebSocketConnections();
     expect(WsConnectionManager.interactiveConnectBudget.inSeconds, greaterThan(0));
@@ -53,6 +53,7 @@ void main() {
     final torManager = TorManager(
       torPath: '/bin/false',
       dataDir: '/tmp/transport-provider-test-reuse',
+      controlPassword: 'test-password',
     );
     TransportProvider.configure(torManager);
     final first = TransportProvider.instance;
@@ -68,7 +69,7 @@ void main() {
 
   test('withPeer falls back to HTTP when WS connect fails', () async {
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-4'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-test-4', controlPassword: 'test-password'),
     );
 
     var usedHttp = false;
@@ -84,7 +85,7 @@ void main() {
 
   test('withPeer uses registered inbound link without outbound dial', () async {
     TransportProvider.configure(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-inbound'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/transport-provider-inbound', controlPassword: 'test-password'),
     );
 
     TransportProvider.instance.wsManager.registerLinkForTest(

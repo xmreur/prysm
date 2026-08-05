@@ -25,6 +25,18 @@ class DetachedChatApp extends StatelessWidget {
         torManager: TorManager(
           torPath: '',
           dataDir: '',
+          // Inert by construction: this window never starts a Tor daemon.
+          // DetachedChatShell only forwards this manager to the chat widgets,
+          // which connect through the main window's already-running Tor, so
+          // the empty password is never used. This build() is synchronous and
+          // the real per-install secret (CryptoKeyStore.torControlPassword(),
+          // an async secure-storage read) cannot be fetched here without
+          // restructuring the widget. Before any code path in this window may
+          // call startTor(), construction must move behind an async gate —
+          // e.g. a FutureBuilder resolving createTorManager() from
+          // lib/app/tor_connection_controller.dart, the only place Tor is
+          // actually started with the real password.
+          controlPassword: '',
         ),
         settings: settings,
       ),

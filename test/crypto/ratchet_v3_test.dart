@@ -176,6 +176,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager(),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: true,
       );
       // fullDecrypt + locked: an unknown scheme would be rejected; landing on

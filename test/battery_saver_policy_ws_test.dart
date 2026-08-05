@@ -7,14 +7,14 @@ void main() {
     final now = DateTime.now().millisecondsSinceEpoch;
     expect(
       WakeHintService.validateSyncHintPayload(
-        {'senderId': 'peer.onion', 'timestamp': now},
+        {'senderId': 'peer.onion', 'timestamp': now, 'sig': 'dGVzdA=='},
         'local.onion',
       ),
       isNull,
     );
     expect(
       WakeHintService.validateSyncHintPayload(
-        {'senderId': 'local.onion', 'timestamp': now},
+        {'senderId': 'local.onion', 'timestamp': now, 'sig': 'dGVzdA=='},
         'local.onion',
       ),
       isNotNull,

@@ -85,6 +85,7 @@ void main() {
       'senderId': 'blocked.onion',
       'receiverId': 'local.onion',
       'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'sig': 'dGVzdA==',
     });
 
     expect(result.statusCode, 403);

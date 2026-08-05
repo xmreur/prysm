@@ -1,3 +1,4 @@
+import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
@@ -36,6 +37,19 @@ class AppComposition {
     required KeyManager keyManager,
   }) {
     TransportProvider.configure(torManager);
+    // The outbound transport layer has no path to a KeyManager, so the
+    // signing identity for transport-level proofs (sync hints, WS hello) is
+    // injected here, where both are available. keyManager.identity throws
+    // while locked — return null instead so transport code skips signing
+    // rather than crashing.
+    PeerProof.localIdentity = () {
+      if (!keyManager.isUnlocked) return null;
+      try {
+        return keyManager.identity;
+      } catch (_) {
+        return null;
+      }
+    };
     CallManager.configure(keyManager: keyManager);
     CallManager.instance.start();
     BlockService.instance.onPeerBlocked = (peerOnion) =>

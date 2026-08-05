@@ -52,12 +52,19 @@ class DirectMessageAuth {
     required String? localUserId,
     required KeyManager keyManager,
     required Future<IdentityPublicKeys?> Function(String peerId) resolveIdentity,
+    required bool fromNetwork,
     bool fullDecrypt = true,
     bool allowLegacyUnsignedDhAead = false,
     bool allowLegacyUnsignedFile = false,
   }) async {
     if (localUserId != null && senderId == localUserId) {
-      return DirectAuthOutcome.accepted;
+      // A senderId of the local onion is only credible for locally authored
+      // self-messages. On the network path it is a self-asserted claim (the
+      // caller knows the address they connected to) and must not bypass the
+      // authentication gate.
+      return fromNetwork
+          ? DirectAuthOutcome.rejected
+          : DirectAuthOutcome.accepted;
     }
 
     if (!isDirectMessageType(type)) {

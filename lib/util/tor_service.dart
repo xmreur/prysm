@@ -78,6 +78,19 @@ class TorManager {
   // =========================
 
   Future<void> startTor() {
+    // Tripwire for placeholder constructions (e.g. DetachedChatApp passing
+    // controlPassword: ''): that password is inert only while no code path
+    // in the window starts a daemon. If a daemon path ever grows from such a
+    // construction site, this trips loudly in debug builds on the very first
+    // start — the real per-install secret comes from
+    // CryptoKeyStore.torControlPassword() behind an async construction gate.
+    assert(
+      controlPassword.isNotEmpty,
+      'TorManager.startTor requires a non-empty control password; '
+      'placeholder constructions must move behind an async gate that '
+      'resolves CryptoKeyStore.torControlPassword() before any daemon can '
+      'be started from them',
+    );
     return _controlWriteMutex.protect(() async {
       TorBootstrapNotifier.instance.reset();
       if (_usesNativeTorChannel) {

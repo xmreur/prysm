@@ -41,6 +41,11 @@ class PrysmServer {
 
   InboundRateLimiter _rateLimiter = InboundRateLimiter();
 
+  /// Shared byte budget for all in-flight request bodies, so concurrent
+  /// slow-drip bodies cannot accumulate past [InboundLimits.maxInFlightBodyBytes]
+  /// even though each individual body is within its per-body cap.
+  InboundBodyBudget _bodyBudget = InboundBodyBudget();
+
   /// Namespace prefix for wire-derived rate-limit keys: [InboundRateLimiter]
   /// reserves `'*'` ([InboundRateLimiter.globalKey]) as the global-only probe
   /// that never consumes a per-key window, so a wire-supplied `senderId` /
@@ -49,6 +54,9 @@ class PrysmServer {
 
   @visibleForTesting
   set rateLimiterOverride(InboundRateLimiter limiter) => _rateLimiter = limiter;
+
+  @visibleForTesting
+  set bodyBudgetOverride(InboundBodyBudget budget) => _bodyBudget = budget;
 
   InboundMessageRouter get inboundRouter => _router;
 
@@ -104,6 +112,12 @@ class PrysmServer {
 
   FutureOr<Response> _rootHandler(Request request) {
     if (request.method == 'GET' && request.url.path == 'ws') {
+      // WebSocket upgrades must pass the same global gate as every other
+      // endpoint: without this, unauthenticated hello floods would skip the
+      // rate limiter entirely, each still costing an sqlite identity lookup.
+      if (!_rateLimiter.allow(InboundRateLimiter.globalKey)) {
+        return _rateLimited();
+      }
       return webSocketHandler(_handleWebSocket)(request);
     }
     return _requestHandler(request);
@@ -159,8 +173,13 @@ class PrysmServer {
   Future<Map<String, dynamic>> _readJsonBody(
     Request request, {
     required int maxBytes,
+    InboundBodyBudget? budget,
   }) async {
-    final bodyBytes = await InboundLimits.readCapped(request.read(), maxBytes);
+    final bodyBytes = await InboundLimits.readCapped(
+      request.read(),
+      maxBytes,
+      budget: budget,
+    );
     if (bodyBytes.isEmpty) {
       throw const FormatException('Empty request body');
     }
@@ -185,6 +204,7 @@ class PrysmServer {
       final data = await _readJsonBody(
         request,
         maxBytes: InboundLimits.maxMessageBodyBytes,
+        budget: _bodyBudget,
       );
       final senderId = data['senderId'];
       if (senderId is String &&
@@ -194,6 +214,18 @@ class PrysmServer {
       }
       final result = await _router.handleMessage(data);
       return _toResponse(result);
+    } on ServerBusyException catch (e, stack) {
+      Logging.error(
+        'PrysmServer POST /message in-flight budget exhausted: $e\n$stack',
+        'PrysmServer',
+      );
+      // 503, deliberately not 413: the message may be perfectly sized; the
+      // server as a whole is busy holding other bodies right now.
+      return Response(
+        503,
+        body: jsonEncode({'error': 'Server busy'}),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on PayloadTooLargeException catch (e, stack) {
       Logging.error(
         'PrysmServer POST /message body too large: $e\n$stack',
@@ -221,6 +253,7 @@ class PrysmServer {
       final data = await _readJsonBody(
         request,
         maxBytes: InboundLimits.maxControlBodyBytes,
+        budget: _bodyBudget,
       );
       final senderId = data['senderId'];
       if (senderId is String &&
@@ -230,6 +263,16 @@ class PrysmServer {
       }
       final result = await _router.handleSyncHint(data);
       return _toResponse(result);
+    } on ServerBusyException catch (e, stack) {
+      Logging.error(
+        'PrysmServer POST /sync-hint in-flight budget exhausted: $e\n$stack',
+        'PrysmServer',
+      );
+      return Response(
+        503,
+        body: jsonEncode({'error': 'Server busy'}),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on PayloadTooLargeException catch (e, stack) {
       Logging.error(
         'PrysmServer POST /sync-hint body too large: $e\n$stack',

@@ -95,6 +95,16 @@ class OpusCodec {
     return opus_flutter.load();
   }
 
+  /// The pinned sha256 of the trusted macOS libopus artifact, exported so
+  /// tests can assert on the trust decision's constant without reading this
+  /// source file.
+  @visibleForTesting
+  static String get pinnedOpusSha256 => _opusSha256;
+
+  /// The pinned size in bytes of the trusted macOS libopus artifact.
+  @visibleForTesting
+  static int get pinnedOpusSizeBytes => _opusSizeBytes;
+
   /// True iff [bytes] is exactly the pinned libopus artifact for macOS:
   /// length check first (cheap reject), then sha256 against [_opusSha256].
   /// Used by both the cache-verification path and the post-download path.

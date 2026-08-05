@@ -154,4 +154,88 @@ void main() {
       expect(chunksYielded, lessThan(3));
     });
   });
+
+  group('InboundLimits.readCapped shared in-flight budget', () {
+    test(
+        'refuses a second concurrent read once the budget is exhausted and '
+        'stops pulling from its source, then recovers when the first read '
+        'releases', () async {
+      final budget = InboundBodyBudget(maxBytes: 100);
+
+      // Read 1 holds its first chunk (60 bytes) and keeps the connection
+      // open: the budget must count bytes held, not requests started.
+      final firstController = StreamController<List<int>>();
+      var firstChunks = 0;
+      final firstRead = InboundLimits.readCapped(
+        firstController.stream.map((chunk) {
+          firstChunks++;
+          return chunk;
+        }),
+        200,
+        budget: budget,
+      );
+
+      firstController.add(List<int>.filled(60, 1));
+      // Yield to the event loop so read 1 has consumed (and reserved) its
+      // first chunk before read 2 starts.
+      await Future<void>.delayed(Duration.zero);
+      expect(budget.inFlightBytes, 60);
+
+      // Read 2 is refused on its first chunk (60 + 60 > 100): distinct from
+      // an oversized body, and its source must not be drained further.
+      var secondChunks = 0;
+      await expectLater(
+        InboundLimits.readCapped(
+          Stream<List<int>>.fromIterable([
+            List<int>.filled(60, 2),
+            List<int>.filled(60, 3),
+          ]).map((chunk) {
+            secondChunks++;
+            return chunk;
+          }),
+          200,
+          budget: budget,
+        ),
+        throwsA(isA<ServerBusyException>()),
+      );
+      expect(secondChunks, 1);
+
+      // Closing read 1 releases its reservation (leak check: this fails if
+      // the finally-release is removed) ...
+      firstController.add(List<int>.filled(40, 4));
+      await firstController.close();
+      await expectLater(firstRead, completion(hasLength(100)));
+      expect(firstChunks, 2);
+      expect(budget.inFlightBytes, 0);
+
+      // ... and a subsequent read succeeds: the budget is not wedged.
+      final third = await InboundLimits.readCapped(
+        Stream<List<int>>.fromIterable([
+          List<int>.filled(90, 5),
+        ]),
+        200,
+        budget: budget,
+      );
+      expect(third, hasLength(90));
+      expect(budget.inFlightBytes, 0);
+    });
+
+    test('a read that throws PayloadTooLargeException releases its '
+        'reservation', () async {
+      final budget = InboundBodyBudget(maxBytes: 200);
+
+      // Per-body cap (100) trips before the budget (200): the reserved 120
+      // bytes must still be released by the finally block.
+      final body = Stream<List<int>>.fromIterable([
+        List<int>.filled(60, 1),
+        List<int>.filled(60, 2),
+      ]);
+
+      await expectLater(
+        InboundLimits.readCapped(body, 100, budget: budget),
+        throwsA(isA<PayloadTooLargeException>()),
+      );
+      expect(budget.inFlightBytes, 0);
+    });
+  });
 }

@@ -41,6 +41,12 @@ class PrysmServer {
 
   InboundRateLimiter _rateLimiter = InboundRateLimiter();
 
+  /// Namespace prefix for wire-derived rate-limit keys: [InboundRateLimiter]
+  /// reserves `'*'` ([InboundRateLimiter.globalKey]) as the global-only probe
+  /// that never consumes a per-key window, so a wire-supplied `senderId` /
+  /// `requester` of `'*'` must not be allowed to hit that reserved key.
+  static const String _wireRateKeyPrefix = 's:';
+
   @visibleForTesting
   set rateLimiterOverride(InboundRateLimiter limiter) => _rateLimiter = limiter;
 
@@ -123,7 +129,7 @@ class PrysmServer {
         final requester = request.url.queryParameters['requester'];
         if (requester is String &&
             requester.isNotEmpty &&
-            !_rateLimiter.allow(requester)) {
+            !_rateLimiter.allow('$_wireRateKeyPrefix$requester')) {
           return _rateLimited();
         }
         return _toResponse(
@@ -183,7 +189,7 @@ class PrysmServer {
       final senderId = data['senderId'];
       if (senderId is String &&
           senderId.isNotEmpty &&
-          !_rateLimiter.allow(senderId)) {
+          !_rateLimiter.allow('$_wireRateKeyPrefix$senderId')) {
         return _rateLimited();
       }
       final result = await _router.handleMessage(data);
@@ -219,7 +225,7 @@ class PrysmServer {
       final senderId = data['senderId'];
       if (senderId is String &&
           senderId.isNotEmpty &&
-          !_rateLimiter.allow(senderId)) {
+          !_rateLimiter.allow('$_wireRateKeyPrefix$senderId')) {
         return _rateLimited();
       }
       final result = await _router.handleSyncHint(data);
@@ -251,7 +257,13 @@ class PrysmServer {
       channel: channel,
       frameRouter: _frameRouter,
       localOnion: () => localOnionAddress,
-      resolvePeerIdentity: _resolvePeerIdentityForIngress,
+      // Cache-only on purpose: the handshake verifies the claimed identity
+      // before any state-dependent reply, so resolution must never trigger a
+      // Tor fetch that an unauthenticated flood could force. First contact
+      // with an unknown peer already goes over HTTP (ContactAddService uses
+      // TransportPreference.httpOnly), and handleSyncHint gates on a known
+      // contact too.
+      resolvePeerIdentity: (peerId) => loadPeerIdentityFromDb(keyManager, peerId),
       manager: TransportProvider.isConfigured
           ? TransportProvider.instance.wsManager
           : null,

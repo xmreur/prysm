@@ -203,25 +203,18 @@ class InboundWsPeerLink implements WsPeerLink {
     final local = _localOnion() ?? '';
     final manager = _manager;
 
-    if (local.isNotEmpty && manager != null) {
-      if (manager.hasLink(remoteOnion) || manager.isConnected(remoteOnion)) {
-        await _rejectDuplicate(local);
-        return;
-      }
-
-      if (shouldDialPeer(localOnion: local, peerOnion: remoteOnion)) {
-        await _rejectDuplicate(local);
-        return;
-      }
-    }
-
-    // The claimed onion must be proven: an unauthenticated hello lets an
-    // attacker capture the outbound link for a contact and probe who is
-    // currently connected. Tor already proves the server owns `local` (only
-    // the onion holder can decrypt the rendezvous), so a client-to-server
-    // proof is the only direction needed. Keep the cheap local checks above
-    // this: identity resolution can hit Tor, and an unauthenticated flood
-    // must not be able to force network fetches.
+    // The claimed onion must be proven before any state-dependent reply: an
+    // unauthenticated hello would otherwise let an attacker probe which
+    // contacts are currently connected by comparing the informative
+    // 'duplicate' reply against a silent drop. Tor already proves the server
+    // owns `local` (only the onion holder can decrypt the rendezvous), so a
+    // client-to-server proof is the only direction needed. Verifying first is
+    // safe because inbound identity resolution is cache-only — the caller
+    // (PrysmServer._handleWebSocket) passes a local-DB lookup, never a Tor
+    // fetch — so an unauthenticated flood cannot force network work. Every
+    // unproven hello takes exactly one code path, the silent
+    // _rejectHandshake(), and the duplicate/dial-policy reply is only ever
+    // sent to a peer whose proof already verified.
     final timestampMs = frame.payload?['ts'];
     final signature = frame.payload?['sig'];
     if (timestampMs is! int || signature is! String || signature.isEmpty) {
@@ -262,6 +255,18 @@ class InboundWsPeerLink implements WsPeerLink {
       );
       await _rejectHandshake();
       return;
+    }
+
+    if (local.isNotEmpty && manager != null) {
+      if (manager.hasLink(remoteOnion) || manager.isConnected(remoteOnion)) {
+        await _rejectDuplicate(local);
+        return;
+      }
+
+      if (shouldDialPeer(localOnion: local, peerOnion: remoteOnion)) {
+        await _rejectDuplicate(local);
+        return;
+      }
     }
 
     peerOnion = remoteOnion;

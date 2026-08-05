@@ -82,5 +82,25 @@ void main() {
       expect(l.allow(InboundRateLimiter.globalKey), isTrue);
       expect(l.trackedKeys, 0);
     });
+
+    test('wire-derived keys are namespaced away from the reserved global probe',
+        () {
+      // PrysmServer prefixes every wire-supplied senderId/requester with
+      // 's:', so a caller key of '*' reaches the per-key path as 's:*' and
+      // can never be mistaken for the reserved global probe. The prefixed key
+      // and the reserved key must be tracked separately: 's:*' is bound by
+      // the per-key quota while InboundRateLimiter.globalKey stays a pure
+      // global-window probe.
+      var now = DateTime(2026, 1, 1, 12);
+      final l = limiter(() => now, maxPerKey: 3, maxGlobal: 100);
+      for (var i = 0; i < 3; i++) {
+        expect(l.allow('s:*'), isTrue);
+      }
+      // The per-key quota now binds the caller-supplied '*'…
+      expect(l.allow('s:*'), isFalse);
+      // …while the reserved probe is unaffected and consumes no per-key slot.
+      expect(l.allow(InboundRateLimiter.globalKey), isTrue);
+      expect(l.trackedKeys, 1);
+    });
   });
 }

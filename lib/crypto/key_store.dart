@@ -19,6 +19,7 @@ class CryptoKeyStore {
   static const String passphraseSaltKey = 'PASSPHRASE_SALT_V2';
   static const String cryptoGenerationKey = 'CRYPTO_GENERATION';
   static const String torControlPasswordKey = 'TOR_CONTROL_PASSWORD_V1';
+  static const String databaseKeyName = 'DATABASE_KEY_V1';
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -145,6 +146,41 @@ class CryptoKeyStore {
     final generated = base64Url.encode(bytes).replaceAll('=', '');
     await write(torControlPasswordKey, generated);
     return generated;
+  }
+
+  /// Per-installation random 256-bit database key, persisted in secure
+  /// storage so every connection opens the encrypted databases with the
+  /// same key, even while the app is still locked.
+  ///
+  /// The value is exactly 64 lowercase hex characters (32 bytes), ready to
+  /// interpolate into `PRAGMA key = "x'<hex>'"`: the `x'…'` form makes
+  /// SQLCipher use the bytes as the raw key and skip PBKDF2 entirely.
+  ///
+  /// A stored value that does not match the hex shape is treated as absent
+  /// and replaced. This is safe only because no released build has ever
+  /// written this key.
+  ///
+  /// Unlike [torControlPassword], this method fails loudly when the
+  /// generated key cannot be read back: [write] swallows secure-storage
+  /// failures and falls back to an in-memory map, and silently proceeding
+  /// with an ephemeral key would encrypt the user's databases with a key
+  /// that disappears at process exit.
+  static Future<String> databaseKey() async {
+    final existing = await read(databaseKeyName);
+    if (existing != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(existing)) {
+      return existing;
+    }
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    final generated = bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    await write(databaseKeyName, generated);
+    final stored = await read(databaseKeyName);
+    if (stored == null || stored != generated) {
+      throw StateError('DATABASE_KEY_V1 could not be persisted to secure storage');
+    }
+    return stored;
   }
 
   /// Detect legacy RSA-era storage.

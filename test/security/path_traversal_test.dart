@@ -9,6 +9,29 @@ import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/message_blob_store.dart';
 
+/// Fails if [value] contains a surrogate code unit without its partner.
+void expectUnpairedSurrogates(String value) {
+  final units = value.codeUnits;
+  for (var i = 0; i < units.length; i++) {
+    final unit = units[i];
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      final hasLowPartner = i + 1 < units.length &&
+          units[i + 1] >= 0xdc00 &&
+          units[i + 1] <= 0xdfff;
+      expect(
+        hasLowPartner,
+        isTrue,
+        reason: 'high surrogate 0x${unit.toRadixString(16)} at index $i of '
+            '"$value" has no low surrogate partner',
+      );
+      i++;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      fail('lone low surrogate 0x${unit.toRadixString(16)} at index $i of '
+          '"$value"');
+    }
+  }
+}
+
 void main() {
   late Directory docsDir;
 
@@ -157,6 +180,28 @@ void main() {
       final result = DownloadLocation.sanitizeFileName('${'x' * 500}.png');
       expect(result.length, lessThanOrEqualTo(200));
       expect(result.endsWith('.png'), isTrue);
+    });
+
+    test('does not split a surrogate pair when capping long names', () {
+      // 195 ASCII chars + a 2-code-unit emoji + '.png' = 201 code units. The
+      // old substring(0, 196) cut kept the emoji's high surrogate and dropped
+      // its low partner, leaving a lone surrogate the filesystem mangles.
+      final result =
+          DownloadLocation.sanitizeFileName('${'x' * 195}\u{1F600}.png');
+      expect(result, '${'x' * 195}.png');
+      expect(result.length, lessThanOrEqualTo(200));
+      expect(result.endsWith('.png'), isTrue);
+      expectUnpairedSurrogates(result);
+    });
+
+    test('does not split a surrogate pair inside a long extension', () {
+      // '.x' * 18 + emoji = a 21-code-unit extension; the old substring(0, 20)
+      // cut kept the high surrogate of the pair at boundary 19/20.
+      final result = DownloadLocation.sanitizeFileName(
+          '${'a' * 200}.${'x' * 18}\u{1F600}');
+      expect(result.length, lessThanOrEqualTo(200));
+      expect(p.extension(result).length, lessThanOrEqualTo(20));
+      expectUnpairedSurrogates(result);
     });
   });
 }

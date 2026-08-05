@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -60,6 +61,7 @@ class OpusCodec {
       '435581a316f3dd41982f3101caa6be6ec974572e31765cd0e29c7cbe30198609';
   static const int _opusSizeBytes = 357824;
   static const int _maxOpusBytes = 4 * 1024 * 1024;
+  static const Duration _downloadTimeout = Duration(seconds: 120);
 
   static Future<dynamic> _loadLibrary() async {
     if (kIsWeb) {
@@ -112,8 +114,14 @@ class OpusCodec {
 
     final cachedFile = File(dylibPath);
     if (cachedFile.existsSync()) {
-      final cachedBytes = cachedFile.readAsBytesSync();
-      if (isTrustedOpusPayload(cachedBytes)) {
+      // Reject a wrong-sized cache by stat before any byte enters memory: a
+      // locally-poisoned oversized cache must not force a full in-memory read
+      // on every load. The length check is the same cheap reject
+      // isTrustedOpusPayload performs first.
+      final cachedBytes = cachedFile.lengthSync() == _opusSizeBytes
+          ? cachedFile.readAsBytesSync()
+          : null;
+      if (cachedBytes != null && isTrustedOpusPayload(cachedBytes)) {
         return dylibPath;
       }
       Logging.error(
@@ -150,7 +158,7 @@ class OpusCodec {
           .get(Uri.parse(_opusDownloadUrl), const {
             'Accept': 'application/octet-stream',
           })
-          .timeout(const Duration(seconds: 120));
+          .timeout(_downloadTimeout);
 
       if (response.statusCode < 200 || response.statusCode >= 400) {
         throw StateError(
@@ -160,14 +168,44 @@ class OpusCodec {
 
       final builder = BytesBuilder(copy: false);
       var received = 0;
-      await for (final chunk in response) {
-        received += chunk.length;
-        if (received > _maxOpusBytes) {
-          throw StateError(
-            'Downloaded libopus.dylib exceeds $_maxOpusBytes bytes',
-          );
+      // dart:io applies no read timeout to an active response body, so a
+      // stalled Tor exit would hang this loop (and with it call setup)
+      // forever. Bound the whole body phase by the same [_downloadTimeout]
+      // used for the header phase: every chunk wait races a shrinking
+      // remaining-time timeout, so even a slow trickle cannot outrun the
+      // deadline. A timeout fails the download cleanly (nothing is written
+      // and opus degrades to the system libraries), like every other
+      // failure mode.
+      final deadline = DateTime.now().add(_downloadTimeout);
+      final chunks = StreamIterator(response);
+      try {
+        while (true) {
+          var remaining = deadline.difference(DateTime.now());
+          if (remaining.isNegative) remaining = Duration.zero;
+          if (!await chunks.moveNext().timeout(
+                remaining,
+                onTimeout: () => throw TimeoutException(
+                  'Downloading libopus.dylib exceeded '
+                  '${_downloadTimeout.inSeconds}s',
+                  _downloadTimeout,
+                ),
+              )) {
+            break;
+          }
+          final chunk = chunks.current;
+          received += chunk.length;
+          if (received > _maxOpusBytes) {
+            throw StateError(
+              'Downloaded libopus.dylib exceeds $_maxOpusBytes bytes',
+            );
+          }
+          builder.add(chunk);
         }
-        builder.add(chunk);
+      } finally {
+        // Abandoning the iterator mid-body would leave the response stream
+        // subscribed (and its Tor connection open); cancel so close() can
+        // tear the client down.
+        await chunks.cancel();
       }
       return builder.takeBytes();
     } finally {

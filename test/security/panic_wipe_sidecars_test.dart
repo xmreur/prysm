@@ -59,14 +59,17 @@ void main() {
     const dbNames = ['chat_app.db', 'messages.db', 'pending_messages.db'];
     final files = <File>[];
     for (final name in dbNames) {
-      for (final suffix in ['', '-wal', '-shm']) {
+      // A crash mid-migration leaves a $name.migrating temp behind; the
+      // wipe must destroy it too, or the next launch's recovery path would
+      // resurrect the database after a wipe.
+      for (final suffix in ['', '-wal', '-shm', '.migrating']) {
         final file = File('${prysmDir.path}/$name$suffix');
         file.writeAsBytesSync([1, 2, 3]);
         files.add(file);
       }
     }
     expect(files.every((f) => f.existsSync()), isTrue,
-        reason: 'precondition: all nine files exist');
+        reason: 'precondition: all twelve files exist');
 
     await PanicWipeService.wipeAll();
 

@@ -119,18 +119,23 @@ class BackupService {
     final prysmDir = p.join(docDir, 'prysm');
     await Directory(prysmDir).create(recursive: true);
 
-    final databases = manifest['databases'] as Map<String, dynamic>? ?? {};
-    for (final entry in databases.entries) {
-      await File(
-        p.join(prysmDir, entry.key),
-      ).writeAsBytes(base64Decode(entry.value as String));
-    }
-
+    // Keys first, database files second: a crash in between must not leave
+    // encrypted database files with no key (every open would then fail
+    // until the user restores again). If the keys land first and the files
+    // never do, the databases are simply missing and the openers recreate
+    // them on next launch.
     final secureKeys = manifest['secureKeys'] as Map<String, dynamic>? ?? {};
     for (final entry in secureKeys.entries) {
       if (entry.value != null) {
         await CryptoKeyStore.write(entry.key, entry.value as String);
       }
+    }
+
+    final databases = manifest['databases'] as Map<String, dynamic>? ?? {};
+    for (final entry in databases.entries) {
+      await File(
+        p.join(prysmDir, entry.key),
+      ).writeAsBytes(base64Decode(entry.value as String));
     }
 
     final prefs = await SharedPreferences.getInstance();

@@ -9,6 +9,7 @@ import 'package:path/path.dart';
 
 class PendingMessageDbHelper {
   static Database? _database;
+  static Future<Database>? _opening;
 
   static Future<Database> get database async {
     // This opener is the only one that skipped this: without it, the FFI
@@ -17,7 +18,16 @@ class PendingMessageDbHelper {
     // production path on every platform).
     ensureSqflitePlatformInitialized();
     if (_database != null) return _database!;
+    _opening ??= _open();
+    try {
+      return await _opening!;
+    } catch (e) {
+      _opening = null;
+      rethrow;
+    }
+  }
 
+  static Future<Database> _open() async {
     final databasesPath = await getApplicationDocumentsDirectory();
     final path = join(databasesPath.path, 'prysm', 'pending_messages.db');
 
@@ -25,7 +35,7 @@ class PendingMessageDbHelper {
     // already-encrypted database. Must run before openDatabase.
     await DatabaseCipher.prepare(path);
 
-    _database = await openDatabase(
+    final db = await openDatabase(
       path,
       version: 5,
       singleInstance: true,
@@ -83,7 +93,8 @@ class PendingMessageDbHelper {
         }
       },
     );
-    return _database!;
+    _database = db;
+    return db;
   }
 
   static Future<void> insertPendingMessage(Map<String, dynamic> message) async {
@@ -238,6 +249,7 @@ class PendingMessageDbHelper {
       await _database!.close();
       _database = null;
     }
+    _opening = null;
   }
 
   static Future<void> removeMessages(List<String> messageIds) async {
@@ -302,5 +314,6 @@ class PendingMessageDbHelper {
   @visibleForTesting
   static void setDatabaseForTest(Database? db) {
     _database = db;
+    _opening = null;
   }
 }

@@ -16,10 +16,15 @@ import 'package:path_provider/path_provider.dart';
 class DBHelper {
   static Database? _db;
   static Database? _testDb;
+  static Future<Database>? _opening;
 
   /// Override the app database in unit tests (in-memory).
   static void setDatabaseForTest(Database? db) {
     _testDb = db;
+    // Forget any real open memoised in _db/_opening, so a later
+    // setDatabaseForTest(null) cannot resurface a stale handle.
+    _db = null;
+    _opening = null;
     if (db != null) {
       RatchetService.instance.setSessionStore(RatchetSessionStore(db));
     }
@@ -27,9 +32,15 @@ class DBHelper {
 
   static Future<Database> get database async {
     if (_testDb != null) return _testDb!;
+    if (_db != null) return _db!;
     _initializeFfi();
-    _db = await _initDB();
-    return _db!;
+    _opening ??= _initDB();
+    try {
+      return await _opening!;
+    } catch (e) {
+      _opening = null;
+      rethrow;
+    }
   }
 
   static Future<void> closeForWipe() async {
@@ -37,6 +48,7 @@ class DBHelper {
       await _db!.close();
       _db = null;
     }
+    _opening = null;
   }
 
   static void _initializeFfi() => ensureSqflitePlatformInitialized();
@@ -47,7 +59,7 @@ class DBHelper {
     // Encrypt an existing plaintext file in place, or no-op for a fresh or
     // already-encrypted database. Must run before openDatabase.
     await DatabaseCipher.prepare(path);
-    return await openDatabase(
+    final db = await openDatabase(
       path,
       version: 10,
       onCreate: _createDB,
@@ -60,6 +72,8 @@ class DBHelper {
         RatchetService.instance.setSessionStore(RatchetSessionStore(db));
       },
     );
+    _db = db;
+    return db;
   }
 
   static Future _createDB(Database db, int version) async {

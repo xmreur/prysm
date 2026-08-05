@@ -187,8 +187,25 @@ class CryptoKeyStore {
     if (!_useTestMemoryOnly && _testMemory.containsKey(databaseKeyName)) {
       throw StateError('DATABASE_KEY_V1 could not be persisted to secure storage');
     }
-    final stored = await read(databaseKeyName);
-    if (stored == null || stored != generated) {
+    // Read the key back from the real secure storage, not through [read]:
+    // [read] consults the in-memory fallback map whenever it is non-empty,
+    // so an unrelated earlier swallowed write (the Tor control password on
+    // a flaky keyring, say) would make the readback miss the key that was
+    // just durably written and throw a false StateError.
+    String? stored;
+    if (_useTestMemoryOnly) {
+      stored = await read(databaseKeyName);
+    } else {
+      try {
+        stored = await _storage.read(key: databaseKeyName);
+      } catch (e) {
+        Logging.error(
+          'SecureStorage read failed for $databaseKeyName: $e',
+          'CryptoKeyStore',
+        );
+        stored = null;
+      }
+    }    if (stored == null || stored != generated) {
       throw StateError('DATABASE_KEY_V1 could not be persisted to secure storage');
     }
     return stored;

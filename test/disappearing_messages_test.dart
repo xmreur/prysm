@@ -10,6 +10,7 @@ import 'package:prysm/models/disappearing_timer.dart';
 import 'package:prysm/services/disappearing_message_purge_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<Database> _openMessagesDb() async {
@@ -46,10 +47,34 @@ Future<Database> _openPrefsDb() async {
   return db;
 }
 
+Future<Database> _openPendingDb() async {
+  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+  await db.execute('DROP TABLE IF EXISTS pending_messages');
+  await db.execute('''
+    CREATE TABLE pending_messages(
+      id TEXT PRIMARY KEY,
+      senderId TEXT,
+      receiverId TEXT,
+      message TEXT,
+      type TEXT,
+      fileName TEXT,
+      fileSize INTEGER,
+      timestamp INTEGER,
+      status TEXT,
+      replyTo TEXT,
+      viewOnce INTEGER DEFAULT 0,
+      groupId TEXT,
+      targetMemberId TEXT
+    )
+  ''');
+  return db;
+}
+
 void main() {
   late Directory docsDir;
   late Database messagesDb;
   late Database prefsDb;
+  late Database pendingDb;
 
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -82,6 +107,8 @@ void main() {
     MessagesDb.setDatabaseForTest(messagesDb);
     prefsDb = await _openPrefsDb();
     DBHelper.setDatabaseForTest(prefsDb);
+    pendingDb = await _openPendingDb();
+    PendingMessageDbHelper.setDatabaseForTest(pendingDb);
   });
 
   tearDown(() async {
@@ -89,6 +116,8 @@ void main() {
     MessagesDb.setDatabaseForTest(null);
     await prefsDb.close();
     DBHelper.setDatabaseForTest(null);
+    await pendingDb.close();
+    PendingMessageDbHelper.setDatabaseForTest(null);
   });
 
   test('expiresAtForSend returns null when timer is off', () async {

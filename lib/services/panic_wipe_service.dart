@@ -23,10 +23,18 @@ class PanicWipeService {
       'chat_app.db',
       'messages.db',
       'pending_messages.db',
-]) {
-      final file = File(p.join(prysmDir.path, name));
-      if (await file.exists()) {
-        await file.delete();
+    ]) {
+      // The -wal/-shm sidecars can carry plaintext pages even when the main
+      // file is encrypted; leaving them defeats the wipe. A leftover
+      // $name.migrating must go too: if secureStorage.deleteAll() fails
+      // after the files are gone, the next launch's recovery path would
+      // verify that temp and rename it back into place — resurrecting the
+      // database the user just panic-wiped.
+      for (final suffix in ['', '-wal', '-shm', '.migrating']) {
+        final file = File(p.join(prysmDir.path, '$name$suffix'));
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
     }
 

@@ -37,6 +37,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager(),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: false,
       );
       expect(outcome, DirectAuthOutcome.pendingAuth);
@@ -62,6 +63,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager(),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: false,
       );
       expect(outcome, DirectAuthOutcome.rejected);
@@ -84,6 +86,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager(),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: false,
       );
       expect(outcome, DirectAuthOutcome.pendingAuth);
@@ -109,6 +112,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: keyManager,
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: true,
       );
       expect(outcome, DirectAuthOutcome.accepted);
@@ -129,6 +133,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager.fromIdentity(bob),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: true,
       );
       expect(outcome, DirectAuthOutcome.rejected);
@@ -150,6 +155,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager.fromIdentity(bob),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: true,
         allowLegacyUnsignedDhAead: true,
       );
@@ -171,6 +177,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager(),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: false,
         allowLegacyUnsignedDhAead: true,
       );

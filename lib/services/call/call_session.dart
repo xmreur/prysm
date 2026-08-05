@@ -131,15 +131,16 @@ class CallSession {
     }
     if (frame.sessionId != sessionId) return null;
     if (frame.seq <= _recvSeq) return null;
-    _recvSeq = frame.seq;
     final aad = utf8.encode('${frame.seq}');
     try {
-      return await CryptoAead.decryptChaCha(
+      final plain = await CryptoAead.decryptChaCha(
         ciphertextWithTag: Uint8List.fromList(frame.payload),
         key: _key,
         nonce: _nonceForSeq(frame.seq),
         associatedData: aad,
       );
+      _recvSeq = frame.seq;
+      return plain;
     } catch (_) {
       return null;
     }

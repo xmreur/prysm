@@ -21,15 +21,49 @@ void main() {
     expect(request, endsWith('\r\n\r\n'));
   });
 
-  test('isWebSocketUpgradeResponse accepts 101 responses', () {
+  test('isWebSocketUpgradeResponse validates Sec-WebSocket-Accept', () {
+    // RFC 6455 §1.3 worked example: key `dGhlIHNhbXBsZSBub25jZQ==` must be
+    // answered with `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
+    const key = 'dGhlIHNhbXBsZSBub25jZQ==';
+    const expectedAccept = 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=';
+
+    // Correct accept derived from the key sent in the request: accepted.
     expect(
       isWebSocketUpgradeResponse(
-        'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n',
+        'HTTP/1.1 101 Switching Protocols\r\n'
+        'Upgrade: websocket\r\n'
+        'Sec-WebSocket-Accept: $expectedAccept\r\n\r\n',
+        secWebSocketKey: key,
       ),
       isTrue,
     );
+
+    // 101 with a wrong accept: refused.
     expect(
-      isWebSocketUpgradeResponse('HTTP/1.1 404 Not Found\r\n\r\n'),
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 101 Switching Protocols\r\n'
+        'Upgrade: websocket\r\n'
+        'Sec-WebSocket-Accept: AAA=\r\n\r\n',
+        secWebSocketKey: key,
+      ),
+      isFalse,
+    );
+
+    // 101 without the accept header: refused.
+    expect(
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n',
+        secWebSocketKey: key,
+      ),
+      isFalse,
+    );
+
+    // Non-101: refused.
+    expect(
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 404 Not Found\r\n\r\n',
+        secWebSocketKey: key,
+      ),
       isFalse,
     );
   });

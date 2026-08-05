@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:prysm/app/app_composition.dart';
+import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
@@ -68,10 +69,11 @@ Future<String> _resolveTorBinaryPath({bool allowDownload = true}) async {
 Future<TorManager> createTorManager({bool allowDownload = true}) async {
   final torPath = await _resolveTorBinaryPath(allowDownload: allowDownload);
   final dataDirPath = await _resolveTorDataDir();
+  final controlPassword = await CryptoKeyStore.torControlPassword();
   return TorManager(
     torPath: torPath,
     dataDir: dataDirPath,
-    controlPassword: 'your_strong_password_here',
+    controlPassword: controlPassword,
   );
 }
 

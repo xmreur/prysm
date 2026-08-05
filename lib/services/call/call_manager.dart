@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/server/inbound_rate_limiter.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
@@ -117,10 +118,25 @@ class CallManager extends ChangeNotifier {
     mgr._setSnapshot(const CallSnapshot(state: CallState.idle));
   }
 
+  /// Inbound `call_offer` flood protection (fixed window, per sender).
+  ///
+  /// A modified client on a known contact can otherwise alternate
+  /// `call_offer`/`call_end` and force the ringer in bursts. Same pattern as
+  /// the HTTP inbound limits ([InboundRateLimiter]); offers beyond the cap
+  /// are dropped silently — no ring, no `call_end` reply, so the sender
+  /// cannot distinguish the limiter from a lost frame. The global window
+  /// stays at the shared pattern default ([InboundLimits.maxRequestsPerWindow]).
+  static const Duration inboundOfferWindow = Duration(seconds: 60);
+  static const int maxInboundOffersPerWindow = 5;
+
   final KeyManager _keyManager;
   CallTransport? _transport;
   CallKeyResolver? _keyResolver;
   final CallAudioFactory _audioFactory;
+  final InboundRateLimiter _offerLimiter = InboundRateLimiter(
+    window: inboundOfferWindow,
+    maxPerKey: maxInboundOffersPerWindow,
+  );
 
   StreamSubscription<CallSignalEvent>? _signalSub;
   StreamSubscription<List<int>>? _binarySub;
@@ -367,6 +383,13 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> _handleOffer(CallSignalEvent event) async {
+    // Flood gate: counted before any other handling, so a modified peer
+    // cannot exceed [maxInboundOffersPerWindow] rings (or even elicit a
+    // `call_end` reply) per [inboundOfferWindow]. Dropped silently.
+    if (!_offerLimiter.allow(event.peerOnion)) {
+      return;
+    }
+
     if (BlockService.instance.isBlocked(event.peerOnion)) {
       final callId = event.callId;
       if (callId != null) {

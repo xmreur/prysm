@@ -103,7 +103,7 @@ void main() {
     final peerPayload = CryptoEnvelope.encode(envelope);
 
     final manager = WsConnectionManager(
-      TorManager(torPath: '/bin/false', dataDir: '/tmp/file-transfer-sender'),
+      TorManager(torPath: '/bin/false', dataDir: '/tmp/file-transfer-sender', controlPassword: 'test-password'),
     );
     final link = _ChunkAckLink('peer.onion');
     manager.registerLinkForTest('peer.onion', link);

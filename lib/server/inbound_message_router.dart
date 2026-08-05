@@ -19,6 +19,7 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/crypto/direct_message_auth.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
@@ -135,6 +136,27 @@ class InboundMessageRouter {
 
     final contact = await DBHelper.getUserById(senderId);
     if (contact == null) {
+      return InboundHandleResult.forbidden('Unknown sender');
+    }
+
+    // The senderId claim must be proven: an attacker who learned one of our
+    // contacts' onions could otherwise drive our outbound connections. Keep
+    // the cheap checks (shape, block list, contact lookup) ahead of this so
+    // an unauthenticated flood cannot force identity resolution.
+    final peer = await _resolvePeerIdentity(senderId);
+    final local = localOnionAddress();
+    if (peer == null || local == null) {
+      return InboundHandleResult.forbidden('Unknown sender');
+    }
+    final valid = await PeerProof.verify(
+      context: PeerProof.syncHintContext,
+      senderOnion: senderId,
+      receiverOnion: local,
+      timestampMs: data['timestamp'] as int,
+      signature: data['sig'] as String,
+      peer: peer,
+    );
+    if (!valid) {
       return InboundHandleResult.forbidden('Unknown sender');
     }
 
@@ -478,6 +500,7 @@ class InboundMessageRouter {
         localUserId: localUserId,
         keyManager: keyManager,
         resolveIdentity: _resolvePeerIdentity,
+        fromNetwork: true,
         fullDecrypt: keyManager.isUnlocked,
       );
       switch (auth) {

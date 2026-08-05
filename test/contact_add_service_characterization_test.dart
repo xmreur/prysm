@@ -106,6 +106,7 @@ void main() {
         TorManager(
           torPath: '/bin/false',
           dataDir: Directory.systemTemp.path,
+          controlPassword: 'test-password',
         ),
       );
       TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);

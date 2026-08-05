@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:prysm/crypto/envelope.dart';
+import 'package:prysm/server/inbound_limits.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
@@ -150,6 +151,28 @@ class FileTransferHandler {
       return {'error': 'Too many chunks'};
     }
 
+    // Wire-declared sizes drive _InboundTransfer's allocations
+    // (Uint8List(ciphertextSize) and List<bool>.filled(totalChunks)), so
+    // every one of them must be bounded and mutually consistent before a
+    // single byte is reserved.
+    if (ciphertextSize > FileTransferPolicy.maxFileSizeBytes + 4096) {
+      // AEAD tag plus padding slack over the plaintext cap.
+      return {'error': 'Ciphertext too large'};
+    }
+    if (chunkSize > FileTransferPolicy.chunkSizeBytes) {
+      return {'error': 'Invalid chunk metadata'};
+    }
+    final declaredChunks = (ciphertextSize + chunkSize - 1) ~/ chunkSize;
+    if (totalChunks != declaredChunks) {
+      return {'error': 'Invalid chunk metadata'};
+    }
+    final fileSize = payload['fileSize'];
+    if (fileSize is! int ||
+        fileSize < 1 ||
+        fileSize > FileTransferPolicy.maxFileSizeBytes) {
+      return {'error': 'File too large'};
+    }
+
     final wrappedKey = payload['wrappedKey'];
     if (wrappedKey is! Map<String, dynamic>) {
       return {'error': 'Invalid wrappedKey'};
@@ -175,6 +198,14 @@ class FileTransferHandler {
     if (error != null) {
       Logging.error('begin rejected from $peerOnion: $error', 'FileTransferHandler');
       return error;
+    }
+
+    if (_active.length >= InboundLimits.maxConcurrentInboundTransfers) {
+      Logging.error(
+        'begin rejected from $peerOnion: Too many transfers',
+        'FileTransferHandler',
+      );
+      return {'error': 'Too many transfers'};
     }
 
     final transferId = payload['transferId'] as String;

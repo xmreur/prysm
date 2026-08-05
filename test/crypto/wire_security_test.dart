@@ -184,6 +184,7 @@ void main() {
         localUserId: 'bob.onion',
         keyManager: KeyManager.fromIdentity(bob),
         resolveIdentity: (_) async => alicePub,
+        fromNetwork: true,
         fullDecrypt: false,
       );
       expect(outcome, DirectAuthOutcome.rejected);

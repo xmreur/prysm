@@ -52,6 +52,10 @@ class WakeHintService {
     if (timestamp is! int) {
       return 'timestamp required';
     }
+    final sig = data['sig'];
+    if (sig is! String || sig.isEmpty) {
+      return 'signature required';
+    }
     if (localOnionAddress != null && senderId == localOnionAddress) {
       return 'self wake rejected';
     }

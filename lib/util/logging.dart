@@ -23,6 +23,23 @@ class Logging {
   static int _sequence = 0;
   static File? _logFile;
 
+  /// Redacts a Tor v3 onion address for log output: keeps the first 6
+  /// characters and replaces the rest with an ellipsis, so the full address
+  /// can never be reconstructed from logs. Call sites redact explicitly and
+  /// [_appendSync] scrubs any onion that slips through (e.g. inside an
+  /// exception's toString()), so the guarantee holds on disk.
+  static String redactOnion(String onion) {
+    if (onion.length <= 6) return onion;
+    return '${onion.substring(0, 6)}…';
+  }
+
+  /// Matches a Tor v3 onion address (56 base32 chars + '.onion') embedded
+  /// anywhere in a log line, so the write path can redact it even when a
+  /// call site only interpolated an error object whose toString() carries
+  /// the address.
+  static final RegExp _onionV3 =
+      RegExp(r'[a-z2-7]{56}\.onion', caseSensitive: false);
+
   static Future<void> init() async {
     final tempDir = await getTemporaryDirectory();
     final now = DateTime.now();
@@ -77,7 +94,13 @@ class Logging {
     final file = _logFile;
     if (file == null) return;
     try {
-      final line = '$text\n';
+      // Central scrub: no full onion may reach disk, even when a call site
+      // interpolates an error object whose toString() embeds one.
+      final scrubbed = text.replaceAllMapped(
+        _onionV3,
+        (m) => redactOnion(m.group(0)!),
+      );
+      final line = '$scrubbed\n';
       if (file.lengthSync() + line.length > _maxLogSize) {
         _trimFront(file, line.length);
       }

@@ -250,8 +250,9 @@ class InboundMessageRouter {
 
   /// Async processing after [validateMessage] returns null.
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
+    final senderId = '${data['senderId']}';
     Logging.info(
-      'Received ${data['type']} from ${data['senderId']}',
+      'Received ${data['type']} from ${Logging.redactOnion(senderId)}',
       'InboundMessageRouter',
     );
 
@@ -323,12 +324,12 @@ class InboundMessageRouter {
     final local = localOnionAddress();
 
     await DBHelper.ensureUserExist(data['senderId'] as String);
-    fetchSenderProfile?.call(data['senderId'] as String);
 
     final localId = local ?? receiverId;
     final groupService = GroupService(userId: localId, keyManager: keyManager);
+    final bool handled;
     try {
-      await groupService.handleIncomingControlMessage(
+      handled = await groupService.handleIncomingControlMessage(
         type,
         data['message'] as String,
         data['senderId'] as String,
@@ -338,6 +339,14 @@ class InboundMessageRouter {
       return InboundHandleResult.internalError(
         'Group control processing failed',
       );
+    }
+
+    // M2 (security): the profile fetch is an implicit delivery receipt.
+    // Fetch only after the control payload authenticated (signed
+    // control-wrap-2 envelope); unauthenticated control traffic must not
+    // reveal that we are online.
+    if (handled) {
+      fetchSenderProfile?.call(data['senderId'] as String);
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -477,7 +486,6 @@ class InboundMessageRouter {
     final local = localOnionAddress();
 
     await DBHelper.ensureUserExist(senderId);
-    fetchSenderProfile?.call(senderId);
 
     final timeReceived = DateTime.now().millisecondsSinceEpoch;
     final incomingTimestamp = data['timestamp'];
@@ -516,7 +524,16 @@ class InboundMessageRouter {
           );
         case DirectAuthOutcome.pendingAuth:
           messageStatus = 'pending_auth';
+          // Explicit: pending-auth traffic never fetches the sender profile.
+          // (A non-empty Dart case would not fall through anyway, but the
+          // intent must not depend on that subtlety.)
+          break;
         case DirectAuthOutcome.accepted:
+          // M2 (security): only authenticated direct messages may trigger a
+          // profile fetch. Fetching before auth leaked an implicit delivery
+          // receipt (a GET /profile to the sender) for traffic that is
+          // rejected or whose sender identity is unverified.
+          fetchSenderProfile?.call(senderId);
           break;
       }
     }
@@ -535,9 +552,31 @@ class InboundMessageRouter {
     }
     if (inboundGroupId != null &&
         await _isGroupSenderKeyReplay(data, inboundGroupId)) {
-      // Idempotent ack, same shape as the blocked-DM and pre-join drops: a
-      // replayer gets no oracle beyond what a successful delivery returns.
-      return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+      // Idempotent ack, same shape as a successful delivery (status, id,
+      // timestamp): a replayer cannot tell a drop from a delivery.
+      return InboundHandleResult.ok({
+        'status': 'received',
+        'id': data['id'],
+        'timestamp': timeReceived,
+      });
+    }
+    if (inboundGroupId != null) {
+      // M2 (security): the profile fetch is an implicit delivery receipt and
+      // must not be triggerable by traffic we cannot authenticate. The gates
+      // above (pre-join, legacy scheme, anti-replay) are fail-open by design
+      // for senders whose identity is not in the local user store: passing
+      // them proves the envelope is new and storable, NOT that the sender is
+      // authenticated. The fetch therefore fires only when the sender's
+      // public identity is already known locally — a cache-only
+      // loadPeerIdentityFromDb, never a Tor fetch. A group message from an
+      // unknown sender is still accepted and stored exactly as before; only
+      // the outbound GET /profile is suppressed, so no unauthenticated
+      // traffic can confirm that we are online.
+      final knownSender =
+          await loadPeerIdentityFromDb(keyManager, senderId);
+      if (knownSender != null) {
+        fetchSenderProfile?.call(senderId);
+      }
     }
     final conversationId = inboundGroupId ?? senderId;
     final expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
@@ -665,10 +704,12 @@ class InboundMessageRouter {
   ///
   /// Only envelopes with a valid Ed25519 signature advance the inbound
   /// watermark: an unauthenticated peer must not be able to poison the window
-  /// for a legitimate sender. When the sender's public keys are unavailable,
-  /// or the envelope is not a sender-key envelope (legacy group-aead
-  /// traffic), the gate passes the message through untouched (pre-fix
-  /// behavior).
+  /// for a legitimate sender. The sender is resolved cache-only
+  /// ([loadPeerIdentityFromDb], never a Tor fetch): an unknown peer must not
+  /// be able to force an awaited outbound fetch from this hot path. When the
+  /// sender's public keys are unavailable, or the envelope is not a
+  /// sender-key envelope (legacy group-aead traffic), the gate passes the
+  /// message through untouched (pre-fix behavior).
   Future<bool> _isGroupSenderKeyReplay(
     Map<String, dynamic> data,
     String groupId,
@@ -687,7 +728,7 @@ class InboundMessageRouter {
       // Undecryptable junk by construction; storing it only archives noise.
       return true;
     }
-    final peer = await _resolvePeerIdentity(senderId);
+    final peer = await loadPeerIdentityFromDb(keyManager, senderId);
     if (peer == null) return false;
     final ivB64 = envelope['iv'];
     final ctB64 = envelope['ct'];

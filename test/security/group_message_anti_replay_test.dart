@@ -7,6 +7,7 @@
 //
 // RED/GREEN: the replay test and the tombstone test fail on the pre-fix code
 // (two rows stored / tombstone replaced) and pass after the fix.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -180,6 +181,21 @@ void main() {
 
     dbHelperDb = await _openDbHelperDb();
     DBHelper.setDatabaseForTest(dbHelperDb);
+    // The anti-replay gate resolves the sender cache-only
+    // (loadPeerIdentityFromDb), so members must be in the local user store
+    // for their signatures to verify.
+    await DBHelper.insertOrUpdateUser({
+      'id': 'alice.onion',
+      'name': 'Alice',
+      'identityJson': jsonEncode(await alice.toPublicJson()),
+      'publicKeyPem': jsonEncode(await alice.toPublicJson()),
+    });
+    await DBHelper.insertOrUpdateUser({
+      'id': 'bob.onion',
+      'name': 'Bob',
+      'identityJson': jsonEncode(await bob.toPublicJson()),
+      'publicKeyPem': jsonEncode(await bob.toPublicJson()),
+    });
 
     router = InboundMessageRouter(
       keyManager: KeyManager(),
@@ -224,6 +240,10 @@ void main() {
         expect(replay.statusCode, 200);
         expect(replay.jsonBody?['status'], 'received');
         expect(replay.jsonBody?['id'], 'm2');
+        // The drop ack must be indistinguishable from a delivery ack: a
+        // replayer must not learn that the message was dropped (pre-fix:
+        // only the success ack carried a timestamp).
+        expect(replay.jsonBody?['timestamp'], isA<int>());
 
         final rows = await messagesDb.query('messages');
         expect(rows, hasLength(1));

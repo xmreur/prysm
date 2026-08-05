@@ -124,7 +124,15 @@ class PrysmServer {
   }
 
   Future<Response> _requestHandler(Request request) async {
-    Logging.info('${request.method} - ${request.url}', 'PrysmServer');
+    final url = request.url;
+    final requester = url.queryParameters['requester'];
+    final logUrl = (requester != null && requester.isNotEmpty)
+        ? url.replace(queryParameters: {
+            ...url.queryParameters,
+            'requester': Logging.redactOnion(requester),
+          })
+        : url;
+    Logging.info('${request.method} - $logUrl', 'PrysmServer');
 
     try {
       if (!_rateLimiter.allow(InboundRateLimiter.globalKey)) {

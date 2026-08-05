@@ -14,9 +14,12 @@
 // what makes that safe.
 //
 // Experiment M2 (docs/security-scan-verification.md): on message receipt the
-// victim automatically issues GET /profile to the sender — an implicit
-// delivery confirmation. L2 can show the call site; only L3 shows the actual
-// HTTP hit landing on the attacker's access log through real Tor.
+// victim used to issue GET /profile to the sender — an implicit delivery
+// confirmation. L2 can show the call site; only L3 shows the actual HTTP hit
+// landing on the attacker's access log through real Tor. The fix (Task 5 +
+// final review) moved the fetch behind authentication; this test is now a
+// REGRESSION GUARD: it proves the oracle stays closed while the attacker
+// remains provably reachable (preflight probe visible in the hostile log).
 
 @Timeout(Duration(minutes: 40))
 library;
@@ -243,13 +246,14 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
       });
 
       test(
-        'M2: victim leaks delivery confirmation via GET /profile on receipt',
+        'M2 regression: receiving an undecryptable message does not leak a '
+        'delivery confirmation via GET /profile',
         () async {
           // Pre-flight: can the VICTIM's tor reach the attacker onion at
           // all? This both diagnoses tor-level reachability (status, body
           // size, wall time) and warms the victim tor's descriptor cache
-          // for the attacker onion, so the subsequent in-app fetch does
-          // not race hidden-service descriptor propagation. The probe is
+          // for the attacker onion, so the subsequent message POSTs do not
+          // race hidden-service descriptor propagation. The probe is
           // tagged requester=preflight-probe so it stays distinguishable
           // from the victim's own fetch (requester=<victim onion>).
           final preflight = await Process.run(
@@ -281,13 +285,14 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
             reason: 'precondition: no profile fetch before the message',
           );
 
-          // The envelope is intentionally not decryptable: the oracle
-          // fires BEFORE authentication (inbound_message_router.dart:476
-          // runs before DirectMessageAuth at :497+), so a 400 reply still
-          // leaks. On fetch failure the profile cache is NOT marked, so
-          // each new message re-triggers the fetch — retry through tor's
-          // hidden-service rendezvous window instead of assuming the
-          // circuit works on the first try.
+          // The envelope is intentionally not decryptable: pre-fix, the
+          // oracle fired BEFORE authentication (inbound_message_router.dart
+          // fetched the sender profile before DirectMessageAuth), so a 400
+          // reply still leaked. The fix moved the fetch behind
+          // authentication; each POST below must now be answered WITHOUT any
+          // outbound GET /profile. Retry through tor's hidden-service
+          // rendezvous window instead of assuming the circuit works on the
+          // first try.
           String? hit;
           for (var attempt = 1; attempt <= 8 && hit == null; attempt++) {
             final body = jsonEncode({
@@ -325,10 +330,12 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
               reason: 'curl transport failed: ${post.stderr}',
             );
 
-            // The oracle: within the Tor round-trip budget, the victim's
-            // fetch lands in the attacker's access log carrying the
-            // victim's own onion as ?requester= — proof that the victim is
-            // online AND processed the message, revealed to the sender.
+            // Watch window: IF the leak regresses, the victim's fetch lands
+            // in the attacker's access log within the Tor round-trip
+            // budget, carrying the victim's own onion as ?requester= —
+            // proof that the victim is online AND processed the message.
+            // The loop polls for this oracle so a regression is caught
+            // while the absence of the oracle stays the expected outcome.
             hit = await _poll(
               () {
                 for (final line in hostileLog) {
@@ -343,11 +350,25 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
             );
           }
 
+          // The preflight probe must still be visible in the hostile log:
+          // it proves the attacker was reachable from the victim's tor, so
+          // an absent oracle is a fixed leak, not a false negative caused
+          // by an unreachable attacker.
+          expect(
+            hostileLog.where((l) => l.contains('requester=preflight-probe')),
+            isNotEmpty,
+            reason: 'precondition failed: the preflight probe never reached '
+                'the attacker — the harness cannot tell a fixed leak from '
+                'an unreachable attacker. Hostile log:\n'
+                '${hostileLog.join('\n')}',
+          );
+
           expect(
             hit,
-            isNotNull,
-            reason: 'M2 not observed after 8 messages: victim never '
-                'fetched the attacker profile. Hostile log:\n'
+            isNull,
+            reason: 'M2 regression: the victim fetched the attacker profile '
+                'after 8 messages, leaking a delivery confirmation '
+                '(requester=<victim onion>). Hostile log:\n'
                 '${hostileLog.join('\n')}',
           );
         },

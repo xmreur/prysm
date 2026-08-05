@@ -158,7 +158,11 @@ class TransportProvider implements OutboundTransport {
         
         return result;
       } catch (e) {
-        Logging.error('WS failed for $peerOnion (${preference.name}): $e', 'TransportProvider');
+        Logging.error(
+          'WS failed for ${Logging.redactOnion(peerOnion)} '
+          '(${preference.name}): $e',
+          'TransportProvider',
+        );
         if (_shouldDisconnectWsAfterFailure(e)) {
           await _wsManager.disconnectPeer(peerOnion);
         }
@@ -443,10 +447,18 @@ class TransportProvider implements OutboundTransport {
             lastWsError = e;
             final retryTimeout = e is TimeoutException && attempt == 0;
             if (!retryTimeout) break;
-            Logging.error('WS send timeout ($peerOnion), retrying once', 'TransportProvider');
+            Logging.error(
+              'WS send timeout (${Logging.redactOnion(peerOnion)}), '
+              'retrying once',
+              'TransportProvider',
+            );
           }
         }
-        Logging.error('WS send failed ($peerOnion): $lastWsError → HTTP', 'TransportProvider');
+        Logging.error(
+          'WS send failed (${Logging.redactOnion(peerOnion)}): '
+          '$lastWsError → HTTP',
+          'TransportProvider',
+        );
         if (lastWsError != null &&
             _shouldDisconnectWsAfterFailure(lastWsError)) {
           await inst.wsManager.disconnectPeer(peerOnion);
@@ -526,8 +538,11 @@ class TransportProvider implements OutboundTransport {
         timeout: timeout,
       );
     } catch (e) {
-      Logging.error('sync-hint to $peerOnion failed: $e', 'TransportProvider');
-      
+      Logging.error(
+        'sync-hint to ${Logging.redactOnion(peerOnion)} failed: $e',
+        'TransportProvider',
+      );
+
     }
   }
 

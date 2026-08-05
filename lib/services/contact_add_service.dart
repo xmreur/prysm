@@ -68,7 +68,10 @@ class ContactAddService {
     String? expectedFingerprint,
   }) async {
     if (BlockService.instance.isBlocked(onionId)) {
-      Logging.error('Cannot add blocked contact $onionId', 'ContactAddService');
+      Logging.error(
+        'Cannot add blocked contact ${Logging.redactOnion(onionId)}',
+        'ContactAddService',
+      );
       return false;
     }
 
@@ -76,7 +79,10 @@ class ContactAddService {
     try {
       identityJson = (await _fetchPublic(onionId)).trim();
     } catch (e) {
-      Logging.error('Failed to fetch identity from $onionId: $e', 'ContactAddService');
+      Logging.error(
+        'Failed to fetch identity from ${Logging.redactOnion(onionId)}: $e',
+        'ContactAddService',
+      );
       return false;
     }
 
@@ -90,13 +96,19 @@ class ContactAddService {
         jsonDecode(identityJson) as Map<String, dynamic>,
       );
     } catch (e) {
-      Logging.error('Invalid identity JSON from $onionId: $e', 'ContactAddService');
+      Logging.error(
+        'Invalid identity JSON from ${Logging.redactOnion(onionId)}: $e',
+        'ContactAddService',
+      );
       return false;
     }
 
     if (expectedFingerprint != null &&
         keys.fingerprint != expectedFingerprint) {
-      Logging.error('Identity fingerprint mismatch for $onionId', 'ContactAddService');
+      Logging.error(
+        'Identity fingerprint mismatch for ${Logging.redactOnion(onionId)}',
+        'ContactAddService',
+      );
       return false;
     }
 
@@ -154,7 +166,7 @@ class ContactAddService {
       ConversationRefreshNotifier.instance.notifyInboundMessage();
     } catch (e) {
       Logging.error(
-        'Profile enrichment failed for $onionId: $e',
+        'Profile enrichment failed for ${Logging.redactOnion(onionId)}: $e',
         'ContactAddService',
       );
     }

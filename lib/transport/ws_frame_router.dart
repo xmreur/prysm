@@ -259,10 +259,10 @@ class WsFrameRouter {
     try {
       final result = await router.processMessage(payload);
       if (result.statusCode >= 400) {
-        Logging.error('$op from ${payload['senderId']} type=${payload['type']} async process failed after ack: ${result.jsonBody?['error'] ?? result.statusCode}', 'WsFrameRouter');
+        Logging.error('$op from ${Logging.redactOnion('${payload['senderId']}')} type=${payload['type']} async process failed after ack: ${result.jsonBody?['error'] ?? result.statusCode}', 'WsFrameRouter');
       }
     } catch (e, stack) {
-      Logging.error('$op from ${payload['senderId']} type=${payload['type']} async process error: $e\n$stack', 'WsFrameRouter');
+      Logging.error('$op from ${Logging.redactOnion('${payload['senderId']}')} type=${payload['type']} async process error: $e\n$stack', 'WsFrameRouter');
     }
   }
 

@@ -410,6 +410,27 @@ class GroupChatService {
           final pendingId = msg['id'] as String;
           final messageId = _messageIdFromPendingId(pendingId);
           final target = msg['targetMemberId'] as String? ?? msg['receiverId'] as String;
+
+          final stored = await MessagesDb.getMessageById(
+            messageId,
+            groupId: groupId,
+          );
+          if (stored.isEmpty || stored.first['deletedAt'] != null) {
+            await PendingMessageDbHelper.removeOutboundPendingForWireId(
+              messageId,
+              groupId: groupId,
+            );
+            continue;
+          }
+          final encrypted = msg['message'] as String?;
+          if (encrypted == null || encrypted.isEmpty) {
+            await PendingMessageDbHelper.removeOutboundPendingForWireId(
+              messageId,
+              groupId: groupId,
+            );
+            continue;
+          }
+
           final retries = _retryCounts[pendingId] ?? 0;
 
           if (retries >= _maxRetries) {
@@ -426,7 +447,7 @@ class GroupChatService {
           final success = await _sendOverTor(
             id: messageId,
             targetMemberId: target,
-            encrypted: msg['message'] as String,
+            encrypted: encrypted,
             type: msg['type'] as String,
             replyToId: msg['replyTo'] as String?,
             timestamp: msg['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
@@ -652,7 +673,7 @@ class GroupChatService {
           messageId,
           groupId: groupId,
         );
-        if (stored.isNotEmpty && stored.first['deletedAt'] != null) {
+        if (stored.isEmpty || stored.first['deletedAt'] != null) {
           await PendingMessageDbHelper.removeOutboundPendingForWireId(
             messageId,
             groupId: groupId,

@@ -251,6 +251,7 @@ class PrysmServer {
       channel: channel,
       frameRouter: _frameRouter,
       localOnion: () => localOnionAddress,
+      resolvePeerIdentity: _resolvePeerIdentityForIngress,
       manager: TransportProvider.isConfigured
           ? TransportProvider.instance.wsManager
           : null,

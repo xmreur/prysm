@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/services/call/call_signaling_notifier.dart';
 import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
@@ -18,10 +20,13 @@ class InboundWsPeerLink implements WsPeerLink {
     required WebSocketChannel channel,
     required WsFrameRouter frameRouter,
     required String? Function() localOnion,
+    required Future<IdentityPublicKeys?> Function(String peerId)
+        resolvePeerIdentity,
     WsConnectionManager? manager,
   })  : _channel = channel,
         _frameRouter = frameRouter,
         _localOnion = localOnion,
+        _resolvePeerIdentity = resolvePeerIdentity,
         _manager = manager;
 
   /// Accepts an inbound connection; owns the only [channel.stream] subscription.
@@ -29,12 +34,15 @@ class InboundWsPeerLink implements WsPeerLink {
     required WebSocketChannel channel,
     required WsFrameRouter frameRouter,
     required String? Function() localOnion,
+    required Future<IdentityPublicKeys?> Function(String peerId)
+        resolvePeerIdentity,
     WsConnectionManager? manager,
   }) {
     final link = InboundWsPeerLink._(
       channel: channel,
       frameRouter: frameRouter,
       localOnion: localOnion,
+      resolvePeerIdentity: resolvePeerIdentity,
       manager: manager,
     );
     link._subscription = channel.stream.listen(
@@ -50,6 +58,8 @@ class InboundWsPeerLink implements WsPeerLink {
   final WebSocketChannel _channel;
   final WsFrameRouter _frameRouter;
   final String? Function() _localOnion;
+  final Future<IdentityPublicKeys?> Function(String peerId)
+      _resolvePeerIdentity;
   final WsConnectionManager? _manager;
 
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
@@ -203,6 +213,55 @@ class InboundWsPeerLink implements WsPeerLink {
         await _rejectDuplicate(local);
         return;
       }
+    }
+
+    // The claimed onion must be proven: an unauthenticated hello lets an
+    // attacker capture the outbound link for a contact and probe who is
+    // currently connected. Tor already proves the server owns `local` (only
+    // the onion holder can decrypt the rendezvous), so a client-to-server
+    // proof is the only direction needed. Keep the cheap local checks above
+    // this: identity resolution can hit Tor, and an unauthenticated flood
+    // must not be able to force network fetches.
+    final timestampMs = frame.payload?['ts'];
+    final signature = frame.payload?['sig'];
+    if (timestampMs is! int || signature is! String || signature.isEmpty) {
+      Logging.error(
+        'rejecting hello without identity proof from $remoteOnion',
+        'InboundWsPeerLink',
+      );
+      await _rejectHandshake();
+      return;
+    }
+
+    final peer = await _resolvePeerIdentity(remoteOnion);
+    if (peer == null) {
+      Logging.error(
+        'rejecting hello from unknown peer $remoteOnion',
+        'InboundWsPeerLink',
+      );
+      await _rejectHandshake();
+      return;
+    }
+
+    // Residual: within PeerProof.maxSkew a signed hello is replayable by
+    // someone who observed it. Observing it requires breaking the Tor circuit
+    // encryption, and a replay only re-establishes the real peer as
+    // themselves.
+    final valid = await PeerProof.verify(
+      context: PeerProof.wsHelloContext,
+      senderOnion: remoteOnion,
+      receiverOnion: local,
+      timestampMs: timestampMs,
+      signature: signature,
+      peer: peer,
+    );
+    if (!valid) {
+      Logging.error(
+        'rejecting hello with invalid identity proof from $remoteOnion',
+        'InboundWsPeerLink',
+      );
+      await _rejectHandshake();
+      return;
     }
 
     peerOnion = remoteOnion;

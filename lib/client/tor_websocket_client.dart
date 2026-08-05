@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:prysm/client/tor_socks_websocket.dart';
+import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/transport/ws_frame_router.dart';
 import 'package:prysm/transport/ws_protocol.dart';
 import 'package:prysm/util/logging.dart';
@@ -91,8 +92,34 @@ class TorWebSocketClient {
         onError: _onError,
       );
 
+      // The hello carries a proof that we own localOnion: the acceptor
+      // otherwise trusts a self-asserted onion and would hand the outbound
+      // link for a contact to whoever claims it. Unsigned when no identity is
+      // available (pre-Tor bootstrap, tests) — that path is rejected by
+      // peers on this build, but the Tor circuit is proof enough for legacy
+      // interop.
+      final onion = localOnion;
+      int? helloTimestampMs;
+      String? helloSignature;
+      if (onion != null && onion.isNotEmpty) {
+        final identity = PeerProof.localIdentity?.call();
+        if (identity != null) {
+          helloTimestampMs = DateTime.now().millisecondsSinceEpoch;
+          helloSignature = await PeerProof.sign(
+            context: PeerProof.wsHelloContext,
+            senderOnion: onion,
+            receiverOnion: peerOnion,
+            timestampMs: helloTimestampMs,
+            identity: identity,
+          );
+        }
+      }
       socket.add(
-        WsFrame.hello(onion: localOnion).encode(),
+        WsFrame.hello(
+          onion: onion,
+          timestampMs: helloTimestampMs,
+          signature: helloSignature,
+        ).encode(),
       );
       await _helloCompleter!.future.timeout(timeout);
       _helloCompleter = null;

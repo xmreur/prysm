@@ -12,10 +12,138 @@ import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/database/database_cipher.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// A raw 256-bit hex key (64 lowercase hex chars) that is NOT the key the
-/// app's secure storage will generate, used to open a database wrongly.
-const _foreignKey =
-    'b1e5d7a9c3f0e2b4d6a8c0e1f3b5d7a9c1e3f5b7d9a0c2e4f6b8d1a3c5e7f9b0';
+/// A hand-written fake `Database` whose `PRAGMA cipher_version` comes back
+/// empty, exactly as it would on a plain (non-SQLCipher) sqlite3 build where
+/// `PRAGMA key` is a silent no-op. Only [rawQuery] is on the keying path;
+/// every other member throws [UnimplementedError] because applyKey never
+/// reaches it.
+class _NoCipherVersionDatabase implements Database {
+  @override
+  Future<List<Map<String, Object?>>> rawQuery(
+    String sql, [
+    List<Object?>? arguments,
+  ]) async {
+    return const [];
+  }
+
+  @override
+  String get path => throw UnimplementedError();
+
+  @override
+  bool get isOpen => throw UnimplementedError();
+
+  @override
+  Database get database => this;
+
+  @override
+  Batch batch() => throw UnimplementedError();
+
+  @override
+  Future<void> close() => throw UnimplementedError();
+
+  @override
+  Future<int> delete(String table, {String? where, List<Object?>? whereArgs}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<T> devInvokeMethod<T>(String method, [Object? arguments]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<T> devInvokeSqlMethod<T>(
+    String method,
+    String sql, [
+    List<Object?>? arguments,
+  ]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> execute(String sql, [List<Object?>? arguments]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> insert(
+    String table,
+    Map<String, Object?> values, {
+    String? nullColumnHack,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<QueryCursor> queryCursor(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+    int? bufferSize,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> rawDelete(String sql, [List<Object?>? arguments]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> rawInsert(String sql, [List<Object?>? arguments]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<QueryCursor> rawQueryCursor(
+    String sql,
+    List<Object?>? arguments, {
+    int? bufferSize,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> rawUpdate(String sql, [List<Object?>? arguments]) =>
+      throw UnimplementedError();
+
+  @override
+  Future<T> readTransaction<T>(
+    Future<T> Function(Transaction txn) action,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(Transaction txn) action, {
+    bool? exclusive,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> update(
+    String table,
+    Map<String, Object?> values, {
+    String? where,
+    List<Object?>? whereArgs,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) =>
+      throw UnimplementedError();
+}
 
 void main() {
   setUpAll(() {
@@ -137,6 +265,21 @@ void main() {
     expect(File('$path-wal').existsSync(), isFalse);
     expect(File('$path-shm').existsSync(), isFalse);
     expect(File(path).existsSync(), isTrue);
+
+    // The strongest residue check: the file must no longer open as
+    // plaintext. Its first 16 bytes are now the random salt, not the ASCII
+    // "SQLite format 3\0" header — every existence assertion above would
+    // stay true of a prepare that did nothing at all.
+    final raf = File(path).openSync();
+    final header = raf.readSync(16);
+    raf.closeSync();
+    expect(
+      header,
+      isNot(equals(const [
+        0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, 0x66, // "SQLite fo"
+        0x6F, 0x72, 0x6D, 0x61, 0x74, 0x20, 0x33, 0x00, // "rmat 3\0"
+      ])),
+    );
   });
 
   test('WAL content is carried across the migration', () async {
@@ -208,30 +351,45 @@ void main() {
     },
   );
 
-  test('applyKey on a database opened with a different key throws', () async {
-    // A database encrypted with a key other than the app's, opened through
-    // the app's keying path: the first real read must be rejected loudly.
-    // (On this SQLCipher build, PRAGMA key before the first page read
-    // merely re-arms the codec, so the rejection surfaces at the read.)
-    final path = p.join(tempDir.path, 'foreign.db');
-    final maker = await databaseFactory.openDatabase(
-      path,
-      options: OpenDatabaseOptions(
-        singleInstance: false,
-        onConfigure: (db) async {
-          await db.rawQuery('PRAGMA key = "x\'$_foreignKey\'"');
-        },
-      ),
-    );
-    await maker.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, value TEXT)');
-    await maker.insert('t', {'value': 'foreign'});
-    await maker.close();
+  test(
+    'a migrated temp with the original absent is recovered, not deleted',
+    () async {
+      final path = await buildPlaintextDatabase(tempDir);
 
-    final db = await openEncrypted(path);
-    addTearDown(db.close);
-    await expectLater(
-      db.rawQuery('SELECT count(*) FROM sqlite_master'),
-      throwsA(anything),
-    );
+      await DatabaseCipher.prepare(path);
+
+      // Simulate the interrupted rename: the plaintext original has already
+      // been deleted and the verified encrypted copy survives only as the
+      // temp file. Treating every temp as stale garbage would delete the
+      // only remaining copy of the database right here.
+      File(path).renameSync('$path.migrating');
+      expect(File(path).existsSync(), isFalse);
+      expect(File('$path.migrating').existsSync(), isTrue);
+
+      await DatabaseCipher.prepare(path);
+
+      // The verified copy must be renamed back into place, not dropped.
+      expect(File('$path.migrating').existsSync(), isFalse);
+      expect(File(path).existsSync(), isTrue);
+
+      final db = await openEncrypted(path);
+      addTearDown(db.close);
+      final rows = await db.query('items', orderBy: 'id');
+      expect(rows.map((r) => r['name']).toList(), ['one', 'two', 'three']);
+      final uv = await db.rawQuery('PRAGMA user_version');
+      expect(uv.first.values.single, 7);
+    },
+  );
+
+  test('applyKey refuses a connection whose cipher_version is empty', () async {
+    // On a plain sqlite3 build `PRAGMA key` is a silent no-op and the
+    // database would stay plaintext; the cipher_version guard is the only
+    // thing that catches it. This fake returns an empty result set for
+    // every pragma, so only the guard in applyKey can make this throw — a
+    // plaintext open of an encrypted file would throw SQLITE_NOTADB on its
+    // own, with no applyKey involved.
+    final db = _NoCipherVersionDatabase();
+
+    await expectLater(DatabaseCipher.applyKey(db), throwsStateError);
   });
 }

@@ -59,20 +59,54 @@ class DatabaseCipher {
   /// already encrypted or does not exist yet.
   ///
   /// The plaintext original is only deleted after the encrypted copy has
-  /// been reopened, keyed, and verified; a crash at any point leaves the
+  /// been reopened, keyed, and verified. A crash before the swap leaves the
   /// original intact and a stale `$path.migrating` behind, which the next
-  /// call deletes and retries.
+  /// call drops and retries; a crash between the delete and the rename
+  /// leaves `$path.migrating` as the only surviving copy, which the next
+  /// call re-verifies and renames into place instead of deleting.
   static Future<void> prepare(String path) async {
     final migratingPath = '$path.migrating';
-
-    // 1. A crashed earlier run may have left a temp file behind; drop it.
+    final file = File(path);
     final tempFile = File(migratingPath);
+
+    // 1. A crashed earlier run may have left a temp file behind.
     if (tempFile.existsSync()) {
-      tempFile.deleteSync();
+      if (file.existsSync()) {
+        // The original survived the crash: the temp is stale garbage from an
+        // abandoned migration — drop it and migrate normally below.
+        tempFile.deleteSync();
+      } else {
+        // The original is gone but the temp survives: the crash happened
+        // between deleting the original and renaming the verified copy into
+        // place, so the temp IS the database. Recover it — re-verify it with
+        // the key and rename it into place. Only if verification fails is it
+        // garbage, and then it must be deleted.
+        var verified = false;
+        try {
+          await _verifyTemp(migratingPath, null);
+          verified = true;
+        } catch (_) {
+          if (tempFile.existsSync()) {
+            tempFile.deleteSync();
+          }
+        }
+        if (verified) {
+          // The sidecars belonged to the already-deleted original; any
+          // survivor is stale and carries plaintext pages of its own.
+          for (final sidecar in ['$path-wal', '$path-shm']) {
+            final sidecarFile = File(sidecar);
+            if (sidecarFile.existsSync()) {
+              sidecarFile.deleteSync();
+            }
+          }
+          tempFile.renameSync(path);
+          Logging.info('recovered ${p.basename(path)}', _fileAlias);
+          return;
+        }
+      }
     }
 
     // 2. New database: nothing to migrate; applyKey encrypts it on creation.
-    final file = File(path);
     if (!file.existsSync()) return;
 
     // 3. SQLCipher files start with a random salt, plaintext SQLite with the
@@ -152,10 +186,12 @@ class DatabaseCipher {
   }
 
   /// Reopens the temp file with the key and proves it is a real, complete
-  /// encrypted copy before the plaintext original is destroyed.
+  /// encrypted copy before the plaintext original is destroyed. With a null
+  /// [expectedVersion] — the recovery of an interrupted rename — only keyed
+  /// readability and a plausible schema are proven.
   static Future<void> _verifyTemp(
     String migratingPath,
-    int expectedVersion,
+    int? expectedVersion,
   ) async {
     final db = await databaseFactory.openDatabase(
       migratingPath,
@@ -166,15 +202,17 @@ class DatabaseCipher {
     );
     try {
       await db.rawQuery('SELECT count(*) FROM sqlite_master');
-      final uvRows = await db.rawQuery('PRAGMA user_version');
-      final actualVersion = uvRows.isEmpty
-          ? 0
-          : (uvRows.first.values.single as num).toInt();
-      if (actualVersion != expectedVersion) {
-        throw StateError(
-          'migration verification failed: user_version $expectedVersion '
-          'became $actualVersion',
-        );
+      if (expectedVersion != null) {
+        final uvRows = await db.rawQuery('PRAGMA user_version');
+        final actualVersion = uvRows.isEmpty
+            ? 0
+            : (uvRows.first.values.single as num).toInt();
+        if (actualVersion != expectedVersion) {
+          throw StateError(
+            'migration verification failed: user_version $expectedVersion '
+            'became $actualVersion',
+          );
+        }
       }
     } finally {
       await db.close();

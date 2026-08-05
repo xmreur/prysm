@@ -161,10 +161,13 @@ class CryptoKeyStore {
   /// written this key.
   ///
   /// Unlike [torControlPassword], this method fails loudly when the
-  /// generated key cannot be read back: [write] swallows secure-storage
-  /// failures and falls back to an in-memory map, and silently proceeding
-  /// with an ephemeral key would encrypt the user's databases with a key
-  /// that disappears at process exit.
+  /// generated key cannot be durably persisted: [write] swallows
+  /// secure-storage failures and falls back to an in-memory map, so after
+  /// writing, the fallback map holding the key while the store is not in
+  /// test-only mode is treated as a failed write, and the stored key is
+  /// additionally verified by reading it back. Silently proceeding with an
+  /// ephemeral key would encrypt the user's databases with a key that
+  /// disappears at process exit.
   static Future<String> databaseKey() async {
     final existing = await read(databaseKeyName);
     if (existing != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(existing)) {
@@ -176,6 +179,14 @@ class CryptoKeyStore {
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
     await write(databaseKeyName, generated);
+    // [write] swallows secure-storage failures and falls back to the
+    // in-memory map, which would make the readback below match and defeat
+    // the fail-loudly guarantee. Outside test-only mode, the fallback map
+    // only ever receives this key through that swallowed-failure path, so
+    // its presence right after the write means the real write failed.
+    if (!_useTestMemoryOnly && _testMemory.containsKey(databaseKeyName)) {
+      throw StateError('DATABASE_KEY_V1 could not be persisted to secure storage');
+    }
     final stored = await read(databaseKeyName);
     if (stored == null || stored != generated) {
       throw StateError('DATABASE_KEY_V1 could not be persisted to secure storage');

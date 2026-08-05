@@ -57,9 +57,26 @@ void main() {
       await CryptoKeyStore.write(CryptoKeyStore.databaseKeyName, short);
       final key = await CryptoKeyStore.databaseKey();
       expect(key, matches(RegExp(r'^[0-9a-f]{64}$')));
-      expect(key, isNot(short));
       final stored = await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName);
       expect(stored, key);
+    });
+
+    test('throws StateError when the write silently falls back to memory', () async {
+      // Reproduce the state a swallowed secure-storage write failure leaves
+      // behind: the key sits in the in-memory fallback map while the store
+      // is NOT in test-only mode. The @visibleForTesting seams can only
+      // clear the map or toggle the flag, so populate it through the public
+      // write() in test-only mode, then flip the flag off. 'not-hex' forces
+      // the generate-and-write path (a valid hex value would be returned by
+      // the early read, never reaching the write).
+      CryptoKeyStore.setUseInMemoryStorageOnly(true);
+      await CryptoKeyStore.write(CryptoKeyStore.databaseKeyName, 'not-hex');
+      CryptoKeyStore.setUseInMemoryStorageOnly(false);
+
+      await expectLater(
+        CryptoKeyStore.databaseKey(),
+        throwsStateError,
+      );
     });
   });
 }

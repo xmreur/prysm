@@ -226,10 +226,19 @@ void main() {
       expect(uv.first.values.single, 11);
       final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
       final colNames = cols.map((c) => c['name']).toSet();
+      // Two separate guards: containsAll(claimedAt, resolved) could never
+      // fire because claimedAt is not a column in any schema version —
+      // permanent absence alone satisfied the negation, including for the
+      // wrong post-43f177d fixture (which carries only resolved).
       expect(
         colNames,
-        isNot(containsAll(['claimedAt', 'resolved'])),
-        reason: 'the v11 fixture must use the two-column group_inbound_seen',
+        isNot(contains('claimedAt')),
+        reason: 'the v11 fixture must not contain the claimedAt column',
+      );
+      expect(
+        colNames,
+        isNot(contains('resolved')),
+        reason: 'the v11 fixture must not contain the resolved column',
       );
       final floor = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "

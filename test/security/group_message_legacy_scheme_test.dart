@@ -210,6 +210,10 @@ void main() {
   });
 
   tearDown(() async {
+    // Claim ownership is process-global: a claim left by one case would
+    // refuse the same triple in the next, so it must be cleared between
+    // cases.
+    GroupSenderIndexStore.resetForTest();
     await messagesDb.close();
     MessagesDb.setDatabaseForTest(null);
 

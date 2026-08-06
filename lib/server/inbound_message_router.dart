@@ -647,11 +647,24 @@ class InboundMessageRouter {
       // storage layer (a soft-delete tombstone wins, or an existing
       // outbound copy is kept), never a retryable failure — so the triple
       // must stay dropped for later re-deliveries.
-      await GroupSenderIndexStore.resolveInboundIndex(
-        groupId: inboundGroupId!,
-        senderId: claim.senderId,
-        index: claim.index,
-      );
+      // The message is already stored at this point, so a failed resolve
+      // is bookkeeping only and must not turn a delivered message into a
+      // 500 (PrysmServer maps any escape here to 500, and the claim row
+      // would then stay unresolved forever). The claim key stays live in
+      // this process, so the retry of the same envelope stays refused for
+      // the rest of the process lifetime.
+      try {
+        await GroupSenderIndexStore.resolveInboundIndex(
+          groupId: inboundGroupId!,
+          senderId: claim.senderId,
+          index: claim.index,
+        );
+      } catch (e) {
+        Logging.error(
+          'Inbound group claim resolve failed: $e',
+          'InboundMessageRouter',
+        );
+      }
     }
 
     if (inserted != null && expiresAt != null) {

@@ -94,12 +94,17 @@ class MessageCrudDao {
       final id = normalized['id'] as String;
       final existing = await db.query(
         'messages',
-        columns: const ['id', 'senderId', 'status'],
+        columns: const ['id', 'senderId', 'status', 'deletedAt'],
         where: 'id = ?',
         whereArgs: [id],
       );
       if (existing.isNotEmpty) {
         final row = existing.first;
+        // A soft-delete tombstone wins over a re-delivery: a captured inbound
+        // message re-POSTed after deletion must not resurrect the row.
+        if (row['deletedAt'] != null) {
+          return null;
+        }
         final wasOutbound =
             row['senderId'] == localUserId && row['status'] != 'received';
         if (wasOutbound) {
@@ -119,50 +124,59 @@ class MessageCrudDao {
   Future<String?> getMessageWire(
     String messageId, {
     String? groupId,
+  }) {
+    return _protect(
+      () => _getMessageWireUnprotected(messageId, groupId: groupId),
+    );
+  }
+
+  /// Lock-free core of [getMessageWire]: the caller must already hold
+  /// [MessagesDatabase.mutex] (via [_protect]) before invoking this.
+  Future<String?> _getMessageWireUnprotected(
+    String messageId, {
+    String? groupId,
   }) async {
-    return await _protect(() async {
-      final db = await _database;
-      final storageId = MessageIdCodec.scopedId(wireId: messageId, groupId: groupId);
+    final db = await _database;
+    final storageId = MessageIdCodec.scopedId(wireId: messageId, groupId: groupId);
 
-      if (await MessageBlobStore.exists(storageId)) {
-        return MessageBlobStore.read(storageId);
-      }
+    if (await MessageBlobStore.exists(storageId)) {
+      return MessageBlobStore.read(storageId);
+    }
 
+    try {
+      final rows = await db.query(
+        'messages',
+        columns: const ['message'],
+        where: 'id = ?',
+        whereArgs: [storageId],
+      );
+      if (rows.isEmpty) return null;
+      final wire = rows.first['message'] as String?;
+      return MessageBlobStore.resolve(wire);
+    } catch (e, stack) {
+      Logging.error(
+        'getMessageWire failed for $messageId, attempting migration: $e\n$stack',
+        'MessagesDb',
+      );
       try {
-        final rows = await db.query(
+        final wire = await MessageSchemaMigrations.readMessageColumnInChunks(db, storageId);
+        if (wire.isEmpty) return null;
+        await MessageBlobStore.save(storageId, wire);
+        await db.update(
           'messages',
-          columns: const ['message'],
+          {'message': MessageBlobStore.marker(storageId)},
           where: 'id = ?',
           whereArgs: [storageId],
         );
-        if (rows.isEmpty) return null;
-        final wire = rows.first['message'] as String?;
-        return MessageBlobStore.resolve(wire);
-      } catch (e, stack) {
+        return wire;
+      } catch (e2, stack2) {
         Logging.error(
-          'getMessageWire failed for $messageId, attempting migration: $e\n$stack',
+          'getMessageWire migration failed for $messageId: $e2\n$stack2',
           'MessagesDb',
         );
-        try {
-          final wire = await MessageSchemaMigrations.readMessageColumnInChunks(db, storageId);
-          if (wire.isEmpty) return null;
-          await MessageBlobStore.save(storageId, wire);
-          await db.update(
-            'messages',
-            {'message': MessageBlobStore.marker(storageId)},
-            where: 'id = ?',
-            whereArgs: [storageId],
-          );
-          return wire;
-        } catch (e2, stack2) {
-          Logging.error(
-            'getMessageWire migration failed for $messageId: $e2\n$stack2',
-            'MessagesDb',
-          );
-          return null;
-        }
+        return null;
       }
-    });
+    }
   }
 
   /// Query message by wire ID (optionally scoped to a group).
@@ -202,16 +216,13 @@ class MessageCrudDao {
           'getMessageById wire read failed for $messageId: $e\n$stack',
           'MessagesDb',
         );
-        // NOTE(pre-existing, do not "fix" without a design review): this call
-        // re-enters `_protect` (MessagesDatabase.mutex.protect) while we are
-        // still inside the outer `_protect` from getMessageById's own call
-        // above. The mutex is NOT reentrant, so if this fallback branch is
-        // ever reached, it deadlocks instead of throwing. It is only
-        // exercised by the rare wire-read failure caught above, and the
-        // deadlock has been left in place deliberately to preserve existing
-        // behavior/invariants rather than risk changing locking semantics
-        // as a drive-by fix. See FINDING 3 of the branch review.
-        final wire = await getMessageWire(messageId, groupId: groupId);
+        // Already inside the outer `_protect` here: call the lock-free
+        // variant, not getMessageWire, which would re-acquire the
+        // non-reentrant mutex and deadlock the caller.
+        final wire = await _getMessageWireUnprotected(
+          messageId,
+          groupId: groupId,
+        );
         if (wire == null) {
           row['message'] = null;
         } else if (MessageBlobStore.isMarker(wire) ||

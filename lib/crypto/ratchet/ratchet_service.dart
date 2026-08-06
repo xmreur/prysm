@@ -124,9 +124,10 @@ class RatchetService {
               shared,
               peerWireScheme: peerScheme,
             );
+      final oneTime = bundle.oneTimePreKeyPublic;
       handshake = {
         'ephemeralPub': base64Encode(ephemeralPublic.bytes),
-        'oneTimePreKey': base64Encode(bundle.oneTimePreKeyPublic.bytes),
+        if (oneTime != null) 'oneTimePreKey': base64Encode(oneTime.bytes),
       };
     }
 
@@ -240,12 +241,16 @@ class RatchetService {
         final consumed = consumedOneTime;
         if (consumed != null) {
           await PrekeyBundle.commitOneTimePreKeyConsumption(consumed);
+          consumedOneTime = null; // committed: nothing left to release.
         }
         return plain;
-      } on FormatException {
-        rethrow;
-      } on StateError {
-        rethrow;
+      } finally {
+        // A handshake that was looked up but never committed must release its
+        // in-use mark, otherwise the one-time prekey would stay unresolvable.
+        final inUse = consumedOneTime;
+        if (inUse != null) {
+          await PrekeyBundle.releaseOneTimePreKey(inUse);
+        }
       }
     });
   }

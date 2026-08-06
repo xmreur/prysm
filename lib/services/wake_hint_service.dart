@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -17,6 +18,11 @@ class WakeHintService {
   String? _userId;
   Future<bool> Function(String peerId)? _onFlushPeer;
   Future<bool> Function(String senderId)? _hasOutboundPendingForSender;
+  Future<void> Function({
+    required String peerOnion,
+    required String senderId,
+  })?
+  _postHint;
 
   final Map<String, DateTime> _lastReceivedFromPeer = {};
   final Map<String, DateTime> _lastBroadcastToPeer = {};
@@ -26,10 +32,16 @@ class WakeHintService {
     required String userId,
     required Future<bool> Function(String peerId) onFlushPeer,
     Future<bool> Function(String senderId)? hasOutboundPendingForSender,
+    Future<void> Function({
+      required String peerOnion,
+      required String senderId,
+    })?
+    postHint,
   }) {
     _userId = userId;
     _onFlushPeer = onFlushPeer;
     _hasOutboundPendingForSender = hasOutboundPendingForSender;
+    _postHint = postHint;
   }
 
   /// Clears in-memory dedupe state (for tests).
@@ -37,6 +49,7 @@ class WakeHintService {
     _lastReceivedFromPeer.clear();
     _lastBroadcastToPeer.clear();
     _lastBroadcastAt = null;
+    _postHint = null;
   }
 
   /// Validates sync-hint payload. Returns null when valid, or an error message.
@@ -67,6 +80,10 @@ class WakeHintService {
   }
 
   Future<void> broadcastRecentPeerHints() async {
+    // Privacy setting: when the user opts out of announcing presence, never
+    // emit wake hints (the toggle's label promises exactly this).
+    if (!SettingsService().showOnlineStatus) return;
+
     final userId = _userId;
     if (userId == null || userId.isEmpty) return;
     if (!TransportProvider.isConfigured) return;
@@ -95,6 +112,7 @@ class WakeHintService {
 
     if (peers.isEmpty) return;
 
+    final postHint = _postHint ?? TransportProvider.postSyncHint;
     final rng = Random();
     final staggerMin = BatterySaverPolicy.wakeHintStaggerMin().inMilliseconds;
     final staggerMax = BatterySaverPolicy.wakeHintStaggerMax().inMilliseconds;
@@ -108,7 +126,7 @@ class WakeHintService {
       _lastBroadcastToPeer[peer] = now;
 
       unawaited(
-        TransportProvider.postSyncHint(peerOnion: peer, senderId: userId),
+        postHint(peerOnion: peer, senderId: userId),
       );
 
       if (staggerMax > 0) {

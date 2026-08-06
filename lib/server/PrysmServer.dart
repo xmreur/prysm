@@ -91,8 +91,14 @@ class PrysmServer {
   Future<void> start() async {
     if (_server != null) return;
 
+    // The shelf access line carries the full requested URI (path + query),
+    // so a peer-supplied ?requester= would reach stdout unredacted with the
+    // default print() logger, in release builds too. Routing it through
+    // Logging applies the central onion scrub to every sink.
     final handler = Pipeline()
-        .addMiddleware(logRequests())
+        .addMiddleware(logRequests(logger: (message, isError) => isError
+            ? Logging.error(message, 'PrysmServer')
+            : Logging.info(message, 'PrysmServer')))
         .addHandler(_rootHandler);
 
     _server = await io.serve(
@@ -124,7 +130,15 @@ class PrysmServer {
   }
 
   Future<Response> _requestHandler(Request request) async {
-    Logging.info('${request.method} - ${request.url}', 'PrysmServer');
+    final url = request.url;
+    final requester = url.queryParameters['requester'];
+    final logUrl = (requester != null && requester.isNotEmpty)
+        ? url.replace(queryParameters: {
+            ...url.queryParameters,
+            'requester': Logging.redactOnion(requester),
+          })
+        : url;
+    Logging.info('${request.method} - $logUrl', 'PrysmServer');
 
     try {
       if (!_rateLimiter.allow(InboundRateLimiter.globalKey)) {

@@ -10,7 +10,6 @@ import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_control_channel.dart';
 import 'package:prysm/services/group_key_provider.dart';
-import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
@@ -463,23 +462,40 @@ class GroupService {
   /// Handle incoming control messages (from PrysmServer).
   ///
   /// Authenticates the sender before processing: the sender's identity is
-  /// resolved (cached user store, then Tor fetch) and [encryptedPayload]
-  /// must be a `control-wrap-2` envelope whose Ed25519 signature verifies
-  /// against that identity's signing key. Unsigned legacy envelopes and
-  /// forged signatures are dropped. For all types except invites the sender
-  /// must additionally be a member of the target group.
-  Future<void> handleIncomingControlMessage(
+  /// resolved from the local user store only (cache, never a Tor fetch —
+  /// M2) and [encryptedPayload] must be a `control-wrap-2` envelope whose
+  /// Ed25519 signature verifies against that identity's signing key.
+  /// Unsigned legacy envelopes, forged signatures and senders whose identity
+  /// is not in the local user store are dropped. For all types except
+  /// invites the sender must additionally be a member of the target group.
+  ///
+  /// Returns true when the payload authenticated and was processed; false
+  /// when it was dropped. Callers use the result to gate side effects (e.g.
+  /// the sender-profile fetch in InboundMessageRouter) so unauthenticated
+  /// traffic never reveals that the local user is online.
+  Future<bool> handleIncomingControlMessage(
     String type,
     String encryptedPayload,
     String senderId,
   ) async {
     final senderKeys = await _resolveSenderIdentity(senderId);
+    // Accepted policy (option 1, PR #128): a control message from a sender
+    // whose identity is not in the local store is deliberately dropped —
+    // the invitee sees nothing today. The identity is not merely unverified
+    // but required: decryptControlPayload below authenticates the payload
+    // against it, so the payload cannot even be read without it. Do not
+    // "fix" this by resolving the sender over the network on cache-miss:
+    // that would reopen the M2 profile-fetch oracle (an unauthenticated
+    // sender forcing GET /profile as an implicit delivery receipt) before
+    // any signature check. A pending-invite flow is the tracked follow-up
+    // (https://github.com/xmreur/prysm/pull/128#issuecomment-5205552544).
     if (senderKeys == null) {
       Logging.error(
-        'Dropping $type from $senderId: sender identity unresolvable',
+        'Dropping $type from ${Logging.redactOnion(senderId)}: '
+        'sender identity unresolvable',
         'GroupService',
       );
-      return;
+      return false;
     }
 
     final String plaintext;
@@ -491,10 +507,11 @@ class GroupService {
       );
     } catch (e) {
       Logging.error(
-        'Dropping $type from $senderId: control payload authentication failed: $e',
+        'Dropping $type from ${Logging.redactOnion(senderId)}: '
+        'control payload authentication failed: $e',
         'GroupService',
       );
-      return;
+      return false;
     }
 
     final data = jsonDecode(plaintext) as Map<String, dynamic>;
@@ -503,10 +520,11 @@ class GroupService {
       final groupId = data['groupId'] as String?;
       if (groupId == null || !await DBHelper.isGroupMember(groupId, senderId)) {
         Logging.error(
-          'Dropping $type from non-member $senderId for group $groupId',
+          'Dropping $type from ${Logging.redactOnion(senderId)} for '
+          'group $groupId',
           'GroupService',
         );
-        return;
+        return false;
       }
     }
 
@@ -527,19 +545,19 @@ class GroupService {
         await _handleDisappearingTimer(data);
         break;
     }
+    return true;
   }
 
-  /// Resolves the sender's public identity (cached store first, then Tor).
+  /// Resolves the sender's public identity from the local user store only.
+  ///
+  /// M2 (security): never a Tor fetch. The control payload's signature is
+  /// only verified against the identity held here, and resolving over the
+  /// network on cache-miss would let an unknown peer force an outbound
+  /// GET /profile — an implicit delivery receipt — before any signature
+  /// check. Legitimate members are in the user store, so the good path is
+  /// unaffected; unknown senders are dropped by the caller.
   Future<IdentityPublicKeys?> _resolveSenderIdentity(String senderId) async {
-    final resolver = PeerIdentityResolver(
-      peerId: senderId,
-      keyManager: keyManager,
-    );
-    return resolvePeerIdentityForIngress(
-      keyManager,
-      senderId,
-      fetchOverTor: () => resolver.fetchOverTor(),
-    );
+    return loadPeerIdentityFromDb(keyManager, senderId);
   }
 
   Future<void> _handleDisappearingTimer(Map<String, dynamic> data) async {

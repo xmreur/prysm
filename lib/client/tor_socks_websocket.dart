@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:socks5_proxy/socks_client.dart';
 
 /// Builds the HTTP/1.1 WebSocket upgrade request for a Tor hidden service.
@@ -18,10 +19,47 @@ String buildWebSocketUpgradeRequest({
       'Sec-WebSocket-Version: 13\r\n\r\n';
 }
 
-/// Returns true when [headers] contain a 101 Switching Protocols response.
-bool isWebSocketUpgradeResponse(String headers) {
-  final firstLine = headers.split('\r\n').first.trim();
-  return firstLine.contains('101');
+/// RFC 6455 §4.1 magic GUID appended to the client key before hashing.
+const String _webSocketGuid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+/// Returns the `Sec-WebSocket-Accept` value a server must echo for
+/// [secWebSocketKey]: `base64(sha1(<client-key> + GUID))` (RFC 6455 §4.1).
+String computeWebSocketAccept(String secWebSocketKey) {
+  final digest = sha1.convert(utf8.encode('$secWebSocketKey$_webSocketGuid'));
+  return base64.encode(digest.bytes);
+}
+
+/// Returns true when [headers] are a 101 Switching Protocols response whose
+/// `Sec-WebSocket-Accept` matches the accept derived from
+/// [secWebSocketKey] — the key that was actually sent in the upgrade
+/// request.
+///
+/// The status line alone is not trusted: a hostile or broken server could
+/// answer 101 to anything. RFC 6455 §4.1 requires the server to prove it
+/// processed the handshake by echoing `base64(sha1(key + GUID))`; a missing
+/// or mismatched `Sec-WebSocket-Accept` header means the upgrade is refused.
+bool isWebSocketUpgradeResponse(
+  String headers, {
+  required String secWebSocketKey,
+}) {
+  final lines = headers.split('\r\n');
+  // The status code must be exactly `101` as its own token: a bare substring
+  // match would also pass `HTTP/1.1 1010 ...` (status 1010) or a reason
+  // phrase containing `101` (e.g. `HTTP/1.1 400 Error 101`).
+  if (!RegExp(r'^HTTP/1\.1[ \t]+101(?:[ \t]|$)', caseSensitive: false)
+      .hasMatch(lines.first.trim())) {
+    return false;
+  }
+
+  for (final line in lines.skip(1)) {
+    final colon = line.indexOf(':');
+    if (colon <= 0) continue;
+    final name = line.substring(0, colon).trim().toLowerCase();
+    if (name != 'sec-websocket-accept') continue;
+    final value = line.substring(colon + 1).trim();
+    return value == computeWebSocketAccept(secWebSocketKey);
+  }
+  return false;
 }
 
 /// Generates a RFC 6455 Sec-WebSocket-Key value.
@@ -89,7 +127,7 @@ Future<WebSocket> connectTorWebSocket({
       timeout: timeout,
     );
     final headers = utf8.decode(headerBytes);
-    if (!isWebSocketUpgradeResponse(headers)) {
+    if (!isWebSocketUpgradeResponse(headers, secWebSocketKey: secKey)) {
       throw HttpException(
         'WebSocket upgrade failed: ${headers.split('\r\n').first}',
       );

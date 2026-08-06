@@ -196,13 +196,17 @@ class FileTransferHandler {
       localOnion: localOnion,
     );
     if (error != null) {
-      Logging.error('begin rejected from $peerOnion: $error', 'FileTransferHandler');
+      Logging.error(
+        'begin rejected from ${Logging.redactOnion(peerOnion)}: $error',
+        'FileTransferHandler',
+      );
       return error;
     }
 
     if (_active.length >= InboundLimits.maxConcurrentInboundTransfers) {
       Logging.error(
-        'begin rejected from $peerOnion: Too many transfers',
+        'begin rejected from ${Logging.redactOnion(peerOnion)}: '
+        'Too many transfers',
         'FileTransferHandler',
       );
       return {'error': 'Too many transfers'};
@@ -253,14 +257,16 @@ class FileTransferHandler {
     final session = _active[frame.transferId];
     if (session == null) {
       Logging.error(
-        'chunk for unknown transfer ${frame.transferId} from $peerOnion',
+        'chunk for unknown transfer ${frame.transferId} from '
+        '${Logging.redactOnion(peerOnion)}',
         'FileTransferHandler',
       );
       return;
     }
     if (session.senderId != peerOnion) {
       Logging.error(
-        'chunk sender mismatch ${session.senderId} vs $peerOnion',
+        'chunk sender mismatch ${Logging.redactOnion(session.senderId)} vs '
+        '${Logging.redactOnion(peerOnion)}',
         'FileTransferHandler',
       );
       return;
@@ -361,7 +367,10 @@ class FileTransferHandler {
     try {
       frame = FileTransferChunkFrame.decode(raw);
     } catch (e) {
-      Logging.error('invalid chunk frame from $peerOnion: $e', 'FileTransferHandler');
+      Logging.error(
+        'invalid chunk frame from ${Logging.redactOnion(peerOnion)}: $e',
+        'FileTransferHandler',
+      );
       return;
     }
 

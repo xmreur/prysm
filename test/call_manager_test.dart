@@ -351,6 +351,46 @@ void main() {
     },
   );
 
+  test('inbound call_offer flood from one sender is rate-limited', () async {
+    var incomingTransitions = 0;
+    manager.addListener(() {
+      if (manager.snapshot.state == CallState.incoming) {
+        incomingTransitions++;
+      }
+    });
+
+    // A modified client on a known contact alternates call_offer and
+    // call_end 10 times within the same 60s window.
+    for (var i = 0; i < 10; i++) {
+      final caller = CallSession.createOutbound(
+        callId: 'flood-$i',
+        sessionId: 1000 + i,
+        peerOnion: 'local.onion',
+      );
+      notifier.applyInbound('peer.onion', 'call_offer', {
+        'callId': caller.callId,
+        'sessionId': caller.sessionId,
+        'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
+      });
+      await Future<void>.delayed(Duration.zero);
+      if (manager.snapshot.state == CallState.incoming) {
+        notifier.applyInbound('peer.onion', 'call_end', {
+          'callId': caller.callId,
+          'reason': 'cancel',
+        });
+        await _waitFor(() => manager.snapshot.state == CallState.idle);
+      }
+    }
+
+    // Exactly the first 5 offers per sender per 60s window ring; the
+    // remaining 5 are dropped (asserting the exact count guards the fix
+    // against both under-limiting and over-blocking).
+    expect(incomingTransitions, 5);
+    // Over-threshold offers are dropped without any distinguishable
+    // response: no call_end is ever sent back by the victim.
+    expect(transport.sentFrames.where((f) => f.op == 'call_end'), isEmpty);
+  });
+
   test(
     'blocking the peer of an active call ends the call '
     '(characterizes BlockService -> CallManager coupling)',

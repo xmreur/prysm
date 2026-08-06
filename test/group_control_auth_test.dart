@@ -13,6 +13,7 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<Database> _openTestDb() async {
@@ -286,7 +287,38 @@ void main() {
       await db.close();
       DBHelper.setDatabaseForTest(null);
       MessagesDb.setDatabaseForTest(null);
+      TorRuntimeGate.resetForTest();
     });
+
+    test(
+      'RED: a group control message from a sender unknown to the local '
+      'user store is dropped without any identity resolution over the '
+      'network (pre-fix: _resolveSenderIdentity falls back to a Tor fetch '
+      'on cache-miss, entering the network path before any signature '
+      'check)', () async {
+        // Only the fetch-over-Tor path consults the runtime gate: the spy
+        // firing proves an identity resolution attempted the network. It
+        // blocks the fetch so the pre-fix code fails fast instead of
+        // attempting a real SOCKS connection.
+        TorRuntimeGate.resetForTest();
+        var identityFetchAttempted = false;
+        TorRuntimeGate.isTorStopped = () {
+          identityFetchAttempted = true;
+          return true;
+        };
+
+        final handled = await service
+            .handleIncomingControlMessage(
+              groupInviteType,
+              'not-a-control-envelope',
+              'unknown.onion',
+            )
+            .timeout(const Duration(seconds: 2));
+
+        expect(handled, isFalse);
+        expect(identityFetchAttempted, isFalse);
+      },
+    );
 
     test('valid signed keyRotate from a member is accepted and processed', () async {
       final sender = await IdentityKeyPair.generate();

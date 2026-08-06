@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/block_service.dart';
@@ -19,9 +21,11 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/inbound_message_notifier.dart';
 import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/direct_message_auth.dart';
+import 'package:prysm/crypto/envelope.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/notification_preview.dart';
@@ -54,6 +58,14 @@ class InboundHandleResult {
 }
 
 /// Shared inbound routing for HTTP and WebSocket transports.
+/// Result of the group sender-key anti-replay gate: whether the message must
+/// be acked-but-dropped, and the inbound claim the caller owns when it must
+/// proceed (resolve or release it around storage).
+typedef _GroupSenderKeyGate = ({
+  bool drop,
+  ({String senderId, int index})? claim,
+});
+
 class InboundMessageRouter {
   InboundMessageRouter({
     required this.keyManager,
@@ -246,8 +258,9 @@ class InboundMessageRouter {
 
   /// Async processing after [validateMessage] returns null.
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
+    final senderId = '${data['senderId']}';
     Logging.info(
-      'Received ${data['type']} from ${data['senderId']}',
+      'Received ${data['type']} from ${Logging.redactOnion(senderId)}',
       'InboundMessageRouter',
     );
 
@@ -319,12 +332,12 @@ class InboundMessageRouter {
     final local = localOnionAddress();
 
     await DBHelper.ensureUserExist(data['senderId'] as String);
-    fetchSenderProfile?.call(data['senderId'] as String);
 
     final localId = local ?? receiverId;
     final groupService = GroupService(userId: localId, keyManager: keyManager);
+    final bool handled;
     try {
-      await groupService.handleIncomingControlMessage(
+      handled = await groupService.handleIncomingControlMessage(
         type,
         data['message'] as String,
         data['senderId'] as String,
@@ -334,6 +347,14 @@ class InboundMessageRouter {
       return InboundHandleResult.internalError(
         'Group control processing failed',
       );
+    }
+
+    // M2 (security): the profile fetch is an implicit delivery receipt.
+    // Fetch only after the control payload authenticated (signed
+    // control-wrap-2 envelope); unauthenticated control traffic must not
+    // reveal that we are online.
+    if (handled) {
+      fetchSenderProfile?.call(data['senderId'] as String);
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -473,7 +494,6 @@ class InboundMessageRouter {
     final local = localOnionAddress();
 
     await DBHelper.ensureUserExist(senderId);
-    fetchSenderProfile?.call(senderId);
 
     final timeReceived = DateTime.now().millisecondsSinceEpoch;
     final incomingTimestamp = data['timestamp'];
@@ -512,34 +532,140 @@ class InboundMessageRouter {
           );
         case DirectAuthOutcome.pendingAuth:
           messageStatus = 'pending_auth';
+          // Explicit: pending-auth traffic never fetches the sender profile.
+          // (A non-empty Dart case would not fall through anyway, but the
+          // intent must not depend on that subtlety.)
+          break;
         case DirectAuthOutcome.accepted:
+          // M2 (security): only authenticated direct messages may trigger a
+          // profile fetch. Fetching before auth leaked an implicit delivery
+          // receipt (a GET /profile to the sender) for traffic that is
+          // rejected or whose sender identity is unverified.
+          fetchSenderProfile?.call(senderId);
           break;
       }
     }
 
     final localId = local ?? receiverId;
-    final conversationId = inboundGroupId ?? senderId;
-    final expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
-      data: data,
-      conversationId: conversationId,
-      messageTimestamp: messageTimestamp,
-    );
+    if (inboundGroupId != null &&
+        _isLegacyGroupAeadEnvelope(data)) {
+      // The legacy group-aead envelope has no sender binding (iv/ct only):
+      // any group member could craft a message attributed to another member.
+      // Reject it at ingress; the display path still renders already-stored
+      // legacy messages.
+      return InboundHandleResult.badRequest(
+        'Legacy group envelope scheme rejected: '
+        '${CryptoConstants.schemeGroupAead1}',
+      );
+    }
+    final groupGate = inboundGroupId != null
+        ? await _groupSenderKeyGate(data, inboundGroupId)
+        : null;
+    if (groupGate?.drop ?? false) {
+      // Exact-duplicate gate: the envelope's (senderId, index) was already
+      // resolved for this group, or a concurrent delivery of the same
+      // envelope still owns its claim. Idempotent ack, same shape as a
+      // successful delivery (status, id, timestamp): a replayer cannot tell
+      // a drop from a delivery. A resolved row is terminal — the envelope
+      // was stored, or deliberately dropped by the storage layer (a
+      // soft-deleted tombstone wins over a re-delivery) — and stays
+      // dropped.
+      return InboundHandleResult.ok({
+        'status': 'received',
+        'id': data['id'],
+        'timestamp': timeReceived,
+      });
+    }
+    final claim = groupGate?.claim;
+    final Map<String, dynamic>? inserted;
+    final int? expiresAt;
+    try {
+      if (inboundGroupId != null) {
+        // M2 (security): the profile fetch is an implicit delivery receipt and
+        // must not be triggerable by traffic we cannot authenticate. The gates
+        // above (pre-join, legacy scheme, anti-replay) are fail-open by design
+        // for senders whose identity is not in the local user store: passing
+        // them proves the envelope is new and storable, NOT that the sender is
+        // authenticated. The fetch therefore fires only when the sender's
+        // public identity is already known locally — a cache-only
+        // loadPeerIdentityFromDb, never a Tor fetch. A group message from an
+        // unknown sender is still accepted and stored exactly as before; only
+        // the outbound GET /profile is suppressed, so no unauthenticated
+        // traffic can confirm that we are online.
+        final knownSender =
+            await loadPeerIdentityFromDb(keyManager, senderId);
+        if (knownSender != null) {
+          fetchSenderProfile?.call(senderId);
+        }
+      }
+      final conversationId = inboundGroupId ?? senderId;
+      expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
+        data: data,
+        conversationId: conversationId,
+        messageTimestamp: messageTimestamp,
+      );
 
-    final inserted = await MessagesDb.insertInboundMessage({
-      'id': data['id'] as String,
-      'senderId': senderId,
-      'receiverId': receiverId,
-      'message': data['message'] as String,
-      'type': type,
-      if (data['groupId'] != null) 'groupId': data['groupId'] as String,
-      if (data['fileName'] != null) 'fileName': data['fileName'] as String,
-      if (data['fileSize'] != null) 'fileSize': data['fileSize'],
-      'timestamp': messageTimestamp,
-      'status': messageStatus,
-      if (data['replyTo'] != null) 'replyTo': data['replyTo'],
-      'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
-      'expiresAt': ?expiresAt,
-    }, localId);
+      inserted = await MessagesDb.insertInboundMessage({
+        'id': data['id'] as String,
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': data['message'] as String,
+        'type': type,
+        if (data['groupId'] != null) 'groupId': data['groupId'] as String,
+        if (data['fileName'] != null) 'fileName': data['fileName'] as String,
+        if (data['fileSize'] != null) 'fileSize': data['fileSize'],
+        'timestamp': messageTimestamp,
+        'status': messageStatus,
+        if (data['replyTo'] != null) 'replyTo': data['replyTo'],
+        'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
+        'expiresAt': ?expiresAt,
+      }, localId);
+    } catch (e) {
+      // Any throw between claim and resolve must release the claim: a
+      // failed store must not look like a delivered duplicate, and neither
+      // may a failure elsewhere in the window (e.g. the disappearing-timer
+      // lookup) leak an unresolved claim for the rest of the process
+      // lifetime — release so the sender's retry can claim and store the
+      // message again instead of being acked-and-dropped.
+      if (claim != null) {
+        await GroupSenderIndexStore.releaseInboundIndex(
+          groupId: inboundGroupId!,
+          senderId: claim.senderId,
+          index: claim.index,
+        );
+      }
+      Logging.error(
+        'Inbound message ingress failed: $e',
+        'InboundMessageRouter',
+      );
+      return InboundHandleResult.internalError(
+        'Inbound message ingress failed',
+      );
+    }
+    if (claim != null) {
+      // Resolve on success AND on null: null is a terminal decision of the
+      // storage layer (a soft-delete tombstone wins, or an existing
+      // outbound copy is kept), never a retryable failure — so the triple
+      // must stay dropped for later re-deliveries.
+      // The message is already stored at this point, so a failed resolve
+      // is bookkeeping only and must not turn a delivered message into a
+      // 500 (PrysmServer maps any escape here to 500, and the claim row
+      // would then stay unresolved forever). The claim key stays live in
+      // this process, so the retry of the same envelope stays refused for
+      // the rest of the process lifetime.
+      try {
+        await GroupSenderIndexStore.resolveInboundIndex(
+          groupId: inboundGroupId!,
+          senderId: claim.senderId,
+          index: claim.index,
+        );
+      } catch (e) {
+        Logging.error(
+          'Inbound group claim resolve failed: $e',
+          'InboundMessageRouter',
+        );
+      }
+    }
 
     if (inserted != null && expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();
@@ -615,6 +741,102 @@ class InboundMessageRouter {
       'id': data['id'],
       'timestamp': timeReceived,
     });
+  }
+
+  /// Returns true when [data]'s `message` is a legacy group-aead envelope.
+  ///
+  /// The legacy scheme (`group-aead-1`) authenticates only the group key, not
+  /// the sender, so it must be rejected at ingress. The sender-key scheme
+  /// (and non-group traffic) is not affected.
+  bool _isLegacyGroupAeadEnvelope(Map<String, dynamic> data) {
+    final wire = data['message'];
+    if (wire is! String) return false;
+    final envelope = CryptoEnvelope.tryParse(wire);
+    return envelope != null &&
+        envelope['scheme'] == CryptoConstants.schemeGroupAead1;
+  }
+
+  /// Anti-replay gate for inbound group chat messages, phase 1 (claim).
+  ///
+  /// The group sender-key envelope carries `senderId` and `index` in clear
+  /// (they are used to derive the message key), so the router can
+  /// authenticate and gate on them before decrypting.
+  ///
+  /// [drop] is true when the message must be acked-but-dropped:
+  /// - the envelope can never decrypt (envelope senderId != transport
+  ///   senderId; [GroupCryptoV2.decryptWithSenderKey] rejects the
+  ///   mismatch), or
+  /// - the envelope signature is valid and its exact (senderId, index) was
+  ///   already seen from that sender in this group and already resolved
+  ///   (exact-duplicate detection: order-independent, so a late delivery of
+  ///   an unseen index passes and an out-of-order retry is stored
+  ///   normally), or a concurrent delivery of the same envelope still owns
+  ///   an unresolved claim (two copies of the same envelope cannot both be
+  ///   stored).
+  ///
+  /// When [claim] is non-null the caller owns the claim and MUST resolve it
+  /// after the message reaches a terminal decision (stored, or deliberately
+  /// dropped by the storage layer) or release it when storage failed —
+  /// otherwise a failed or crashed store would turn the sender's retry into
+  /// a permanent loss.
+  ///
+  /// Only envelopes with a valid Ed25519 signature record in the inbound
+  /// seen-set: an unauthenticated peer must not be able to poison it for a
+  /// legitimate sender. The sender is resolved cache-only
+  /// ([loadPeerIdentityFromDb], never a Tor fetch): an unknown peer must not
+  /// be able to force an awaited outbound fetch from this hot path. When the
+  /// sender's public keys are unavailable, or the envelope is not a
+  /// sender-key envelope (legacy group-aead traffic), the gate passes the
+  /// message through untouched (pre-fix behavior).
+  Future<_GroupSenderKeyGate> _groupSenderKeyGate(
+    Map<String, dynamic> data,
+    String groupId,
+  ) async {
+    final wire = data['message'];
+    if (wire is! String) return (drop: false, claim: null);
+    final envelope = CryptoEnvelope.tryParse(wire);
+    if (envelope == null ||
+        envelope['scheme'] != CryptoConstants.schemeGroupSender1) {
+      return (drop: false, claim: null);
+    }
+    final senderId = envelope['senderId'];
+    final index = envelope['index'];
+    if (senderId is! String || index is! int) {
+      return (drop: false, claim: null);
+    }
+    if (senderId != data['senderId']) {
+      // Undecryptable junk by construction; storing it only archives noise.
+      return (drop: true, claim: null);
+    }
+    final peer = await loadPeerIdentityFromDb(keyManager, senderId);
+    if (peer == null) return (drop: false, claim: null);
+    final ivB64 = envelope['iv'];
+    final ctB64 = envelope['ct'];
+    final sigRaw = envelope['sig'];
+    if (ivB64 is! String || ctB64 is! String || sigRaw is! String) {
+      return (drop: false, claim: null);
+    }
+    // Mirror decryptWithSenderKey's signed payload byte-for-byte so the
+    // router and the decrypt path can never disagree on authenticity.
+    final signPayload = utf8.encode(
+      '$groupId|$senderId|$index|$ivB64|$ctB64',
+    );
+    Signature signature;
+    try {
+      signature = Signature(base64Decode(sigRaw), publicKey: peer.signPublic);
+    } catch (_) {
+      return (drop: false, claim: null);
+    }
+    if (!await IdentityKeyPair.verify(signPayload, signature)) {
+      return (drop: false, claim: null);
+    }
+    final claimed = await GroupSenderIndexStore.claimInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: index,
+    );
+    if (!claimed) return (drop: true, claim: null);
+    return (drop: false, claim: (senderId: senderId, index: index));
   }
 
   Future<IdentityPublicKeys?> _resolvePeerIdentity(String senderId) async {

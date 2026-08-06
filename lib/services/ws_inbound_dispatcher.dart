@@ -30,7 +30,8 @@ class WsInboundDispatcher {
     detach(peerOnion);
     _subscriptions[peerOnion] = stream.listen(
       (frame) => unawaited(_handleFrame(peerOnion, frame)),
-      onError: (Object e) => Logging.error('$peerOnion: $e', 'WsInboundDispatcher'),
+      onError: (Object e) =>
+          Logging.error('${Logging.redactOnion(peerOnion)}: $e', 'WsInboundDispatcher'),
     );
   }
 

@@ -58,6 +58,14 @@ class InboundHandleResult {
 }
 
 /// Shared inbound routing for HTTP and WebSocket transports.
+/// Result of the group sender-key anti-replay gate: whether the message must
+/// be acked-but-dropped, and the inbound claim the caller owns when it must
+/// proceed (resolve or release it around storage).
+typedef _GroupSenderKeyGate = ({
+  bool drop,
+  ({String senderId, int index})? claim,
+});
+
 class InboundMessageRouter {
   InboundMessageRouter({
     required this.keyManager,
@@ -550,62 +558,101 @@ class InboundMessageRouter {
         '${CryptoConstants.schemeGroupAead1}',
       );
     }
-    if (inboundGroupId != null &&
-        await _isGroupSenderKeyReplay(data, inboundGroupId)) {
+    final groupGate = inboundGroupId != null
+        ? await _groupSenderKeyGate(data, inboundGroupId)
+        : null;
+    if (groupGate?.drop ?? false) {
       // Exact-duplicate gate: the envelope's (senderId, index) was already
-      // seen for this group, so this is a replay rather than a late
-      // delivery. Idempotent ack, same shape as a successful delivery
-      // (status, id, timestamp): a replayer cannot tell a drop from a
-      // delivery. The seen-set is recorded BEFORE storage on first sight:
-      // a soft-deleted tombstone wins over a re-delivery
-      // (insertInboundMessage returns null for tombstoned ids), so an
-      // envelope that was seen and deliberately not stored stays dropped.
+      // resolved for this group, or a concurrent delivery of the same
+      // envelope still owns its claim. Idempotent ack, same shape as a
+      // successful delivery (status, id, timestamp): a replayer cannot tell
+      // a drop from a delivery. A resolved row is terminal — the envelope
+      // was stored, or deliberately dropped by the storage layer (a
+      // soft-deleted tombstone wins over a re-delivery) — and stays
+      // dropped.
       return InboundHandleResult.ok({
         'status': 'received',
         'id': data['id'],
         'timestamp': timeReceived,
       });
     }
-    if (inboundGroupId != null) {
-      // M2 (security): the profile fetch is an implicit delivery receipt and
-      // must not be triggerable by traffic we cannot authenticate. The gates
-      // above (pre-join, legacy scheme, anti-replay) are fail-open by design
-      // for senders whose identity is not in the local user store: passing
-      // them proves the envelope is new and storable, NOT that the sender is
-      // authenticated. The fetch therefore fires only when the sender's
-      // public identity is already known locally — a cache-only
-      // loadPeerIdentityFromDb, never a Tor fetch. A group message from an
-      // unknown sender is still accepted and stored exactly as before; only
-      // the outbound GET /profile is suppressed, so no unauthenticated
-      // traffic can confirm that we are online.
-      final knownSender =
-          await loadPeerIdentityFromDb(keyManager, senderId);
-      if (knownSender != null) {
-        fetchSenderProfile?.call(senderId);
+    final claim = groupGate?.claim;
+    final Map<String, dynamic>? inserted;
+    final int? expiresAt;
+    try {
+      if (inboundGroupId != null) {
+        // M2 (security): the profile fetch is an implicit delivery receipt and
+        // must not be triggerable by traffic we cannot authenticate. The gates
+        // above (pre-join, legacy scheme, anti-replay) are fail-open by design
+        // for senders whose identity is not in the local user store: passing
+        // them proves the envelope is new and storable, NOT that the sender is
+        // authenticated. The fetch therefore fires only when the sender's
+        // public identity is already known locally — a cache-only
+        // loadPeerIdentityFromDb, never a Tor fetch. A group message from an
+        // unknown sender is still accepted and stored exactly as before; only
+        // the outbound GET /profile is suppressed, so no unauthenticated
+        // traffic can confirm that we are online.
+        final knownSender =
+            await loadPeerIdentityFromDb(keyManager, senderId);
+        if (knownSender != null) {
+          fetchSenderProfile?.call(senderId);
+        }
       }
-    }
-    final conversationId = inboundGroupId ?? senderId;
-    final expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
-      data: data,
-      conversationId: conversationId,
-      messageTimestamp: messageTimestamp,
-    );
+      final conversationId = inboundGroupId ?? senderId;
+      expiresAt = await DisappearingTimerService.resolveInboundExpiresAt(
+        data: data,
+        conversationId: conversationId,
+        messageTimestamp: messageTimestamp,
+      );
 
-    final inserted = await MessagesDb.insertInboundMessage({
-      'id': data['id'] as String,
-      'senderId': senderId,
-      'receiverId': receiverId,
-      'message': data['message'] as String,
-      'type': type,
-      if (data['groupId'] != null) 'groupId': data['groupId'] as String,
-      if (data['fileName'] != null) 'fileName': data['fileName'] as String,
-      if (data['fileSize'] != null) 'fileSize': data['fileSize'],
-      'timestamp': messageTimestamp,
-      'status': messageStatus,
-      if (data['replyTo'] != null) 'replyTo': data['replyTo'],
-      'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
-      'expiresAt': ?expiresAt,
-    }, localId);
+      inserted = await MessagesDb.insertInboundMessage({
+        'id': data['id'] as String,
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': data['message'] as String,
+        'type': type,
+        if (data['groupId'] != null) 'groupId': data['groupId'] as String,
+        if (data['fileName'] != null) 'fileName': data['fileName'] as String,
+        if (data['fileSize'] != null) 'fileSize': data['fileSize'],
+        'timestamp': messageTimestamp,
+        'status': messageStatus,
+        if (data['replyTo'] != null) 'replyTo': data['replyTo'],
+        'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
+        'expiresAt': ?expiresAt,
+      }, localId);
+    } catch (e) {
+      // Any throw between claim and resolve must release the claim: a
+      // failed store must not look like a delivered duplicate, and neither
+      // may a failure elsewhere in the window (e.g. the disappearing-timer
+      // lookup) leak an unresolved claim for the rest of the process
+      // lifetime — release so the sender's retry can claim and store the
+      // message again instead of being acked-and-dropped.
+      if (claim != null) {
+        await GroupSenderIndexStore.releaseInboundIndex(
+          groupId: inboundGroupId!,
+          senderId: claim.senderId,
+          index: claim.index,
+        );
+      }
+      Logging.error(
+        'Inbound message ingress failed: $e',
+        'InboundMessageRouter',
+      );
+      return InboundHandleResult.internalError(
+        'Inbound message ingress failed',
+      );
+    }
+    if (claim != null) {
+      // Resolve on success AND on null: null is a terminal decision of the
+      // storage layer (a soft-delete tombstone wins, or an existing
+      // outbound copy is kept), never a retryable failure — so the triple
+      // must stay dropped for later re-deliveries.
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: inboundGroupId!,
+        senderId: claim.senderId,
+        index: claim.index,
+      );
+    }
 
     if (inserted != null && expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();
@@ -696,19 +743,29 @@ class InboundMessageRouter {
         envelope['scheme'] == CryptoConstants.schemeGroupAead1;
   }
 
-  /// Anti-replay gate for inbound group chat messages.
+  /// Anti-replay gate for inbound group chat messages, phase 1 (claim).
   ///
   /// The group sender-key envelope carries `senderId` and `index` in clear
-  /// (they are used to derive the message key), so the router can authenticate
-  /// and gate on them before decrypting. Returns true when the message must be
-  /// acked-but-dropped:
+  /// (they are used to derive the message key), so the router can
+  /// authenticate and gate on them before decrypting.
+  ///
+  /// [drop] is true when the message must be acked-but-dropped:
   /// - the envelope can never decrypt (envelope senderId != transport
-  ///   senderId; [GroupCryptoV2.decryptWithSenderKey] rejects the mismatch),
-  ///   or
+  ///   senderId; [GroupCryptoV2.decryptWithSenderKey] rejects the
+  ///   mismatch), or
   /// - the envelope signature is valid and its exact (senderId, index) was
-  ///   already seen from that sender in this group (exact-duplicate
-  ///   detection: order-independent, so a late delivery of an unseen index
-  ///   passes and an out-of-order retry is stored normally).
+  ///   already seen from that sender in this group and already resolved
+  ///   (exact-duplicate detection: order-independent, so a late delivery of
+  ///   an unseen index passes and an out-of-order retry is stored
+  ///   normally), or a concurrent delivery of the same envelope still owns
+  ///   an unresolved claim (two copies of the same envelope cannot both be
+  ///   stored).
+  ///
+  /// When [claim] is non-null the caller owns the claim and MUST resolve it
+  /// after the message reaches a terminal decision (stored, or deliberately
+  /// dropped by the storage layer) or release it when storage failed —
+  /// otherwise a failed or crashed store would turn the sender's retry into
+  /// a permanent loss.
   ///
   /// Only envelopes with a valid Ed25519 signature record in the inbound
   /// seen-set: an unauthenticated peer must not be able to poison it for a
@@ -718,31 +775,33 @@ class InboundMessageRouter {
   /// sender's public keys are unavailable, or the envelope is not a
   /// sender-key envelope (legacy group-aead traffic), the gate passes the
   /// message through untouched (pre-fix behavior).
-  Future<bool> _isGroupSenderKeyReplay(
+  Future<_GroupSenderKeyGate> _groupSenderKeyGate(
     Map<String, dynamic> data,
     String groupId,
   ) async {
     final wire = data['message'];
-    if (wire is! String) return false;
+    if (wire is! String) return (drop: false, claim: null);
     final envelope = CryptoEnvelope.tryParse(wire);
     if (envelope == null ||
         envelope['scheme'] != CryptoConstants.schemeGroupSender1) {
-      return false;
+      return (drop: false, claim: null);
     }
     final senderId = envelope['senderId'];
     final index = envelope['index'];
-    if (senderId is! String || index is! int) return false;
+    if (senderId is! String || index is! int) {
+      return (drop: false, claim: null);
+    }
     if (senderId != data['senderId']) {
       // Undecryptable junk by construction; storing it only archives noise.
-      return true;
+      return (drop: true, claim: null);
     }
     final peer = await loadPeerIdentityFromDb(keyManager, senderId);
-    if (peer == null) return false;
+    if (peer == null) return (drop: false, claim: null);
     final ivB64 = envelope['iv'];
     final ctB64 = envelope['ct'];
     final sigRaw = envelope['sig'];
     if (ivB64 is! String || ctB64 is! String || sigRaw is! String) {
-      return false;
+      return (drop: false, claim: null);
     }
     // Mirror decryptWithSenderKey's signed payload byte-for-byte so the
     // router and the decrypt path can never disagree on authenticity.
@@ -753,16 +812,18 @@ class InboundMessageRouter {
     try {
       signature = Signature(base64Decode(sigRaw), publicKey: peer.signPublic);
     } catch (_) {
-      return false;
+      return (drop: false, claim: null);
     }
     if (!await IdentityKeyPair.verify(signPayload, signature)) {
-      return false;
+      return (drop: false, claim: null);
     }
-    return !(await GroupSenderIndexStore.recordInboundIndex(
+    final claimed = await GroupSenderIndexStore.claimInboundIndex(
       groupId: groupId,
       senderId: senderId,
       index: index,
-    ));
+    );
+    if (!claimed) return (drop: true, claim: null);
+    return (drop: false, claim: (senderId: senderId, index: index));
   }
 
   Future<IdentityPublicKeys?> _resolvePeerIdentity(String senderId) async {

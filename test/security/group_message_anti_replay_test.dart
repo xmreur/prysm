@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/crypto/crypto.dart';
+import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/server/inbound_message_router.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -34,8 +35,7 @@ Future<IdentityPublicKeys> _publicKeys(IdentityKeyPair id) async {
   );
 }
 
-Future<Database> _openMessagesDb() async {
-  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+Future<void> _createMessagesTable(Database db) async {
   await db.execute('DROP TABLE IF EXISTS messages');
   await db.execute('''
     CREATE TABLE messages(
@@ -58,6 +58,11 @@ Future<Database> _openMessagesDb() async {
       expiresAt INTEGER
     )
   ''');
+}
+
+Future<Database> _openMessagesDb() async {
+  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+  await _createMessagesTable(db);
   return db;
 }
 
@@ -206,6 +211,10 @@ void main() {
   });
 
   tearDown(() async {
+    // Claim ownership is process-global: a claim left by one case would
+    // refuse the same triple in the next, so it must be cleared between
+    // cases.
+    GroupSenderIndexStore.resetForTest();
     await messagesDb.close();
     MessagesDb.setDatabaseForTest(null);
 
@@ -456,6 +465,138 @@ void main() {
           ids,
           containsAll([for (var i = 1; i <= 9; i++) 'g1::m$i', 'g1::m11']),
         );
+      },
+    );
+  });
+
+  group('inbound claim survives a failed or crashed store', () {
+    test(
+      'failed store: a retry of the same envelope is stored after the first '
+      'delivery failed (pre-fix: the retry was acked and dropped)',
+      () async {
+        // Honest fault injection with the real DAO: dropping the messages
+        // table makes insertInboundMessage throw a genuine
+        // DatabaseException ("no such table") from the storage layer — the
+        // same surface a crash or disk failure produces. No fakes, no
+        // monkey-patching.
+        await messagesDb.execute('DROP TABLE messages');
+
+        final first = await router.handleMessage(
+          await _groupMessage(
+            id: 'm1',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(first.statusCode, 500);
+
+        // Storage recovers; the sender retries the same envelope (same
+        // senderId/index) under a fresh transport id, as
+        // group_chat_service does after a failed POST.
+        await _createMessagesTable(messagesDb);
+
+        final retry = await router.handleMessage(
+          await _groupMessage(
+            id: 'm2',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(retry.statusCode, 200);
+        expect(retry.jsonBody?['status'], 'received');
+
+        final rows = await messagesDb.query('messages');
+        expect(rows, hasLength(1));
+        // The retry's own transport id is what lands: the envelope (the
+        // decryptable payload) is byte-identical to the failed delivery.
+        expect(rows.single['id'], 'g1::m2');
+      },
+    );
+
+    test(
+      'crashed owner: a claim left behind by a kill between claim and store '
+      'is taken over and the retry is stored',
+      () async {
+        // Exactly what a crash between claim and store leaves behind: the
+        // index is claimed but never resolved or released. Inserting the
+        // unresolved row directly into the database (bypassing
+        // claimInboundIndex) is the only honest simulation of the dead
+        // owner — this process never claimed it, so process ownership says
+        // the owner is gone and the sender's retry takes the claim over
+        // whenever it arrives: no clock, no grace period.
+        await dbHelperDb.insert('group_inbound_seen', {
+          'groupId': 'g1',
+          'senderId': 'alice.onion',
+          'msgIndex': 0,
+          'resolved': 0,
+        });
+
+        final result = await router.handleMessage(
+          await _groupMessage(
+            id: 'm1',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(result.statusCode, 200);
+        expect(result.jsonBody?['status'], 'received');
+
+        final rows = await messagesDb.query('messages');
+        expect(rows, hasLength(1));
+        expect(rows.single['id'], 'g1::m1');
+      },
+    );
+
+    test(
+      'a throw between claim and resolve releases the claim: a failing '
+      'disappearing-timer lookup is a 500 and the retry is then stored',
+      () async {
+        // Honest fault injection like the failed-store guard: dropping the
+        // conversation_preferences table makes
+        // DisappearingTimerService.resolveInboundExpiresAt throw a genuine
+        // DatabaseException from the storage layer. The anti-replay claim
+        // was already made by the gate, so this exercises the whole window
+        // between claim and resolve.
+        await dbHelperDb.execute('DROP TABLE conversation_preferences');
+
+        final first = await router.handleMessage(
+          await _groupMessage(
+            id: 'm1',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(first.statusCode, 500);
+
+        // The failure was transient; the sender retries the same envelope
+        // under a fresh transport id, as group_chat_service does after a
+        // failed POST. The claim was released, so the retry is stored —
+        // not acked-and-dropped as a duplicate.
+        await ConversationPreferencesDb.createTable(dbHelperDb);
+
+        final retry = await router.handleMessage(
+          await _groupMessage(
+            id: 'm2',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(retry.statusCode, 200);
+        expect(retry.jsonBody?['status'], 'received');
+
+        final rows = await messagesDb.query('messages');
+        expect(rows, hasLength(1));
+        expect(rows.single['id'], 'g1::m2');
       },
     );
   });

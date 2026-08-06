@@ -61,7 +61,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -192,6 +192,18 @@ class DBHelper {
       // in _createCryptoTables are CREATE TABLE IF NOT EXISTS, so replaying
       // the step on a database that already has session_state and
       // group_sender_index only adds the missing table.
+      await _createCryptoTables(db);
+    }
+    if (oldVersion < 12) {
+      // group_inbound_seen gains the claim/resolve two-phase anti-replay
+      // shape (resolved, as GroupSenderIndexStore.ensureTable defines it).
+      // The v11 two-column form must be dropped, not ALTERed: ensureTable
+      // is CREATE TABLE IF NOT EXISTS, so an install carrying the v11 table
+      // would never see the new columns. Dropping is self-healing here: an
+      // empty seen-set only means an already-received envelope could be
+      // re-delivered once, and the two-phase protocol rebuilds the table on
+      // the next claim.
+      await db.execute('DROP TABLE IF EXISTS group_inbound_seen');
       await _createCryptoTables(db);
     }
   }

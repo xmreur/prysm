@@ -1,14 +1,18 @@
-// Regression test for the chat_app.db v10 -> v11 upgrade (fix/security-mediums
-// wave): DBHelper bumped the schema to version 11 so an install already at
-// version 10 gets the new group_inbound_seen table. Before the bump that
-// table was only created from onCreate and from the oldVersion < 7 step, so an
-// install at version 10 would throw "no such table: group_inbound_seen" on the
-// first inbound group message.
+// Regression test for the chat_app.db schema upgrades in the
+// fix/security-mediums wave: DBHelper bumped the schema to version 11 so an
+// install already at version 10 gets the new group_inbound_seen table, and
+// to version 12 so an install already at version 11 gets the claim/resolve
+// two-phase shape (resolved, no claimedAt) on that table. Before the v11
+// bump the table was only created from onCreate and from the oldVersion < 7
+// step, so an install at version 10 would throw "no such table:
+// group_inbound_seen" on the first inbound group message; before the v12
+// bump an install at version 11 would throw "no such column: resolved".
 //
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
-// plaintext v10 fixture -> DatabaseCipher.prepare (in-place encryption) ->
-// openDatabase(version: 11, onUpgrade) -> real GroupSenderIndexStore calls.
+// plaintext v10/v11 fixture -> DatabaseCipher.prepare (in-place encryption)
+// -> openDatabase(version: 12, onUpgrade) -> real GroupSenderIndexStore
+// calls.
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -175,9 +179,55 @@ void main() {
     }
   }
 
+  /// Builds a real v11 chat_app.db at [path]: the v10 fixture plus the v11
+  /// two-column form of `group_inbound_seen` (no claimedAt/resolved) with
+  /// one pre-existing seen row, and `PRAGMA user_version = 11`.
+  Future<void> buildV11Fixture(String path) async {
+    await buildV10Fixture(path);
+    final db = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    try {
+      // The v11 form of GroupSenderIndexStore.ensureTable, which created
+      // group_inbound_seen without the claim/resolve columns; calling the
+      // real helper would build the table under test and make the test
+      // vacuous.
+      await db.execute('''
+        CREATE TABLE group_inbound_seen (
+          groupId TEXT NOT NULL,
+          senderId TEXT NOT NULL,
+          msgIndex INTEGER NOT NULL,
+          PRIMARY KEY (groupId, senderId, msgIndex)
+        )
+      ''');
+      await db.insert('group_inbound_seen', {
+        'groupId': 'g1',
+        'senderId': 'remote-user',
+        'msgIndex': 5,
+      });
+
+      await db.rawQuery('PRAGMA user_version = 11');
+
+      // Fixture guards: the schema must really be the v11 one, otherwise the
+      // test could pass without exercising the upgrade at all.
+      final uv = await db.rawQuery('PRAGMA user_version');
+      expect(uv.first.values.single, 11);
+      final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
+      final colNames = cols.map((c) => c['name']).toSet();
+      expect(
+        colNames,
+        isNot(containsAll(['claimedAt', 'resolved'])),
+        reason: 'the v11 fixture must use the two-column group_inbound_seen',
+      );
+    } finally {
+      await db.close();
+    }
+  }
+
   test(
-    'opening a v10 chat_app.db creates group_inbound_seen and preserves '
-    'outbound counters',
+    'opening a v10 chat_app.db creates the v12 two-phase group_inbound_seen '
+    'and preserves outbound counters',
     () async {
       final path = '${tempDir.path}/prysm/chat_app.db';
       await buildV10Fixture(path);
@@ -190,28 +240,48 @@ void main() {
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 11);
+      expect(uv.first.values.single, 12);
 
       final inbound = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "
         "AND name = 'group_inbound_seen'",
       );
       expect(inbound, hasLength(1));
+      final inboundCols = await db.rawQuery(
+        'PRAGMA table_info(group_inbound_seen)',
+      );
+      final inboundColNames = inboundCols.map((c) => c['name']).toSet();
+      expect(
+        inboundColNames,
+        containsAll(['groupId', 'senderId', 'msgIndex', 'resolved']),
+      );
+      expect(
+        inboundColNames,
+        isNot(contains('claimedAt')),
+        reason: 'ownership tracking has no clock column',
+      );
 
-      // A real inbound record through the store path survives.
-      final inserted = await GroupSenderIndexStore.recordInboundIndex(
+      // A real inbound record through the store path survives: the v12
+      // two-phase form (claim -> resolve) works on the upgraded table.
+      final claimed = await GroupSenderIndexStore.claimInboundIndex(
         groupId: 'g1',
         senderId: 'remote-user',
         index: 5,
       );
-      expect(inserted, isTrue);
+      expect(claimed, isTrue);
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: 'g1',
+        senderId: 'remote-user',
+        index: 5,
+      );
       final seen = await db.query('group_inbound_seen');
       expect(seen, hasLength(1));
       expect(seen.single['groupId'], 'g1');
       expect(seen.single['senderId'], 'remote-user');
       expect(seen.single['msgIndex'], 5);
+      expect(seen.single['resolved'], 1);
       // An exact-duplicate replay is rejected (the reason the table exists).
-      final replay = await GroupSenderIndexStore.recordInboundIndex(
+      final replay = await GroupSenderIndexStore.claimInboundIndex(
         groupId: 'g1',
         senderId: 'remote-user',
         index: 5,
@@ -232,6 +302,55 @@ void main() {
         ),
         7,
       );
+    },
+  );
+
+  test(
+    'opening a v11 chat_app.db recreates group_inbound_seen in the '
+    'claim/resolve shape',
+    () async {
+      final path = '${tempDir.path}/prysm/chat_app.db';
+      await buildV11Fixture(path);
+      expect(File(path).existsSync(), isTrue);
+
+      // The real open path runs the oldVersion < 12 step: the v11
+      // two-column table is dropped and recreated with the claim/resolve
+      // shape (resolved, no claimedAt).
+      final db = await DBHelper.database;
+
+      final uv = await db.rawQuery('PRAGMA user_version');
+      expect(uv.first.values.single, 12);
+
+      final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
+      final colNames = cols.map((c) => c['name']).toSet();
+      expect(
+        colNames,
+        containsAll(['groupId', 'senderId', 'msgIndex', 'resolved']),
+      );
+      expect(
+        colNames,
+        isNot(contains('claimedAt')),
+        reason: 'ownership tracking has no clock column',
+      );
+
+      // The drop-and-recreate step cleared the v11 seen row: the same
+      // triple is claimable again. (An empty seen-set only means an
+      // already-received envelope could be re-delivered once.)
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: 'g1',
+          senderId: 'remote-user',
+          index: 5,
+        ),
+        isTrue,
+      );
+
+      // The pre-existing outbound counter survived both upgrade steps.
+      final counters = await db.query('group_sender_index');
+      expect(counters, hasLength(1));
+      expect(counters.single['groupId'], 'g1');
+      expect(counters.single['senderId'], 'local-user');
+      expect(counters.single['nextIndex'], 7);
     },
   );
 }

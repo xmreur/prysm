@@ -141,6 +141,7 @@ class Logging {
     // log file) must only ever see redacted text, including onions embedded
     // in exception/stack strings that call sites interpolate unwittingly.
     final scrubbedLine = _scrub(formatted);
+    final scrubbedAlias = _scrub(fileAlias.trim());
     final scrubbedError = error == null ? null : _scrub(error.toString());
     final scrubbedStack =
         stackTrace == null ? null : _scrub(stackTrace.toString());
@@ -153,7 +154,7 @@ class Logging {
 
     developer.log(
       scrubbedLine,
-      name: fileAlias.trim(),
+      name: scrubbedAlias,
       level: level.value,
       time: now,
       sequenceNumber: ++_sequence,

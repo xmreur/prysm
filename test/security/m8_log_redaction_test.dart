@@ -202,6 +202,50 @@ void main() {
     expect(logContent, contains('k3yeek…'));
   });
 
+  test('a full onion passed as fileAlias never reaches a sink (NR3)',
+      () async {
+    await Logging.init();
+    final logPath = Logging.currentLogFilePath;
+    expect(
+      logPath,
+      isNotNull,
+      reason: 'Logging.init() must expose the log file path',
+    );
+
+    final consoleLines = <String>[];
+    final originalDebugPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      consoleLines.add(message ?? '');
+    };
+    try {
+      // No call site passes an onion here today, so this guards the write
+      // path: the alias is scrubbed like every other value before a sink.
+      Logging.info('alias probe', fullOnion);
+    } finally {
+      debugPrint = originalDebugPrint;
+    }
+
+    final console = consoleLines.join('\n');
+    expect(
+      console.contains(fullOnion),
+      isFalse,
+      reason: 'a full onion in fileAlias must never reach the debug console',
+    );
+    expect(
+      console,
+      contains('k3yeek…'),
+      reason: 'the redacted alias must still identify the source',
+    );
+
+    final logContent = File(logPath!).readAsStringSync();
+    expect(
+      logContent.contains(fullOnion),
+      isFalse,
+      reason: 'a full onion in fileAlias must never reach the log file either',
+    );
+    expect(logContent, contains('k3yeek…'));
+  });
+
   test('shelf access log scrubs a requester onion (CR7)', () async {
     await Logging.init();
     final logPath = Logging.currentLogFilePath;
@@ -228,8 +272,11 @@ void main() {
     // The test binding's mock HttpOverrides answers every HttpClient
     // request with an instant empty 400 without ever reaching this server;
     // the request must really hit the loopback socket for logRequests to
-    // run. Setter-only in this SDK; the remaining tests in this file make
-    // no HTTP calls, so leaving the override cleared is safe.
+    // run. HttpOverrides.runZoned cannot replace this: its zero-argument
+    // form inherits HttpOverrides.current, i.e. the binding's mock, so
+    // clearing the global is the only way to get a real client. Setter-only
+    // in this SDK; the remaining tests in this file make no HTTP calls, so
+    // leaving the override cleared is safe.
     HttpOverrides.global = null;
     final server = await io.serve(handler, InternetAddress.loopbackIPv4, 0);
     try {
@@ -237,6 +284,12 @@ void main() {
       final request = await client.getUrl(Uri.parse(
           'http://127.0.0.1:${server.port}/profile?requester=$fullOnion'));
       final response = await request.close();
+      expect(
+        response.statusCode,
+        200,
+        reason: 'the request must really reach the loopback server; the '
+            'test binding\'s mock answers 400 without touching it',
+      );
       await response.drain<void>();
       client.close();
     } finally {

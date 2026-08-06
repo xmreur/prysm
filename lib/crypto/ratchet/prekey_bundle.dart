@@ -62,7 +62,12 @@ class PrekeyBundle {
     final atMillisValue = int.tryParse(atMillis);
     if (atMillisValue == null) return false;
     final at = DateTime.fromMillisecondsSinceEpoch(atMillisValue);
-    return now.difference(at) < _reservationTtl;
+    final elapsed = now.difference(at);
+    // A mark in the future (restored backup, clock moved backwards) must
+    // not pin the entry out of service until the wall clock catches up:
+    // treat it as expired.
+    if (elapsed.isNegative) return false;
+    return elapsed < _reservationTtl;
   }
 
   /// Whether the entry is tied to a delivered bundle whose reservation has
@@ -166,7 +171,15 @@ class PrekeyBundle {
   static Future<List<Map<String, String>>> _readOneTimePool() async {
     final raw = await CryptoKeyStore.read(storageOneTimePreKeyPool);
     if (raw == null || raw.isEmpty) return [];
-    final decoded = jsonDecode(raw);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      // Same stance as the per-entry filter below: a blob that is not JSON
+      // at all must not brick unlock or /profile. The empty pool degrades
+      // to a fresh refill by [_ensureOneTimePool].
+      return [];
+    }
     if (decoded is! List) return [];
     return decoded
         .whereType<Map>()

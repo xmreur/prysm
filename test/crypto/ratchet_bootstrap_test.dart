@@ -758,4 +758,84 @@ void main() {
       expect(base64Decode(entry['pub'] as String).length, 32);
     }
   });
+
+  test('corrupt pool with a non-JSON blob still serves a bundle and self-heals',
+      () async {
+    final bob = await IdentityKeyPair.generate();
+    await PrekeyBundle.generate(bob, persist: true);
+    // The whole blob is not JSON at all — the worst a corrupted or foreign
+    // store can hand us. The decode must degrade to an empty pool instead of
+    // throwing, or unlock / GET /profile hard-fail.
+    await CryptoKeyStore.write(
+      PrekeyBundle.storageOneTimePreKeyPool,
+      'not-json{{{',
+    );
+
+    final bundle = await PrekeyBundle.loadStored(bob);
+    expect(bundle, isNotNull);
+    expect(bundle!.oneTimePreKeyPublic, isNotNull);
+
+    // The pool self-healed: a valid 16-entry pool was written back.
+    final pool = jsonDecode(
+      (await CryptoKeyStore.read(PrekeyBundle.storageOneTimePreKeyPool))!,
+    ) as List;
+    expect(pool.length, 16);
+    expect(
+      pool.every((e) => (e as Map).values.every((v) => v is String)),
+      isTrue,
+    );
+  });
+
+  test('pool entry reserved in the future is servable, not pinned', () async {
+    final bob = await IdentityKeyPair.generate();
+    final first = (await PrekeyBundle.loadStored(bob))!;
+    final firstOtpB64 = base64Encode(first.oneTimePreKeyPublic!.bytes);
+
+    // A restored backup or a backwards clock step leaves a mark in the
+    // future: it must count as expired, otherwise the entry stays pinned
+    // out of service until the wall clock catches up.
+    final futureMillis =
+        DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+    await _corruptOneTimePoolEntry((e) => e..['reservedAt'] = '$futureMillis');
+
+    final bundle = await PrekeyBundle.loadStored(bob);
+    expect(bundle, isNotNull);
+    // The future-dated entry is the first servable one again.
+    expect(base64Encode(bundle!.oneTimePreKeyPublic!.bytes), firstOtpB64);
+  });
+
+  test('pool entry marked in-use in the future is still resolvable by the responder',
+      () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alicePub = await _publicKeys(alice);
+
+    final bundle = await PrekeyBundle.generate(bob, persist: true);
+    final otp = bundle.oneTimePreKeyPublic!;
+    final otpB64 = base64Encode(otp.bytes);
+
+    // A future in-use mark must not make _lookupOneTimePreKey refuse the
+    // exact key the handshake names (a refused lookup surfaces as a failed
+    // derivation / POST /message 500).
+    final futureMillis =
+        DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+    await _corruptOneTimePoolEntry((e) => e..['inUseAt'] = '$futureMillis');
+
+    final ephemeral = await X25519().newKeyPair();
+    final ephemeralPub = await ephemeral.extractPublicKey();
+    final sharedResp = await PrekeyBundle.sharedSecretAsResponder(
+      local: bob,
+      peer: alicePub,
+      initiatorEphemeralPublic: ephemeralPub,
+      usedOneTimePreKeyPublic: otp,
+    );
+    expect(sharedResp, isNotNull);
+    expect(sharedResp!.usedOneTimePreKeyPublic, isNotNull);
+    expect(
+      base64Encode(sharedResp.usedOneTimePreKeyPublic!.bytes),
+      otpB64,
+    );
+    // 96 bytes DH1||DH2||DH3 + 32-byte DH4 term.
+    expect(sharedResp.material.length, 128);
+  });
 }

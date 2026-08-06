@@ -28,3 +28,10 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      - name: L3 harness coverage notice
+        run: |
+          echo "The real-Tor L3 E2E harness did NOT run in this job."
+          echo "It is gated behind PRYSM_E2E=1 (this job runs plain"
+          echo "'flutter test', so test/headless_inbound_e2e_test.dart"
+          echo "skips here). It must be run locally with .l3e2e/run.sh."

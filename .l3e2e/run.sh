@@ -9,12 +9,27 @@ cd "$(dirname "$0")/.."
 IMAGE=prysm-l3e2e
 WORK=.l3e2e/workdir
 
-# Safety gate mirrored inside the container, but cheap to check here too:
-# the harness's victim TorManager will `pkill -9 tor` without a pattern if
-# its targeted kill finds nothing (lib/util/tor_service.dart:488-505).
+# Safety gate for running the harness OUTSIDE the container. Inside the
+# container the PID namespace IS the containment: TorManager's cleanup can
+# `pkill -9 tor` without a pattern (lib/util/tor_service.dart:497) and can
+# only see container PIDs. This check is not mirrored inside the container;
+# it protects the host case, where that pattern-less kill would hit a real
+# host tor.
 if pgrep -x tor >/dev/null 2>&1; then
-  echo "WARNING: a tor process is running on the HOST. The container cannot" >&2
-  echo "kill it (PID namespace), but abort if this surprises you." >&2
+  if [ "${PRYSM_L3E2E_ALLOW_HOST_TOR:-}" != "1" ]; then
+    echo "ERROR: a tor process is running on the HOST. The L3 harness's" >&2
+    echo "victim TorManager runs a pattern-less 'pkill -9 tor'" >&2
+    echo "(lib/util/tor_service.dart:497) whenever its targeted pkill finds" >&2
+    echo "nothing — the normal case — and inside the container the PID" >&2
+    echo "namespace contains it. On the host there is no containment, so" >&2
+    echo "this run would kill that host tor process. Run the harness in the" >&2
+    echo "container (this script's normal path), or set" >&2
+    echo "PRYSM_L3E2E_ALLOW_HOST_TOR=1 to continue with a warning." >&2
+    exit 1
+  fi
+  echo "WARNING: a tor process is running on the HOST; continuing because" >&2
+  echo "PRYSM_L3E2E_ALLOW_HOST_TOR=1 is set. The pattern-less 'pkill -9 tor'" >&2
+  echo "(lib/util/tor_service.dart:497) could kill it." >&2
 fi
 
 mkdir -p "$WORK"

@@ -43,7 +43,13 @@ bool isWebSocketUpgradeResponse(
   required String secWebSocketKey,
 }) {
   final lines = headers.split('\r\n');
-  if (!lines.first.trim().contains('101')) return false;
+  // The status code must be exactly `101` as its own token: a bare substring
+  // match would also pass `HTTP/1.1 1010 ...` (status 1010) or a reason
+  // phrase containing `101` (e.g. `HTTP/1.1 400 Error 101`).
+  if (!RegExp(r'^HTTP/1\.1[ \t]+101(?:[ \t]|$)', caseSensitive: false)
+      .hasMatch(lines.first.trim())) {
+    return false;
+  }
 
   for (final line in lines.skip(1)) {
     final colon = line.indexOf(':');

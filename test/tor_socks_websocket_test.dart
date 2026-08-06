@@ -68,6 +68,43 @@ void main() {
     );
   });
 
+  test('isWebSocketUpgradeResponse requires 101 as the status-code token', () {
+    // RFC 6455 §1.3 worked example: key `dGhlIHNhbXBsZSBub25jZQ==` must be
+    // answered with `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
+    const key = 'dGhlIHNhbXBsZSBub25jZQ==';
+    const expectedAccept = 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=';
+
+    // A bare substring check would accept `101` inside the status code
+    // (`1010`) or the reason phrase (`400 Error 101`); only the status-code
+    // token itself counts.
+    expect(
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 1010 Switching Protocols\r\n'
+        'Sec-WebSocket-Accept: $expectedAccept\r\n\r\n',
+        secWebSocketKey: key,
+      ),
+      isFalse,
+    );
+    expect(
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 400 Error 101\r\n'
+        'Sec-WebSocket-Accept: $expectedAccept\r\n\r\n',
+        secWebSocketKey: key,
+      ),
+      isFalse,
+    );
+
+    // Well-formed 101 with the correct accept: accepted.
+    expect(
+      isWebSocketUpgradeResponse(
+        'HTTP/1.1 101 Switching Protocols\r\n'
+        'Sec-WebSocket-Accept: $expectedAccept\r\n\r\n',
+        secWebSocketKey: key,
+      ),
+      isTrue,
+    );
+  });
+
   test('generateSecWebSocketKey returns base64 payload', () {
     final key = generateSecWebSocketKey();
     expect(key.length, greaterThan(10));

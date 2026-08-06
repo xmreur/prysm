@@ -244,10 +244,6 @@ class RatchetService {
           consumedOneTime = null; // committed: nothing left to release.
         }
         return plain;
-      } on FormatException {
-        rethrow;
-      } on StateError {
-        rethrow;
       } finally {
         // A handshake that was looked up but never committed must release its
         // in-use mark, otherwise the one-time prekey would stay unresolvable.

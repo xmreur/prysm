@@ -31,6 +31,10 @@ class PrekeyBundle {
   static const int _oneTimePoolSize = 16;
   static const int _oneTimeReplenishThreshold = 4;
 
+  /// X25519 public keys and seeds are 32 bytes; a persisted pool entry of any
+  /// other length cannot produce a key pair.
+  static const int _x25519KeyBytes = 32;
+
   /// How long a delivered one-time prekey stays reserved before it becomes
   /// servable again: a handshake that never arrives must not burn the key
   /// permanently. Also bounds the in-use mark left by a lookup whose
@@ -52,7 +56,12 @@ class PrekeyBundle {
 
   static bool _isUnexpired(String? atMillis, DateTime now) {
     if (atMillis == null) return false;
-    final at = DateTime.fromMillisecondsSinceEpoch(int.parse(atMillis));
+    // The persisted pool is untrusted input (restored backups, foreign
+    // stores): a timestamp that cannot be parsed counts as expired, so the
+    // entry is servable and the pool self-heals via [_ensureOneTimePool].
+    final atMillisValue = int.tryParse(atMillis);
+    if (atMillisValue == null) return false;
+    final at = DateTime.fromMillisecondsSinceEpoch(atMillisValue);
     return now.difference(at) < _reservationTtl;
   }
 
@@ -161,6 +170,30 @@ class PrekeyBundle {
     if (decoded is! List) return [];
     return decoded
         .whereType<Map>()
+        .where((e) {
+          // The persisted pool is untrusted input (a corrupted or foreign
+          // store must not brick unlock or /profile): entries that are not
+          // maps of strings, that lack pub/priv, or whose pub/priv are not
+          // a decodable base64 X25519 key of the right length are dropped
+          // instead of throwing. Silent skipping is safe because
+          // [_ensureOneTimePool] replaces a dropped entry with a fresh key.
+          if (!e.entries.every((en) => en.key is String && en.value is String)) {
+            return false;
+          }
+          final pub = e['pub'];
+          final priv = e['priv'];
+          if (pub is! String || priv is! String) return false;
+          try {
+            // Length matters as much as decodability: a truncated seed would
+            // reach newKeyPairFromSeed and throw ArgumentError there, which
+            // no caller handles, leaving an entry that poisons every
+            // handshake naming it.
+            return base64Decode(pub).length == _x25519KeyBytes &&
+                base64Decode(priv).length == _x25519KeyBytes;
+          } on FormatException {
+            return false;
+          }
+        })
         .map((e) => Map<String, String>.from(e.cast<String, String>()))
         .toList();
   }
@@ -212,28 +245,28 @@ class PrekeyBundle {
     });
   }
 
-    /// Non-destructive lookup of the one-time prekey private key. The pool entry
-  /// is only removed by [commitOneTimePreKeyConsumption] once the handshake
-  /// message has been successfully decrypted. The resolved entry is marked
-  /// in-use so that two concurrent handshakes cannot both resolve it;
-  /// [releaseOneTimePreKey] clears the mark when a handshake fails.
+    /// Non-destructive lookup of a specific one-time prekey private key: the
+  /// requested public key must resolve to exactly one pool entry or the
+  /// lookup fails (unknown or already claimed by an in-flight handshake).
+  /// There is no fallback to "first servable entry": a handshake without an
+  /// OTK never reaches this method, so absence of an OTK means no DH4 on
+  /// both sides. The pool entry is only removed by
+  /// [commitOneTimePreKeyConsumption] once the handshake message has been
+  /// successfully decrypted. The resolved entry is marked in-use so that two
+  /// concurrent handshakes cannot both resolve it; [releaseOneTimePreKey]
+  /// clears the mark when a handshake fails.
   static Future<(KeyPair, SimplePublicKey)?> _lookupOneTimePreKey(
-    SimplePublicKey? requestedPublic,
+    SimplePublicKey requestedPublic,
   ) {
     return _poolMutex.protect(() async {
       final pool = await _readOneTimePool();
       if (pool.isEmpty) return null;
       final now = _now();
-      final int index;
-      if (requestedPublic == null) {
-        index = pool.indexWhere((e) => _isAvailable(e, now));
-      } else {
-        final pubB64 = base64Encode(requestedPublic.bytes);
-        index = pool.indexWhere((e) => e['pub'] == pubB64);
-        if (index >= 0 && _isInUse(pool[index], now)) {
-          // Already claimed by another in-flight handshake.
-          return null;
-        }
+      final pubB64 = base64Encode(requestedPublic.bytes);
+      final index = pool.indexWhere((e) => e['pub'] == pubB64);
+      if (index >= 0 && _isInUse(pool[index], now)) {
+        // Already claimed by another in-flight handshake.
+        return null;
       }
       if (index < 0) return null;
       final entry = pool[index];
@@ -390,12 +423,14 @@ class PrekeyBundle {
   /// Non-destructive: the used one-time prekey remains in the pool until
   /// [commitOneTimePreKeyConsumption] is called after a successful decrypt.
   ///
-  /// An initiator that omits the OTK from its handshake is served the first
-  /// servable pool entry, as before. When no servable entry exists (every
-  /// entry is delivery-reserved) and no OTK was requested, the material is
-  /// derived without an OTK term: this is the responder side of a degraded
-  /// bundle served by [loadStored]. A requested OTK that cannot be resolved
-  /// still fails (unknown or already claimed by a concurrent handshake).
+  /// The handshake's OTK presence is unambiguous. A null
+  /// [usedOneTimePreKeyPublic] means the initiator was served a bundle
+  /// without an OTK (degraded bundle from [loadStored]) and omitted the DH4
+  /// term: the responder derives DH1||DH2||DH3 and touches the pool not at
+  /// all, so a pool that became servable again in between can never make the
+  /// two sides disagree. A requested OTK must resolve to exactly that pool
+  /// entry or derivation fails (unknown or already claimed by a concurrent
+  /// handshake).
   static Future<({Uint8List material, SimplePublicKey? usedOneTimePreKeyPublic})?>
       sharedSecretAsResponder({
     required IdentityKeyPair local,
@@ -413,15 +448,17 @@ class PrekeyBundle {
       base64Decode(signedPrivateB64),
     );
 
-    final lookup = await _lookupOneTimePreKey(usedOneTimePreKeyPublic);
     KeyPair? oneTimePreKey;
     SimplePublicKey? oneTimePublic;
-    if (lookup != null) {
+    final requestedOneTime = usedOneTimePreKeyPublic;
+    if (requestedOneTime != null) {
+      final lookup = await _lookupOneTimePreKey(requestedOneTime);
+      if (lookup == null) {
+        // The requested OTK is unknown or claimed by an in-flight handshake:
+        // derivation must fail (exactly one of the concurrent handshakes wins).
+        return null;
+      }
       (oneTimePreKey, oneTimePublic) = lookup;
-    } else if (usedOneTimePreKeyPublic != null) {
-      // The requested OTK is unknown or claimed by an in-flight handshake:
-      // derivation must fail (exactly one of the concurrent handshakes wins).
-      return null;
     }
 
     final dh1 = await _x25519.sharedSecretKey(

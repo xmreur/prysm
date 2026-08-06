@@ -33,6 +33,10 @@ if pgrep -x tor >/dev/null 2>&1; then
 fi
 
 mkdir -p "$WORK"
+# Create the host-side pub cache before mounting it: if the docker daemon
+# created it, it would be root:root 755 and the uid-1000 container user
+# could not write to it (flutter pub get would fail).
+mkdir -p "$HOME/.pub-cache"
 rsync -a --delete \
   --exclude '.dart_tool' \
   lib test assets pubspec.yaml pubspec.lock analysis_options.yaml \
@@ -45,8 +49,7 @@ docker build -f .l3e2e/Containerfile -t "$IMAGE" .l3e2e
 exec docker run --rm \
   -e PRYSM_E2E=1 \
   -v "$PWD/$WORK":/work \
-  -v "$HOME/.pub-cache":"$HOME/.pub-cache":rw \
-  -e PUB_CACHE="$HOME/.pub-cache" \
+  -v "$HOME/.pub-cache":/home/ubuntu/.pub-cache:rw \
   "$IMAGE" bash -lc '
     set -e
     flutter pub get

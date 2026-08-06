@@ -277,6 +277,19 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
             '${preflight.stdout}\n${preflight.stderr}',
           );
 
+          // The preflight probe must still be visible in the hostile log:
+          // it proves the attacker was reachable from the victim's tor, so
+          // an absent oracle is a fixed leak, not a false negative caused
+          // by an unreachable attacker.
+          expect(
+            hostileLog.where((l) => l.contains('requester=preflight-probe')),
+            isNotEmpty,
+            reason: 'precondition failed: the preflight probe never reached '
+                'the attacker — the harness cannot tell a fixed leak from '
+                'an unreachable attacker. Hostile log:\n'
+                '${hostileLog.join('\n')}',
+          );
+
           // Negative control: the victim's own onion must not appear as
           // requester before any message is received.
           expect(
@@ -349,19 +362,6 @@ HiddenServicePort 80 127.0.0.1:$hostilePort
               timeout: const Duration(seconds: 30),
             );
           }
-
-          // The preflight probe must still be visible in the hostile log:
-          // it proves the attacker was reachable from the victim's tor, so
-          // an absent oracle is a fixed leak, not a false negative caused
-          // by an unreachable attacker.
-          expect(
-            hostileLog.where((l) => l.contains('requester=preflight-probe')),
-            isNotEmpty,
-            reason: 'precondition failed: the preflight probe never reached '
-                'the attacker — the harness cannot tell a fixed leak from '
-                'an unreachable attacker. Hostile log:\n'
-                '${hostileLog.join('\n')}',
-          );
 
           expect(
             hit,

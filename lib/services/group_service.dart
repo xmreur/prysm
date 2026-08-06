@@ -479,6 +479,16 @@ class GroupService {
     String senderId,
   ) async {
     final senderKeys = await _resolveSenderIdentity(senderId);
+    // Accepted policy (option 1, PR #128): a control message from a sender
+    // whose identity is not in the local store is deliberately dropped —
+    // the invitee sees nothing today. The identity is not merely unverified
+    // but required: decryptControlPayload below authenticates the payload
+    // against it, so the payload cannot even be read without it. Do not
+    // "fix" this by resolving the sender over the network on cache-miss:
+    // that would reopen the M2 profile-fetch oracle (an unauthenticated
+    // sender forcing GET /profile as an implicit delivery receipt) before
+    // any signature check. A pending-invite flow is the tracked follow-up
+    // (https://github.com/xmreur/prysm/pull/128#issuecomment-5205552544).
     if (senderKeys == null) {
       Logging.error(
         'Dropping $type from ${Logging.redactOnion(senderId)}: '

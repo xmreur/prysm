@@ -17,6 +17,14 @@ class GroupSenderIndexStore {
         PRIMARY KEY (groupId, senderId)
       )
     ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS group_inbound_seen (
+        groupId TEXT NOT NULL,
+        senderId TEXT NOT NULL,
+        msgIndex INTEGER NOT NULL,
+        PRIMARY KEY (groupId, senderId, msgIndex)
+      )
+    ''');
   }
 
   static Future<int> nextIndex({
@@ -48,39 +56,30 @@ class GroupSenderIndexStore {
 
   /// Records a seen inbound sender-key index for (groupId, senderId).
   ///
-  /// The row reuses the outbound `nextIndex` convention: for inbound rows the
-  /// stored value is the smallest index not yet seen (maxSeen + 1). Returns
-  /// false when [index] is a replay (<= the maximum already seen for the
-  /// pair) without touching the row; true when it is new, advancing the
-  /// watermark to [index] + 1. Outbound (`nextIndex`) and inbound rows never
-  /// collide: outbound only ever writes the local user as senderId, inbound
-  /// only ever records other members.
+  /// Exact-duplicate detection: the seen-set holds one row per received
+  /// group message, so the check is order-independent. A late or
+  /// out-of-order first sighting is accepted; only the exact
+  /// (groupId, senderId, index) triple already recorded is rejected. The
+  /// check-and-record is a single `INSERT OR IGNORE` — atomic in SQLite —
+  /// so this method needs no mutex (unlike [nextIndex], which is a
+  /// read-modify-write). Returns false when the exact triple was already
+  /// recorded.
   static Future<bool> recordInboundIndex({
     required String groupId,
     required String senderId,
     required int index,
   }) async {
-    return _mutex.protect(() async {
-      final db = await DBHelper.database;
-      final rows = await db.query(
-        'group_sender_index',
-        where: 'groupId = ? AND senderId = ?',
-        whereArgs: [groupId, senderId],
-        limit: 1,
-      );
-      final next = rows.isEmpty ? 0 : rows.first['nextIndex'] as int;
-      if (index < next) return false;
-      await db.insert(
-        'group_sender_index',
-        {
-          'groupId': groupId,
-          'senderId': senderId,
-          'nextIndex': index + 1,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      return true;
-    });
+    final db = await DBHelper.database;
+    final inserted = await db.insert(
+      'group_inbound_seen',
+      {
+        'groupId': groupId,
+        'senderId': senderId,
+        'msgIndex': index,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    return inserted != 0;
   }
 
   static Future<void> resetForGroup(String groupId) async {
@@ -88,6 +87,11 @@ class GroupSenderIndexStore {
       final db = await DBHelper.database;
       await db.delete(
         'group_sender_index',
+        where: 'groupId = ?',
+        whereArgs: [groupId],
+      );
+      await db.delete(
+        'group_inbound_seen',
         where: 'groupId = ?',
         whereArgs: [groupId],
       );

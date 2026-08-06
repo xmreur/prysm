@@ -62,8 +62,8 @@ void main() {
     expect(results.toSet(), {for (var i = 0; i < parallelCalls; i++) i});
   });
 
-  test('recordInboundIndex rejects replayed indices and advances the '
-      'watermark', () async {
+  test('recordInboundIndex accepts out-of-order first sightings and rejects '
+      'exact duplicates', () async {
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
@@ -72,15 +72,16 @@ void main() {
       ),
       isTrue,
     );
-    // Equal and lower indices are replays.
+    // An out-of-order first sighting (2 < 3, never seen) is accepted.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
         senderId: senderId,
-        index: 3,
+        index: 2,
       ),
-      isFalse,
+      isTrue,
     );
+    // Exact duplicates are rejected, regardless of order.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
@@ -89,7 +90,15 @@ void main() {
       ),
       isFalse,
     );
-    // A higher index is new.
+    expect(
+      await GroupSenderIndexStore.recordInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 3,
+      ),
+      isFalse,
+    );
+    // A higher first sighting is new.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
@@ -100,7 +109,7 @@ void main() {
     );
   });
 
-  test('recordInboundIndex watermarks are scoped per (groupId, senderId)',
+  test('recordInboundIndex seen-set is scoped per (groupId, senderId)',
       () async {
     const otherSender = 'peer.onion';
     const otherGroup = 'g2';
@@ -112,36 +121,54 @@ void main() {
       ),
       isTrue,
     );
-    // Same group, different sender: independent watermark.
+    // Same group, different sender: the same index is unaffected.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
         senderId: otherSender,
-        index: 0,
+        index: 7,
       ),
       isTrue,
     );
-    // Same sender, different group: independent watermark.
+    // Same sender, different group: the same index is unaffected.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: otherGroup,
         senderId: senderId,
-        index: 0,
+        index: 7,
       ),
       isTrue,
     );
-    // The original (groupId, senderId) pair still rejects replays.
+    // The original (groupId, senderId) pair still rejects its exact
+    // duplicate, but a lower unseen index is new (no watermark).
+    expect(
+      await GroupSenderIndexStore.recordInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 7,
+      ),
+      isFalse,
+    );
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
         senderId: senderId,
         index: 6,
       ),
-      isFalse,
+      isTrue,
+    );
+    // Outbound state is separate: inbound recording never advances the
+    // outbound nextIndex counter.
+    expect(
+      await GroupSenderIndexStore.nextIndex(
+        groupId: groupId,
+        senderId: senderId,
+      ),
+      0,
     );
   });
 
-  test('resetForGroup clears the inbound watermark too', () async {
+  test('resetForGroup clears the inbound seen-set too', () async {
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
@@ -151,11 +178,12 @@ void main() {
       isTrue,
     );
     await GroupSenderIndexStore.resetForGroup(groupId);
+    // The exact same triple is accepted again after the reset.
     expect(
       await GroupSenderIndexStore.recordInboundIndex(
         groupId: groupId,
         senderId: senderId,
-        index: 0,
+        index: 7,
       ),
       isTrue,
     );

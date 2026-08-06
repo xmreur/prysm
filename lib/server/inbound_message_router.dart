@@ -552,8 +552,14 @@ class InboundMessageRouter {
     }
     if (inboundGroupId != null &&
         await _isGroupSenderKeyReplay(data, inboundGroupId)) {
-      // Idempotent ack, same shape as a successful delivery (status, id,
-      // timestamp): a replayer cannot tell a drop from a delivery.
+      // Exact-duplicate gate: the envelope's (senderId, index) was already
+      // seen for this group, so this is a replay rather than a late
+      // delivery. Idempotent ack, same shape as a successful delivery
+      // (status, id, timestamp): a replayer cannot tell a drop from a
+      // delivery. The seen-set is recorded BEFORE storage on first sight:
+      // a soft-deleted tombstone wins over a re-delivery
+      // (insertInboundMessage returns null for tombstoned ids), so an
+      // envelope that was seen and deliberately not stored stays dropped.
       return InboundHandleResult.ok({
         'status': 'received',
         'id': data['id'],
@@ -699,12 +705,14 @@ class InboundMessageRouter {
   /// - the envelope can never decrypt (envelope senderId != transport
   ///   senderId; [GroupCryptoV2.decryptWithSenderKey] rejects the mismatch),
   ///   or
-  /// - the envelope signature is valid and its index is a replay (<= the
-  ///   highest index already seen from that sender in this group).
+  /// - the envelope signature is valid and its exact (senderId, index) was
+  ///   already seen from that sender in this group (exact-duplicate
+  ///   detection: order-independent, so a late delivery of an unseen index
+  ///   passes and an out-of-order retry is stored normally).
   ///
-  /// Only envelopes with a valid Ed25519 signature advance the inbound
-  /// watermark: an unauthenticated peer must not be able to poison the window
-  /// for a legitimate sender. The sender is resolved cache-only
+  /// Only envelopes with a valid Ed25519 signature record in the inbound
+  /// seen-set: an unauthenticated peer must not be able to poison it for a
+  /// legitimate sender. The sender is resolved cache-only
   /// ([loadPeerIdentityFromDb], never a Tor fetch): an unknown peer must not
   /// be able to force an awaited outbound fetch from this hot path. When the
   /// sender's public keys are unavailable, or the envelope is not a

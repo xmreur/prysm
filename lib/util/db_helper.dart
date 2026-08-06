@@ -61,7 +61,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -185,6 +185,14 @@ class DBHelper {
           'ALTER TABLE conversation_preferences ADD COLUMN disappearingTimerSeconds INTEGER',
         );
       }
+    }
+    if (oldVersion < 11) {
+      // group_inbound_seen (inbound group exact-duplicate anti-replay) is
+      // created by GroupSenderIndexStore.ensureTable. Both ensureTable calls
+      // in _createCryptoTables are CREATE TABLE IF NOT EXISTS, so replaying
+      // the step on a database that already has session_state and
+      // group_sender_index only adds the missing table.
+      await _createCryptoTables(db);
     }
   }
 

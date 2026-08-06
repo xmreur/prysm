@@ -250,9 +250,9 @@ void main() {
       },
     );
 
-    test('a higher index from the same sender passes; lower or equal is '
-        'rejected', () async {
-      final higher = await router.handleMessage(
+    test('an out-of-order index from the same sender is stored; an exact '
+        'duplicate is rejected', () async {
+      final first = await router.handleMessage(
         await _groupMessage(
           id: 'm1',
           sender: alice,
@@ -261,7 +261,7 @@ void main() {
           index: 1,
         ),
       );
-      final lower = await router.handleMessage(
+      final late = await router.handleMessage(
         await _groupMessage(
           id: 'm2',
           sender: alice,
@@ -270,7 +270,7 @@ void main() {
           index: 0,
         ),
       );
-      final equal = await router.handleMessage(
+      final duplicate = await router.handleMessage(
         await _groupMessage(
           id: 'm3',
           sender: alice,
@@ -289,16 +289,20 @@ void main() {
         ),
       );
 
-      expect(higher.statusCode, 200);
-      expect(lower.statusCode, 200);
-      expect(lower.jsonBody?['status'], 'received');
-      expect(equal.statusCode, 200);
-      expect(equal.jsonBody?['status'], 'received');
+      expect(first.statusCode, 200);
+      // A late delivery of an unseen index is a message, not a replay.
+      expect(late.statusCode, 200);
+      expect(late.jsonBody?['status'], 'received');
+      expect(duplicate.statusCode, 200);
+      expect(duplicate.jsonBody?['status'], 'received');
       expect(next.statusCode, 200);
 
       final rows = await messagesDb.query('messages');
-      expect(rows, hasLength(2));
-      expect(rows.map((r) => r['id']), containsAll(['g1::m1', 'g1::m4']));
+      expect(rows, hasLength(3));
+      expect(
+        rows.map((r) => r['id']),
+        containsAll(['g1::m1', 'g1::m2', 'g1::m4']),
+      );
     });
 
     test('different senders in the same group do not interfere', () async {
@@ -339,6 +343,121 @@ void main() {
       expect(rows, hasLength(2));
       expect(rows.map((r) => r['id']), containsAll(['g1::m1', 'g1::m2']));
     });
+
+    test(
+      'claim 1: a late retry of an older index is stored, not dropped '
+      '(pre-fix: index 9 censored)', () async {
+        // The retry machinery allocates the index at send time and re-sends
+        // the stored envelope with its ORIGINAL index when the first
+        // delivery fails, so an older index can arrive after a newer one.
+        final first = await router.handleMessage(
+          await _groupMessage(
+            id: 'm10',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 10,
+          ),
+        );
+        final late = await router.handleMessage(
+          await _groupMessage(
+            id: 'm9',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 9,
+          ),
+        );
+
+        expect(first.statusCode, 200);
+        expect(late.statusCode, 200);
+        expect(late.jsonBody?['status'], 'received');
+        expect(late.jsonBody?['id'], 'm9');
+
+        final rows = await messagesDb.query('messages');
+        expect(
+          rows.map((r) => r['id']),
+          containsAll(['g1::m10', 'g1::m9']),
+        );
+      },
+    );
+
+    test(
+      'claim 2: a relayed captured envelope cannot censor the sender '
+      '(pre-fix: indices 1..9 all dropped)', () async {
+        // Alice sends index 10; an attacker without key material captures
+        // the byte-identical wire envelope.
+        final captured = await _groupMessage(
+          id: 'm10',
+          sender: alice,
+          senderId: 'alice.onion',
+          groupId: 'g1',
+          index: 10,
+        );
+        final first = await router.handleMessage(captured);
+        expect(first.statusCode, 200);
+
+        // The attacker relays the SAME envelope under an attacker-chosen
+        // transport id. It is acked as a duplicate but must not become
+        // "seen" state beyond that one exact triple.
+        final relayed = await router.handleMessage({
+          ...captured,
+          'id': 'm10-relay',
+        });
+        expect(relayed.statusCode, 200);
+        expect(relayed.jsonBody?['status'], 'received');
+
+        // A forged mutation of the captured envelope (index bumped, the
+        // signature therefore invalid) must not record anything in the
+        // seen-set: the attack needs a capture, not a key.
+        final forgedEnvelope =
+            CryptoEnvelope.tryParse(captured['message'] as String)!;
+        forgedEnvelope['index'] = 11;
+        final forged = await router.handleMessage({
+          ...captured,
+          'id': 'm11-forged',
+          'message': CryptoEnvelope.encode(forgedEnvelope),
+        });
+        expect(forged.statusCode, 200);
+
+        // The sender's own indices 1..9 arrive late and must all be stored.
+        for (var i = 1; i <= 9; i++) {
+          final res = await router.handleMessage(
+            await _groupMessage(
+              id: 'm$i',
+              sender: alice,
+              senderId: 'alice.onion',
+              groupId: 'g1',
+              index: i,
+            ),
+          );
+          expect(res.statusCode, 200);
+          expect(res.jsonBody?['status'], 'received');
+        }
+
+        // A genuine index 11 is still new: the forged envelope did not
+        // poison the seen-set.
+        final genuine11 = await router.handleMessage(
+          await _groupMessage(
+            id: 'm11',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 11,
+          ),
+        );
+        expect(genuine11.statusCode, 200);
+
+        final rows = await messagesDb.query('messages');
+        final ids = rows.map((r) => r['id']).toSet();
+        expect(ids, contains('g1::m10'));
+        expect(ids, isNot(contains('g1::m10-relay')));
+        expect(
+          ids,
+          containsAll([for (var i = 1; i <= 9; i++) 'g1::m$i', 'g1::m11']),
+        );
+      },
+    );
   });
 
   group('inbound tombstone protection', () {

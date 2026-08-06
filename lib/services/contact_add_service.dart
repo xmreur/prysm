@@ -114,9 +114,10 @@ class ContactAddService {
 
     final newUser = Contact(
       id: onionId,
-      name: displayName,
+      name: '',
       avatarUrl: '',
       avatarBase64: null,
+      customName: displayName.isNotEmpty ? displayName : null,
       identityJson: identityJson,
     );
     await DBHelper.insertOrUpdateUser({
@@ -124,6 +125,7 @@ class ContactAddService {
       'name': newUser.name,
       'avatarUrl': newUser.avatarUrl,
       'avatarBase64': null,
+      'customName': newUser.customName,
       'identityJson': identityJson,
       'publicKeyPem': identityJson,
     });

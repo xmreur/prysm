@@ -187,7 +187,9 @@ class CallForegroundSession implements CallForegroundSessionPort {
 
   Future<String> _peerDisplayName(String peerOnion) async {
     final row = await DBHelper.getUserById(peerOnion);
+    final customName = row?['customName'] as String?;
     final name = row?['name'] as String?;
+    if (customName != null && customName.isNotEmpty) return customName;
     if (name != null && name.isNotEmpty) return name;
     if (peerOnion.length <= 16) return peerOnion;
     return '${peerOnion.substring(0, 16)}…';

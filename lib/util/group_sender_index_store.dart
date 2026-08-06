@@ -222,16 +222,20 @@ class GroupSenderIndexStore {
   /// replay of an already-delivered message and must be refused, never
   /// re-accepted.
   ///
-  /// An unresolved row is never pruned: it is a claim in flight or a
-  /// crashed claim that must stay recoverable — deleting it would turn the
-  /// sender's retry into a permanent loss instead of a delivery. The floor
-  /// can pass over such a row (pruning deletes only resolved rows), and
-  /// the row itself survives, so it stays releasable and resolvable; but a
-  /// retry that arrives only after the pair has churned past its index is
-  /// refused at or below the floor rather than delivered. The bounded
-  /// table, not the stale retry, wins — the retention bound is a hard
-  /// limit, and the live retry path never goes that deep
-  /// ([_seenRetained] is far beyond the retry machinery's reach).
+  /// An unresolved row is never pruned while it sits above the floor: it
+  /// is a claim in flight or a crashed claim that must stay recoverable —
+  /// deleting it would turn the sender's retry into a permanent loss
+  /// instead of a delivery. But the moment the floor is raised past such a
+  /// row, the row carries no information: claimInboundIndex refuses every
+  /// index at or below the floor before any insert, so the row can never
+  /// be claimed (and thus never resolved or released) again. It is deleted
+  /// together with the floor advance, or a crashed claim would leak below
+  /// the floor forever. A retry that arrives only after the pair has
+  /// churned past its index is refused at or below the floor rather than
+  /// delivered. The bounded table, not the stale retry, wins — the
+  /// retention bound is a hard limit, and the live retry path never goes
+  /// that deep ([_seenRetained] is far beyond the retry machinery's
+  /// reach).
   static Future<void> _prune(
     Database db,
     String groupId,
@@ -280,6 +284,18 @@ class GroupSenderIndexStore {
           'prunedBelow': newFloor,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      // The floor now refuses every index below it, so any row there
+      // carries no information: an unresolved row (a claim in flight, or
+      // one a crashed process left between claim and resolve) can never be
+      // claimed again — claimInboundIndex refuses it before any insert —
+      // and resolve/release on a missing row are no-ops, so deleting it is
+      // safe. Skipped here, it would leak forever: no later path can ever
+      // reach it.
+      await db.delete(
+        'group_inbound_seen',
+        where: 'groupId = ? AND senderId = ? AND msgIndex < ?',
+        whereArgs: [groupId, senderId, newFloor],
       );
     }
   }

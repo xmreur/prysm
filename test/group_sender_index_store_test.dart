@@ -547,10 +547,114 @@ void main() {
     );
   });
 
-  test('an unresolved claim is never pruned: it survives past the bound and '
+  test('an unresolved claim above the floor survives past the bound and '
       'stays releasable and resolvable', () async {
-    // Leave index 0 claimed but unresolved — a claim in flight, or the row
-    // a crash between claim and store leaves behind — then drive the pair
+    // Leave a claim in flight above where the floor will land, then drive
+    // the pair well past the bound: pruning removes only rows the raised
+    // floor passes over, so this one must survive.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: seenRetained + 51,
+      ),
+      isTrue,
+    );
+    for (var i = 0; i <= seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // The unresolved row above the floor was never pruned: pruning removes
+    // only resolved rows and the rows the floor passes over.
+    final unresolved = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, seenRetained + 51],
+    );
+    expect(unresolved, hasLength(1));
+    expect(unresolved.single['resolved'], 0);
+    // The bound held for the resolved population (pruned 0..50, floor 51).
+    expect(
+      await db.query(
+        'group_inbound_seen',
+        where: 'groupId = ? AND senderId = ? AND resolved = 1',
+        whereArgs: [groupId, senderId],
+      ),
+      hasLength(seenRetained),
+    );
+    final floor = await db.query('group_inbound_floor');
+    expect(floor.single['prunedBelow'], 51);
+
+    // Resolvable: the unresolved row resolves like any other. The prune
+    // that runs inside the resolve keeps the bound by removing the pair's
+    // oldest resolved row (51) and raising the floor to 52; the resolved
+    // 307 sits inside the retained window and stays.
+    await GroupSenderIndexStore.resolveInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: seenRetained + 51,
+    );
+    final afterResolve = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, seenRetained + 51],
+    );
+    expect(afterResolve, hasLength(1));
+    expect(afterResolve.single['resolved'], 1);
+    expect(
+      await db.query(
+        'group_inbound_seen',
+        where: 'groupId = ? AND senderId = ? AND resolved = 1',
+        whereArgs: [groupId, senderId],
+      ),
+      hasLength(seenRetained),
+    );
+    expect(
+      (await db.query('group_inbound_floor')).single['prunedBelow'],
+      52,
+    );
+
+    // Releasable: a fresh unresolved claim past the bound releases and is
+    // claimable again.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: seenRetained + 52,
+      ),
+      isTrue,
+    );
+    await GroupSenderIndexStore.releaseInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: seenRetained + 52,
+    );
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: seenRetained + 52,
+      ),
+      isTrue,
+    );
+  });
+
+  test('an unresolved row the floor passes over is pruned: a crashed '
+      'claim cannot leak below the retention bound', () async {
+    // Leave index 0 claimed but unresolved — exactly the row a process
+    // killed between claim and resolve leaves behind — then drive the pair
     // well past the bound.
     expect(
       await GroupSenderIndexStore.claimInboundIndex(
@@ -576,78 +680,29 @@ void main() {
       );
     }
 
-    // The unresolved row was never pruned: pruning only ever removes
-    // resolved rows.
-    final unresolved = await db.query(
+    // The orphan row is gone: the floor (51) refuses index 0 forever, so
+    // the row carried no information and must not survive past the bound
+    // (pre-fix: it leaked, unresolved, forever).
+    final orphan = await db.query(
       'group_inbound_seen',
       where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
       whereArgs: [groupId, senderId, 0],
     );
-    expect(unresolved, hasLength(1));
-    expect(unresolved.single['resolved'], 0);
-    // The bound held for the resolved population (pruned 1..50, floor 51).
-    expect(
-      await db.query(
-        'group_inbound_seen',
-        where: 'groupId = ? AND senderId = ? AND resolved = 1',
-        whereArgs: [groupId, senderId],
-      ),
-      hasLength(seenRetained),
-    );
+    expect(orphan, isEmpty);
+    // The row count stays within the documented bound: exactly the 256
+    // retained resolved rows, no orphan above it.
+    expect(await db.query('group_inbound_seen'), hasLength(seenRetained));
     final floor = await db.query('group_inbound_floor');
     expect(floor.single['prunedBelow'], 51);
 
-    // Resolvable: the unresolved row resolves like any other. The prune
-    // that runs inside the resolve then removes it — it is the pair's
-    // oldest row and now resolved — so its disappearance is the observable
-    // proof of the transition; the bound and the floor are unchanged
-    // (index 0 stays refused by the floor).
-    await GroupSenderIndexStore.resolveInboundIndex(
-      groupId: groupId,
-      senderId: senderId,
-      index: 0,
-    );
-    final afterResolve = await db.query(
-      'group_inbound_seen',
-      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
-      whereArgs: [groupId, senderId, 0],
-    );
-    expect(afterResolve, isEmpty);
-    expect(
-      await db.query(
-        'group_inbound_seen',
-        where: 'groupId = ? AND senderId = ? AND resolved = 1',
-        whereArgs: [groupId, senderId],
-      ),
-      hasLength(seenRetained),
-    );
-    expect(
-      (await db.query('group_inbound_floor')).single['prunedBelow'],
-      51,
-    );
-
-    // Releasable: a fresh unresolved claim past the bound releases and is
-    // claimable again.
+    // The pruned index stays refused — by the floor now, not by the row.
     expect(
       await GroupSenderIndexStore.claimInboundIndex(
         groupId: groupId,
         senderId: senderId,
-        index: seenRetained + 51,
+        index: 0,
       ),
-      isTrue,
-    );
-    await GroupSenderIndexStore.releaseInboundIndex(
-      groupId: groupId,
-      senderId: senderId,
-      index: seenRetained + 51,
-    );
-    expect(
-      await GroupSenderIndexStore.claimInboundIndex(
-        groupId: groupId,
-        senderId: senderId,
-        index: seenRetained + 51,
-      ),
-      isTrue,
+      isFalse,
     );
   });
 

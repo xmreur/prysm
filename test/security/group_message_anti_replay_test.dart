@@ -467,6 +467,103 @@ void main() {
         );
       },
     );
+
+    test(
+      'a captured envelope whose index was pruned is acked-but-dropped: the '
+      'floor refuses it end to end', () async {
+        // Mirrors GroupSenderIndexStore._seenRetained (private by design):
+        // this drives the pair past the retention bound, so it must know
+        // where the bound is.
+        const retained = 256;
+        // Raise the floor through the real store: claim+resolve past the
+        // bound so pruning deletes the oldest rows and records the floor.
+        // (Pre-fix this loop just leaves 266 resolved rows — no pruning.)
+        for (var i = 0; i < retained + 10; i++) {
+          expect(
+            await GroupSenderIndexStore.claimInboundIndex(
+              groupId: 'g1',
+              senderId: 'alice.onion',
+              index: i,
+            ),
+            isTrue,
+          );
+          await GroupSenderIndexStore.resolveInboundIndex(
+            groupId: 'g1',
+            senderId: 'alice.onion',
+            index: i,
+          );
+        }
+        // Pin the exact post-prune state the floor logic exists for — the
+        // oldest ten rows gone (post-fix pruning already removed them; this
+        // delete is what makes the same state reachable without the floor
+        // logic, i.e. under the pre-fix code) and the floor row present
+        // (the table mirrors GroupSenderIndexStore.ensureTable's DDL, like
+        // the upgrade fixtures do). A captured envelope for index 0 must
+        // then be refused by the floor, not re-accepted as a fresh sighting
+        // because its row happens to be gone.
+        await dbHelperDb.delete(
+          'group_inbound_seen',
+          where: 'senderId = ? AND msgIndex <= ?',
+          whereArgs: ['alice.onion', 9],
+        );
+        await dbHelperDb.execute('''
+          CREATE TABLE IF NOT EXISTS group_inbound_floor (
+            groupId TEXT NOT NULL,
+            senderId TEXT NOT NULL,
+            prunedBelow INTEGER NOT NULL,
+            PRIMARY KEY (groupId, senderId)
+          )
+        ''');
+        await dbHelperDb.insert(
+          'group_inbound_floor',
+          {
+            'groupId': 'g1',
+            'senderId': 'alice.onion',
+            'prunedBelow': 10,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+
+        // A real signed envelope whose index (0) was pruned: the replay
+        // gate's claim is refused by the floor, so the router acks it like
+        // any duplicate but never stores it.
+        final pruned = await router.handleMessage(
+          await _groupMessage(
+            id: 'm-pruned',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: 0,
+          ),
+        );
+        expect(pruned.statusCode, 200);
+        expect(pruned.jsonBody?['status'], 'received');
+        expect(pruned.jsonBody?['id'], 'm-pruned');
+        // Same ack shape as any duplicate: the replayer must not learn the
+        // envelope was dropped.
+        expect(pruned.jsonBody?['timestamp'], isA<int>());
+
+        expect(await messagesDb.query('messages'), isEmpty);
+
+        // An unseen index above the floor is still stored: the floor did
+        // not turn back into a watermark.
+        final fresh = await router.handleMessage(
+          await _groupMessage(
+            id: 'm-fresh',
+            sender: alice,
+            senderId: 'alice.onion',
+            groupId: 'g1',
+            index: retained + 10,
+          ),
+        );
+        expect(fresh.statusCode, 200);
+        expect(fresh.jsonBody?['status'], 'received');
+
+        final rows = await messagesDb.query('messages');
+        expect(rows, hasLength(1));
+        expect(rows.single['id'], 'g1::m-fresh');
+      },
+    );
   });
 
   group('inbound claim survives a failed or crashed store', () {

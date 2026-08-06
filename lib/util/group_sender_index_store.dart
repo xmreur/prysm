@@ -9,6 +9,19 @@ class GroupSenderIndexStore {
 
   static final Mutex _mutex = Mutex();
 
+  /// How many resolved inbound indices are kept per (groupId, senderId)
+  /// before the oldest are pruned into [group_inbound_floor]'s rejecting
+  /// floor.
+  ///
+  /// Retention trade-off: one `group_inbound_seen` row is ~56 bytes, so a
+  /// pair costs at most ~14 KB and a 20-member group at most ~280 KB. The
+  /// retained window is what bounds out-of-order tolerance — an index is
+  /// accepted out of order only while its row still exists. The retry path
+  /// exercises only a handful of messages deep (`group_chat_service.dart`
+  /// re-sends the stored envelope with its original index), so 256 is far
+  /// beyond any live out-of-order demand while keeping the table flat.
+  static const int _seenRetained = 256;
+
   /// Process-local ownership of unresolved inbound claims, keyed
   /// `'$groupId|$senderId|$index'` (onion ids and indices never contain
   /// `|`). A row in `group_inbound_seen` whose key is not in this set can
@@ -44,6 +57,14 @@ class GroupSenderIndexStore {
         msgIndex INTEGER NOT NULL,
         resolved INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (groupId, senderId, msgIndex)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS group_inbound_floor (
+        groupId TEXT NOT NULL,
+        senderId TEXT NOT NULL,
+        prunedBelow INTEGER NOT NULL,
+        PRIMARY KEY (groupId, senderId)
       )
     ''');
   }
@@ -89,12 +110,23 @@ class GroupSenderIndexStore {
   /// - the triple was never seen before, or
   /// - an unresolved row was left by a previous process (a crash between
   ///   claim and resolve): this process takes the claim over. There is no
-  ///   expiry window — the sender's retry is processed whenever it arrives.
+  ///   expiry window — the sender's retry is processed whenever it arrives,
+  ///   unless the pair has meanwhile churned past the index and the floor
+  ///   below has moved over it.
   /// Returns false when the triple is a duplicate: it was already resolved,
-  /// or an unresolved claim is still owned by this process — a concurrent
+  /// an unresolved claim is still owned by this process — a concurrent
   /// delivery of the same envelope is being processed right now, and
   /// dropping it keeps the guarantee that two copies of the same envelope
-  /// cannot both be stored.
+  /// cannot both be stored — or the index lies below the pair's pruning
+  /// floor ([group_inbound_floor]).
+  ///
+  /// The floor refusal is not a return of the original high-water mark. It
+  /// is raised only by pruning rows that were seen and resolved, never by
+  /// the *value* of an incoming index, so a relayed high index cannot push
+  /// it — that was the vulnerability in the original watermark. What it
+  /// refuses is an index that was pruned, or one that falls in a gap the
+  /// floor has passed over (an index never delivered while [_seenRetained]
+  /// later ones were): bounded staleness, not attacker-controlled.
   ///
   /// This is a read-modify-write, so it runs inside [_mutex] — unlike the
   /// single-statement `INSERT OR IGNORE` it replaced, which was atomic on
@@ -106,6 +138,20 @@ class GroupSenderIndexStore {
   }) async {
     return _mutex.protect(() async {
       final db = await DBHelper.database;
+      // Everything at or below the floor was seen, resolved and pruned, so
+      // a claim there is a replay of an already-delivered message. Reading
+      // it first keeps the row count bounded from the claim side as well.
+      final floors = await db.query(
+        'group_inbound_floor',
+        where: 'groupId = ? AND senderId = ?',
+        whereArgs: [groupId, senderId],
+        limit: 1,
+      );
+      if (floors.isNotEmpty &&
+          index < (floors.first['prunedBelow'] as int)) {
+        return false;
+      }
+
       final inserted = await db.insert(
         'group_inbound_seen',
         {
@@ -159,7 +205,83 @@ class GroupSenderIndexStore {
         whereArgs: [groupId, senderId, index],
       );
       _liveClaims.remove('$groupId|$senderId|$index');
+      // Enforce the retention bound now that the row is terminal; the
+      // common path inside stays a single cheap count query.
+      await _prune(db, groupId, senderId);
     });
+  }
+
+  /// Enforces the per-(groupId, senderId) retention bound after a resolve.
+  ///
+  /// Counts the pair's resolved rows and does nothing while the count is
+  /// within [_seenRetained] — the common path is one cheap query. When the
+  /// count exceeds the bound, the oldest `count - _seenRetained` resolved
+  /// rows are deleted and [group_inbound_floor] is raised to
+  /// `max(existing, highest deleted index + 1)`: everything below the floor
+  /// was seen, resolved and removed, so a later claim at or below it is a
+  /// replay of an already-delivered message and must be refused, never
+  /// re-accepted.
+  ///
+  /// An unresolved row is never pruned: it is a claim in flight or a
+  /// crashed claim that must stay recoverable — deleting it would turn the
+  /// sender's retry into a permanent loss instead of a delivery. The floor
+  /// can pass over such a row (pruning deletes only resolved rows), and
+  /// the row itself survives, so it stays releasable and resolvable; but a
+  /// retry that arrives only after the pair has churned past its index is
+  /// refused at or below the floor rather than delivered. The bounded
+  /// table, not the stale retry, wins — the retention bound is a hard
+  /// limit, and the live retry path never goes that deep
+  /// ([_seenRetained] is far beyond the retry machinery's reach).
+  static Future<void> _prune(
+    Database db,
+    String groupId,
+    String senderId,
+  ) async {
+    final countRows = await db.rawQuery(
+      'SELECT COUNT(*) FROM group_inbound_seen '
+      'WHERE groupId = ? AND senderId = ? AND resolved = 1',
+      [groupId, senderId],
+    );
+    final count = countRows.first.values.first as int;
+    if (count <= _seenRetained) return;
+
+    final excess = count - _seenRetained;
+    final oldest = await db.rawQuery(
+      'SELECT msgIndex FROM group_inbound_seen '
+      'WHERE groupId = ? AND senderId = ? AND resolved = 1 '
+      'ORDER BY msgIndex ASC LIMIT ?',
+      [groupId, senderId, excess],
+    );
+    // `oldest` holds the lowest `excess` resolved rows, so the highest of
+    // them marks the whole deletion window: every resolved row at or below
+    // it is one of them, and every unresolved row in between is skipped by
+    // the `resolved = 1` predicate.
+    final highestDeleted = oldest.last['msgIndex'] as int;
+    await db.delete(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND resolved = 1 AND msgIndex <= ?',
+      whereArgs: [groupId, senderId, highestDeleted],
+    );
+
+    final newFloor = highestDeleted + 1;
+    final floors = await db.query(
+      'group_inbound_floor',
+      where: 'groupId = ? AND senderId = ?',
+      whereArgs: [groupId, senderId],
+      limit: 1,
+    );
+    final existing = floors.isEmpty ? 0 : floors.first['prunedBelow'] as int;
+    if (newFloor > existing) {
+      await db.insert(
+        'group_inbound_floor',
+        {
+          'groupId': groupId,
+          'senderId': senderId,
+          'prunedBelow': newFloor,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
   }
 
   /// Releases the claim after a failed ingress so the sender's retry can
@@ -199,6 +321,11 @@ class GroupSenderIndexStore {
       );
       await db.delete(
         'group_inbound_seen',
+        where: 'groupId = ?',
+        whereArgs: [groupId],
+      );
+      await db.delete(
+        'group_inbound_floor',
         where: 'groupId = ?',
         whereArgs: [groupId],
       );

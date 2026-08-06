@@ -6,12 +6,14 @@
 // bump the table was only created from onCreate and from the oldVersion < 7
 // step, so an install at version 10 would throw "no such table:
 // group_inbound_seen" on the first inbound group message; before the v12
-// bump an install at version 11 would throw "no such column: resolved".
+// bump an install at version 11 would throw "no such column: resolved". The
+// v13 bump adds group_inbound_floor (the pruning floor that bounds the
+// seen-set) for installs at any earlier version.
 //
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v10/v11 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 12, onUpgrade) -> real GroupSenderIndexStore
+// -> openDatabase(version: 13, onUpgrade) -> real GroupSenderIndexStore
 // calls.
 import 'dart:io';
 
@@ -174,6 +176,15 @@ void main() {
         isEmpty,
         reason: 'the v10 fixture must not contain group_inbound_seen',
       );
+      final floor = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'group_inbound_floor'",
+      );
+      expect(
+        floor,
+        isEmpty,
+        reason: 'the v10 fixture must not contain group_inbound_floor',
+      );
     } finally {
       await db.close();
     }
@@ -220,27 +231,37 @@ void main() {
         isNot(containsAll(['claimedAt', 'resolved'])),
         reason: 'the v11 fixture must use the two-column group_inbound_seen',
       );
+      final floor = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'group_inbound_floor'",
+      );
+      expect(
+        floor,
+        isEmpty,
+        reason: 'the v11 fixture must not contain group_inbound_floor',
+      );
     } finally {
       await db.close();
     }
   }
 
   test(
-    'opening a v10 chat_app.db creates the v12 two-phase group_inbound_seen '
-    'and preserves outbound counters',
+    'opening a v10 chat_app.db creates the v13 two-phase group_inbound_seen '
+    'and the pruning floor, and preserves outbound counters',
     () async {
       final path = '${tempDir.path}/prysm/chat_app.db';
       await buildV10Fixture(path);
       expect(File(path).existsSync(), isTrue);
 
       // The real open path: DatabaseCipher.prepare encrypts the plaintext
-      // fixture in place, then openDatabase(version: 11, onUpgrade) runs the
-      // oldVersion < 11 step that creates group_inbound_seen. The handle is
-      // closed by DBHelper.closeForWipe() in tearDown.
+      // fixture in place, then openDatabase(version: 13, onUpgrade) runs the
+      // oldVersion < 11 and oldVersion < 13 steps that create
+      // group_inbound_seen and group_inbound_floor. The handle is closed by
+      // DBHelper.closeForWipe() in tearDown.
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 12);
+      expect(uv.first.values.single, 13);
 
       final inbound = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -259,6 +280,22 @@ void main() {
         inboundColNames,
         isNot(contains('claimedAt')),
         reason: 'ownership tracking has no clock column',
+      );
+
+      // The v13 addition: the pruning floor table exists with the shape
+      // GroupSenderIndexStore.ensureTable defines.
+      final floor = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'group_inbound_floor'",
+      );
+      expect(floor, hasLength(1));
+      final floorCols = await db.rawQuery(
+        'PRAGMA table_info(group_inbound_floor)',
+      );
+      final floorColNames = floorCols.map((c) => c['name']).toSet();
+      expect(
+        floorColNames,
+        containsAll(['groupId', 'senderId', 'prunedBelow']),
       );
 
       // A real inbound record through the store path survives: the v12
@@ -313,13 +350,14 @@ void main() {
       await buildV11Fixture(path);
       expect(File(path).existsSync(), isTrue);
 
-      // The real open path runs the oldVersion < 12 step: the v11
-      // two-column table is dropped and recreated with the claim/resolve
-      // shape (resolved, no claimedAt).
+      // The real open path runs the oldVersion < 12 and oldVersion < 13
+      // steps: the v11 two-column table is dropped and recreated with the
+      // claim/resolve shape (resolved, no claimedAt), then the pruning
+      // floor is added.
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 12);
+      expect(uv.first.values.single, 13);
 
       final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
       final colNames = cols.map((c) => c['name']).toSet();
@@ -333,6 +371,13 @@ void main() {
         reason: 'ownership tracking has no clock column',
       );
 
+      // The v13 step adds the pruning floor on top of the v12 shape.
+      final floor = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'group_inbound_floor'",
+      );
+      expect(floor, hasLength(1));
+
       // The drop-and-recreate step cleared the v11 seen row: the same
       // triple is claimable again. (An empty seen-set only means an
       // already-received envelope could be re-delivered once.)
@@ -345,7 +390,7 @@ void main() {
         isTrue,
       );
 
-      // The pre-existing outbound counter survived both upgrade steps.
+      // The pre-existing outbound counter survived all upgrade steps.
       final counters = await db.query('group_sender_index');
       expect(counters, hasLength(1));
       expect(counters.single['groupId'], 'g1');

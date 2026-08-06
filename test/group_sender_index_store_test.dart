@@ -400,4 +400,347 @@ void main() {
       isTrue,
     );
   });
+
+  // Mirrors GroupSenderIndexStore._seenRetained (private by design): the
+  // retention bound is part of the store's contract, so the operational
+  // limit test pins the exact number the store uses.
+  const seenRetained = 256;
+
+  test('the seen-set is bounded: resolving past the retention bound prunes '
+      'to _seenRetained rows and raises the floor', () async {
+    for (var i = 0; i < seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // Exactly the retained window survives; the 50 oldest resolved rows
+    // were pruned into the floor.
+    final rows = await db.query('group_inbound_seen');
+    expect(rows, hasLength(seenRetained));
+    final floor = await db.query('group_inbound_floor');
+    expect(floor, hasLength(1));
+    expect(floor.single['prunedBelow'], 50);
+
+    // The total cannot grow further: resolving more indices keeps the table
+    // at the bound and pushes the floor forward one-for-one.
+    for (var i = seenRetained + 50; i < seenRetained + 100; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+    expect(await db.query('group_inbound_seen'), hasLength(seenRetained));
+    final floorAfter = await db.query('group_inbound_floor');
+    expect(floorAfter.single['prunedBelow'], 100);
+  });
+
+  test('a pruned index is refused: never re-accepted', () async {
+    for (var i = 0; i < seenRetained + 10; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // Indices 0..9 were pruned and the floor now stands at 10.
+    final floor = await db.query('group_inbound_floor');
+    expect(floor.single['prunedBelow'], 10);
+    // The pruned row is gone — it cannot come back as a fresh claim.
+    final prunedRow = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(prunedRow, isEmpty);
+    // The replay of a captured pruned envelope is refused by the floor.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isFalse,
+    );
+    // At the floor edge too, and a still-retained resolved index is
+    // refused as an exact duplicate as before.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 9,
+      ),
+      isFalse,
+    );
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 10,
+      ),
+      isFalse,
+    );
+  });
+
+  test('an unseen index above the floor is still accepted out of order',
+      () async {
+    // Deliver every index 0..seenRetained+19 except 257, which arrives
+    // late (the retry path re-sends with its original index).
+    for (var i = 0; i < seenRetained + 20; i++) {
+      if (i == 257) continue;
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // 275 resolved > 256: the 19 oldest were pruned, floor = 19. The
+    // unseen 257 sits far above it.
+    final floor = await db.query('group_inbound_floor');
+    expect(floor.single['prunedBelow'], 19);
+    // The late first sighting is still a message, not a replay: the floor
+    // must not reintroduce the old watermark's censoring within the window.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 257,
+      ),
+      isTrue,
+    );
+  });
+
+  test('an unresolved claim is never pruned: it survives past the bound and '
+      'stays releasable and resolvable', () async {
+    // Leave index 0 claimed but unresolved — a claim in flight, or the row
+    // a crash between claim and store leaves behind — then drive the pair
+    // well past the bound.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isTrue,
+    );
+    for (var i = 1; i <= seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // The unresolved row was never pruned: pruning only ever removes
+    // resolved rows.
+    final unresolved = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(unresolved, hasLength(1));
+    expect(unresolved.single['resolved'], 0);
+    // The bound held for the resolved population (pruned 1..50, floor 51).
+    expect(
+      await db.query(
+        'group_inbound_seen',
+        where: 'groupId = ? AND senderId = ? AND resolved = 1',
+        whereArgs: [groupId, senderId],
+      ),
+      hasLength(seenRetained),
+    );
+    final floor = await db.query('group_inbound_floor');
+    expect(floor.single['prunedBelow'], 51);
+
+    // Resolvable: the unresolved row resolves like any other. The prune
+    // that runs inside the resolve then removes it — it is the pair's
+    // oldest row and now resolved — so its disappearance is the observable
+    // proof of the transition; the bound and the floor are unchanged
+    // (index 0 stays refused by the floor).
+    await GroupSenderIndexStore.resolveInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: 0,
+    );
+    final afterResolve = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(afterResolve, isEmpty);
+    expect(
+      await db.query(
+        'group_inbound_seen',
+        where: 'groupId = ? AND senderId = ? AND resolved = 1',
+        whereArgs: [groupId, senderId],
+      ),
+      hasLength(seenRetained),
+    );
+    expect(
+      (await db.query('group_inbound_floor')).single['prunedBelow'],
+      51,
+    );
+
+    // Releasable: a fresh unresolved claim past the bound releases and is
+    // claimable again.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: seenRetained + 51,
+      ),
+      isTrue,
+    );
+    await GroupSenderIndexStore.releaseInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: seenRetained + 51,
+    );
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: seenRetained + 51,
+      ),
+      isTrue,
+    );
+  });
+
+  test('pruning is scoped per (groupId, senderId): another sender\u0027s rows '
+      'and floor are untouched', () async {
+    const otherSender = 'peer.onion';
+    // The other sender's index 0 is its own fresh sighting.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: otherSender,
+        index: 0,
+      ),
+      isTrue,
+    );
+    await GroupSenderIndexStore.resolveInboundIndex(
+      groupId: groupId,
+      senderId: otherSender,
+      index: 0,
+    );
+
+    // Drive the pair under test past the bound (prunes 0..49, floor 50).
+    for (var i = 0; i < seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // The other sender kept exactly its one row; no floor row exists for
+    // it, so its pruned-in-g1 indices are still fresh sightings.
+    final otherRows = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ?',
+      whereArgs: [groupId, otherSender],
+    );
+    expect(otherRows, hasLength(1));
+    expect(otherRows.single['resolved'], 1);
+    final floors = await db.query('group_inbound_floor');
+    expect(floors, hasLength(1));
+    expect(floors.single['senderId'], senderId);
+    expect(floors.single['prunedBelow'], 50);
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: otherSender,
+        index: 7,
+      ),
+      isTrue,
+    );
+  });
+
+  test('resetForGroup clears rows and floor, and the same index is claimable '
+      'again afterwards', () async {
+    for (var i = 0; i < seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+    expect(await db.query('group_inbound_seen'), isNotEmpty);
+    expect(await db.query('group_inbound_floor'), hasLength(1));
+
+    await GroupSenderIndexStore.resetForGroup(groupId);
+
+    expect(await db.query('group_inbound_seen'), isEmpty);
+    expect(await db.query('group_inbound_floor'), isEmpty);
+    // A pruned index is claimable again after the reset.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isTrue,
+    );
+  });
 }

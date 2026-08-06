@@ -9,40 +9,41 @@ cd "$(dirname "$0")/.."
 IMAGE=prysm-l3e2e
 WORK=.l3e2e/workdir
 
-# Safety gate for running the harness OUTSIDE the container. Inside the
-# container the PID namespace IS the containment: TorManager's cleanup can
-# `pkill -9 tor` without a pattern (lib/util/tor_service.dart:497) and can
-# only see container PIDs. This check is not mirrored inside the container;
-# it protects the host case, where that pattern-less kill would hit a real
-# host tor.
-if pgrep -x tor >/dev/null 2>&1; then
-  if [ "${PRYSM_L3E2E_ALLOW_HOST_TOR:-}" != "1" ]; then
-    echo "ERROR: a tor process is running on the HOST. The L3 harness's" >&2
-    echo "victim TorManager runs a pattern-less 'pkill -9 tor'" >&2
-    echo "(lib/util/tor_service.dart:497) whenever its targeted pkill finds" >&2
-    echo "nothing — the normal case — and inside the container the PID" >&2
-    echo "namespace contains it. On the host there is no containment, so" >&2
-    echo "this run would kill that host tor process. Run the harness in the" >&2
-    echo "container (this script's normal path), or set" >&2
-    echo "PRYSM_L3E2E_ALLOW_HOST_TOR=1 to continue with a warning." >&2
-    exit 1
-  fi
-  echo "WARNING: a tor process is running on the HOST; continuing because" >&2
-  echo "PRYSM_L3E2E_ALLOW_HOST_TOR=1 is set. The pattern-less 'pkill -9 tor'" >&2
-  echo "(lib/util/tor_service.dart:497) could kill it." >&2
+# Host-tor safety lives in the harness, not here:
+# test/headless_inbound_e2e_test.dart refuses to start while a tor process
+# is running on the HOST (override: PRYSM_L3E2E_ALLOW_HOST_TOR=1). This
+# script's container path is always safe: the container's PID namespace IS
+# the containment — TorManager's cleanup can `pkill -9 tor` without a
+# pattern (lib/util/tor_service.dart:497) and can only see container PIDs,
+# and the image starts no tor of its own.
+
+# The image remaps its 'ubuntu' user to the host uid/gid (HOST_UID/HOST_GID
+# build args, below) so bind mounts stay writable. uid 0 cannot be served
+# that way — the image's root ids are reserved — so abort early instead of
+# building a subtly broken image.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "ERROR: refusing to run as root (uid 0): the container remaps its" >&2
+  echo "'ubuntu' user to the host uid, and uid 0 is reserved for root —" >&2
+  echo "the resulting image would be broken. Run the L3 E2E harness as a" >&2
+  echo "non-root user." >&2
+  exit 1
 fi
 
 mkdir -p "$WORK"
 # Create the host-side pub cache before mounting it: if the docker daemon
-# created it, it would be root:root 755 and the uid-1000 container user
-# could not write to it (flutter pub get would fail).
+# created it, it would be root:root 755 and the container user (remapped
+# to the host uid via HOST_UID/HOST_GID) could not write to it (flutter
+# pub get would fail).
 mkdir -p "$HOME/.pub-cache"
 rsync -a --delete \
   --exclude '.dart_tool' \
   lib test assets pubspec.yaml pubspec.lock analysis_options.yaml \
   tor_executable packages "$WORK"/
 
-docker build -f .l3e2e/Containerfile -t "$IMAGE" .l3e2e
+docker build -f .l3e2e/Containerfile -t "$IMAGE" \
+  --build-arg HOST_UID="$(id -u)" \
+  --build-arg HOST_GID="$(id -g)" \
+  .l3e2e
 
 # --network bridge: outbound internet only (Tor bootstrap needs it).
 # No host ports published: victim/attacker talk over the real Tor network.

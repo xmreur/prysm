@@ -77,6 +77,38 @@ void main() {
       final hostileLog = <String>[];
 
       setUpAll(() async {
+        // Host-tor gate (moved here from .l3e2e/run.sh, which only ever
+        // runs the container path): inside the container the PID namespace
+        // IS the containment — TorManager's pattern-less `pkill -9 tor`
+        // fallback (lib/util/tor_service.dart:497) can only see container
+        // PIDs, and the image starts no tor of its own. On the host there
+        // is no containment, so refuse to start while a host tor is alive;
+        // that is the case this gate protects. Must run before anything
+        // else: the first daemon start below is victimTor.startTor().
+        final hostTor = await Process.run('pgrep', ['-x', 'tor']);
+        if (hostTor.exitCode == 0) {
+          if (Platform.environment['PRYSM_L3E2E_ALLOW_HOST_TOR'] != '1') {
+            fail(
+              'a tor process is running on this HOST. The L3 harness\'s '
+              'victim TorManager runs a pattern-less \'pkill -9 tor\' '
+              '(lib/util/tor_service.dart:497) whenever its targeted pkill '
+              'finds nothing — the normal case — and inside the container '
+              'the PID namespace contains it. On the host there is no '
+              'containment, so this run would kill that host tor process. '
+              'Run the harness in the container (.l3e2e/run.sh), or set '
+              'PRYSM_L3E2E_ALLOW_HOST_TOR=1 to continue with a warning.',
+            );
+          } else {
+            // ignore: avoid_print
+            print(
+              'WARNING: a tor process is running on this HOST; continuing '
+              'because PRYSM_L3E2E_ALLOW_HOST_TOR=1 is set. The '
+              'pattern-less \'pkill -9 tor\' '
+              '(lib/util/tor_service.dart:497) could kill it.',
+            );
+          }
+        }
+
         workDir = Directory.systemTemp.createTempSync('prysm_l3e2e_victim');
         attackerDir = Directory.systemTemp.createTempSync('prysm_l3e2e_attacker');
 

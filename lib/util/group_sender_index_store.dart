@@ -217,24 +217,29 @@ class GroupSenderIndexStore {
   /// within [_seenRetained] — the common path is one cheap query. When the
   /// count exceeds the bound, the oldest `count - _seenRetained` resolved
   /// rows are deleted and [group_inbound_floor] is raised to
-  /// `max(existing, highest deleted index + 1)`: everything below the floor
-  /// was seen, resolved and removed, so a later claim at or below it is a
-  /// replay of an already-delivered message and must be refused, never
-  /// re-accepted.
+  /// `max(existing, highest deleted index + 1)`, clamped down to the
+  /// lowest unresolved row this process still holds as a live claim (see
+  /// the body): everything below the floor was seen and resolved — or is
+  /// an orphan a crashed process left behind — so a later claim at or
+  /// below it is a replay of an already-delivered message and must be
+  /// refused, never re-accepted.
   ///
   /// An unresolved row is never pruned while it sits above the floor: it
   /// is a claim in flight or a crashed claim that must stay recoverable —
   /// deleting it would turn the sender's retry into a permanent loss
-  /// instead of a delivery. But the moment the floor is raised past such a
-  /// row, the row carries no information: claimInboundIndex refuses every
-  /// index at or below the floor before any insert, so the row can never
-  /// be claimed (and thus never resolved or released) again. It is deleted
-  /// together with the floor advance, or a crashed claim would leak below
-  /// the floor forever. A retry that arrives only after the pair has
-  /// churned past its index is refused at or below the floor rather than
-  /// delivered. The bounded table, not the stale retry, wins — the
-  /// retention bound is a hard limit, and the live retry path never goes
-  /// that deep ([_seenRetained] is far beyond the retry machinery's
+  /// instead of a delivery. The floor is therefore clamped so it can
+  /// never pass a claim this process still holds live; once the floor
+  /// stands above an unresolved row, that row is an orphan a crashed
+  /// process left between claim and resolve, and no live delivery can
+  /// ever touch it again — claimInboundIndex refuses every index at or
+  /// below the floor before any insert, so the row can never be claimed
+  /// (and thus never resolved or released) again. Such orphans are
+  /// deleted together with the floor advance, or a crashed claim would
+  /// leak below the floor forever. A retry that arrives only after the
+  /// pair has churned past its index is refused at or below the floor
+  /// rather than delivered. The bounded table, not the stale retry, wins
+  /// — the retention bound is a hard limit, and the live retry path never
+  /// goes that deep ([_seenRetained] is far beyond the retry machinery's
   /// reach).
   static Future<void> _prune(
     Database db,
@@ -267,7 +272,36 @@ class GroupSenderIndexStore {
       whereArgs: [groupId, senderId, highestDeleted],
     );
 
-    final newFloor = highestDeleted + 1;
+    var newFloor = highestDeleted + 1;
+
+    // The floor must never advance past a claim this process still holds
+    // live: claimInboundIndex refuses every index below the floor, so a
+    // live claim stranded under it could never be released-and-retried —
+    // a store failure on that message would be a permanent loss. Clamp
+    // the floor to the lowest live unresolved row below it, keeping that
+    // claim claimable. Ownership, not resolution state, distinguishes the
+    // rows: an unresolved row this process does NOT own is an orphan a
+    // crashed process left between claim and resolve, and it must still
+    // be pruned below the floor — the takeover path claims it otherwise.
+    // If the clamp pulls the floor down to or below the existing floor,
+    // nothing is written and nothing deleted below: writing would lower
+    // the floor and re-admit indices that were already pruned as replays,
+    // and the retention bound gives way to correctness for the in-flight
+    // claim.
+    final liveBelow = await db.rawQuery(
+      'SELECT msgIndex FROM group_inbound_seen '
+      'WHERE groupId = ? AND senderId = ? AND resolved = 0 AND msgIndex < ? '
+      'ORDER BY msgIndex ASC',
+      [groupId, senderId, newFloor],
+    );
+    for (final row in liveBelow) {
+      final index = row['msgIndex'] as int;
+      if (_liveClaims.contains('$groupId|$senderId|$index')) {
+        newFloor = index;
+        break;
+      }
+    }
+
     final floors = await db.query(
       'group_inbound_floor',
       where: 'groupId = ? AND senderId = ?',
@@ -286,12 +320,13 @@ class GroupSenderIndexStore {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       // The floor now refuses every index below it, so any row there
-      // carries no information: an unresolved row (a claim in flight, or
-      // one a crashed process left between claim and resolve) can never be
-      // claimed again — claimInboundIndex refuses it before any insert —
-      // and resolve/release on a missing row are no-ops, so deleting it is
-      // safe. Skipped here, it would leak forever: no later path can ever
-      // reach it.
+      // carries no information: an unresolved row below the floor is an
+      // orphan a crashed process left between claim and resolve (the
+      // clamp above keeps this process's live claims at or above the
+      // floor), and it can never be claimed again — claimInboundIndex
+      // refuses it before any insert — and resolve/release on a missing
+      // row are no-ops, so deleting it is safe. Skipped here, it would
+      // leak forever: no later path can ever reach it.
       await db.delete(
         'group_inbound_seen',
         where: 'groupId = ? AND senderId = ? AND msgIndex < ?',

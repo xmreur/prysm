@@ -655,15 +655,17 @@ void main() {
       'claim cannot leak below the retention bound', () async {
     // Leave index 0 claimed but unresolved — exactly the row a process
     // killed between claim and resolve leaves behind — then drive the pair
-    // well past the bound.
-    expect(
-      await GroupSenderIndexStore.claimInboundIndex(
-        groupId: groupId,
-        senderId: senderId,
-        index: 0,
-      ),
-      isTrue,
-    );
+    // well past the bound. The row is inserted directly, bypassing
+    // claimInboundIndex: claim ownership is process-local, so a row
+    // claimed through the store would be LIVE in this process, and the
+    // clamp keeps the floor below live claims. Only a row this process
+    // does not own — a true orphan — can be pruned past the bound.
+    await db.insert('group_inbound_seen', {
+      'groupId': groupId,
+      'senderId': senderId,
+      'msgIndex': 0,
+      'resolved': 0,
+    });
     for (var i = 1; i <= seenRetained + 50; i++) {
       expect(
         await GroupSenderIndexStore.claimInboundIndex(
@@ -696,6 +698,163 @@ void main() {
     expect(floor.single['prunedBelow'], 51);
 
     // The pruned index stays refused — by the floor now, not by the row.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isFalse,
+    );
+  });
+
+  test('a live low claim holds the floor: after the pair churns past the '
+      'bound, releasing the claim still lets the retry store the message',
+      () async {
+    // Claim a low index and keep it in flight (unresolved, owned by this
+    // process) while the pair resolves well past the retention bound. The
+    // floor must not advance past a claim this process still holds: a
+    // store failure releases the claim, and the sender's retry must be
+    // claimable again — a floor that passed the in-flight claim would
+    // turn that transient failure into a permanent loss.
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isTrue,
+    );
+    for (var i = 1; i <= seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // The floor never passed the live claim: no floor row was ever
+    // written (clamping the floor to 0 is not an advance), and the
+    // claim's unresolved row is still there.
+    expect(await db.query('group_inbound_floor'), isEmpty);
+    final live = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(live, hasLength(1));
+    expect(live.single['resolved'], 0);
+
+    // The store fails: the claim is released so the sender's retry can
+    // claim the triple again.
+    await GroupSenderIndexStore.releaseInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: 0,
+    );
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 0,
+      ),
+      isTrue,
+    );
+    // The retried claim is storable: its row exists and is unresolved —
+    // the floor did not pass the in-flight claim (pre-fix: the floor
+    // stood at 51 and refused the retry forever).
+    final retried = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(retried, hasLength(1));
+    expect(retried.single['resolved'], 0);
+  });
+
+  test('an orphan below the floor is still pruned while the floor is '
+      'clamped by a live claim', () async {
+    // Two unresolved rows at the bottom of the pair's history: index 0 is
+    // an orphan a crashed process left between claim and resolve (inserted
+    // directly, so this process does NOT own it), index 1 is a claim this
+    // process holds live. Driving the pair past the bound must advance
+    // the floor past the orphan but stop at the live claim: ownership,
+    // not resolution state, decides which unresolved rows the floor may
+    // pass.
+    await db.insert('group_inbound_seen', {
+      'groupId': groupId,
+      'senderId': senderId,
+      'msgIndex': 0,
+      'resolved': 0,
+    });
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 1,
+      ),
+      isTrue,
+    );
+    for (var i = 2; i <= seenRetained + 50; i++) {
+      expect(
+        await GroupSenderIndexStore.claimInboundIndex(
+          groupId: groupId,
+          senderId: senderId,
+          index: i,
+        ),
+        isTrue,
+      );
+      await GroupSenderIndexStore.resolveInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: i,
+      );
+    }
+
+    // The orphan was pruned with the floor advance: protecting every
+    // unresolved row instead of only live claims would regress the
+    // retention bound (CN5).
+    final orphan = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 0],
+    );
+    expect(orphan, isEmpty);
+    // The floor advanced past the orphan (1 > 0) but stopped at the live
+    // claim, which is still recoverable.
+    final floor = await db.query('group_inbound_floor');
+    expect(floor.single['prunedBelow'], 1);
+    final live = await db.query(
+      'group_inbound_seen',
+      where: 'groupId = ? AND senderId = ? AND msgIndex = ?',
+      whereArgs: [groupId, senderId, 1],
+    );
+    expect(live, hasLength(1));
+    expect(live.single['resolved'], 0);
+
+    // The live claim is released after a store failure and the retry is
+    // claimable again; the pruned orphan stays refused by the floor.
+    await GroupSenderIndexStore.releaseInboundIndex(
+      groupId: groupId,
+      senderId: senderId,
+      index: 1,
+    );
+    expect(
+      await GroupSenderIndexStore.claimInboundIndex(
+        groupId: groupId,
+        senderId: senderId,
+        index: 1,
+      ),
+      isTrue,
+    );
     expect(
       await GroupSenderIndexStore.claimInboundIndex(
         groupId: groupId,

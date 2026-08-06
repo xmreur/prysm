@@ -16,6 +16,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/models/contact.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -176,7 +177,8 @@ void main() {
       final row = await DBHelper.getUserById(onionId);
       expect(row, isNotNull);
       expect(row!['id'], onionId);
-      expect(row['name'], 'Alice');
+      expect(row['name'], '');
+      expect(row['customName'], 'Alice');
       expect(row['avatarUrl'], '');
       expect(row['avatarBase64'], isNull);
       expect(row['identityJson'], peerIdentityJson);
@@ -253,8 +255,18 @@ void main() {
 
       expect(fetchProfileCalls, [onionId]);
       expect(row?['name'], 'Alice B.');
+      expect(row?['customName'], 'Alice');
       expect(row?['avatarBase64'], 'YWJj');
       expect(refreshCount, greaterThan(0));
+
+      final contact = Contact(
+        id: onionId,
+        name: row!['name'] as String,
+        avatarUrl: row['avatarUrl'] as String? ?? '',
+        customName: row['customName'] as String?,
+        identityJson: row['identityJson'] as String,
+      );
+      expect(contact.displayName, 'Alice');
     });
 
     test(
@@ -275,7 +287,8 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 20));
 
       final row = await DBHelper.getUserById(onionId);
-      expect(row!['name'], 'Alice');
+      expect(row!['name'], '');
+      expect(row['customName'], 'Alice');
       expect(row['avatarBase64'], isNull);
     });
   });

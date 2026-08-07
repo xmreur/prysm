@@ -1,0 +1,107 @@
+# Prysm — live app testing environment (headless GUI)
+#
+# Same containment argument as .l3e2e/Containerfile: TorManager._killOrphanTorForce
+# runs a bare `pkill -9 tor` (lib/util/tor_service.dart:497) and the container's
+# PID namespace is what keeps that away from the host's tor. On top of that the
+# network namespace keeps the app's loopback server (127.0.0.1:12345) from
+# colliding with — or being mistaken for — the user's real Prysm.
+#
+# Difference from .l3e2e: that image runs `flutter test` (flutter_tester, no GUI).
+# This one runs the real Linux desktop app under Xvfb, so it needs the GTK
+# toolchain, every native plugin's dev package, software GL, a D-Bus session and
+# a throwaway Secret Service.
+#
+# Layers 1-5 are byte-identical to .l3e2e/Containerfile so Docker reuses its
+# cache — in particular the ~1 GB Flutter SDK download. Keep them in sync.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Last group: runtime libraries for the bundled tor binary (ldd on
+# tor_executable/tor — it is NOT statically linked).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git xz-utils unzip \
+      build-essential \
+      psmisc procps \
+      libevent-2.1-7t64 libssl3t64 liblzma5 libzstd1 zlib1g \
+      libcap2 libseccomp2 libsystemd0 libbrotli1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Official Flutter SDK, same version as the host toolchain and .dart_tool/version.
+# SHA-256 from Google's releases_linux.json for this exact archive — verified
+# against storage.googleapis.com so a tampered or truncated download aborts the
+# build before extraction.
+ARG FLUTTER_VERSION=3.44.8
+ARG FLUTTER_SHA256=672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d
+RUN curl -fsSL -o /tmp/flutter.tar.xz \
+      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+    && echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/flutter.tar.xz -C /opt \
+    && rm /tmp/flutter.tar.xz
+
+ENV PATH="/opt/flutter/bin:${PATH}"
+RUN git config --global --add safe.directory /opt/flutter \
+    && flutter --disable-analytics \
+    && flutter precache --linux
+
+# --- everything below is specific to running the desktop app headless ---------
+#
+# Build toolchain:  clang cmake ninja pkg-config  (flutter doctor's Linux device)
+# Plugin dev deps:  derived from pkg_check_modules in
+#                   linux/flutter/ephemeral/.plugin_symlinks/*/linux/CMakeLists.txt
+#                     gtk+-3.0                 every plugin
+#                     libsecret-1              flutter_secure_storage_linux
+#                     libpulse                 prysm_linux_audio
+#                     gstreamer-1.0/-audio/-app audioplayers_linux, record_linux
+#                     ayatana-appindicator3    tray_manager
+#                   plus jsoncpp (desktop_multi_window) and X11 (window_manager,
+#                   screen_retriever_linux).
+# Headless display: Xvfb + software GL (llvmpipe); x11-utils/xwd + netpbm turn the
+#                   framebuffer into a PNG for `prysmlab shot`.
+# Session services: dbus-x11 for a private session bus, dbus + upower for the
+#                   *system* bus battery_plus needs (without it the app hangs in
+#                   bootstrap and never calls runApp), gnome-keyring for a
+#                   throwaway Secret Service (libsecret has no other backend),
+#                   xdg-user-dirs because path_provider_linux shells out to
+#                   `xdg-user-dir DOCUMENTS` and throws
+#                   MissingPlatformDirectoryException when it is absent.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang cmake ninja-build pkg-config \
+      libgtk-3-dev libsecret-1-dev libpulse-dev libjsoncpp-dev \
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+      libayatana-appindicator3-dev libx11-dev libnotify-dev \
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+      xvfb x11-utils x11-apps netpbm mesa-utils \
+      libgl1-mesa-dri libglx-mesa0 libegl1 libgles2 libglu1-mesa \
+      dbus dbus-x11 gnome-keyring libsecret-tools upower xdg-user-dirs \
+      fonts-dejavu-core fontconfig \
+      python3 socat \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bind-mount ownership: ubuntu:24.04 ships a default uid-1000 user
+# 'ubuntu', but the host user may be any uid. tool/live/prysmlab passes the host
+# uid/gid as build args, and this step remaps 'ubuntu' to match, so the
+# bind-mounted /work stays readable/writable for the container user.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN if [ "${HOST_UID}" != "1000" ] || [ "${HOST_GID}" != "1000" ]; then \
+      groupmod -g "${HOST_GID}" ubuntu \
+      && usermod -u "${HOST_UID}" -g "${HOST_GID}" ubuntu; \
+    fi \
+    && chown -R ubuntu:ubuntu /opt/flutter \
+    && mkdir -p /home/ubuntu/.pub-cache /home/ubuntu/lab \
+    && chown -R ubuntu:ubuntu /home/ubuntu
+
+# The pub cache is a named Docker volume so nothing lands in the host's HOME and
+# `prysmlab down --purge` can drop it. Docker seeds a fresh volume from the image
+# path, so that path must already exist and belong to `ubuntu` — otherwise the
+# volume comes up root-owned and `flutter pub get` dies on hosted-hashes.
+
+USER ubuntu
+ENV HOME=/home/ubuntu \
+    PUB_CACHE=/home/ubuntu/.pub-cache \
+    DISPLAY=:99 \
+    LIBGL_ALWAYS_SOFTWARE=1 \
+    XDG_RUNTIME_DIR=/tmp/xdg-runtime
+
+WORKDIR /work

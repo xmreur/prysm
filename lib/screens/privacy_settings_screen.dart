@@ -10,6 +10,7 @@ import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/screens/panic_pin_settings_screen.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
@@ -82,6 +83,12 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     if (value == null || value == _groupInviteMode) return;
     setState(() => _groupInviteMode = value);
     await settings.setGroupInviteMode(value);
+    if (value == GroupInviteMode.contactsOnly) {
+      // The mode promises nothing is stored: switching to it discards what
+      // was held, so the requests screen cannot keep showing rows the user
+      // just asked not to keep.
+      await GroupPendingInviteStore.clear();
+    }
   }
 
   void _onLastSeenToggle(bool value) {
@@ -143,22 +150,22 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 30),
-              Text('Group invites', style: style.headlineStyle),
-              const SizedBox(height: 12),
-              PrysmSection(
-                children: [
-                  for (final mode in GroupInviteMode.values)
-                    PrysmRadioRow<GroupInviteMode>(
-                      value: mode,
-                      groupValue: _groupInviteMode,
-                      title: mode.label,
-                      subtitle: mode.description,
-                      onChanged: _onGroupInviteModeChanged,
-                    ),
-                ],
-              ),
               if (widget.keyManager != null) ...[
+                const SizedBox(height: 30),
+                Text('Group invites', style: style.headlineStyle),
+                const SizedBox(height: 12),
+                PrysmSection(
+                  children: [
+                    for (final mode in GroupInviteMode.values)
+                      PrysmRadioRow<GroupInviteMode>(
+                        value: mode,
+                        groupValue: _groupInviteMode,
+                        title: mode.label,
+                        subtitle: mode.description,
+                        onChanged: _onGroupInviteModeChanged,
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 30),
                 Text('Emergency', style: style.headlineStyle),
                 const SizedBox(height: 12),

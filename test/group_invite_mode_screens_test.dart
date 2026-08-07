@@ -20,6 +20,7 @@ import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/screens/privacy_settings_screen.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/util/key_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget wrapWithStyle(Widget child) {
@@ -38,7 +39,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
 
     await tester.pumpWidget(
-      wrapWithStyle(PrivacySettingsScreen(onClose: () {})),
+      wrapWithStyle(
+        PrivacySettingsScreen(onClose: () {}, keyManager: KeyManager()),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -52,6 +55,27 @@ void main() {
         find.text(mode.description),
         findsOneWidget,
         reason: 'the ${mode.name} row must say what it implies',
+      );
+    }
+  });
+
+  testWidgets('a panic session cannot reach the invite mode rows',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    // The home screen passes keyManager: null in decoy mode, so the rows
+    // must not exist: a panic session must not change the real policy.
+    await tester.pumpWidget(
+      wrapWithStyle(PrivacySettingsScreen(onClose: () {})),
+    );
+    await tester.pumpAndSettle();
+
+    for (final mode in GroupInviteMode.values) {
+      expect(
+        find.text(mode.label),
+        findsNothing,
+        reason: 'the ${mode.name} row must not be offered without a key '
+            'manager',
       );
     }
   });

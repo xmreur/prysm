@@ -11,6 +11,7 @@ import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
@@ -86,6 +87,7 @@ Future<Database> _openTestDb() async {
           )
         ''');
         await GroupSenderIndexStore.ensureTable(db);
+        await GroupPendingInviteStore.ensureTable(db);
         await RatchetSessionStore.ensureTable(db);
       },
     ),

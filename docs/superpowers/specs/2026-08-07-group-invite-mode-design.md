@@ -82,7 +82,8 @@ hides them behind a tap.
 
 Shape copied from `GroupSenderIndexStore` (`lib/util/group_sender_index_store.dart`): all-static
 class, private constructor, one process-global `static final Mutex _mutex`, `ensureTable(Database)`
-with `CREATE TABLE IF NOT EXISTS`, `@visibleForTesting resetForTest()`.
+with `CREATE TABLE IF NOT EXISTS`. The store has no process-local state, so no `resetForTest()`
+seam exists — tests drive it through `DBHelper.setDatabaseForTest`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS group_pending_invites (
@@ -96,7 +97,7 @@ The row is the raw `control-wrap-2` envelope, stored opaque. It is never decrypt
 pending: the payload is attacker-controlled and unauthenticated, so no field of it may reach
 the UI or the database in parsed form.
 
-Bounds — all three are load-bearing because this table is written by unauthenticated traffic
+Bounds — all four are load-bearing because this table is written by unauthenticated traffic
 (`POST /message` authenticates nobody; the only rate limit is keyed on the sender-claimed
 `senderId`, `lib/server/PrysmServer.dart:223-228`):
 
@@ -104,20 +105,23 @@ Bounds — all three are load-bearing because this table is written by unauthent
 |---|---|---|
 | Per sender | 1 row (the primary key); a newer invite replaces the older | One onion occupies one slot, not N. |
 | Global | 20 senders; **at capacity the new row is refused**, no eviction | Evicting the oldest would let an attacker delete a genuine request. Refusing degrades to today's drop, which is already the accepted worst case. |
+| Wire size | ≤ 64 KiB per envelope; a longer wire is refused | A real `control-wrap-2` invite envelope is a few KB. Without the bound, 20 rows at the 96 MiB request-body cap would pin ~1.9 GB of attacker-chosen bytes for the retention window. |
 | Retention | 7 days, pruned on the write path | Self-healing: a table filled by an attacker frees itself without user action. |
 
 Public API (all static, all inside `_mutex`):
 
 - `Future<void> ensureTable(Database db)`
 - `Future<bool> hold({required String senderId, required String wire})` — returns false when
-  refused by the global cap.
+  refused by the global cap or because the wire exceeds the size bound; the caller then drops
+  the invite exactly as in `contactsOnly` mode.
 - `Future<List<Map<String, Object?>>> pending()` — prunes expired rows, then returns the rest
   ordered by `receivedAt` descending.
 - `Future<Map<String, Object?>?> take(String senderId)` — reads and deletes atomically.
 - `Future<void> discard(String senderId)`
+- `Future<void> clear()` — deletes every row; called by the privacy screen when the user
+  switches to `contactsOnly`, whose promise is that nothing is stored.
 - `Future<int> count()` — prunes expired rows, then counts; this is what the two UI entry
   points display.
-- `@visibleForTesting Future<void> resetForTest()`
 
 Schema: `chat_app.db` goes to `version: 14` (`lib/util/db_helper.dart:64`), `ensureTable` is
 added to `_createCryptoTables` (`db_helper.dart:99-102`) and a ladder step

@@ -106,6 +106,28 @@ void main() {
     expect(rows.single['senderId'], 'recent.onion');
   });
 
+  test('a wire longer than the bound is refused and changes nothing',
+      () async {
+    expect(
+      await GroupPendingInviteStore.hold(
+        senderId: 'big.onion',
+        wire: 'x' * (GroupPendingInviteStore.maxPendingWireChars + 1),
+      ),
+      isFalse,
+    );
+    expect(await GroupPendingInviteStore.count(), 0);
+
+    // A wire exactly at the bound is accepted.
+    expect(
+      await GroupPendingInviteStore.hold(
+        senderId: 'at-bound.onion',
+        wire: 'x' * GroupPendingInviteStore.maxPendingWireChars,
+      ),
+      isTrue,
+    );
+    expect(await GroupPendingInviteStore.count(), 1);
+  });
+
   test('take returns the wire once and deletes the row', () async {
     await GroupPendingInviteStore.hold(senderId: 'a.onion', wire: 'wire-a');
 

@@ -33,6 +33,17 @@ class GroupPendingInviteStore {
   /// with no user action.
   static const Duration retention = Duration(days: 7);
 
+  /// Longest held envelope, in UTF-16 code units — the envelope is base64
+  /// and JSON, i.e. ASCII, so this equals its size in bytes, and checking
+  /// `length` costs nothing on a payload whose whole point is being large.
+  ///
+  /// Same order as the `/sync-hint` body cap (InboundLimits.maxControlBodyBytes,
+  /// 64 KiB): a real `control-wrap-2` invite envelope is a few kilobytes, so
+  /// this rejects only abuse. It is load-bearing because the general inbound
+  /// cap allows a body of up to 96 MiB, and 20 rows at that size would pin
+  /// roughly 1.9 GB of attacker-chosen bytes for the whole retention window.
+  static const int maxPendingWireChars = 64 * 1024;
+
   static Future<void> ensureTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS group_pending_invites (
@@ -45,13 +56,17 @@ class GroupPendingInviteStore {
 
   /// Keeps [wire] as the pending invite for [senderId], replacing any
   /// previous one from the same sender. Returns false when the global cap
-  /// refuses a new sender; the caller drops the invite exactly as it would
-  /// with the feature off.
+  /// refuses a new sender or when [wire] exceeds [maxPendingWireChars]; the
+  /// caller drops the invite exactly as it would with the feature off.
   static Future<bool> hold({
     required String senderId,
     required String wire,
   }) async {
     return _mutex.protect(() async {
+      // Same refusal as the global cap below: a wire this large is not a
+      // real invite envelope, and holding it would let unauthenticated
+      // traffic pin attacker-chosen bytes for the retention window.
+      if (wire.length > maxPendingWireChars) return false;
       final db = await DBHelper.database;
       await _pruneExpired(db);
 
@@ -131,6 +146,18 @@ class GroupPendingInviteStore {
         where: 'senderId = ?',
         whereArgs: [senderId],
       );
+    });
+  }
+
+  /// Deletes every pending invite.
+  ///
+  /// Called when the user switches to `contactsOnly` mode: that mode
+  /// promises nothing is stored, so whatever was held while the mode was
+  /// `holdAsRequest` is discarded the moment the choice is made.
+  static Future<void> clear() async {
+    await _mutex.protect(() async {
+      final db = await DBHelper.database;
+      await db.delete('group_pending_invites');
     });
   }
 

@@ -16,8 +16,8 @@ enum GroupInviteMode {
   String get description => switch (this) {
         GroupInviteMode.holdAsRequest =>
           'An invite from someone who is not in your contacts is kept as a '
-              "request. Your device never contacts them, and you don't join "
-              'the group until you accept.',
+              'request. Your device never contacts them, and adding them as '
+              'a contact is what applies the invite.',
         GroupInviteMode.contactsOnly =>
           'Invites from anyone else are discarded the moment they arrive: '
               'nothing is stored, nothing is shown.',

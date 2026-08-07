@@ -26,7 +26,7 @@ Do NOT use it for:
   Flutter's own hit test and gesture recognizers. It proves the app's wiring, not that a real
   click (window focus, display scaling, layered windows) arrives the same way.
 - **Regression.** It is a repeatable manual proof, not a test: it does not run in CI and does
-  not fail on its own. Turn findings into real tests afterwards.
+  not fail on its own. Turn findings into real tests afterward.
 
 ## Safety — the container is not decoration
 
@@ -179,7 +179,7 @@ are forwarded into the container.
 
 ## Worked example
 
-Reach home, open the self chat, and prove "Chat with myself" is on two surfaces (sidebar
+Reach home, open the self-chat, and prove "Chat with myself" is on two surfaces (sidebar
 tile + main-pane header — both are `Text` widgets, and the sidebar stays visible because
 only the main pane swaps):
 
@@ -194,7 +194,7 @@ prysmlab screen                        # 'texts' lists it ONCE (deduplicated)
 
 `count` returning 2 is the assertion: the string is present on both surfaces. A single
 `screen` entry would have looked like "present" while a surface was missing. (The sidebar
-"Chat with myself" tile is always there; the header appears once the self chat is open.)
+"Chat with myself" tile is always there; the header appears once the self-chat is open.)
 
 ## Cleanup — part of the method
 

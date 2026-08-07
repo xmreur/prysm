@@ -84,9 +84,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # bind-mounted /work stays readable/writable for the container user.
 ARG HOST_UID=1000
 ARG HOST_GID=1000
+#
+# --non-unique is required, not defensive: ubuntu:24.04 already owns gid 20
+# (dialout) and gid 100 (users), and plain `groupmod -g` refuses a gid another
+# group holds ("GID '20' already exists"), which aborts the whole build for any
+# host user on one of those gids. Sharing the id is harmless here — `chown
+# ubuntu:ubuntu` still resolves by name, and the container is single-user.
 RUN if [ "${HOST_UID}" != "1000" ] || [ "${HOST_GID}" != "1000" ]; then \
-      groupmod -g "${HOST_GID}" ubuntu \
-      && usermod -u "${HOST_UID}" -g "${HOST_GID}" ubuntu; \
+      groupmod --non-unique -g "${HOST_GID}" ubuntu \
+      && usermod --non-unique -u "${HOST_UID}" -g "${HOST_GID}" ubuntu; \
     fi \
     && chown -R ubuntu:ubuntu /opt/flutter \
     && mkdir -p /home/ubuntu/.pub-cache /home/ubuntu/lab \

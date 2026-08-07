@@ -119,9 +119,16 @@ class GroupPendingInviteStore {
 
   /// Returns the held envelope for [senderId] and deletes the row in the
   /// same critical section, so a second caller cannot replay it.
+  ///
+  /// Expired rows are pruned first, like every other read: a held invite is
+  /// a point-in-time snapshot of a group's roster and key version, so the
+  /// retention window is also the bound on how stale a replayed one can be.
+  /// Without this prune that bound would have a hole exactly here, on the
+  /// one path that actually applies the snapshot.
   static Future<String?> take(String senderId) async {
     return _mutex.protect(() async {
       final db = await DBHelper.database;
+      await _pruneExpired(db);
       final rows = await db.query(
         'group_pending_invites',
         where: 'senderId = ?',

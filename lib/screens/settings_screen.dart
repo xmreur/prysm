@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/log_export_helper.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -84,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableLinkUnfurling = false;
   bool _biometricsEnabled = false;
   bool _biometricsAvailable = false;
+  int _pendingInviteCount = 0;
   String _downloadLocationDisplay = 'Loading...';
   List<LinuxAudioDevice> _linuxInputDevices = const [];
   String? _linuxSelectedDeviceId;
@@ -95,6 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadDownloadLocationDisplay();
+    unawaited(_loadPendingInviteCount());
     if (Platform.isAndroid) {
       unawaited(_loadBiometricsState());
     }
@@ -130,6 +133,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       setState(() => _biometricsAvailable = available);
     }
+  }
+
+  Future<void> _loadPendingInviteCount() async {
+    final count = await GroupPendingInviteStore.count();
+    if (!mounted) return;
+    setState(() => _pendingInviteCount = count);
   }
 
   Future<void> _onBiometricsToggled(bool value) async {
@@ -696,10 +705,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onClose: () => Navigator.of(context).pop(),
                             onionAddress: widget.onionAddress!,
                             keyManager: widget.keyManager!,
+                            onChanged: _loadPendingInviteCount,
                           ),
                         ),
                       );
                     },
+                    subtitle:
+                        '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
                   ),
                   const PrysmDivider(),
                 ],

@@ -1,5 +1,7 @@
 import 'package:prysm/constants/group_constants.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/services/group_service.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
@@ -59,7 +61,14 @@ class GroupInvitePromoter {
 
   /// Promotes every pending invite whose sender is now locally known.
   /// Returns how many were applied.
+  ///
+  /// A no-op while the mode is `contactsOnly`: that mode promises nothing is
+  /// stored and nothing is applied, and any rows still present (e.g. held
+  /// before the mode changed) must not be promoted behind the user's back.
   Future<int> promoteResolvable() async {
+    if (SettingsService().groupInviteMode == GroupInviteMode.contactsOnly) {
+      return 0;
+    }
     final rows = await GroupPendingInviteStore.pending();
     var promoted = 0;
     for (final row in rows) {

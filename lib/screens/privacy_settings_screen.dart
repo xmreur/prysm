@@ -2,7 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_radio.dart';
 import 'package:prysm/ui/core/prysm_switch.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/screens/panic_pin_settings_screen.dart';
@@ -36,6 +38,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _typingIndicators = true;
   bool _lastSeen = true;
   bool _profilePhoto = true;
+  GroupInviteMode _groupInviteMode = SettingsService().groupInviteMode;
 
   @override
   void initState() {
@@ -73,6 +76,12 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Future<void> _onTypingIndicatorsToggle(bool value) async {
     setState(() => _typingIndicators = value);
     await settings.setEnableTypingIndicators(value);
+  }
+
+  Future<void> _onGroupInviteModeChanged(GroupInviteMode? value) async {
+    if (value == null || value == _groupInviteMode) return;
+    setState(() => _groupInviteMode = value);
+    await settings.setGroupInviteMode(value);
   }
 
   void _onLastSeenToggle(bool value) {
@@ -132,6 +141,21 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                     value: _profilePhoto,
                     onChanged: _onProfilePhotoToggle,
                   ),
+                ],
+              ),
+              const SizedBox(height: 30),
+              Text('Group invites', style: style.headlineStyle),
+              const SizedBox(height: 12),
+              PrysmSection(
+                children: [
+                  for (final mode in GroupInviteMode.values)
+                    PrysmRadioRow<GroupInviteMode>(
+                      value: mode,
+                      groupValue: _groupInviteMode,
+                      title: mode.label,
+                      subtitle: mode.description,
+                      onChanged: _onGroupInviteModeChanged,
+                    ),
                 ],
               ),
               if (widget.keyManager != null) ...[

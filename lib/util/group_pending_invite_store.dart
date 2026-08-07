@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:mutex/mutex.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:sqflite/sqflite.dart';
@@ -33,16 +35,19 @@ class GroupPendingInviteStore {
   /// with no user action.
   static const Duration retention = Duration(days: 7);
 
-  /// Longest held envelope, in UTF-16 code units — the envelope is base64
-  /// and JSON, i.e. ASCII, so this equals its size in bytes, and checking
-  /// `length` costs nothing on a payload whose whole point is being large.
+  /// Longest held envelope, in **UTF-8 bytes** — that is what SQLite stores,
+  /// and the wire is `data['message']` straight off `POST /message`, whose
+  /// only validation is `is String` (`inbound_message_router.dart:854`).
+  /// Measuring `String.length` instead would count UTF-16 code units and let
+  /// a non-ASCII payload through at up to three bytes per unit, i.e. 192 KiB
+  /// per row against a declared 64 KiB.
   ///
   /// Same order as the `/sync-hint` body cap (InboundLimits.maxControlBodyBytes,
   /// 64 KiB): a real `control-wrap-2` invite envelope is a few kilobytes, so
   /// this rejects only abuse. It is load-bearing because the general inbound
   /// cap allows a body of up to 96 MiB, and 20 rows at that size would pin
   /// roughly 1.9 GB of attacker-chosen bytes for the whole retention window.
-  static const int maxPendingWireChars = 64 * 1024;
+  static const int maxPendingWireBytes = 64 * 1024;
 
   static Future<void> ensureTable(Database db) async {
     await db.execute('''
@@ -56,7 +61,7 @@ class GroupPendingInviteStore {
 
   /// Keeps [wire] as the pending invite for [senderId], replacing any
   /// previous one from the same sender. Returns false when the global cap
-  /// refuses a new sender or when [wire] exceeds [maxPendingWireChars]; the
+  /// refuses a new sender or when [wire] exceeds [maxPendingWireBytes]; the
   /// caller drops the invite exactly as it would with the feature off.
   static Future<bool> hold({
     required String senderId,
@@ -66,7 +71,13 @@ class GroupPendingInviteStore {
       // Same refusal as the global cap below: a wire this large is not a
       // real invite envelope, and holding it would let unauthenticated
       // traffic pin attacker-chosen bytes for the retention window.
-      if (wire.length > maxPendingWireChars) return false;
+      //
+      // The cheap test runs first and is not redundant: UTF-8 is never fewer
+      // bytes than UTF-16 code units, so a wire over the bound in units is
+      // over it in bytes too. Encoding unconditionally would allocate ~288 MiB
+      // to measure a 96 MiB body — a DoS in the guard meant to prevent one.
+      if (wire.length > maxPendingWireBytes) return false;
+      if (utf8.encode(wire).length > maxPendingWireBytes) return false;
       final db = await DBHelper.database;
       await _pruneExpired(db);
 

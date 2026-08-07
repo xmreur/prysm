@@ -1,7 +1,9 @@
 // The pending-invite table is written by UNAUTHENTICATED inbound traffic:
 // POST /message authenticates nobody and its only rate limit is keyed on the
 // sender-claimed senderId (PrysmServer.dart:223-228). These tests pin the
-// three bounds that keep it from being a remote write primitive.
+// four bounds that keep it from being a remote write primitive.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
@@ -111,7 +113,7 @@ void main() {
     expect(
       await GroupPendingInviteStore.hold(
         senderId: 'big.onion',
-        wire: 'x' * (GroupPendingInviteStore.maxPendingWireChars + 1),
+        wire: 'x' * (GroupPendingInviteStore.maxPendingWireBytes + 1),
       ),
       isFalse,
     );
@@ -121,8 +123,38 @@ void main() {
     expect(
       await GroupPendingInviteStore.hold(
         senderId: 'at-bound.onion',
-        wire: 'x' * GroupPendingInviteStore.maxPendingWireChars,
+        wire: 'x' * GroupPendingInviteStore.maxPendingWireBytes,
       ),
+      isTrue,
+    );
+    expect(await GroupPendingInviteStore.count(), 1);
+  });
+
+  test('the bound counts UTF-8 bytes, not UTF-16 code units', () async {
+    // '€' is one UTF-16 code unit and three UTF-8 bytes, so a length that
+    // fits the bound in code units can still be three times over it in the
+    // bytes SQLite actually stores.
+    final over = '€' * (GroupPendingInviteStore.maxPendingWireBytes ~/ 3 + 1);
+    expect(over.length, lessThan(GroupPendingInviteStore.maxPendingWireBytes));
+    expect(
+      utf8.encode(over).length,
+      greaterThan(GroupPendingInviteStore.maxPendingWireBytes),
+    );
+    expect(
+      await GroupPendingInviteStore.hold(senderId: 'euro.onion', wire: over),
+      isFalse,
+    );
+    expect(await GroupPendingInviteStore.count(), 0);
+
+    // The same alphabet just under the byte bound is accepted, so the guard
+    // rejects on size and not on being non-ASCII.
+    final under = '€' * (GroupPendingInviteStore.maxPendingWireBytes ~/ 3);
+    expect(
+      utf8.encode(under).length,
+      lessThanOrEqualTo(GroupPendingInviteStore.maxPendingWireBytes),
+    );
+    expect(
+      await GroupPendingInviteStore.hold(senderId: 'ok.onion', wire: under),
       isTrue,
     );
     expect(await GroupPendingInviteStore.count(), 1);
@@ -133,6 +165,20 @@ void main() {
 
     expect(await GroupPendingInviteStore.take('a.onion'), 'wire-a');
     expect(await GroupPendingInviteStore.take('a.onion'), isNull);
+    expect(await GroupPendingInviteStore.count(), 0);
+  });
+
+  test('take returns null for a row past the retention window', () async {
+    final expired = DateTime.now().millisecondsSinceEpoch -
+        GroupPendingInviteStore.retention.inMilliseconds -
+        1;
+    await db.insert('group_pending_invites', {
+      'senderId': 'stale.onion',
+      'wire': 'stale',
+      'receivedAt': expired,
+    });
+
+    expect(await GroupPendingInviteStore.take('stale.onion'), isNull);
     expect(await GroupPendingInviteStore.count(), 0);
   });
 

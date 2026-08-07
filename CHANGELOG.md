@@ -2,6 +2,46 @@
 
 ---
 
+## 0.6.4
+
+### Features
+
+- Local databases (messages, media, conversations) are now encrypted at rest with SQLCipher; each install gets its own key in secure storage and existing plaintext databases are migrated on first open
+- Ratchet v3: forward-secret hash-chain sessions (`ratchet-3`), legacy signed key wraps, skipped-message-key windows and mutex-protected ratchet/prekey state
+- Contact nicknames: assign a custom name to any contact, used in chat headers and the sidebar
+- Network reachability monitoring via `connectivity_plus`, including a fix for desktop connectivity over systemd-network
+
+### Security
+
+- Database keys are written to secure storage and verified; a failed write aborts instead of silently weakening encryption
+- Onions are redacted in every log sink and in the request log; developer log source aliases scrubbed
+- Inbound WebSocket handshake now proves peer identity; a complete `101` status token is required; self-asserted sender IDs are rejected and sync hints must be signed
+- Profile fetches are gated on the peer's online status; peer presence no longer acts as an oracle
+- Group inbound messages are bounded by a rejecting seen-set floor, deduplicated by index, and failed inbound claims stay releasable; first-contact invite policy pinned to no-fetch
+- Group control envelopes are signed, and the epoch key is never sent to a removed member
+- `PeerProof.verify` rejects malformed signatures instead of throwing
+- Server: inbound allocations and in-flight request-body memory are bounded and endpoints rate-limited
+- Storage: path traversal rejected in blob IDs and download file names
+- Tor: per-installation random control-port password; libopus fetched over Tor with a pinned SHA-256 checksum
+- Ratchet: OTK-less bootstrap pinned, one-time prekeys consumed only after handshake verification, corrupt or future-dated prekey pools tolerated
+
+### Fixes
+
+- Group chat: soft-deleted pending messages are skipped, sender-index access is thread-safe, legacy identities are imported on upgrade
+- Database migration is atomic: a cut between delete and rename is recovered, temp copies are only kept when the file is rejected
+
+### Tests
+
+- Containerized L3 end-to-end harness running two instances over real Tor (with CI integration)
+- Coverage for the production `messages.db` opener, v11 security fixtures and the first-contact invite policy
+
+### Platform
+
+- SQLCipher `sqlite3` builds for all platforms
+- CI: build-pr workflow updates and L3 harness gating
+
+---
+
 ## 0.6.3
 
 ### Features

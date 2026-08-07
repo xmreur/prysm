@@ -6,13 +6,16 @@ import 'package:prysm/util/logging.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_control_channel.dart';
 import 'package:prysm/services/group_key_provider.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
@@ -37,6 +40,7 @@ class GroupServiceException implements Exception {
 class GroupService {
   final String userId;
   final KeyManager keyManager;
+  final SettingsService _settings = SettingsService();
 
   late final GroupKeyProvider _keyProvider;
   late final GroupControlChannel _controlChannel;
@@ -480,16 +484,46 @@ class GroupService {
   ) async {
     final senderKeys = await _resolveSenderIdentity(senderId);
     // Accepted policy (option 1, PR #128): a control message from a sender
-    // whose identity is not in the local store is deliberately dropped —
-    // the invitee sees nothing today. The identity is not merely unverified
-    // but required: decryptControlPayload below authenticates the payload
-    // against it, so the payload cannot even be read without it. Do not
-    // "fix" this by resolving the sender over the network on cache-miss:
-    // that would reopen the M2 profile-fetch oracle (an unauthenticated
-    // sender forcing GET /profile as an implicit delivery receipt) before
-    // any signature check. A pending-invite flow is the tracked follow-up
-    // (https://github.com/xmreur/prysm/pull/128#issuecomment-5205552544).
+    // whose identity is not in the local store is not processed. The
+    // identity is required to *authenticate* it: decryptControlPayload
+    // below verifies the control-wrap-2 signature against it, so without it
+    // the payload can only be read unverified — which is exactly what must
+    // not happen. Do not "fix" this by resolving the sender over the network
+    // on cache-miss: that would reopen the M2 profile-fetch oracle (an
+    // unauthenticated sender forcing GET /profile as an implicit delivery
+    // receipt) before any signature check.
+    //
+    // What the user can choose (GroupInviteMode) is only what happens to an
+    // *invite* afterwards: dropped outright, or held opaque and bounded for
+    // the user to accept — never processed, never decrypted, and never a
+    // reason to send anything.
     if (senderKeys == null) {
+      if (type == groupInviteType &&
+          _settings.groupInviteMode == GroupInviteMode.holdAsRequest) {
+        // A store failure must not change the sender-visible outcome: on
+        // this ingress a status difference is an oracle, so a broken store
+        // (DB error, locked file) degrades to the plain drop, exactly like
+        // a full one.
+        try {
+          final held = await GroupPendingInviteStore.hold(
+            senderId: senderId,
+            wire: encryptedPayload,
+          );
+          if (!held) {
+            Logging.error(
+              'Pending invite store full, dropping invite from '
+              '${Logging.redactOnion(senderId)}',
+              'GroupService',
+            );
+          }
+        } catch (e) {
+          Logging.error(
+            'Pending invite store failed, dropping invite from '
+            '${Logging.redactOnion(senderId)}: $e',
+            'GroupService',
+          );
+        }
+      }
       Logging.error(
         'Dropping $type from ${Logging.redactOnion(senderId)}: '
         'sender identity unresolvable',

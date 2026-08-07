@@ -25,13 +25,28 @@ fi
 # reliable in a container, so start the daemon outright.
 if ! pgrep -x upowerd >/dev/null 2>&1; then
   setsid /usr/libexec/upowerd >/var/log/upowerd.log 2>&1 &
-  i=0
-  while [ $i -lt 20 ]; do
-    dbus-send --system --dest=org.freedesktop.DBus --print-reply \
-      /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null \
-      | grep -q org.freedesktop.UPower && break
-    i=$((i + 1)); sleep 0.25
-  done
 fi
+
+# Wait for the bus NAME, not for the process, and wait unconditionally.
+#
+# A pgrep hit only proves some upowerd exists — not that it owns
+# org.freedesktop.UPower — so the wait used to be skipped exactly when a stale
+# daemon was the problem. And the loop had no verdict after it: on failure the
+# script still printed PRYSMLAB_SYSTEM_BUS_UP, `prysmlab up` started the app,
+# and the only symptom was a later timeout. That is the mute failure this file
+# exists to prevent: without UPower, battery_plus never completes,
+# AppBootstrap.initializeServices never returns and runApp is never reached.
+up=0
+i=0
+while [ $i -lt 40 ]; do
+  if dbus-send --system --dest=org.freedesktop.DBus --print-reply \
+       /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null \
+       | grep -q org.freedesktop.UPower; then
+    up=1
+    break
+  fi
+  i=$((i + 1)); sleep 0.25
+done
+[ "$up" = 1 ] || { echo "PRYSMLAB_UPOWER_FAILED"; exit 1; }
 
 echo "PRYSMLAB_SYSTEM_BUS_UP"

@@ -590,6 +590,11 @@ def cmd_up(args) -> int:
         print(f"container {CONTAINER} up ({res.stdout.strip()[:12]})")
 
     root = run(["docker", "exec", "-u", "0", CONTAINER, "/opt/lab/labroot.sh"])
+    if "PRYSMLAB_UPOWER_FAILED" in root.stdout:
+        die("system D-Bus is up but nothing claimed org.freedesktop.UPower. "
+            "battery_plus would hang AppBootstrap.initializeServices and "
+            "runApp would never be reached, so the app would open a window "
+            "and render nothing. Check /var/log/upowerd.log in the container.")
     if "PRYSMLAB_SYSTEM_BUS_UP" not in root.stdout:
         die("could not bring up the container's system D-Bus: "
             + (root.stderr or root.stdout).strip())

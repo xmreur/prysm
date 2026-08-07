@@ -1,5 +1,6 @@
 // lib/models/app_settings.dart
 import 'package:prysm/models/appearance_settings.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/unlock_type.dart';
 
@@ -21,6 +22,7 @@ class Settings {
   // Privacy
   final int messageRetentionDays;
   final PanicAction panicAction;
+  final GroupInviteMode groupInviteMode;
 
   // Theme
   final int themeMode; // 0=light, 1=dark, 2=pink, 3=cyan, 4=purple, 5=orange
@@ -55,6 +57,7 @@ class Settings {
     this.aggressiveRetry = true,
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
+    this.groupInviteMode = GroupInviteMode.holdAsRequest,
     this.themeMode = 0,
     this.appearance = const AppearanceSettings(),
     this.avatar,
@@ -81,6 +84,7 @@ class Settings {
     'aggressiveRetry': aggressiveRetry,
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
+    'groupInviteMode': groupInviteMode.name,
     'themeMode': themeMode,
     'appearance': appearance.toJson(),
     'avatar': avatar,
@@ -107,6 +111,9 @@ class Settings {
     aggressiveRetry: json['aggressiveRetry'] ?? true,
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
+    groupInviteMode: GroupInviteMode.fromJson(
+      json['groupInviteMode'] as String?,
+    ),
     themeMode: json['themeMode'] ?? 0,
     appearance: AppearanceSettings.fromJson(
       json['appearance'] as Map<String, dynamic>?,
@@ -137,6 +144,7 @@ class Settings {
     bool? aggressiveRetry,
     int? messageRetentionDays,
     PanicAction? panicAction,
+    GroupInviteMode? groupInviteMode,
     int? themeMode,
     AppearanceSettings? appearance,
     String? avatar,
@@ -163,6 +171,7 @@ class Settings {
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
+    groupInviteMode: groupInviteMode ?? this.groupInviteMode,
     themeMode: themeMode ?? this.themeMode,
     appearance: appearance ?? this.appearance,
     avatar: avatar ?? this.avatar,
@@ -205,6 +214,7 @@ class Settings {
         other.aggressiveRetry == aggressiveRetry &&
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
+        other.groupInviteMode == groupInviteMode &&
         other.themeMode == themeMode &&
         other.appearance == appearance &&
         other.avatar == avatar &&
@@ -231,6 +241,7 @@ class Settings {
         aggressiveRetry.hashCode ^
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
+        groupInviteMode.hashCode ^
         themeMode.hashCode ^
         appearance.hashCode ^
         (avatar?.hashCode ?? 0) ^

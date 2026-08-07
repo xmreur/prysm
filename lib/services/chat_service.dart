@@ -15,6 +15,7 @@ import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
@@ -239,6 +240,16 @@ class ChatService {
       'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+    ).indexOutboundDirectText(
+      messageId: id,
+      peerId: peerId,
+      timestamp: timestamp,
+      plaintext: text,
+    );
+
     if (expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();
     }
@@ -322,11 +333,18 @@ class ChatService {
       'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
-    if (expiresAt != null) {
-      DisappearingActivityNotifier.instance.notify();
-    }
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+    ).indexOutboundFile(
+      messageId: id,
+      conversationId: peerId,
+      scope: 'direct',
+      timestamp: timestamp,
+      fileName: fileName,
+    );
 
-    if (TransportProvider.isConfigured) {
+    if (expiresAt != null) {
       final wsConnected =
           TransportProvider.instance.isRealtimeConnected(peerId);
       final peerSupports = TransportProvider.instance.wsManager

@@ -9,6 +9,7 @@ import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/services/pending_notification_route.dart';
 import 'package:prysm/services/reaction_service.dart';
@@ -376,6 +377,7 @@ class InboundMessageRouter {
     try {
       await MessageModifyService.applyInbound(
         keyManager: keyManager,
+        localUserId: localId,
         encrypted: data['message'] as String,
         senderId: senderId,
         type: type,
@@ -672,6 +674,11 @@ class InboundMessageRouter {
     }
 
     if (inserted != null && inserted['status'] != 'pending_auth') {
+      await MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: localId,
+      ).indexInboundRow(inserted, localId);
+
       InboundMessageNotifier.instance.notify(
         InboundMessageEvent.fromRow(inserted),
       );

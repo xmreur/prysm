@@ -64,6 +64,10 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/screens/home/empty_home_state.dart';
+import 'package:prysm/database/messages.dart';
+import 'package:prysm/models/message_search_hit.dart';
+import 'package:prysm/screens/home/message_search_result_row.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/ui/prysm_list_row.dart';
 import 'package:prysm/ui/prysm_search_field.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
@@ -137,6 +141,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       0; // 0: Light, 1: Dark, 2: Pink, 3: Cyan, 4: Purple, 5 Orange
   String _searchQuery = '';
   final _searchController = TextEditingController();
+  List<MessageSearchHit> _messageSearchResults = [];
+  bool _messageSearchLoading = false;
+  Timer? _messageSearchDebounce;
+  String? _pendingScrollToMessageId;
   Map<String, String> _lastMessagePreviews = {};
   Map<String, int> _unreadCounts = {};
   Map<String, ConversationPreferences> _conversationPrefs = {};
@@ -182,6 +190,142 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_archivedCount > 0) count++;
     if (_blockedCount > 0) count++;
     return count;
+  }
+
+  bool get _showMessageSearch =>
+      _searchQuery.length >= 2 && !_viewingArchived && !_viewingBlocked;
+
+  int get _sidebarSearchItemCount {
+    if (!_showMessageSearch) {
+      return _filteredConversations.length + _sidebarFooterCount;
+    }
+    var count = 0;
+    if (_messageSearchLoading && _messageSearchResults.isEmpty) count++;
+    if (_filteredConversations.isNotEmpty) {
+      count += 1 + _filteredConversations.length;
+    }
+    if (_messageSearchResults.isNotEmpty) {
+      count += 1 + _messageSearchResults.length;
+    }
+    return count;
+  }
+
+  void _scheduleMessageSearch(String query) {
+    _messageSearchDebounce?.cancel();
+    if (query.length < 2 || widget.decoyMode) {
+      setState(() {
+        _messageSearchResults = [];
+        _messageSearchLoading = false;
+      });
+      return;
+    }
+    setState(() => _messageSearchLoading = true);
+    _messageSearchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final hits = await MessagesDb.searchMessagesGlobal(query);
+      if (!mounted) return;
+      final enriched = hits
+          .map(
+            (h) => h.copyWith(
+              snippet: MessageSearchIndexService.buildSnippet(h.body, query),
+            ),
+          )
+          .toList();
+      setState(() {
+        _messageSearchResults = enriched;
+        _messageSearchLoading = false;
+      });
+    });
+  }
+
+  String _conversationNameForHit(MessageSearchHit hit) {
+    if (hit.scope == 'self') return 'Chat with myself';
+    for (final conv in conversations) {
+      if (conv.id == hit.conversationId) return conv.displayName;
+    }
+    return hit.conversationId;
+  }
+
+  String? _avatarForHit(MessageSearchHit hit) {
+    for (final conv in conversations) {
+      if (conv.id != hit.conversationId) continue;
+      if (conv is DirectConversation) return conv.contact.avatarBase64;
+      if (conv is GroupConversation) return conv.group.avatarBase64;
+    }
+    return null;
+  }
+
+  void _openMessageSearchResult(MessageSearchHit hit) {
+    _pendingScrollToMessageId = hit.messageId;
+    if (hit.scope == 'self') {
+      onSelectSelfChat();
+      return;
+    }
+    if (hit.scope == 'group') {
+      final group = groups.cast<Group?>().firstWhere(
+            (g) => g?.id == hit.conversationId,
+            orElse: () => null,
+          );
+      if (group != null) {
+        onSelectGroup(group);
+      }
+      return;
+    }
+    final contact = contacts.cast<Contact?>().firstWhere(
+          (c) => c?.id == hit.conversationId,
+          orElse: () => null,
+        );
+    if (contact != null) {
+      onSelectContact(contact);
+    }
+  }
+
+  Widget _buildSearchSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: context.prysmStyle.tokens.textMuted,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchSidebarItem(int index) {
+    var cursor = 0;
+    if (_messageSearchLoading && _messageSearchResults.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: PrysmProgressIndicator()),
+      );
+    }
+    if (_filteredConversations.isNotEmpty) {
+      if (index == cursor) return _buildSearchSectionHeader('Chats');
+      cursor++;
+      final chatIndex = index - cursor;
+      if (chatIndex < _filteredConversations.length) {
+        return _buildConversationRow(_filteredConversations[chatIndex]);
+      }
+      cursor += _filteredConversations.length;
+    }
+    if (_messageSearchResults.isNotEmpty) {
+      if (index == cursor) return _buildSearchSectionHeader('Messages');
+      cursor++;
+      final messageIndex = index - cursor;
+      if (messageIndex < _messageSearchResults.length) {
+        final hit = _messageSearchResults[messageIndex];
+        return MessageSearchResultRow(
+          hit: hit,
+          conversationName: _conversationNameForHit(hit),
+          timeLabel: formatLastMessageTime(hit.timestamp),
+          avatarBase64: _avatarForHit(hit),
+          onTap: () => _openMessageSearchResult(hit),
+        );
+      }
+    }
+    return const SizedBox.shrink();
   }
 
   List<Conversation> get _filteredConversations {
@@ -431,6 +575,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!Platform.isAndroid && !Platform.isIOS) {
       unawaited(TrayService.instance.start(userId: widget.onionAddress));
       _configureDetachedChat();
+    }
+
+    if (!widget.decoyMode) {
+      AppComposition.startSearchBackfill(
+        keyManager: widget.keyManager,
+        userId: widget.onionAddress,
+      );
     }
   }
 
@@ -1259,6 +1410,79 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildConversationRow(Conversation conv) {
+    final tokens = context.prysmStyle.tokens;
+    final isSelected = selectedConversation?.id == conv.id;
+    final prefs = _conversationPrefs[conv.id];
+    final isPinned = prefs?.isPinned ?? false;
+    final Widget leading;
+    final String subtitle;
+
+    final unreadCount = _unreadCounts[conv.id] ?? 0;
+    final preview = _lastMessagePreviews[conv.id];
+    final timeLabel = formatLastMessageTime(conv.lastMessageTimestamp);
+
+    if (conv is DirectConversation) {
+      final contact = conv.contact;
+      final isBlockedContact = BlockService.instance.isBlocked(conv.id);
+      leading = ContactAvatar(
+        name: contact.displayName,
+        avatarBase64: contact.avatarBase64,
+      );
+      if (isBlockedContact) {
+        subtitle = timeLabel;
+      } else {
+        subtitle = preview != null ? '$preview · $timeLabel' : timeLabel;
+      }
+    } else {
+      final group = (conv as GroupConversation).group;
+      leading = ContactAvatar(
+        name: group.name,
+        avatarBase64: group.avatarBase64,
+      );
+      subtitle = preview != null
+          ? 'Group · $preview · $timeLabel'
+          : 'Group · $timeLabel';
+    }
+
+    final isBlockedContact =
+        conv is DirectConversation && BlockService.instance.isBlocked(conv.id);
+
+    return GestureDetector(
+      key: ValueKey(
+        '${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount',
+      ),
+      onSecondaryTapDown: isDesktopPlatform
+          ? (details) =>
+              _showConversationContextMenu(details.globalPosition, conv)
+          : null,
+      onLongPress: () => _showConversationActions(conv),
+      child: PrysmListRow(
+        selected: isSelected,
+        onTap: () {
+          if (conv is DirectConversation) {
+            onSelectContact(conv.contact);
+          } else if (conv is GroupConversation) {
+            onSelectGroup(conv.group);
+          }
+        },
+        leading: SizedBox(width: 48, height: 48, child: leading),
+        title: conv.displayName,
+        subtitle: subtitle,
+        trailingSubtitle:
+            timeLabel.contains(' · ') ? timeLabel.split(' · ').last : timeLabel,
+        trailing: unreadCount > 0 && !isBlockedContact
+            ? PrysmUnreadBadge(count: unreadCount)
+            : isBlockedContact && _viewingBlocked
+                ? Icon(PrysmIcons.block, size: 18, color: tokens.textMuted)
+                : isPinned && !_viewingArchived && !_viewingBlocked
+                    ? Icon(PrysmIcons.pushPin,
+                        size: 16, color: tokens.textMuted)
+                    : null,
+      ),
+    );
+  }
+
   String formatLastMessageTime(int? timestamp) {
     if (timestamp == null) return "No message";
     final dt = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toLocal();
@@ -1438,15 +1662,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ? 'Search archived...'
                   : _viewingBlocked
                       ? 'Search blocked...'
-                      : 'Search chats...',
+                      : 'Search chats and messages...',
               onChanged: (value) {
-                setState(() => _searchQuery = value.trim().toLowerCase());
+                final query = value.trim().toLowerCase();
+                setState(() => _searchQuery = query);
+                _scheduleMessageSearch(query);
               },
               onClear: () {
                 setState(() {
                   _searchQuery = '';
                   _searchController.clear();
+                  _messageSearchResults = [];
+                  _messageSearchLoading = false;
                 });
+                _messageSearchDebounce?.cancel();
               },
             ),
           ),
@@ -1456,8 +1685,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _filteredConversations.length + _sidebarFooterCount,
+              itemCount: _sidebarSearchItemCount,
               itemBuilder: (_, index) {
+                if (_showMessageSearch) {
+                  return _buildSearchSidebarItem(index);
+                }
                 if (index >= _filteredConversations.length) {
                   final footerIndex = index - _filteredConversations.length;
                   final showArchivedFooter = _archivedCount > 0;
@@ -1513,92 +1745,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 }
 
                 final conv = _filteredConversations[index];
-                final isSelected = selectedConversation?.id == conv.id;
-                final prefs = _conversationPrefs[conv.id];
-                final isPinned = prefs?.isPinned ?? false;
-                final Widget leading;
-                final String subtitle;
-
-                final unreadCount = _unreadCounts[conv.id] ?? 0;
-                final preview = _lastMessagePreviews[conv.id];
-                final timeLabel = formatLastMessageTime(
-                  conv.lastMessageTimestamp,
-                );
-
-                if (conv is DirectConversation) {
-                  final contact = conv.contact;
-                  final isBlockedContact = BlockService.instance.isBlocked(
-                    conv.id,
-                  );
-                  leading = ContactAvatar(
-                    name: contact.displayName,
-                    avatarBase64: contact.avatarBase64,
-                  );
-                  if (isBlockedContact) {
-                    subtitle = timeLabel;
-                  } else {
-                    subtitle = preview != null
-                        ? '$preview · $timeLabel'
-                        : timeLabel;
-                  }
-                } else {
-                  final group = (conv as GroupConversation).group;
-                  leading = ContactAvatar(
-                    name: group.name,
-                    avatarBase64: group.avatarBase64,
-                  );
-                  subtitle = preview != null
-                      ? 'Group · $preview · $timeLabel'
-                      : 'Group · $timeLabel';
-                }
-
-                final isBlockedContact =
-                    conv is DirectConversation &&
-                    BlockService.instance.isBlocked(conv.id);
-
-                return GestureDetector(
-                  key: ValueKey(
-                    '${conv.id}_${conv.lastMessageTimestamp ?? 0}_$unreadCount',
-                  ),
-                  onSecondaryTapDown: isDesktopPlatform
-                      ? (details) => _showConversationContextMenu(
-                          details.globalPosition,
-                          conv,
-                        )
-                      : null,
-                  onLongPress: () => _showConversationActions(conv),
-                  child: PrysmListRow(
-                    selected: isSelected,
-                    onTap: () {
-                      if (conv is DirectConversation) {
-                        onSelectContact(conv.contact);
-                      } else if (conv is GroupConversation) {
-                        onSelectGroup(conv.group);
-                      }
-                    },
-                    leading: SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: leading,
-                    ),
-                    title: conv.displayName,
-                    subtitle: subtitle,
-                    trailingSubtitle: timeLabel.contains(' · ')
-                        ? timeLabel.split(' · ').last
-                        : timeLabel,
-                    trailing: unreadCount > 0 && !isBlockedContact
-                        ? PrysmUnreadBadge(count: unreadCount)
-                        : isBlockedContact && _viewingBlocked
-                            ? Icon(PrysmIcons.block,
-                                size: 18, color: tokens.textMuted)
-                            : isPinned &&
-                                    !_viewingArchived &&
-                                    !_viewingBlocked
-                                ? Icon(PrysmIcons.pushPin,
-                                    size: 16, color: tokens.textMuted)
-                                : null,
-                  ),
-                );
+                return _buildConversationRow(conv);
               },
             ),
           ),
@@ -1649,6 +1796,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.torConnectionController.clearReconnectCallbacks();
     _refreshTimer?.cancel();
     _loadUsersDebounce?.cancel();
+    _messageSearchDebounce?.cancel();
     _batterySaverSub?.cancel();
     _inboundRefreshSub?.cancel();
     _groupMembershipSub?.cancel();
@@ -2093,6 +2241,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
     if (showSelfChat && !widget.decoyMode) {
+      final scrollId = _pendingScrollToMessageId;
+      _pendingScrollToMessageId = null;
       return SelfChatScreen(
         key: const ValueKey('self_chat'),
         userId: appUser.id,
@@ -2101,6 +2251,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         keyManager: widget.keyManager,
         onCloseChat: () => clearChat(),
         reloadSidebar: () => loadUsers(),
+        initialScrollToMessageId: scrollId,
       );
     }
     if (selectedConversation is GroupConversation) {
@@ -2118,6 +2269,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           torStatusAction: _buildTorAppBarAction(),
         );
       }
+      final scrollId = _pendingScrollToMessageId;
+      _pendingScrollToMessageId = null;
       return GroupChatScreen(
         key: ValueKey('group_${group.id}'),
         userId: appUser.id,
@@ -2127,6 +2280,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         reloadConversations: () => loadUsers(),
         onCloseChat: () => clearChat(),
         torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
+        initialScrollToMessageId: scrollId,
       );
     }
     if (selectedContact != null) {
@@ -2143,6 +2297,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           torStatusAction: _buildTorAppBarAction(),
         );
       }
+      final scrollId = _pendingScrollToMessageId;
+      _pendingScrollToMessageId = null;
       return ChatScreen(
         key: ValueKey('dm_${selectedContact!.id}'),
         userId: appUser.id,
@@ -2158,6 +2314,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         reloadUsers: () => loadUsers(),
         onCloseChat: () => clearChat(),
         torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
+        initialScrollToMessageId: scrollId,
       );
     }
     return _buildEmptyHomeState();

@@ -3,6 +3,7 @@ import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/file_transfer_handler.dart';
+import 'package:prysm/services/message_search_backfill_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
@@ -106,5 +107,16 @@ class AppComposition {
   /// needs to know whether Tor was intentionally stopped.
   static void wireTorRuntimeGate(bool Function() isTorStopped) {
     TorRuntimeGate.isTorStopped = isTorStopped;
+  }
+
+  /// Starts background indexing of historical messages for FTS search.
+  static void startSearchBackfill({
+    required KeyManager keyManager,
+    required String userId,
+  }) {
+    MessageSearchBackfillService(
+      keyManager: keyManager,
+      userId: userId,
+    ).startIfNeeded();
   }
 }

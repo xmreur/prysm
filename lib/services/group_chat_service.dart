@@ -6,6 +6,7 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/services/disappearing_timer_service.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
@@ -177,6 +178,17 @@ class GroupChatService {
       'expiresAt': ?expiresAt,
     });
 
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+      groupService: groupService,
+    ).indexOutboundGroupText(
+      messageId: id,
+      groupId: groupId,
+      timestamp: timestamp,
+      plaintext: text,
+    );
+
     if (expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();
     }
@@ -264,6 +276,18 @@ class GroupChatService {
       'viewOnce': viewOnce ? 1 : 0,
       'expiresAt': ?expiresAt,
     });
+
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+      groupService: groupService,
+    ).indexOutboundFile(
+      messageId: id,
+      conversationId: groupId,
+      scope: 'group',
+      timestamp: timestamp,
+      fileName: fileName,
+    );
 
     if (expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();

@@ -12,6 +12,7 @@ import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_content_wiper.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/util/message_modify_payload.dart';
 import 'package:prysm/util/message_modify_refresh_notifier.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -145,6 +146,21 @@ class MessageModifyService {
       editedAt: modifiedAt,
     );
 
+    final rows = await MessagesDb.getMessageById(targetMessageId);
+    final timestamp = rows.isNotEmpty
+        ? rows.first['timestamp'] as int
+        : modifiedAt;
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+    ).reindexEditedMessage(
+      messageId: targetMessageId,
+      conversationId: peerId!,
+      scope: 'direct',
+      timestamp: timestamp,
+      plaintext: newText,
+    );
+
     _notifyEdit(targetMessageId, newText, modifiedAt);
 
     final payload = MessageModifyPayload(
@@ -180,6 +196,25 @@ class MessageModifyService {
       groupId: groupId,
       encryptedMessage: encrypted,
       editedAt: modifiedAt,
+    );
+
+    final rows = await MessagesDb.getMessageById(
+      targetMessageId,
+      groupId: groupId,
+    );
+    final timestamp = rows.isNotEmpty
+        ? rows.first['timestamp'] as int
+        : modifiedAt;
+    await MessageSearchIndexService(
+      keyManager: keyManager,
+      userId: userId,
+      groupService: gs,
+    ).reindexEditedMessage(
+      messageId: targetMessageId,
+      conversationId: groupId!,
+      scope: 'group',
+      timestamp: timestamp,
+      plaintext: newText,
     );
 
     _notifyEdit(targetMessageId, newText, modifiedAt);
@@ -340,6 +375,7 @@ class MessageModifyService {
 
   static Future<void> applyInbound({
     required KeyManager keyManager,
+    required String localUserId,
     required String encrypted,
     required String senderId,
     required String type,
@@ -391,6 +427,19 @@ class MessageModifyService {
         groupId: groupId,
         groupService: groupService,
       );
+      if (newText != null) {
+        await MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: localUserId,
+          groupService: groupService,
+        ).reindexEditedMessage(
+          messageId: payload.targetMessageId,
+          conversationId: groupId ?? senderId,
+          scope: groupId != null ? 'group' : 'direct',
+          timestamp: row['timestamp'] as int,
+          plaintext: newText,
+        );
+      }
     }
 
     MessageModifyRefreshNotifier.instance.notify(

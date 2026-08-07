@@ -3,6 +3,7 @@ import 'package:prysm/database/message_query_filters.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
+import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_blob_store.dart';
@@ -12,7 +13,10 @@ import 'package:sqflite/sqflite.dart';
 /// including the encrypted wire payload (`getMessageWire`/`getMessageById`
 /// share the blob-store fallback so they stay together).
 class MessageCrudDao {
-  const MessageCrudDao();
+  const MessageCrudDao({MessageSearchDao? searchDao})
+      : _searchDao = searchDao ?? const MessageSearchDao();
+
+  final MessageSearchDao _searchDao;
 
   Future<Database> get _database => MessagesDatabase.database;
 
@@ -56,6 +60,7 @@ class MessageCrudDao {
         where: 'id = ? AND viewOnce = 1',
         whereArgs: [storageId],
       );
+      await _searchDao.remove(messageId);
     });
   }
 
@@ -257,6 +262,7 @@ class MessageCrudDao {
         whereArgs: [storageId],
       );
       await MessageBlobStore.delete(storageId);
+      await _searchDao.remove(wireId);
     });
   }
 
@@ -307,6 +313,7 @@ class MessageCrudDao {
     );
     await deleteMessageById(storageId);
     await MessageBlobStore.delete(storageId);
+    await _searchDao.remove(wireId);
   }
 
   Future<void> updateMessageStatus(

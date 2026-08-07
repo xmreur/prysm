@@ -10,12 +10,14 @@ class LinkedMessageText extends StatelessWidget {
   final Color textColor;
   final double fontSize;
   final Future<void> Function(String url) onOpenUrl;
+  final String? highlightQuery;
 
   const LinkedMessageText({
     required this.text,
     required this.textColor,
     required this.fontSize,
     required this.onOpenUrl,
+    this.highlightQuery,
     super.key,
   });
 
@@ -39,6 +41,11 @@ class LinkedMessageText extends StatelessWidget {
   }
 
   Widget _buildLinkedText(BuildContext context) {
+    final query = highlightQuery?.trim().toLowerCase();
+    if (query != null && query.length >= 2) {
+      return _buildHighlightedPlainText(context, query);
+    }
+
     final matches = UrlDetector.urlRegex.allMatches(text).toList();
     if (matches.isEmpty) {
       return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
@@ -83,6 +90,49 @@ class LinkedMessageText extends StatelessWidget {
         text: text.substring(lastEnd),
         style: TextStyle(color: textColor, fontSize: fontSize),
       ));
+    }
+
+    return RichText(text: TextSpan(children: spans));
+  }
+
+  Widget _buildHighlightedPlainText(BuildContext context, String query) {
+    final lower = text.toLowerCase();
+    final tokens = query.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    final spans = <TextSpan>[];
+    var cursor = 0;
+
+    while (cursor < text.length) {
+      var nextMatch = -1;
+      var matchLen = 0;
+      for (final token in tokens) {
+        final idx = lower.indexOf(token, cursor);
+        if (idx >= 0 && (nextMatch < 0 || idx < nextMatch)) {
+          nextMatch = idx;
+          matchLen = token.length;
+        }
+      }
+      if (nextMatch < 0) {
+        spans.add(TextSpan(
+          text: text.substring(cursor),
+          style: TextStyle(color: textColor, fontSize: fontSize),
+        ));
+        break;
+      }
+      if (nextMatch > cursor) {
+        spans.add(TextSpan(
+          text: text.substring(cursor, nextMatch),
+          style: TextStyle(color: textColor, fontSize: fontSize),
+        ));
+      }
+      spans.add(TextSpan(
+        text: text.substring(nextMatch, nextMatch + matchLen),
+        style: TextStyle(
+          color: textColor,
+          fontSize: fontSize,
+          backgroundColor: textColor.withValues(alpha: 0.25),
+        ),
+      ));
+      cursor = nextMatch + matchLen;
     }
 
     return RichText(text: TextSpan(children: spans));

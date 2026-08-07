@@ -4,9 +4,11 @@ import 'package:prysm/database/conversation_queries_dao.dart';
 import 'package:prysm/database/media_gallery_queries_dao.dart';
 import 'package:prysm/database/message_crud_dao.dart';
 import 'package:prysm/database/message_id_codec.dart';
+import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/database/read_receipt_queries_dao.dart';
 import 'package:prysm/util/message_insert_bus.dart';
+import 'package:prysm/models/message_search_hit.dart';
 import 'package:prysm/util/message_preview_label.dart' as preview_label;
 import 'package:prysm/util/read_waterline_mark.dart';
 import 'package:sqflite/sqflite.dart';
@@ -22,6 +24,7 @@ class MessagesDb {
   static const ReadReceiptQueriesDao _readReceiptDao = ReadReceiptQueriesDao();
   static final ConversationListQueriesDao _conversationListDao = ConversationListQueriesDao();
   static const MediaGalleryQueriesDao _mediaDao = MediaGalleryQueriesDao();
+  static const MessageSearchDao _searchDao = MessageSearchDao();
 
   /// Stream that emits the normalized row whenever a message is inserted locally.
   static Stream<Map<String, dynamic>> get onMessageInserted =>
@@ -313,4 +316,17 @@ class MessagesDb {
 
   /// Close the db
   static Future<void> close() => MessagesDatabase.close();
+
+  static Future<List<MessageSearchHit>> searchMessagesGlobal(
+    String query, {
+    int limit = 30,
+  }) =>
+      _searchDao.searchGlobal(query, limit: limit);
+
+  static Future<List<MessageSearchHit>> searchMessagesInConversation(
+    String conversationId,
+    String query, {
+    int limit = 50,
+  }) =>
+      _searchDao.searchInConversation(conversationId, query, limit: limit);
 }

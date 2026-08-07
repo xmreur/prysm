@@ -31,6 +31,7 @@ import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -103,6 +104,7 @@ class ChatScreen extends StatefulWidget {
   final Function()? onCloseChat;
   final Widget? torStatusAction;
   final DetachedChatClient? detachedClient;
+  final String? initialScrollToMessageId;
 
   const ChatScreen({
     required this.userId,
@@ -119,6 +121,7 @@ class ChatScreen extends StatefulWidget {
     this.onCloseChat,
     this.torStatusAction,
     this.detachedClient,
+    this.initialScrollToMessageId,
     super.key,
   });
 
@@ -169,6 +172,8 @@ class _ChatScreenState extends State<ChatScreen> {
   late MessageActionsService _actionsService;
   String? _highlightedMessageId;
   Timer? _highlightTimer;
+  bool _showChatSearch = false;
+  String _chatHighlightQuery = '';
   late TypingIndicatorService _typingService;
   final _typingTracker = TypingStateTracker();
   StreamSubscription<TypingIndicatorEvent>? _typingSub;
@@ -421,6 +426,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (mounted && _controller.messages.messages.isNotEmpty) {
       _controller.scheduleScrollToBottomAfterSend();
+    }
+
+    final initialId = widget.initialScrollToMessageId;
+    if (initialId != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_scrollToMessage(initialId));
+      });
     }
 
     // ✅ Start ChatService background tasks (main window only)
@@ -1651,6 +1663,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return [
       if (widget.torStatusAction != null) widget.torStatusAction!,
       PrysmIconButton(
+        icon: PrysmIcons.search,
+        onPressed: () => setState(() => _showChatSearch = !_showChatSearch),
+      ),
+      PrysmIconButton(
         icon: PrysmIcons.phone,
         onPressed: _canStartCall ? _startAudioCall : null,
       ),
@@ -1677,6 +1693,20 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       titleWidget: _buildChatTitle(),
       actions: _buildAppBarActions(),
+      bottom: _showChatSearch
+          ? ChatSearchBar(
+              conversationId: widget.peerId,
+              onClose: () => setState(() {
+                _showChatSearch = false;
+                _chatHighlightQuery = '';
+              }),
+              onQueryChanged: (query) =>
+                  setState(() => _chatHighlightQuery = query),
+              onResultSelected: (hit, _) {
+                unawaited(_scrollToMessage(hit.messageId));
+              },
+            )
+          : null,
       body: PrysmChatDropTarget(
         enabled: !_isPeerBlocked,
         onFileDropped: _handleDroppedFile,
@@ -2159,6 +2189,8 @@ class _ChatScreenState extends State<ChatScreen> {
               textColor: textColor,
               fontSize: bodyStyle.fontSize ?? 15,
               onOpenUrl: _openUrl,
+              highlightQuery:
+                  _showChatSearch ? _chatHighlightQuery : null,
             ),
             const SizedBox(height: 4),
             Align(

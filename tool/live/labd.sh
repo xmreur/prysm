@@ -52,7 +52,20 @@ exec dbus-run-session -- sh -c '
   secret-tool store --label=prysmlab-probe prysmlab probe </dev/null 2>/dev/null \
     && echo "PRYSMLAB_KEYRING_UP" || echo "PRYSMLAB_KEYRING_DEGRADED"
   cd /work
-  # flutter run treats stdin EOF as quit, so hold stdin open with a writer that
-  # never writes.
-  sleep 2147483647 | flutter run -d linux --debug --no-pub --disable-service-auth-codes
+  # flutter run treats stdin EOF as quit, so it needs a stdin that never ends.
+  # A FIFO opened read-write is exactly that, with **no holder process**: the fd
+  # is its own writer, so it never signals EOF, and nothing outlives the app.
+  #
+  # It used to be `sleep 2147483647 | flutter run`. That leaked: sleep never
+  # writes, so it never takes SIGPIPE, and this shell kept waiting for it after
+  # flutter exited — holding dbus-run-session and its gnome-keyring-daemon
+  # alive. `prysmlab restart` kills only flutter_tools.snapshot, so every
+  # restart added one stale session bus and one stale keyring daemon.
+  FIFO="$HOME/lab/app-stdin"
+  rm -f "$FIFO"
+  mkfifo "$FIFO"
+  flutter run -d linux --debug --no-pub --disable-service-auth-codes <> "$FIFO"
+  rc=$?
+  rm -f "$FIFO"
+  exit "$rc"
 '

@@ -719,6 +719,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Advanced Privacy',
                   PrysmIcons.privacyTip,
                   () {
+                    // Switching to the strict mode inside this screen
+                    // discards every held invite, so the count on the tile
+                    // above is stale the moment we come back.
                     Navigator.push(
                       context,
                       PrysmPageRoute(page: PrivacySettingsScreen(
@@ -726,7 +729,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           keyManager: widget.keyManager,
                         ),
                       ),
-                    );
+                    ).then((_) => _loadPendingInviteCount());
                   },
                 ),
               ]),

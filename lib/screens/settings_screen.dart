@@ -22,6 +22,7 @@ import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'blocked_contacts_screen.dart';
+import 'invite_requests_screen.dart';
 import 'call_history_screen.dart';
 import 'package:prysm/screens/widgets/appearance_settings_section.dart';
 import 'package:prysm/theme/prysm_theme.dart';
@@ -683,6 +684,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const PrysmDivider(),
+                if (widget.keyManager != null && widget.onionAddress != null) ...[
+                  _buildNavigationTile(
+                    'Invite requests',
+                    PrysmIcons.group,
+                    () {
+                      Navigator.push(
+                        context,
+                        PrysmPageRoute(
+                          page: InviteRequestsScreen(
+                            onClose: () => Navigator.of(context).pop(),
+                            onionAddress: widget.onionAddress!,
+                            keyManager: widget.keyManager!,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const PrysmDivider(),
+                ],
                 _buildNavigationTile(
                   'Advanced Privacy',
                   PrysmIcons.privacyTip,

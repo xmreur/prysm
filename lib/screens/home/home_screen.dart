@@ -22,6 +22,7 @@ import 'package:prysm/app/app_composition.dart';
 import 'package:prysm/app/conversation_list_repository.dart';
 import 'package:prysm/app/tor_connection_controller.dart';
 import 'package:prysm/screens/settings_screen.dart';
+import 'package:prysm/screens/invite_requests_screen.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
@@ -73,6 +74,7 @@ import 'package:prysm/ui/core/prysm_pressable.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/screens/widgets/add_contact_dialog.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
@@ -156,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
   bool _sharePickerOpen = false;
+  int _pendingInviteCount = 0;
 
   int get _archivedCount => conversations
       .where((c) => _conversationPrefs[c.id]?.isArchived ?? false)
@@ -180,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return 0;
     }
     var count = 0;
+    if (_pendingInviteCount > 0) count++;
     if (_archivedCount > 0) count++;
     if (_blockedCount > 0) count++;
     return count;
@@ -877,6 +881,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _selfChatLastPreview = deferred[3] as String?;
       }
 
+      final pendingInvites = await GroupPendingInviteStore.count();
+      if (!mounted) return;
+      setState(() => _pendingInviteCount = pendingInvites);
+
       _applyLoadedUsers(
         userMaps: userMaps,
         timestamps: timestamps,
@@ -1482,8 +1490,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               itemBuilder: (_, index) {
                 if (index >= _filteredConversations.length) {
                   final footerIndex = index - _filteredConversations.length;
+                  if (_pendingInviteCount > 0 && footerIndex == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      child: PrysmListRow(
+                        leading: Icon(
+                          PrysmIcons.group,
+                          color: context.prysmStyle.tokens.accent,
+                        ),
+                        title: 'Invite requests',
+                        subtitle:
+                            '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            PrysmPageRoute(
+                              page: InviteRequestsScreen(
+                                onClose: () => Navigator.of(context).pop(),
+                                onionAddress: widget.onionAddress,
+                                keyManager: widget.keyManager,
+                                onChanged: () => scheduleLoadUsers(light: true),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  }
                   final showArchivedFooter = _archivedCount > 0;
-                  if (showArchivedFooter && footerIndex == 0) {
+                  if (showArchivedFooter &&
+                      footerIndex == (_pendingInviteCount > 0 ? 1 : 0)) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,

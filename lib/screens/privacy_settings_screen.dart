@@ -10,6 +10,7 @@ import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/screens/panic_pin_settings_screen.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
@@ -88,6 +89,10 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       // was held, so the requests screen cannot keep showing rows the user
       // just asked not to keep.
       await GroupPendingInviteStore.clear();
+      // The sidebar caches the pending count and would keep advertising
+      // requests that no longer exist; this is the notifier the home screen
+      // already listens to for a light reload.
+      ConversationRefreshNotifier.instance.notifyInboundMessage();
     }
   }
 

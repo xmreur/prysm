@@ -5,6 +5,7 @@ import 'package:prysm/util/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/models/appearance_settings.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/settings.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -57,6 +58,7 @@ class SettingsService {
   // Privacy
   int get messageRetentionDays => _settings.messageRetentionDays;
   PanicAction get panicAction => _settings.panicAction;
+  GroupInviteMode get groupInviteMode => _settings.groupInviteMode;
 
   // Theme
   int get themeMode => _settings.themeMode;
@@ -215,6 +217,11 @@ class SettingsService {
 
   Future<void> setPanicAction(PanicAction value) async {
     _settings = _settings.copyWith(panicAction: value);
+    await save();
+  }
+
+  Future<void> setGroupInviteMode(GroupInviteMode value) async {
+    _settings = _settings.copyWith(groupInviteMode: value);
     await save();
   }
 

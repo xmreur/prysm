@@ -14,6 +14,12 @@
 // registered peer profiles, so a restored network identity-resolve would
 // succeed (and these tests go red) instead of failing silently. It is inert
 // while the DB-only resolve holds.
+//
+// Task 4 (group invite mode): promotion. Once the sender's identity is in
+// the local user store, the held envelope is replayed through the
+// authenticated path (`GroupInvitePromoter` -> `handleIncomingControlMessage`)
+// — never decrypted while pending, never resolved over the network, and the
+// row is gone whether the replay authenticates or not.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -26,6 +32,7 @@ import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/server/inbound_message_router.dart';
+import 'package:prysm/services/group_invite_promoter.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
@@ -426,5 +433,104 @@ void main() {
         expect(await GroupPendingInviteStore.count(), 0);
       },
     );
+
+    group('promotion', () {
+      test(
+        'once the inviter identity is stored, the held invite applies and '
+        'the row is gone', () async {
+          final inviter = await IdentityKeyPair.generate();
+          final invite = await _inviteMessage(
+            id: 'm1',
+            inviterId: 'stranger.onion',
+            inviter: inviter,
+            recipient: localIdentity,
+            groupId: 'g1',
+          );
+          await router.handleMessage(invite);
+          expect(await GroupPendingInviteStore.count(), 1);
+
+          // What "the user added the contact" leaves behind.
+          final json = jsonEncode(await inviter.toPublicJson());
+          await DBHelper.insertOrUpdateUser({
+            'id': 'stranger.onion',
+            'name': 'Stranger',
+            'identityJson': json,
+            'publicKeyPem': json,
+          });
+
+          final promoter = GroupInvitePromoter(
+            userId: 'local.onion',
+            keyManager: KeyManager.fromIdentity(localIdentity),
+          );
+          expect(await promoter.promote('stranger.onion'), isTrue);
+
+          expect(await GroupPendingInviteStore.count(), 0);
+          expect((await dbHelperDb.query('groups')).single['id'], 'g1');
+          expect(await dbHelperDb.query('group_members'), hasLength(2));
+        },
+      );
+
+      test('a tampered held envelope is discarded and creates no group',
+          () async {
+        final inviter = await IdentityKeyPair.generate();
+        final json = jsonEncode(await inviter.toPublicJson());
+        await DBHelper.insertOrUpdateUser({
+          'id': 'stranger.onion',
+          'name': 'Stranger',
+          'identityJson': json,
+          'publicKeyPem': json,
+        });
+        await GroupPendingInviteStore.hold(
+          senderId: 'stranger.onion',
+          wire: 'not-a-control-envelope',
+        );
+
+        final promoter = GroupInvitePromoter(
+          userId: 'local.onion',
+          keyManager: KeyManager.fromIdentity(localIdentity),
+        );
+        expect(await promoter.promote('stranger.onion'), isFalse);
+
+        expect(await GroupPendingInviteStore.count(), 0);
+        expect(await dbHelperDb.query('groups'), isEmpty);
+      });
+
+      test('the sweep promotes only the senders that became resolvable',
+          () async {
+        final known = await IdentityKeyPair.generate();
+        final unknown = await IdentityKeyPair.generate();
+        await router.handleMessage(await _inviteMessage(
+          id: 'm1',
+          inviterId: 'known.onion',
+          inviter: known,
+          recipient: localIdentity,
+          groupId: 'g1',
+        ));
+        await router.handleMessage(await _inviteMessage(
+          id: 'm2',
+          inviterId: 'unknown.onion',
+          inviter: unknown,
+          recipient: localIdentity,
+          groupId: 'g2',
+        ));
+        final json = jsonEncode(await known.toPublicJson());
+        await DBHelper.insertOrUpdateUser({
+          'id': 'known.onion',
+          'name': 'Known',
+          'identityJson': json,
+          'publicKeyPem': json,
+        });
+
+        final promoted = await GroupInvitePromoter(
+          userId: 'local.onion',
+          keyManager: KeyManager.fromIdentity(localIdentity),
+        ).promoteResolvable();
+
+        expect(promoted, 1);
+        expect((await dbHelperDb.query('groups')).single['id'], 'g1');
+        final rows = await GroupPendingInviteStore.pending();
+        expect(rows.single['senderId'], 'unknown.onion');
+      });
+    });
   });
 }

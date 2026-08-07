@@ -54,6 +54,7 @@ import 'package:prysm/services/detached_chat_host.dart';
 import 'package:prysm/services/detached_chat_window_registry.dart';
 import 'package:prysm/screens/widgets/conversation_context_menu.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
+import 'package:prysm/services/group_invite_promoter.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/desktop_platform.dart';
@@ -400,6 +401,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       unawaited(AppUpdateService().checkOnStartup(context));
     });
+
+    // Invites held while their sender was unknown apply themselves once the
+    // contact exists — including when the user added them from somewhere
+    // else entirely. Skipped in decoy mode: a panic session must not touch
+    // real group state.
+    if (!widget.decoyMode) {
+      unawaited(
+        GroupInvitePromoter(
+          userId: widget.onionAddress,
+          keyManager: widget.keyManager,
+        )
+            .promoteResolvable()
+            .catchError((Object e, StackTrace st) {
+              Logging.error('Promoting held invites failed: $e\n$st', 'Main');
+              return 0;
+            })
+            .then((promoted) {
+              if (promoted > 0 && mounted) scheduleLoadUsers(light: true);
+            }),
+      );
+    }
 
     _startAutoRefresh();
     if (!widget.offlineMode) {

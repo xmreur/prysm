@@ -181,12 +181,15 @@ sets the precedent of discarding what cannot be promoted
 Two triggers:
 
 - the **Add contact and join** action, immediately after `addContact` returns success;
-- a **sweep after unlock** that promotes any pending row whose sender has meanwhile become
-  resolvable via `loadPeerIdentityFromDb` — this covers "the user added the contact by other
-  means". It runs in `UnlockController.verifyUnlock`, immediately after the existing
-  `PendingAuthMessageService(...).promotePendingAfterUnlock()` call
-  (`lib/app/unlock_controller.dart:78-79`): same moment, same reason — the database is usable
-  and identities can be imported. No new dependency is introduced into
+- a **sweep at home-screen start** that promotes any pending row whose sender has meanwhile
+  become resolvable via `loadPeerIdentityFromDb` — this covers "the user added the contact by
+  other means". It runs once per session in `_HomeScreenState.initState`
+  (`lib/screens/home/home_screen.dart:399-404`), skipped in decoy mode, and it lives there
+  rather than next to `PendingAuthMessageService.promotePendingAfterUnlock()` for a hard
+  reason: promotion needs `GroupService(userId: <local onion>)` — `_handleInvite` checks the
+  roster against that id (`group_service.dart:602-605`) — and `UnlockController` has no onion
+  address, while the home screen already builds `GroupService` with `widget.onionAddress`
+  (`home_screen.dart:787-790`). No new dependency is introduced into
   `contact_add_service.dart`.
 
 ### 8. Comment fix (`lib/services/group_service.dart:485-486`)

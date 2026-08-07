@@ -152,6 +152,9 @@ are forwarded into the container.
     Trap: `BatterySaverService._refresh` wraps the await in a try/catch, and it does not help,
     because the throw arrives on the zone from `DBusSignalStream._onListen`, not from the
     awaited future. `labroot.sh` starts `dbus-daemon --system` and `upowerd`, and `up` runs it.
+    It also waits for the bus *name* `org.freedesktop.UPower` and exits non-zero
+    (`PRYSMLAB_UPOWER_FAILED`) when nothing claims it — a live `upowerd` process is not proof
+    that it owns the name, and proceeding anyway turns this loud cause into a bare timeout.
     Sibling failure: without `xdg-user-dirs` installed, path_provider_linux throws
     `MissingPlatformDirectoryException(Unable to get application documents directory)` and
     bootstrap dies the same way.

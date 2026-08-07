@@ -434,6 +434,17 @@ void main() {
       },
     );
 
+    test('clear empties a populated store', () async {
+      await GroupPendingInviteStore.hold(senderId: 'a.onion', wire: 'wire-a');
+      await GroupPendingInviteStore.hold(senderId: 'b.onion', wire: 'wire-b');
+      expect(await GroupPendingInviteStore.count(), 2);
+
+      await GroupPendingInviteStore.clear();
+
+      expect(await GroupPendingInviteStore.count(), 0);
+      expect(await GroupPendingInviteStore.pending(), isEmpty);
+    });
+
     group('promotion', () {
       test(
         'once the inviter identity is stored, the held invite applies and '
@@ -531,6 +542,44 @@ void main() {
         final rows = await GroupPendingInviteStore.pending();
         expect(rows.single['senderId'], 'unknown.onion');
       });
+
+      test(
+        'contactsOnly: the sweep promotes nothing even with a resolvable '
+        'held sender', () async {
+          final inviter = await IdentityKeyPair.generate();
+          final invite = await _inviteMessage(
+            id: 'm1',
+            inviterId: 'stranger.onion',
+            inviter: inviter,
+            recipient: localIdentity,
+            groupId: 'g1',
+          );
+          await router.handleMessage(invite);
+          // The invite was held while the mode was the default; the switch
+          // to contactsOnly must stop the sweep from applying it even
+          // though the sender has meanwhile become resolvable.
+          expect(await GroupPendingInviteStore.count(), 1);
+          await SettingsService().setGroupInviteMode(
+            GroupInviteMode.contactsOnly,
+          );
+          final json = jsonEncode(await inviter.toPublicJson());
+          await DBHelper.insertOrUpdateUser({
+            'id': 'stranger.onion',
+            'name': 'Stranger',
+            'identityJson': json,
+            'publicKeyPem': json,
+          });
+
+          final promoted = await GroupInvitePromoter(
+            userId: 'local.onion',
+            keyManager: KeyManager.fromIdentity(localIdentity),
+          ).promoteResolvable();
+
+          expect(promoted, 0);
+          expect(await GroupPendingInviteStore.count(), 1);
+          expect(await dbHelperDb.query('groups'), isEmpty);
+        },
+      );
     });
   });
 }

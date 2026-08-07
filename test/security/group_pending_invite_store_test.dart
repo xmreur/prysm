@@ -136,6 +136,20 @@ void main() {
     expect(await GroupPendingInviteStore.count(), 0);
   });
 
+  test('take returns null for a row past the retention window', () async {
+    final expired = DateTime.now().millisecondsSinceEpoch -
+        GroupPendingInviteStore.retention.inMilliseconds -
+        1;
+    await db.insert('group_pending_invites', {
+      'senderId': 'stale.onion',
+      'wire': 'stale',
+      'receivedAt': expired,
+    });
+
+    expect(await GroupPendingInviteStore.take('stale.onion'), isNull);
+    expect(await GroupPendingInviteStore.count(), 0);
+  });
+
   test('discard removes the row without returning it', () async {
     await GroupPendingInviteStore.hold(senderId: 'a.onion', wire: 'wire-a');
 

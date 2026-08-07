@@ -105,8 +105,8 @@ Bounds — all four are load-bearing because this table is written by unauthenti
 |---|---|---|
 | Per sender | 1 row (the primary key); a newer invite replaces the older | One onion occupies one slot, not N. |
 | Global | 20 senders; **at capacity the new row is refused**, no eviction | Evicting the oldest would let an attacker delete a genuine request. Refusing degrades to today's drop, which is already the accepted worst case. |
-| Wire size | ≤ 64 KiB per envelope; a longer wire is refused | A real `control-wrap-2` invite envelope is a few KB. Without the bound, 20 rows at the 96 MiB request-body cap would pin ~1.9 GB of attacker-chosen bytes for the retention window. |
-| Retention | 7 days, pruned on the write path | Self-healing: a table filled by an attacker frees itself without user action. |
+| Wire size | ≤ 64 KiB per envelope, measured in **UTF-8 bytes**; a longer wire is refused | A real `control-wrap-2` invite envelope is a few KB. Without the bound, 20 rows at the 96 MiB request-body cap would pin ~1.9 GB of attacker-chosen bytes for the retention window. Bytes and not `String.length`, because SQLite stores UTF-8 and a non-ASCII payload passes a code-unit check at up to three bytes per unit. |
+| Retention | 7 days, pruned on every read and write path (`hold`, `pending`, `count`, `take`) | Self-healing: a table filled by an attacker frees itself without user action, and no path can apply a snapshot older than the window. |
 
 Public API (all static, all inside `_mutex`):
 
@@ -116,7 +116,8 @@ Public API (all static, all inside `_mutex`):
   the invite exactly as in `contactsOnly` mode.
 - `Future<List<Map<String, Object?>>> pending()` — prunes expired rows, then returns the rest
   ordered by `receivedAt` descending.
-- `Future<Map<String, Object?>?> take(String senderId)` — reads and deletes atomically.
+- `Future<String?> take(String senderId)` — prunes expired rows, then reads and deletes
+  atomically, so a row past the retention window returns null instead of applying.
 - `Future<void> discard(String senderId)`
 - `Future<void> clear()` — deletes every row; called by the privacy screen when the user
   switches to `contactsOnly`, whose promise is that nothing is stored.

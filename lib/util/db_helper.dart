@@ -5,6 +5,7 @@ import 'package:prysm/database/blocked_users_db.dart';
 import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/conversation_preferences_db.dart';
 import 'package:prysm/database/database_cipher.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/sqflite_platform.dart';
@@ -61,7 +62,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -99,6 +100,7 @@ class DBHelper {
   static Future<void> _createCryptoTables(Database db) async {
     await RatchetSessionStore.ensureTable(db);
     await GroupSenderIndexStore.ensureTable(db);
+    await GroupPendingInviteStore.ensureTable(db);
   }
 
   static Future<void> _createGroupTables(Database db) async {
@@ -212,6 +214,15 @@ class DBHelper {
       // ensureTable calls in _createCryptoTables are CREATE TABLE IF NOT
       // EXISTS, so replaying the step on a database that already has
       // session_state and group_sender_index only adds the missing table.
+      await _createCryptoTables(db);
+    }
+    if (oldVersion < 14) {
+      // group_pending_invites (the bounded store for invites from senders
+      // whose identity is not local yet) is created by
+      // GroupPendingInviteStore.ensureTable. Every ensureTable in
+      // _createCryptoTables is CREATE TABLE IF NOT EXISTS, so replaying
+      // the step on a database that already has the other crypto tables
+      // only adds the missing one.
       await _createCryptoTables(db);
     }
   }

@@ -6,8 +6,6 @@ import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
-import 'package:sqflite/sqflite.dart';
-
 abstract class MessageSearchBackfillStore {
   Future<bool> isSearchBackfillComplete();
   Future<void> setSearchBackfillComplete(bool value);

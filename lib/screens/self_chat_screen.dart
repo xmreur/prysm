@@ -674,20 +674,32 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                     child = const SizedBox.shrink();
                   }
 
+                  final isHighlighted = _highlightedMessageId == message.id;
+                  final tokens = context.prysmStyle.tokens;
+
                   return Column(
                     children: [
                       if (showHeader) PrysmDateHeader(date: msgDate),
                       GestureDetector(
                         onLongPress: () => _showMessageMenu(context, message),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Flexible(
-                                child: _displayChildForMessage(message, child),
-                              ),
-                            ],
+                        child: ColoredBox(
+                          color: isHighlighted
+                              ? Color.lerp(
+                                  tokens.background,
+                                  tokens.accentMuted,
+                                  0.25,
+                                )!
+                              : const Color(0x00000000),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Flexible(
+                                  child: _displayChildForMessage(message, child),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),

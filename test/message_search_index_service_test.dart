@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/services/message_search_index_service.dart';
 
 void main() {

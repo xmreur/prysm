@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/widgets.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/message_search_hit.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';

@@ -21,7 +21,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
-import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';

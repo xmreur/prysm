@@ -2,12 +2,16 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/ui/core/prysm_radio.dart';
 import 'package:prysm/ui/core/prysm_switch.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/screens/panic_pin_settings_screen.dart';
 import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/conversation_refresh_notifier.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
@@ -36,6 +40,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _typingIndicators = true;
   bool _lastSeen = true;
   bool _profilePhoto = true;
+  GroupInviteMode _groupInviteMode = SettingsService().groupInviteMode;
 
   @override
   void initState() {
@@ -73,6 +78,22 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Future<void> _onTypingIndicatorsToggle(bool value) async {
     setState(() => _typingIndicators = value);
     await settings.setEnableTypingIndicators(value);
+  }
+
+  Future<void> _onGroupInviteModeChanged(GroupInviteMode? value) async {
+    if (value == null || value == _groupInviteMode) return;
+    setState(() => _groupInviteMode = value);
+    await settings.setGroupInviteMode(value);
+    if (value == GroupInviteMode.contactsOnly) {
+      // The mode promises nothing is stored: switching to it discards what
+      // was held, so the requests screen cannot keep showing rows the user
+      // just asked not to keep.
+      await GroupPendingInviteStore.clear();
+      // The sidebar caches the pending count and would keep advertising
+      // requests that no longer exist; this is the notifier the home screen
+      // already listens to for a light reload.
+      ConversationRefreshNotifier.instance.notifyInboundMessage();
+    }
   }
 
   void _onLastSeenToggle(bool value) {
@@ -135,6 +156,21 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                 ],
               ),
               if (widget.keyManager != null) ...[
+                const SizedBox(height: 30),
+                Text('Group invites', style: style.headlineStyle),
+                const SizedBox(height: 12),
+                PrysmSection(
+                  children: [
+                    for (final mode in GroupInviteMode.values)
+                      PrysmRadioRow<GroupInviteMode>(
+                        value: mode,
+                        groupValue: _groupInviteMode,
+                        title: mode.label,
+                        subtitle: mode.description,
+                        onChanged: _onGroupInviteModeChanged,
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 30),
                 Text('Emergency', style: style.headlineStyle),
                 const SizedBox(height: 12),

@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/log_export_helper.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -22,6 +23,7 @@ import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
 import 'privacy_settings_screen.dart';
 import 'blocked_contacts_screen.dart';
+import 'invite_requests_screen.dart';
 import 'call_history_screen.dart';
 import 'package:prysm/screens/widgets/appearance_settings_section.dart';
 import 'package:prysm/theme/prysm_theme.dart';
@@ -83,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableLinkUnfurling = false;
   bool _biometricsEnabled = false;
   bool _biometricsAvailable = false;
+  int _pendingInviteCount = 0;
   String _downloadLocationDisplay = 'Loading...';
   List<LinuxAudioDevice> _linuxInputDevices = const [];
   String? _linuxSelectedDeviceId;
@@ -94,6 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadDownloadLocationDisplay();
+    unawaited(_loadPendingInviteCount());
     if (Platform.isAndroid) {
       unawaited(_loadBiometricsState());
     }
@@ -129,6 +133,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       setState(() => _biometricsAvailable = available);
     }
+  }
+
+  Future<void> _loadPendingInviteCount() async {
+    final count = await GroupPendingInviteStore.count();
+    if (!mounted) return;
+    setState(() => _pendingInviteCount = count);
   }
 
   Future<void> _onBiometricsToggled(bool value) async {
@@ -683,10 +693,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const PrysmDivider(),
+                if (widget.keyManager != null && widget.onionAddress != null) ...[
+                  _buildNavigationTile(
+                    'Invite requests',
+                    PrysmIcons.group,
+                    () {
+                      Navigator.push(
+                        context,
+                        PrysmPageRoute(
+                          page: InviteRequestsScreen(
+                            onClose: () => Navigator.of(context).pop(),
+                            onionAddress: widget.onionAddress!,
+                            keyManager: widget.keyManager!,
+                            onChanged: _loadPendingInviteCount,
+                          ),
+                        ),
+                      );
+                    },
+                    subtitle:
+                        '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
+                  ),
+                  const PrysmDivider(),
+                ],
                 _buildNavigationTile(
                   'Advanced Privacy',
                   PrysmIcons.privacyTip,
                   () {
+                    // Switching to the strict mode inside this screen
+                    // discards every held invite, so the count on the tile
+                    // above is stale the moment we come back.
                     Navigator.push(
                       context,
                       PrysmPageRoute(page: PrivacySettingsScreen(
@@ -694,7 +729,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           keyManager: widget.keyManager,
                         ),
                       ),
-                    );
+                    ).then((_) => _loadPendingInviteCount());
                   },
                 ),
               ]),

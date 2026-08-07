@@ -1,0 +1,1152 @@
+#!/usr/bin/env python3
+"""prysmlab — drive and observe the real Prysm desktop app, live, in a container.
+
+Three channels, all textual:
+
+    observation   Dart VM Service -> ext.flutter.debugDumpApp
+    control       Dart VM Service -> evaluate -> handlePointerEvent inside the app
+    injection     plain HTTP against the app's loopback server (127.0.0.1:12345)
+
+Everything runs inside a throwaway Docker container (image `prysm-lab`, built from
+tool/live/Containerfile) with an Xvfb display, a private D-Bus session and a private
+gnome-keyring. Two things make that mandatory rather than tidy:
+
+  * TorManager._killOrphanTorForce runs a bare `pkill -9 tor` when the targeted
+    pkill misses (lib/util/tor_service.dart:497). Only a PID namespace keeps that
+    off the host's tor.
+  * The app's server binds 127.0.0.1:12345. Only a network namespace keeps the
+    injection channel from reaching — or being blocked by — the user's real Prysm.
+
+The repo is never written to: `up` stages a copy into /tmp/prysm-lab/work and mounts
+that. `down --purge` removes container, volume, staging dir and image.
+
+Usage from the host; every command except the lifecycle ones is forwarded into the
+container automatically:
+
+    tool/live/prysmlab up
+    tool/live/prysmlab screen
+    tool/live/prysmlab onboard --pin 112233
+    tool/live/prysmlab tap "Settings"
+    tool/live/prysmlab down --purge
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import struct
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+IN_CONTAINER = os.environ.get("PRYSMLAB_IN_CONTAINER") == "1"
+
+# ---- host side -------------------------------------------------------------
+IMAGE = os.environ.get("PRYSMLAB_IMAGE", "prysm-lab")
+CONTAINER = os.environ.get("PRYSMLAB_CONTAINER", "prysm-lab")
+VOLUME = "prysm-lab-pub"
+HOST_LAB = os.environ.get("PRYSMLAB_HOST_LAB", "/tmp/prysm-lab")
+WORK = os.path.join(HOST_LAB, "work")
+
+# ---- container side --------------------------------------------------------
+LAB = "/home/ubuntu/lab"
+LOG_PATH = f"{LAB}/app.log"
+STATE_PATH = f"{LAB}/state.json"
+APP_PORT = 12345
+
+# Evaluation context. Flutter's own widgets/binding.dart imports foundation,
+# gestures, rendering, scheduler and services, so WidgetsBinding, Element,
+# RenderBox, Offset, PointerDownEvent and HitTestResult are all visible there.
+# package:prysm/main.dart sees far less, which is where the runbook's
+# "'Tooltip' isn't a type" class of failure comes from.
+PREFERRED_LIB = "package:flutter/src/widgets/binding.dart"
+
+HOST_COMMANDS = {"up", "down", "doctor", "sync", "shell", "build-image", "restart"}
+
+# Staged into /work. Excludes .dart_tool and linux/flutter/ephemeral so the
+# container regenerates them for its own toolchain.
+STAGE_PATHS = [
+    "lib", "test", "assets", "linux", "packages", "tor_executable",
+    "pubspec.yaml", "pubspec.lock", "analysis_options.yaml", "devtools_options.yaml",
+]
+
+
+class Fail(Exception):
+    pass
+
+
+def die(msg: str, code: int = 1):
+    print(f"prysmlab: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def repo_root() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.abspath(os.path.join(here, "..", ".."))
+    if not os.path.exists(os.path.join(root, "pubspec.yaml")):
+        die(f"cannot locate the Prysm repo from {here}")
+    return root
+
+
+def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+# ============================================================ container plumbing
+
+
+def container_state() -> str:
+    res = run(["docker", "inspect", "-f", "{{.State.Status}}", CONTAINER])
+    return res.stdout.strip() if res.returncode == 0 else "absent"
+
+
+def image_exists() -> bool:
+    return run(["docker", "image", "inspect", IMAGE]).returncode == 0
+
+
+def dexec(argv: list[str], capture: bool = True, timeout: float | None = None,
+          stdin_data: str | None = None) -> subprocess.CompletedProcess:
+    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER] + argv
+    if capture:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                              input=stdin_data)
+    return subprocess.run(cmd, timeout=timeout)
+
+
+def forward(argv: list[str]) -> int:
+    """Re-run this same CLI inside the container with the same arguments."""
+    if container_state() != "running":
+        die("no lab container is running — start it with `prysmlab up`")
+    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER,
+           "python3", "/opt/lab/prysmlab"] + argv
+    return subprocess.run(cmd).returncode
+
+
+# ================================================================== vm service
+
+
+def vm_base() -> str:
+    """The VM Service endpoint, read straight out of the app log.
+
+    Deriving it instead of storing it means a hot restart or a relaunch cannot
+    leave a stale endpoint behind.
+    """
+    try:
+        with open(LOG_PATH, errors="replace") as fh:
+            text = fh.read()
+    except OSError as exc:
+        raise Fail(f"no app log at {LOG_PATH} ({exc}); run `prysmlab up`") from exc
+    hits = re.findall(r"Dart VM Service on Linux is available at:\s*(\S+)", text)
+    if not hits:
+        raise Fail("the app has not published a VM Service yet — see `prysmlab logs`")
+    return hits[-1]
+
+
+class _WebSocket:
+    """Minimal RFC 6455 client — stdlib only, just enough for VM Service JSON-RPC.
+
+    The VM Service also answers plain HTTP GETs, which is tempting and much
+    shorter. It is not usable here: `evaluate` needs flutter_tools' compileExpression
+    service, which is registered on the WebSocket session, so over HTTP every
+    evaluate fails with "No compilation service available; cannot evaluate from
+    source" — the same message the prebuilt bundle gives, for a different reason.
+    """
+
+    def __init__(self, url: str, timeout: float):
+        parts = urllib.parse.urlparse(url)
+        self.sock = socket.create_connection(
+            (parts.hostname, parts.port or 80), timeout=timeout)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall(
+            f"GET {parts.path or '/'} HTTP/1.1\r\n"
+            f"Host: {parts.hostname}:{parts.port}\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n".encode())
+        buf = bytearray()
+        while b"\r\n\r\n" not in buf:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise Fail(f"VM Service closed the connection during handshake ({url})")
+            buf += chunk
+        head, _, rest = bytes(buf).partition(b"\r\n\r\n")
+        if b" 101 " not in head.split(b"\r\n")[0] + b" ":
+            raise Fail(f"VM Service refused the WebSocket upgrade: "
+                       f"{head.splitlines()[0].decode(errors='replace')}")
+        self.buf = bytearray(rest)
+        self.next_id = 0
+
+    def _need(self, n: int):
+        while len(self.buf) < n:
+            chunk = self.sock.recv(1 << 16)
+            if not chunk:
+                raise Fail("VM Service closed the connection")
+            self.buf += chunk
+
+    def _send(self, opcode: int, data: bytes):
+        header = bytes([0x80 | opcode])
+        n = len(data)
+        if n < 126:
+            header += struct.pack("!B", 0x80 | n)
+        elif n < 1 << 16:
+            header += struct.pack("!BH", 0x80 | 126, n)
+        else:
+            header += struct.pack("!BQ", 0x80 | 127, n)
+        mask = os.urandom(4)
+        self.sock.sendall(header + mask
+                          + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def _recv(self) -> dict:
+        payload = bytearray()
+        opcode = 0
+        while True:
+            self._need(2)
+            b0, b1 = self.buf[0], self.buf[1]
+            length = b1 & 0x7F
+            offset = 2
+            if length == 126:
+                self._need(4)
+                length = struct.unpack("!H", bytes(self.buf[2:4]))[0]
+                offset = 4
+            elif length == 127:
+                self._need(10)
+                length = struct.unpack("!Q", bytes(self.buf[2:10]))[0]
+                offset = 10
+            self._need(offset + length)
+            frame = bytes(self.buf[offset:offset + length])
+            del self.buf[:offset + length]
+            kind = b0 & 0x0F
+            if kind == 0x8:
+                raise Fail("VM Service closed the connection")
+            if kind == 0x9:          # ping -> pong, then keep reading
+                self._send(0xA, frame)
+                continue
+            if kind == 0xA:
+                continue
+            opcode = opcode or kind
+            payload += frame
+            if b0 & 0x80:
+                return json.loads(bytes(payload))
+
+    def call(self, method: str, params: dict, timeout: float) -> dict:
+        self.next_id += 1
+        mine = self.next_id
+        self.sock.settimeout(timeout)
+        self._send(0x1, json.dumps(
+            {"jsonrpc": "2.0", "id": mine, "method": method, "params": params}).encode())
+        while True:
+            message = self._recv()
+            if message.get("id") == mine:
+                return message
+
+    def close(self):
+        try:
+            self._send(0x8, b"")
+            self.sock.close()
+        except OSError:
+            pass
+
+
+_CONN: _WebSocket | None = None
+
+
+def rpc(method: str, timeout: float = 30.0, **params) -> dict:
+    global _CONN
+    if _CONN is None:
+        _CONN = _WebSocket(
+            vm_base().replace("http://", "ws://").rstrip("/") + "/ws", timeout)
+    try:
+        payload = _CONN.call(method, params, timeout)
+    except socket.timeout as exc:
+        raise Fail(
+            f"{method} timed out after {timeout}s — the main isolate is blocked "
+            "(a modal dialog outside Flutter does exactly this)"
+        ) from exc
+    except OSError as exc:
+        raise Fail(f"VM Service unreachable: {exc}") from exc
+    if "error" in payload:
+        err = payload["error"]
+        detail = (err.get("data") or {}).get("details") or err.get("message")
+        raise Fail(f"{method}: {detail}")
+    return payload.get("result", {})
+
+
+def load_state() -> dict:
+    try:
+        with open(STATE_PATH) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state: dict):
+    os.makedirs(LAB, exist_ok=True)
+    tmp = STATE_PATH + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(state, fh, indent=2)
+    os.replace(tmp, STATE_PATH)
+
+
+def main_isolate() -> str:
+    isolates = rpc("getVM").get("isolates", [])
+    if not isolates:
+        raise Fail("the VM has no isolates")
+    for iso in isolates:
+        if "main" in iso.get("name", ""):
+            return iso["id"]
+    return isolates[0]["id"]
+
+
+def resolve_libs(iso: str) -> dict:
+    info = rpc("getIsolate", isolateId=iso, timeout=60)
+    return {lib["uri"]: lib["id"] for lib in info.get("libraries", [])}
+
+
+def pick_lib(libs: dict, want: str | None) -> str:
+    if want and want in libs:
+        return want
+    if want:
+        matches = sorted(uri for uri in libs if want in uri)
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise Fail(f"no library matches {want!r} (try `prysmlab libs {want}`)")
+        raise Fail(f"{want!r} is ambiguous: {', '.join(matches[:5])}")
+    if PREFERRED_LIB in libs:
+        return PREFERRED_LIB
+    prysm = [uri for uri in libs if uri.endswith("prysm/main.dart")]
+    if prysm:
+        return prysm[0]
+    raise Fail("cannot pick an evaluation library")
+
+
+def _context(want: str | None, refresh: bool) -> tuple[str, str]:
+    state = load_state()
+    if refresh or not state.get("lib") or (want and want != state.get("lib_uri")):
+        iso = main_isolate()
+        libs = resolve_libs(iso)
+        uri = pick_lib(libs, want)
+        state.update(iso=iso, lib=libs[uri], lib_uri=uri)
+        save_state(state)
+    return state["iso"], state["lib"]
+
+
+def eval_dart(expr: str, lib_uri: str | None = None, timeout: float = 30.0) -> str:
+    iso, lib = _context(lib_uri, refresh=False)
+    try:
+        res = rpc("evaluate", isolateId=iso, targetId=lib, expression=expr,
+                  timeout=timeout)
+    except Fail as exc:
+        # A relaunch or hot restart invalidates the cached ids exactly once.
+        if not re.search(r"isolate|targetId|Unrecognized", str(exc), re.I):
+            raise
+        iso, lib = _context(lib_uri, refresh=True)
+        res = rpc("evaluate", isolateId=iso, targetId=lib, expression=expr,
+                  timeout=timeout)
+    if res.get("type") == "@Error" or res.get("kind") == "Error":
+        raise Fail(res.get("message", json.dumps(res)))
+    if "valueAsString" in res:
+        return res["valueAsString"]
+    return json.dumps(res)
+
+
+def flatten_dart(src: str) -> str:
+    """Collapse a snippet onto one line — `evaluate` rejects newlines with a
+    baffling "Can't find '}' to match '{'". Whole-line // comments are dropped;
+    trailing // comments are not supported, use /* */."""
+    return " ".join(
+        line.strip() for line in src.splitlines()
+        if line.strip() and not line.strip().startswith("//")
+    )
+
+
+# ============================================================== dart expressions
+
+_WALK = (
+    "final b = WidgetsBinding.instance; final hits = <Element>[]; "
+    "void walk(Element e) {{ final dynamic w = e.widget; if ({pred}) {{ hits.add(e); }} "
+    "e.visitChildren(walk); }} final r = b.rootElement; if (r == null) return 'ERR no-root'; "
+    "walk(r); if (hits.length <= {idx}) return 'NOTFOUND n=' + hits.length.toString(); "
+    "final ro = hits[{idx}].renderObject; if (ro is! RenderBox) return 'ERR not-a-box'; "
+    "if (!ro.hasSize) return 'ERR unlaid-out'; "
+    "final c = ro.localToGlobal(ro.size.center(Offset.zero)); "
+    "final view = b.renderViews.first; final vs = view.size; "
+    "final vid = view.flutterView.viewId; var hit = 'unknown'; "
+    "try {{ final res = HitTestResult(); b.hitTestInView(res, c, vid); "
+    "hit = res.path.any((h) => identical(h.target, ro)) ? 'yes' : 'no'; }} "
+    "catch (_) {{ hit = 'unknown'; }} "
+)
+
+_REPORT = (
+    "return '{tag} n=' + hits.length.toString() + ' x=' + c.dx.toStringAsFixed(1) + "
+    "' y=' + c.dy.toStringAsFixed(1) + ' w=' + ro.size.width.toStringAsFixed(1) + "
+    "' h=' + ro.size.height.toStringAsFixed(1) + ' vw=' + vs.width.toStringAsFixed(0) + "
+    "' vh=' + vs.height.toStringAsFixed(0) + ' hit=' + hit;"
+)
+
+
+def dq(value: str) -> str:
+    return json.dumps(value)
+
+
+def pred_text(label: str, exact: bool = True) -> str:
+    if exact:
+        return f"w.runtimeType.toString() == 'Text' && w.data == {dq(label)}"
+    return ("w.runtimeType.toString() == 'Text' && w.data is String && "
+            f"(w.data as String).contains({dq(label)})")
+
+
+def pred_widget(type_name: str, contains: str | None) -> str:
+    pred = f"w.runtimeType.toString() == {dq(type_name)}"
+    if contains:
+        pred += f" && w.toString().contains({dq(contains)})"
+    return pred
+
+
+def probe_expr(pred: str, idx: int) -> str:
+    return "(() { " + _WALK.format(pred=pred, idx=idx) + _REPORT.format(tag="AT") + " })()"
+
+
+def tap_expr(pred: str, idx: int, pointer: int = 7, force: bool = False) -> str:
+    """Tap through the app's real hit test and real gesture recognizers.
+
+    The runbook's version fired the pointer events blind, so a widget scrolled out
+    of the viewport produced a cheerful TAPPED@452,1417 on a 720px-tall window and
+    nothing happened. Here the hit test decides: if the target is not what the
+    coordinate resolves to, the tap is refused as OCCLUDED.
+    """
+    guard = "" if force else (
+        "if (hit == 'no') " + _REPORT.format(tag="OCCLUDED") + " "
+    )
+    return (
+        "(() { " + _WALK.format(pred=pred, idx=idx) + guard
+        + f"b.handlePointerEvent(PointerDownEvent(position: c, pointer: {pointer}, viewId: vid)); "
+        + f"b.handlePointerEvent(PointerUpEvent(position: c, pointer: {pointer}, viewId: vid)); "
+        + _REPORT.format(tag="TAPPED") + " })()"
+    )
+
+
+SCROLL_EXPR = (
+    "(() {{ final b = WidgetsBinding.instance; dynamic best; double bestExtent = -1; "
+    "void walk(Element e) {{ if (e is StatefulElement && "
+    "e.state.runtimeType.toString() == 'ScrollableState') {{ final dynamic st = e.state; "
+    "try {{ final double m = st.position.maxScrollExtent as double; "
+    "if (m > bestExtent) {{ bestExtent = m; best = st; }} }} catch (_) {{}} }} "
+    "e.visitChildren(walk); }} final r = b.rootElement; if (r == null) return 'ERR no-root'; "
+    "walk(r); if (best == null) return 'NO-SCROLLABLE'; "
+    "final double max = best.position.maxScrollExtent as double; "
+    "final double target = (best.position.pixels as double) + {dy}; "
+    "final double clamped = target < 0 ? 0 : (target > max ? max : target); "
+    "best.position.jumpTo(clamped); "
+    "return 'SCROLLED ' + clamped.toStringAsFixed(0) + '/' + max.toStringAsFixed(0); }})()"
+)
+
+POP_EXPR = (
+    "(() { final b = WidgetsBinding.instance; dynamic nav; "
+    "void walk(Element e) { if (e is StatefulElement && "
+    "e.state.runtimeType.toString() == 'NavigatorState') { nav = e.state; } "
+    "e.visitChildren(walk); } final r = b.rootElement; if (r == null) return 'ERR no-root'; "
+    "walk(r); if (nav == null) return 'NO-NAV'; "
+    "if (!(nav.canPop() as bool)) return 'CANNOT-POP'; nav.pop(); return 'POPPED'; })()"
+)
+
+
+def editable_expr(idx: int, body: str) -> str:
+    return (
+        "(() { final b = WidgetsBinding.instance; final hits = <StatefulElement>[]; "
+        "void walk(Element e) { if (e is StatefulElement && "
+        "e.state.runtimeType.toString() == 'EditableTextState') { hits.add(e); } "
+        "e.visitChildren(walk); } final r = b.rootElement; if (r == null) return 'ERR no-root'; "
+        f"walk(r); if (hits.length <= {idx}) return 'NOTFOUND n=' + hits.length.toString(); "
+        f"final dynamic st = hits[{idx}].state; " + body + " })()"
+    )
+
+
+def type_expr(text: str, idx: int) -> str:
+    """Feed text through EditableText's real platform-input entry point.
+
+    updateEditingValue runs the input formatters and fires onChanged; assigning to
+    controller.text does not. The new value is built with copyWith so no type from
+    package:flutter/services.dart needs to be visible in the evaluation library.
+    """
+    lit = dq(text)
+    return editable_expr(idx, (
+        "try { st.widget.focusNode.requestFocus(); } catch (_) {} "
+        f"final dynamic cur = st.textEditingValue; final int n = {lit}.length; "
+        f"st.updateEditingValue(cur.copyWith(text: {lit}, "
+        "selection: cur.selection.copyWith(baseOffset: n, extentOffset: n))); "
+        "return 'TYPED n=' + hits.length.toString() + ' now=' + st.textEditingValue.text;"
+    ))
+
+
+# ==================================================================== observation
+
+TREES = {
+    "app": "ext.flutter.debugDumpApp",
+    "render": "ext.flutter.debugDumpRenderTree",
+    "layer": "ext.flutter.debugDumpLayerTree",
+    "focus": "ext.flutter.debugDumpFocusTree",
+    "semantics": "ext.flutter.debugDumpSemanticsTreeInTraversalOrder",
+}
+
+SCREEN_RE = re.compile(r"(\w*(?:Screen|Onboarding|Page|Unlock|Step|Dialog|Sheet)\w*)[\(\-]")
+TEXT_RE = re.compile(r'Text\("([^"]{1,160})"')
+FIELD_RE = re.compile(r"EditableText|TextField")
+
+
+def dump(kind: str = "app", timeout: float = 60.0) -> str:
+    ext = TREES.get(kind)
+    if not ext:
+        raise Fail(f"unknown tree {kind!r}")
+    state = load_state()
+    iso = state.get("iso") or main_isolate()
+    try:
+        return rpc(ext, isolateId=iso, timeout=timeout).get("data", "")
+    except Fail as exc:
+        if not re.search(r"isolate", str(exc), re.I):
+            raise
+        iso = main_isolate()
+        state["iso"] = iso
+        save_state(state)
+        return rpc(ext, isolateId=iso, timeout=timeout).get("data", "")
+
+
+def summarize(tree: str) -> dict:
+    return {
+        "screens": sorted({m.group(1) for m in SCREEN_RE.finditer(tree)}),
+        "texts": list(dict.fromkeys(m.group(1) for m in TEXT_RE.finditer(tree))),
+        "fields": len(FIELD_RE.findall(tree)),
+        "lines": tree.count("\n"),
+    }
+
+
+def count_text(tree: str, needle: str) -> int:
+    return len(re.findall(r'Text\("' + re.escape(needle) + r'"', tree))
+
+
+# ================================================================ host lifecycle
+
+
+def stage_repo(repo: str) -> None:
+    os.makedirs(WORK, exist_ok=True)
+    cmd = ["rsync", "-a", "--delete",
+           "--exclude", ".dart_tool",
+           "--exclude", "linux/flutter/ephemeral",
+           "--exclude", "build"]
+    cmd += [os.path.join(repo, p) for p in STAGE_PATHS if os.path.exists(os.path.join(repo, p))]
+    cmd.append(WORK + "/")
+    res = run(cmd)
+    if res.returncode != 0:
+        die(f"staging failed: {res.stderr.strip()}")
+
+
+def cmd_build_image(args) -> int:
+    repo = repo_root()
+    cmd = ["docker", "build", "-f", os.path.join(repo, "tool/live/Containerfile"),
+           "-t", IMAGE,
+           "--build-arg", f"HOST_UID={os.getuid()}",
+           "--build-arg", f"HOST_GID={os.getgid()}",
+           os.path.join(repo, "tool/live")]
+    print(" ".join(cmd))
+    return subprocess.run(cmd).returncode
+
+
+def cmd_up(args) -> int:
+    repo = repo_root()
+    if run(["docker", "version"]).returncode != 0:
+        die("docker is not usable")
+    if not image_exists():
+        print(f"image {IMAGE} missing — building it")
+        if cmd_build_image(args) != 0:
+            die("image build failed")
+
+    status = container_state()
+    if status == "running" and not args.fresh:
+        print(f"container {CONTAINER} already running")
+    else:
+        if status != "absent":
+            run(["docker", "rm", "-f", CONTAINER])
+        if args.fresh:
+            shutil.rmtree(HOST_LAB, ignore_errors=True)
+        stage_repo(repo)
+        run(["docker", "volume", "create", VOLUME])
+        res = run([
+            "docker", "run", "-d", "--name", CONTAINER,
+            "--init", "--shm-size=512m",
+            "-v", f"{WORK}:/work",
+            "-v", f"{os.path.join(repo, 'tool/live')}:/opt/lab:ro",
+            "-v", f"{VOLUME}:/home/ubuntu/.pub-cache",
+            IMAGE, "sleep", "infinity",
+        ])
+        if res.returncode != 0:
+            die(f"docker run failed: {res.stderr.strip()}")
+        print(f"container {CONTAINER} up ({res.stdout.strip()[:12]})")
+
+    root = run(["docker", "exec", "-u", "0", CONTAINER, "/opt/lab/labroot.sh"])
+    if "PRYSMLAB_SYSTEM_BUS_UP" not in root.stdout:
+        die("could not bring up the container's system D-Bus: "
+            + (root.stderr or root.stdout).strip())
+
+    # The bracket keeps the pattern from matching the `sh -lc` that carries it.
+    running = dexec(["sh", "-lc", "pgrep -f '[f]lutter_tools.snapshot run' >/dev/null && echo yes"])
+    if running.stdout.strip() == "yes" and not args.fresh:
+        print("app already running")
+    else:
+        start_app()
+    wait_for_vm(args.timeout)
+    forward(["status"])
+    return 0
+
+
+def start_app():
+    dexec(["sh", "-lc", f"pkill -f '[f]lutter_tools.snapshot run'; sleep 1; "
+                        f"mkdir -p {LAB} && rm -f {LOG_PATH} {STATE_PATH}"])
+    subprocess.run([
+        "docker", "exec", "-d", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER,
+        "sh", "-lc", f"/opt/lab/labd.sh > {LOG_PATH} 2>&1",
+    ], check=False)
+    print("app starting (the first run compiles the Linux bundle, a few minutes)")
+
+
+def wait_for_vm(timeout: float):
+    deadline = time.time() + timeout
+    pattern = "Dart VM Service on Linux is available at:"
+    last = ""
+    while time.time() < deadline:
+        log = dexec(["sh", "-lc", f"cat {LOG_PATH} 2>/dev/null"]).stdout
+        if pattern in log:
+            return
+        if "PRYSMLAB_XVFB_FAILED" in log:
+            die("Xvfb never came up inside the container; see `prysmlab logs`")
+        tail = (log.strip().splitlines() or [""])[-1]
+        if tail != last:
+            last = tail
+            print(f"  … {last[:110]}")
+        time.sleep(2)
+    print(dexec(["sh", "-lc", f"tail -40 {LOG_PATH}"]).stdout, file=sys.stderr)
+    die(f"no VM Service line after {timeout}s")
+
+
+def cmd_restart(args) -> int:
+    """Relaunch the app in the running container — the way to pick up code changes.
+
+    Hot restart over stdin is not an option: sending `R` to `flutter run` makes it
+    exit rather than restart.
+    """
+    if container_state() != "running":
+        die("no lab container is running — `prysmlab up` first")
+    if args.sync:
+        stage_repo(repo_root())
+        print(f"re-staged into {WORK}")
+    start_app()
+    wait_for_vm(args.timeout)
+    forward(["status"])
+    return 0
+
+
+def cmd_sync(args) -> int:
+    repo = repo_root()
+    stage_repo(repo)
+    print(f"staged {repo} -> {WORK}")
+    print("note: a running app keeps the old code; `prysmlab up --fresh` to relaunch")
+    return 0
+
+
+def cmd_shell(args) -> int:
+    return subprocess.run(["docker", "exec", "-it", CONTAINER, "bash", "-l"]).returncode
+
+
+def cmd_doctor(args) -> int:
+    repo = repo_root()
+    ok = True
+
+    def check(good: bool, label: str, hint: str = ""):
+        nonlocal ok
+        print(f"  {'ok  ' if good else 'FAIL'}  {label}")
+        if not good:
+            ok = False
+            if hint:
+                print(f"        -> {hint}")
+
+    check(run(["docker", "version"]).returncode == 0, "docker usable",
+          "rootless docker must be running")
+    check(image_exists(), f"image {IMAGE} present", "run `prysmlab build-image`")
+    check(shutil.which("rsync") is not None, "rsync present", "needed to stage the repo")
+    check(os.path.exists(os.path.join(repo, "tor_executable/tor")),
+          "repo tor binary present", "the app would download ~14 MB inside the container")
+
+    status = container_state()
+    print(f"  info  container {CONTAINER}: {status}")
+    print(f"  info  staging {WORK} "
+          f"({'present' if os.path.isdir(WORK) else 'absent'})")
+
+    host_tor = run(["pgrep", "-a", "tor"]).stdout.strip()
+    print("  info  host tor: " + (host_tor or "none")
+          + "  (unaffected either way: the app's `pkill -9 tor` cannot leave the "
+            "container's PID namespace)")
+    with socket.socket() as sock:
+        sock.settimeout(0.3)
+        busy = sock.connect_ex(("127.0.0.1", APP_PORT)) == 0
+    print(f"  info  host 127.0.0.1:{APP_PORT}: "
+          + ("in use by something (your real Prysm?) — irrelevant, the lab has its "
+             "own network namespace" if busy else "free"))
+
+    if status == "running":
+        probe = dexec(["python3", "/opt/lab/prysmlab", "status"])
+        print("  info  in-container status:")
+        for line in (probe.stdout or probe.stderr).splitlines():
+            print(f"        {line}")
+    return 0 if ok else 1
+
+
+def cmd_down(args) -> int:
+    status = container_state()
+    if status != "absent":
+        run(["docker", "rm", "-f", CONTAINER])
+        print(f"removed container {CONTAINER}")
+    else:
+        print("no container to remove")
+
+    if args.purge:
+        run(["docker", "volume", "rm", "-f", VOLUME])
+        shutil.rmtree(HOST_LAB, ignore_errors=True)
+        run(["docker", "image", "rm", "-f", IMAGE])
+        print(f"purged volume {VOLUME}, staging {HOST_LAB}, image {IMAGE}")
+
+    print("\nverification")
+    left = run(["docker", "ps", "-a", "--filter", f"name=^{CONTAINER}$",
+                "--format", "{{.Names}} {{.Status}}"]).stdout.strip()
+    print("  containers named " + CONTAINER + ": " + (left or "none"))
+    vols = run(["docker", "volume", "ls", "--filter", f"name={VOLUME}",
+                "--format", "{{.Name}}"]).stdout.strip()
+    print(f"  volume {VOLUME}: " + (vols or "none"))
+    print(f"  staging {HOST_LAB}: "
+          + ("present" if os.path.exists(HOST_LAB) else "removed"))
+    img = run(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}",
+               IMAGE]).stdout.strip()
+    print(f"  image {IMAGE}: " + (img or "removed"))
+    print("  host tor: " + (run(["pgrep", "-a", "tor"]).stdout.strip() or "none"))
+    repo = repo_root()
+    dirty = run(["git", "-C", repo, "status", "--porcelain"]).stdout.strip()
+    print("  repo working tree: " + (dirty.replace("\n", " | ") if dirty else "clean"))
+    return 0
+
+
+# ================================================================== in-container
+
+
+def cmd_status(args) -> int:
+    info: dict = {"log": LOG_PATH}
+    try:
+        info["vm"] = vm_base()
+    except Fail as exc:
+        info["vm"] = f"unavailable: {exc}"
+    state = load_state()
+    info["evalLib"] = state.get("lib_uri")
+    res = run(["sh", "-lc", "pgrep -af '[f]lutter_tools.snapshot run' | head -1"])
+    info["flutterRun"] = res.stdout.strip() or None
+    print(json.dumps(info, indent=2))
+    if isinstance(info["vm"], str) and info["vm"].startswith("http"):
+        print(json.dumps(summarize(dump()), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_logs(args) -> int:
+    if args.follow:
+        proc = subprocess.Popen(["tail", "-n", str(args.tail), "-f", LOG_PATH])
+        try:
+            proc.wait(timeout=args.timeout)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
+            proc.terminate()
+        return 0
+    try:
+        with open(LOG_PATH, errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError as exc:
+        die(str(exc))
+    if args.grep:
+        rx = re.compile(args.grep)
+        lines = [ln for ln in lines if rx.search(ln)]
+    print("\n".join(lines[-args.tail:]))
+    return 0
+
+
+def cmd_screen(args) -> int:
+    tree = dump(args.tree)
+    if args.raw:
+        print(tree)
+        return 0
+    info = summarize(tree)
+    if args.grep:
+        rx = re.compile(args.grep)
+        info["texts"] = [t for t in info["texts"] if rx.search(t)]
+    print(json.dumps(info, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_count(args) -> int:
+    tree = dump()
+    for needle in args.text:
+        print(f"{count_text(tree, needle):4d}  {needle}")
+    return 0
+
+
+def cmd_where(args) -> int:
+    print(eval_dart(probe_expr(pred_text(args.text, not args.contains), args.index)))
+    return 0
+
+
+def scroll_by(dy: float) -> str:
+    return eval_dart(SCROLL_EXPR.format(dy=int(dy)))
+
+
+def do_tap(pred: str, index: int, force: bool, autoscroll: bool, settle: float) -> str:
+    """Bring the target into view, then tap it.
+
+    localToGlobal happily returns coordinates for widgets outside the viewport, so
+    without this the tap silently lands on nothing.
+    """
+    for attempt in range(6):
+        probe = eval_dart(probe_expr(pred, index))
+        if probe.startswith(("NOTFOUND", "ERR")):
+            return probe
+        fields = dict(p.split("=", 1) for p in probe.split() if "=" in p)
+        if fields.get("hit") != "no" or not autoscroll or attempt == 5:
+            break
+        vh = float(fields.get("vh", 0))
+        if vh <= 0:
+            break
+        res = scroll_by(round(float(fields["y"]) - vh * 0.5))
+        if not res.startswith("SCROLLED"):
+            break
+        time.sleep(0.4)
+    out = eval_dart(tap_expr(pred, index, force=force))
+    if settle:
+        time.sleep(settle)
+    return out
+
+
+def cmd_tap(args) -> int:
+    out = do_tap(pred_text(args.text, not args.contains), args.index,
+                 args.force, not args.no_scroll, args.settle)
+    print(out)
+    return 0 if out.startswith("TAPPED") else 2
+
+
+def cmd_tap_widget(args) -> int:
+    out = do_tap(pred_widget(args.type, args.contains), args.index,
+                 args.force, not args.no_scroll, args.settle)
+    print(out)
+    return 0 if out.startswith("TAPPED") else 2
+
+
+def cmd_scroll(args) -> int:
+    print(scroll_by(args.dy))
+    return 0
+
+
+def cmd_pop(args) -> int:
+    out = eval_dart(POP_EXPR)
+    print(out)
+    time.sleep(args.settle)
+    return 0 if out == "POPPED" else 2
+
+
+def cmd_type(args) -> int:
+    out = eval_dart(type_expr(args.text, args.index))
+    print(out)
+    if args.submit:
+        print(eval_dart(editable_expr(
+            args.index, "st.performAction(TextInputAction.done); return 'SUBMITTED';")))
+    time.sleep(args.settle)
+    return 0 if out.startswith("TYPED") else 2
+
+
+def cmd_eval(args) -> int:
+    src = args.expr
+    if args.file:
+        src = sys.stdin.read() if args.file == "-" else open(args.file).read()
+    if not src:
+        die("nothing to evaluate")
+    print(eval_dart(flatten_dart(src), lib_uri=args.lib, timeout=args.timeout))
+    return 0
+
+
+def cmd_libs(args) -> int:
+    iso = load_state().get("iso") or main_isolate()
+    for uri, lid in sorted(resolve_libs(iso).items()):
+        if not args.pattern or args.pattern in uri:
+            print(f"{lid:<22} {uri}")
+    return 0
+
+
+def cmd_wait(args) -> int:
+    start = time.time()
+    while time.time() - start < args.timeout:
+        if count_text(dump(), args.text) >= args.count:
+            print(f"FOUND {args.text!r} after {time.time() - start:.1f}s")
+            return 0
+        time.sleep(args.interval)
+    print(f"TIMEOUT waiting for {args.text!r}", file=sys.stderr)
+    return 2
+
+
+# ============================================================ injection channel
+
+
+def http_json(method: str, path: str, body=None, timeout: float = 15.0):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{APP_PORT}{path}", data=data, method=method,
+        headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode(errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode(errors="replace")
+    except urllib.error.URLError as exc:
+        raise Fail(f"the app's loopback server is not answering: {exc}") from exc
+
+
+def cmd_peer(args) -> int:
+    if args.what == "onion":
+        path = os.path.expanduser(
+            "~/Documents/prysm/tor_executable/tor_data/hidden_service/hostname")
+        try:
+            with open(path) as fh:
+                print(fh.read().strip())
+        except OSError as exc:
+            raise Fail(f"no onion yet at {path} ({exc}); Tor may still be bootstrapping")
+        return 0
+    if args.what == "public":
+        status, body = http_json("GET", "/public")
+    else:
+        raw = sys.stdin.read() if args.json == "-" else open(args.json).read()
+        status, body = http_json("POST", "/message", json.loads(raw))
+    print(status, body)
+    return 0 if status == 200 else 2
+
+
+# ==================================================================== onboarding
+
+
+def cmd_onboard(args) -> int:
+    """Drive the first-run flow by reading the screen and reacting to it.
+
+    A fixed replay of "Next, Next, PIN, Next×5, Get started" breaks the first time
+    a step is added; matching on what is actually on screen does not.
+    """
+    if not (args.pin.isdigit() and len(args.pin) >= 4):
+        die("--pin must be at least 4 digits")
+    advance = ["Reset local data and continue", "Get started", "Get Started",
+               "Next", "Continue", "Avanti", "Continua", "Inizia"]
+    digits = set("123456789")
+    entries = 0
+
+    for step in range(args.max_steps):
+        info = summarize(dump())
+        texts = set(info["texts"])
+        if any(s in info["screens"] for s in ("HomeScreen", "ChatListScreen")):
+            print(f"[{step}] home reached: {info['screens']}")
+            return 0
+        if digits <= texts:
+            entries += 1
+            print(f"[{step}] pin pad (entry {entries}) -> {args.pin}")
+            for digit in args.pin:
+                out = eval_dart(tap_expr(pred_text(digit), 0, force=True))
+                if not out.startswith("TAPPED"):
+                    print(f"       digit {digit}: {out}", file=sys.stderr)
+                    return 2
+                time.sleep(0.25)
+            time.sleep(args.settle)
+            continue
+        target = next((t for t in advance if t in texts), None)
+        if target:
+            print(f"[{step}] tap {target!r}")
+            out = do_tap(pred_text(target), 0, False, True, args.settle)
+            if not out.startswith("TAPPED"):
+                print(f"       {out}", file=sys.stderr)
+                return 2
+            continue
+        print(f"[{step}] stuck: screens={info['screens']} texts={info['texts'][:14]}",
+              file=sys.stderr)
+        return 2
+    print("onboard: step budget exhausted", file=sys.stderr)
+    return 2
+
+
+def cmd_shot(args) -> int:
+    out = args.out or f"{LAB}/shot-{int(time.time())}.png"
+    display = os.environ.get("DISPLAY", ":99")
+    res = run(["sh", "-lc",
+               f"xwd -root -display {display} | xwdtopnm 2>/dev/null | pnmtopng > {out}"])
+    if res.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+        die(f"screenshot failed: {res.stderr.strip()}")
+    print(out)
+    print(f"copy it out with: docker cp {CONTAINER}:{out} .", file=sys.stderr)
+    return 0
+
+
+# =========================================================================== cli
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="prysmlab", description=__doc__.split("\n\n")[0],
+        epilog="lifecycle commands run on the host; all others are forwarded into "
+               "the container automatically",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("doctor", help="preflight checks, host and container")
+    s.set_defaults(func=cmd_doctor)
+
+    s = sub.add_parser("build-image", help="build the prysm-lab image")
+    s.set_defaults(func=cmd_build_image)
+
+    s = sub.add_parser("up", help="stage the repo, start the container, start the app")
+    s.add_argument("--fresh", action="store_true",
+                   help="destroy the container first (loses the test identity)")
+    s.add_argument("--timeout", type=float, default=1200.0)
+    s.set_defaults(func=cmd_up)
+
+    s = sub.add_parser("down", help="stop the lab")
+    s.add_argument("--purge", action="store_true",
+                   help="also remove the volume, the staging dir and the image")
+    s.set_defaults(func=cmd_down)
+
+    s = sub.add_parser("sync", help="re-stage the repo into the container mount")
+    s.set_defaults(func=cmd_sync)
+
+    s = sub.add_parser("restart", help="relaunch the app inside the running container")
+    s.add_argument("--sync", action="store_true", help="re-stage the repo first")
+    s.add_argument("--timeout", type=float, default=600.0)
+    s.set_defaults(func=cmd_restart)
+
+    s = sub.add_parser("shell", help="interactive shell inside the container")
+    s.set_defaults(func=cmd_shell)
+
+    s = sub.add_parser("status", help="vm endpoint, app process and current screen")
+    s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("logs", help="the app log")
+    s.add_argument("--tail", type=int, default=40)
+    s.add_argument("--grep")
+    s.add_argument("--follow", action="store_true")
+    s.add_argument("--timeout", type=float, default=30.0)
+    s.set_defaults(func=cmd_logs)
+
+    s = sub.add_parser("screen", help="what is on screen, from the widget tree")
+    s.add_argument("--raw", action="store_true")
+    s.add_argument("--grep", help="filter the texts by regex")
+    s.add_argument("--tree", default="app", choices=sorted(TREES))
+    s.set_defaults(func=cmd_screen)
+
+    s = sub.add_parser("count",
+                       help="count Text occurrences (screen's list is deduplicated, "
+                            "so one string on two surfaces looks like one)")
+    s.add_argument("text", nargs="+")
+    s.set_defaults(func=cmd_count)
+
+    s = sub.add_parser("where", help="locate a text and say whether a tap would land")
+    s.add_argument("text")
+    s.add_argument("-n", "--index", type=int, default=0)
+    s.add_argument("--contains", action="store_true")
+    s.set_defaults(func=cmd_where)
+
+    for name, helptext in (("tap", "tap a widget by its text"),
+                           ("tap-widget", "tap by widget type (icons have no Text)")):
+        s = sub.add_parser(name, help=helptext)
+        if name == "tap":
+            s.add_argument("text")
+            s.add_argument("--contains", action="store_true")
+            s.set_defaults(func=cmd_tap)
+        else:
+            s.add_argument("--type", required=True, help="e.g. Semantics, IconButton")
+            s.add_argument("--contains", help="substring of the widget's toString")
+            s.set_defaults(func=cmd_tap_widget)
+        s.add_argument("-n", "--index", type=int, default=0)
+        s.add_argument("--no-scroll", action="store_true",
+                       help="do not scroll the target into view first")
+        s.add_argument("--force", action="store_true",
+                       help="tap even if the hit test says something covers it")
+        s.add_argument("--settle", type=float, default=1.2)
+
+    s = sub.add_parser("scroll", help="jump the longest scrollable by dy pixels")
+    s.add_argument("dy", type=int)
+    s.set_defaults(func=cmd_scroll)
+
+    s = sub.add_parser("pop", help="Navigator.pop (routes only; SettingsScreen is a "
+                                   "branch of HomeScreen's build, not a route)")
+    s.add_argument("--settle", type=float, default=1.2)
+    s.set_defaults(func=cmd_pop)
+
+    s = sub.add_parser("type", help="enter text into an EditableText")
+    s.add_argument("text")
+    s.add_argument("-n", "--index", type=int, default=0)
+    s.add_argument("--submit", action="store_true")
+    s.add_argument("--settle", type=float, default=0.8)
+    s.set_defaults(func=cmd_type)
+
+    s = sub.add_parser("eval", help="evaluate Dart inside the running app")
+    s.add_argument("expr", nargs="?")
+    s.add_argument("--file", help="read the snippet from a file ('-' = stdin); it is "
+                                  "flattened to one line for you")
+    s.add_argument("--lib", help="library uri or substring to evaluate in")
+    s.add_argument("--timeout", type=float, default=30.0)
+    s.set_defaults(func=cmd_eval)
+
+    s = sub.add_parser("libs", help="library uri -> id, for --lib")
+    s.add_argument("pattern", nargs="?")
+    s.set_defaults(func=cmd_libs)
+
+    s = sub.add_parser("wait", help="poll until a text appears")
+    s.add_argument("text")
+    s.add_argument("--count", type=int, default=1)
+    s.add_argument("--timeout", type=float, default=30.0)
+    s.add_argument("--interval", type=float, default=1.0)
+    s.set_defaults(func=cmd_wait)
+
+    s = sub.add_parser("peer", help="talk to the app's loopback server as a peer")
+    s.add_argument("what", choices=["public", "post", "onion"])
+    s.add_argument("--json", default="-", help="envelope file for post ('-' = stdin)")
+    s.set_defaults(func=cmd_peer)
+
+    s = sub.add_parser("onboard",
+                       help="reach the home screen from wherever the app is: "
+                            "first-run wizard, passcode unlock, or local-data reset")
+    s.add_argument("--pin", default="112233")
+    s.add_argument("--max-steps", type=int, default=30)
+    s.add_argument("--settle", type=float, default=2.0)
+    s.set_defaults(func=cmd_onboard)
+
+    s = sub.add_parser("shot", help="PNG of the Xvfb framebuffer")
+    s.add_argument("--out")
+    s.set_defaults(func=cmd_shot)
+
+    return p
+
+
+def main(argv: list[str]) -> int:
+    if not IN_CONTAINER and argv and argv[0] not in HOST_COMMANDS \
+            and not argv[0].startswith("-"):
+        return forward(argv)
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except Fail as exc:
+        print(f"prysmlab: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

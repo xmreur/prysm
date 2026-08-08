@@ -54,7 +54,7 @@ void main() {
     expect(scoped, hasLength(1));
     expect(scoped.first.messageId, 'm2');
 
-    await dao.remove('m1');
+    await dao.remove('m1', conversationId: 'peer1', scope: 'direct');
     expect(
       await dao.exists(
         messageId: 'm1',

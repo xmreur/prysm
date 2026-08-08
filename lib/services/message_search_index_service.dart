@@ -154,8 +154,8 @@ class MessageSearchIndexService {
 
   Future<void> removeMessage(
     String messageId, {
-    String? conversationId,
-    String? scope,
+    required String conversationId,
+    required String scope,
   }) =>
       _dao.remove(messageId, conversationId: conversationId, scope: scope);
 

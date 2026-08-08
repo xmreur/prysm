@@ -60,7 +60,11 @@ class MessageCrudDao {
         where: 'id = ? AND viewOnce = 1',
         whereArgs: [storageId],
       );
-      await _searchDao.remove(messageId);
+      await _searchDao.removeUnprotected(
+        messageId,
+        conversationId: groupId,
+        scope: groupId != null ? 'group' : null,
+      );
     });
   }
 
@@ -262,7 +266,11 @@ class MessageCrudDao {
         whereArgs: [storageId],
       );
       await MessageBlobStore.delete(storageId);
-      await _searchDao.remove(wireId);
+      await _searchDao.removeUnprotected(
+        wireId,
+        conversationId: groupId,
+        scope: groupId != null ? 'group' : null,
+      );
     });
   }
 
@@ -313,7 +321,11 @@ class MessageCrudDao {
     );
     await deleteMessageById(storageId);
     await MessageBlobStore.delete(storageId);
-    await _searchDao.remove(wireId);
+    await _searchDao.remove(
+      wireId,
+      conversationId: groupId,
+      scope: groupId != null ? 'group' : null,
+    );
   }
 
   Future<void> updateMessageStatus(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
@@ -10,6 +12,7 @@ import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/local_onion_address.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -114,9 +117,12 @@ class AppComposition {
     required KeyManager keyManager,
     required String userId,
   }) {
-    MessageSearchBackfillService(
+    final backfill = MessageSearchBackfillService(
       keyManager: keyManager,
       userId: userId,
     ).startIfNeeded();
+    unawaited(backfill.catchError((Object e, StackTrace stack) {
+      Logging.error('Search backfill failed: $e\n$stack', 'SearchBackfill');
+    }));
   }
 }

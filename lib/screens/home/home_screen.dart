@@ -221,12 +221,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     setState(() => _messageSearchLoading = true);
     _messageSearchDebounce = Timer(const Duration(milliseconds: 300), () async {
-      final hits = await MessagesDb.searchMessagesGlobal(query);
-      if (!mounted) return;
+      final submitted = query;
+      final hits = await MessagesDb.searchMessagesGlobal(submitted);
+      if (!mounted || submitted != _searchQuery) return;
       final enriched = hits
+          .where((h) => !BlockService.instance.isBlocked(h.conversationId))
           .map(
             (h) => h.copyWith(
-              snippet: MessageSearchIndexService.buildSnippet(h.body, query),
+              snippet: MessageSearchIndexService.buildSnippet(h.body, submitted),
             ),
           )
           .toList();

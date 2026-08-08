@@ -37,16 +37,16 @@ class MessageSearchDao {
     required int timestamp,
     required String body,
   }) async {
-    final trimmed = body.trim();
-    if (trimmed.isEmpty) return;
-
     await _protect(() async {
       final db = await _database;
-      await db.delete(
-        'message_search_fts',
-        where: 'messageId = ?',
-        whereArgs: [messageId],
+      await _deleteRow(
+        db,
+        messageId,
+        conversationId: conversationId,
+        scope: scope,
       );
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) return;
       await db.insert('message_search_fts', {
         'messageId': messageId,
         'conversationId': conversationId,
@@ -57,15 +57,53 @@ class MessageSearchDao {
     });
   }
 
-  Future<void> remove(String messageId) async {
-    await _protect(() async {
-      final db = await _database;
-      await db.delete(
-        'message_search_fts',
-        where: 'messageId = ?',
-        whereArgs: [messageId],
+  Future<void> remove(
+    String messageId, {
+    String? conversationId,
+    String? scope,
+  }) =>
+      _protect(
+        () => removeUnprotected(
+          messageId,
+          conversationId: conversationId,
+          scope: scope,
+        ),
       );
-    });
+
+  /// Lock-free search-row deletion: the caller must already hold
+  /// [MessagesDatabase.mutex] (via [_protect]) before invoking this.
+  Future<void> removeUnprotected(
+    String messageId, {
+    String? conversationId,
+    String? scope,
+  }) async {
+    final db = await _database;
+    await _deleteRow(
+      db,
+      messageId,
+      conversationId: conversationId,
+      scope: scope,
+    );
+  }
+
+  Future<void> _deleteRow(
+    Database db,
+    String messageId, {
+    String? conversationId,
+    String? scope,
+  }) {
+    if (conversationId != null && scope != null) {
+      return db.delete(
+        'message_search_fts',
+        where: 'messageId = ? AND conversationId = ? AND scope = ?',
+        whereArgs: [messageId, conversationId, scope],
+      );
+    }
+    return db.delete(
+      'message_search_fts',
+      where: 'messageId = ?',
+      whereArgs: [messageId],
+    );
   }
 
   Future<bool> exists(String messageId) async {

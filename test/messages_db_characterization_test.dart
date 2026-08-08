@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -37,6 +38,7 @@ Future<Database> _openMessagesDb() async {
       expiresAt INTEGER
     )
   ''');
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

@@ -367,6 +367,7 @@ class SettingsService {
   static const _searchBackfillCursorTsKey = 'search_backfill_cursor_ts';
   static const _searchBackfillCursorIdKey = 'search_backfill_cursor_id';
   static const _searchBackfillCompleteKey = 'search_backfill_complete';
+  static const _searchBackfillRetryPrefixKey = 'search_backfill_retry_';
 
   Future<bool> isSearchBackfillComplete() async =>
       _prefs?.getBool(_searchBackfillCompleteKey) ?? false;
@@ -393,4 +394,10 @@ class SettingsService {
     await _prefs?.setInt(_searchBackfillCursorTsKey, timestamp);
     await _prefs?.setString(_searchBackfillCursorIdKey, id);
   }
+
+  Future<int> getSearchBackfillFailureCount(String rowKey) async =>
+      _prefs?.getInt('$_searchBackfillRetryPrefixKey$rowKey') ?? 0;
+
+  Future<void> setSearchBackfillFailureCount(String rowKey, int count) async =>
+      await _prefs?.setInt('$_searchBackfillRetryPrefixKey$rowKey', count);
 }

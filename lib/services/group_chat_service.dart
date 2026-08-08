@@ -178,15 +178,17 @@ class GroupChatService {
       'expiresAt': ?expiresAt,
     });
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-      groupService: groupService,
-    ).indexOutboundGroupText(
-      messageId: id,
-      groupId: groupId,
-      timestamp: timestamp,
-      plaintext: text,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+        groupService: groupService,
+      ).indexOutboundGroupText(
+        messageId: id,
+        groupId: groupId,
+        timestamp: timestamp,
+        plaintext: text,
+      ),
     );
 
     if (expiresAt != null) {
@@ -277,16 +279,18 @@ class GroupChatService {
       'expiresAt': ?expiresAt,
     });
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-      groupService: groupService,
-    ).indexOutboundFile(
-      messageId: id,
-      conversationId: groupId,
-      scope: 'group',
-      timestamp: timestamp,
-      fileName: fileName,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+        groupService: groupService,
+      ).indexOutboundFile(
+        messageId: id,
+        conversationId: groupId,
+        scope: 'group',
+        timestamp: timestamp,
+        fileName: fileName,
+      ),
     );
 
     if (expiresAt != null) {

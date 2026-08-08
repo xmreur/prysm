@@ -80,4 +80,72 @@ void main() {
     expect(hits, hasLength(1));
     expect(hits.first.body, 'edited text');
   });
+
+  test('upsert with empty trimmed body removes the existing index row',
+      () async {
+    const dao = MessageSearchDao();
+    await dao.upsert(
+      messageId: 'm1',
+      conversationId: 'peer1',
+      scope: 'direct',
+      timestamp: 100,
+      body: 'hello world',
+    );
+    expect(await dao.searchGlobal('hello'), hasLength(1));
+
+    await dao.upsert(
+      messageId: 'm1',
+      conversationId: 'peer1',
+      scope: 'direct',
+      timestamp: 100,
+      body: '   ',
+    );
+
+    expect(await dao.searchGlobal('hello'), isEmpty);
+    expect(await dao.exists('m1'), isFalse);
+  });
+
+  test('same messageId in two groups stays independent', () async {
+    const dao = MessageSearchDao();
+    await dao.upsert(
+      messageId: 'shared',
+      conversationId: 'groupA',
+      scope: 'group',
+      timestamp: 100,
+      body: 'hello alpha',
+    );
+    await dao.upsert(
+      messageId: 'shared',
+      conversationId: 'groupB',
+      scope: 'group',
+      timestamp: 200,
+      body: 'hello beta',
+    );
+
+    // Upserting one group must not replace or delete the other group's hit.
+    await dao.upsert(
+      messageId: 'shared',
+      conversationId: 'groupA',
+      scope: 'group',
+      timestamp: 100,
+      body: 'edited alpha',
+    );
+
+    final editedHits = await dao.searchGlobal('edited');
+    expect(editedHits, hasLength(1));
+    expect(editedHits.first.conversationId, 'groupA');
+    final betaHits = await dao.searchGlobal('beta');
+    expect(betaHits, hasLength(1));
+    expect(betaHits.first.conversationId, 'groupB');
+
+    // Removing one group must not delete the other group's hit.
+    await dao.remove('shared', conversationId: 'groupA', scope: 'group');
+    expect(await dao.exists('shared'), isTrue);
+    final remaining = await dao.searchGlobal('beta');
+    expect(remaining, hasLength(1));
+    expect(remaining.first.conversationId, 'groupB');
+
+    await dao.remove('shared', conversationId: 'groupB', scope: 'group');
+    expect(await dao.exists('shared'), isFalse);
+  });
 }

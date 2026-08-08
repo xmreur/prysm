@@ -2,6 +2,7 @@ import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/models/conversation.dart';
 import 'package:prysm/util/message_preview_label.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -115,7 +116,11 @@ class SelfMessagesDb {
         where: 'id = ?',
         whereArgs: [messageId],
       );
-      await _searchDao.remove(messageId);
+      await _searchDao.removeUnprotected(
+        messageId,
+        conversationId: SelfConversation.conversationId,
+        scope: 'self',
+      );
     });
   }
 
@@ -158,7 +163,11 @@ class SelfMessagesDb {
         where: 'id = ? AND viewOnce = 1',
         whereArgs: [messageId],
       );
-      await _searchDao.remove(messageId);
+      await _searchDao.removeUnprotected(
+        messageId,
+        conversationId: SelfConversation.conversationId,
+        scope: 'self',
+      );
     });
   }
 }

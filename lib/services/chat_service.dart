@@ -240,14 +240,16 @@ class ChatService {
       'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-    ).indexOutboundDirectText(
-      messageId: id,
-      peerId: peerId,
-      timestamp: timestamp,
-      plaintext: text,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+      ).indexOutboundDirectText(
+        messageId: id,
+        peerId: peerId,
+        timestamp: timestamp,
+        plaintext: text,
+      ),
     );
 
     if (expiresAt != null) {
@@ -333,29 +335,33 @@ class ChatService {
       'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-    ).indexOutboundFile(
-      messageId: id,
-      conversationId: peerId,
-      scope: 'direct',
-      timestamp: timestamp,
-      fileName: fileName,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+      ).indexOutboundFile(
+        messageId: id,
+        conversationId: peerId,
+        scope: 'direct',
+        timestamp: timestamp,
+        fileName: fileName,
+      ),
     );
 
     if (expiresAt != null) {
-      final wsConnected =
-          TransportProvider.instance.isRealtimeConnected(peerId);
-      final peerSupports = TransportProvider.instance.wsManager
-          .peerSupportsFileTransfer(peerId);
-      if (FileTransferPolicy.shouldUseChunkedTransfer(
-        fileSizeBytes: bytes.length,
-        wsConnected: wsConnected,
-        peerSupportsFileTransfer: peerSupports,
-      )) {
-        FileTransferProgress.uploadNotifier(id);
-      }
+      DisappearingActivityNotifier.instance.notify();
+    }
+
+    final wsConnected =
+        TransportProvider.instance.isRealtimeConnected(peerId);
+    final peerSupports = TransportProvider.instance.wsManager
+        .peerSupportsFileTransfer(peerId);
+    if (FileTransferPolicy.shouldUseChunkedTransfer(
+      fileSizeBytes: bytes.length,
+      wsConnected: wsConnected,
+      peerSupportsFileTransfer: peerSupports,
+    )) {
+      FileTransferProgress.uploadNotifier(id);
     }
 
     final success = await _sendOverTor(

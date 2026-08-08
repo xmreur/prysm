@@ -22,12 +22,43 @@ class MessageSearchIndexService {
   final MessageSearchDao _dao;
   final KeyManager keyManager;
   final String userId;
-  final GroupService? _groupService;
+  GroupService? _groupService;
   late final MessageViewMapper _viewMapper =
       MessageViewMapper(keyManager: keyManager);
 
   GroupService get _groups =>
-      _groupService ?? GroupService(userId: userId, keyManager: keyManager);
+      _groupService ??= GroupService(userId: userId, keyManager: keyManager);
+
+  /// Searchable direct-message types (mirrors `directMessageTypes`).
+  static const List<String> searchableDirectTypes = [
+    'text',
+    'file',
+    'image',
+    'audio',
+  ];
+
+  /// Searchable group-message types.
+  static const List<String> searchableGroupTypes = [
+    groupTextType,
+    groupImageType,
+    groupFileType,
+    groupAudioType,
+  ];
+
+  /// Runs an index action best-effort: failures are logged and swallowed so
+  /// message delivery, notification, and upload flows never depend on FTS.
+  static Future<void> indexBestEffort(
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } catch (e, stack) {
+      Logging.error(
+        'Message search indexing failed: $e\n$stack',
+        'MessageSearch',
+      );
+    }
+  }
 
   static bool isSearchableDirectType(String? type) =>
       type == null || isDirectMessageType(type);
@@ -35,7 +66,7 @@ class MessageSearchIndexService {
   static bool isSearchableGroupType(String type) => isGroupMessageType(type);
 
   static bool isSearchableSelfType(String? type) =>
-      type == null || type == 'text' || type == 'file' || type == 'image' || type == 'audio';
+      type == null || searchableDirectTypes.contains(type);
 
   Future<void> indexOutboundDirectText({
     required String messageId,
@@ -123,12 +154,16 @@ class MessageSearchIndexService {
 
   Future<void> removeMessage(String messageId) => _dao.remove(messageId);
 
-  Future<void> indexInboundRow(
+  /// Indexes an inbound row; returns false when the row could not be indexed
+  /// (decryption failure, missing group text, unreadable payload) so callers
+  /// like the backfill can retry it. Legitimate skips (deleted, viewed
+  /// view-once, non-searchable type) return true.
+  Future<bool> indexInboundRow(
     Map<String, dynamic> row,
     String localUserId,
   ) async {
-    if (row['deletedAt'] != null) return;
-    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return;
+    if (row['deletedAt'] != null) return true;
+    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return true;
 
     final storageId = row['id'] as String;
     final wireId = MessageIdCodec.wireIdFromStorage(storageId);
@@ -138,10 +173,10 @@ class MessageSearchIndexService {
     final senderId = row['senderId'] as String;
 
     if (groupId != null) {
-      if (type == null || !isSearchableGroupType(type)) return;
+      if (type == null || !isSearchableGroupType(type)) return true;
       if (type == groupTextType) {
         final text = await _decryptGroupText(row, groupId, senderId);
-        if (text == null) return;
+        if (text == null) return false;
         await _dao.upsert(
           messageId: wireId,
           conversationId: groupId,
@@ -151,7 +186,7 @@ class MessageSearchIndexService {
         );
       } else {
         final fileName = row['fileName'] as String?;
-        if (fileName == null || fileName.trim().isEmpty) return;
+        if (fileName == null || fileName.trim().isEmpty) return true;
         await indexOutboundFile(
           messageId: wireId,
           conversationId: groupId,
@@ -160,10 +195,10 @@ class MessageSearchIndexService {
           fileName: fileName,
         );
       }
-      return;
+      return true;
     }
 
-    if (type != null && !isSearchableDirectType(type)) return;
+    if (type != null && !isSearchableDirectType(type)) return true;
     if (type == 'text' || type == null) {
       try {
         final text = await _viewMapper.decryptDirectTextMessage(
@@ -180,12 +215,14 @@ class MessageSearchIndexService {
           timestamp: timestamp,
           body: text,
         );
+        return true;
       } catch (e) {
         Logging.error('Search index inbound decrypt failed: $e', 'MessageSearch');
+        return false;
       }
     } else {
       final fileName = row['fileName'] as String?;
-      if (fileName == null || fileName.trim().isEmpty) return;
+      if (fileName == null || fileName.trim().isEmpty) return true;
       final peerId =
           senderId == localUserId ? row['receiverId'] as String : senderId;
       await indexOutboundFile(
@@ -195,21 +232,24 @@ class MessageSearchIndexService {
         timestamp: timestamp,
         fileName: fileName,
       );
+      return true;
     }
   }
 
-  Future<void> indexSelfRow(Map<String, dynamic> row) async {
-    if (row['deletedAt'] != null) return;
-    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return;
+  /// Indexes a self-message row; returns false when the row could not be
+  /// indexed so callers like the backfill can retry it.
+  Future<bool> indexSelfRow(Map<String, dynamic> row) async {
+    if (row['deletedAt'] != null) return true;
+    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return true;
 
     final messageId = row['id'] as String;
     final type = row['type'] as String?;
     final timestamp = row['timestamp'] as int;
-    if (!isSearchableSelfType(type)) return;
+    if (!isSearchableSelfType(type)) return true;
 
     if (type == 'text' || type == null) {
       final wire = row['message'] as String?;
-      if (wire == null || wire.isEmpty) return;
+      if (wire == null || wire.isEmpty) return false;
       try {
         final text = await keyManager.decryptMessage(wire);
         await indexSelfText(
@@ -217,17 +257,20 @@ class MessageSearchIndexService {
           timestamp: timestamp,
           plaintext: text,
         );
+        return true;
       } catch (e) {
         Logging.error('Search index self decrypt failed: $e', 'MessageSearch');
+        return false;
       }
     } else {
       final fileName = row['fileName'] as String?;
-      if (fileName == null || fileName.trim().isEmpty) return;
+      if (fileName == null || fileName.trim().isEmpty) return true;
       await indexSelfFile(
         messageId: messageId,
         timestamp: timestamp,
         fileName: fileName,
       );
+      return true;
     }
   }
 
@@ -268,32 +311,66 @@ class MessageSearchIndexService {
         .where((t) => t.isNotEmpty)
         .toList();
     if (tokens.isEmpty) {
-      return body.length <= maxLen ? body : '${body.substring(0, maxLen)}…';
+      return body.length <= maxLen
+          ? body
+          : '${_safeSubstring(body, 0, maxLen)}…';
     }
 
     var matchStart = -1;
     var matchLen = 0;
     for (final token in tokens) {
       final idx = lowerBody.indexOf(token);
-      if (idx >= 0) {
+      if (idx >= 0 && (matchStart < 0 || idx < matchStart)) {
         matchStart = idx;
         matchLen = token.length;
-        break;
       }
     }
     if (matchStart < 0) {
-      return body.length <= maxLen ? body : '${body.substring(0, maxLen)}…';
+      return body.length <= maxLen
+          ? body
+          : '${_safeSubstring(body, 0, maxLen)}…';
     }
 
+    // matchStart indexes lowerBody; case mapping may change string lengths,
+    // so guard it before applying it to body.
+    final guardedMatch = matchStart.clamp(0, body.length);
     const pad = 24;
-    final start = (matchStart - pad).clamp(0, body.length);
-    final end = (matchStart + matchLen + pad).clamp(0, body.length);
+    var start = (guardedMatch - pad).clamp(0, body.length);
+    var end = (guardedMatch + matchLen + pad).clamp(0, body.length);
+    if (start < body.length && _isLowSurrogate(body.codeUnitAt(start))) {
+      start++;
+    }
+    if (end < body.length && _isSurrogate(body.codeUnitAt(end))) {
+      end--;
+    }
+    if (end < start) end = start;
     var snippet = body.substring(start, end);
     if (start > 0) snippet = '…$snippet';
     if (end < body.length) snippet = '$snippet…';
     if (snippet.length > maxLen) {
-      snippet = '${snippet.substring(0, maxLen)}…';
+      snippet = '${_safeSubstring(snippet, 0, maxLen)}…';
     }
     return snippet;
+  }
+
+  static bool _isHighSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+
+  static bool _isLowSurrogate(int codeUnit) =>
+      codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
+
+  static bool _isSurrogate(int codeUnit) =>
+      _isHighSurrogate(codeUnit) || _isLowSurrogate(codeUnit);
+
+  /// Substrings [start, end) without splitting a surrogate pair.
+  static String _safeSubstring(String value, int start, int end) {
+    if (start < value.length && _isLowSurrogate(value.codeUnitAt(start))) {
+      start++;
+    }
+    if (end > start && end < value.length && _isSurrogate(value.codeUnitAt(end))) {
+      end--;
+    }
+    if (end < start) end = start;
+    return value.substring(start, end);
   }
 }

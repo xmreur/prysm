@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/message_search_backfill_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -43,6 +45,15 @@ class _FakeStore implements MessageSearchBackfillStore {
     store['search_backfill_cursor_ts'] = timestamp;
     store['search_backfill_cursor_id'] = id;
   }
+
+  @override
+  Future<int> getSearchBackfillFailureCount(String rowKey) async =>
+      store['search_backfill_failures_$rowKey'] as int? ?? 0;
+
+  @override
+  Future<void> setSearchBackfillFailureCount(String rowKey, int count) async {
+    store['search_backfill_failures_$rowKey'] = count;
+  }
 }
 
 void main() {
@@ -53,6 +64,7 @@ void main() {
   });
 
   setUp(() async {
+    CryptoKeyStore.setUseInMemoryStorageOnly(true);
     final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
     await MessageSchemaMigrations.onCreate(db, MessageSchemaMigrations.dbVersion);
     await db.insert('messages', {
@@ -72,7 +84,18 @@ void main() {
     MessagesDb.setDatabaseForTest(null);
   });
 
-  test('backfill skips rows that fail decrypt but marks complete', () async {
+  Future<KeyManager> unlockedKeyManager() async {
+    final keyManager = KeyManager();
+    final ok = await keyManager.unlockWithPassphrase(
+      'backfill-test-passphrase',
+      type: UnlockType.passphrase,
+    );
+    expect(ok, isTrue);
+    return keyManager;
+  }
+
+  test('backfill stops on decrypt failure, retains cursor, retries next run',
+      () async {
     final store = _FakeStore();
     final service = MessageSearchBackfillService(
       keyManager: KeyManager(),
@@ -82,6 +105,168 @@ void main() {
 
     await service.startIfNeeded();
 
+    expect(await store.isSearchBackfillComplete(), isFalse);
+    expect(await store.getSearchBackfillPhase(), 'messages');
+    expect(await store.getSearchBackfillCursorTimestamp(), 0);
+    expect(await store.getSearchBackfillCursorId(), '');
+    expect(await store.getSearchBackfillFailureCount('m1'), 1);
+    const dao = MessageSearchDao();
+    expect(await dao.searchGlobal('anything'), isEmpty);
+
+    // A second startIfNeeded retries the same row without completing.
+    await service.startIfNeeded();
+    expect(await store.getSearchBackfillFailureCount('m1'), 2);
+    expect(await store.isSearchBackfillComplete(), isFalse);
+  });
+
+  test('backfill indexes decryptable rows and marks complete', () async {
+    final keyManager = await unlockedKeyManager();
+    final encrypted = await keyManager.encryptForSelf('needle in haystack');
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('messages', {
+      'id': 'm1',
+      'senderId': 'me',
+      'receiverId': 'peer',
+      'message': encrypted,
+      'type': 'text',
+      'timestamp': 100,
+      'status': 'sent',
+    });
+
+    final store = _FakeStore();
+    await MessageSearchBackfillService(
+      keyManager: keyManager,
+      userId: 'me',
+      store: store,
+    ).startIfNeeded();
+
+    expect(await store.isSearchBackfillComplete(), isTrue);
+    expect(await store.getSearchBackfillPhase(), 'done');
+    const dao = MessageSearchDao();
+    final hits = await dao.searchGlobal('needle');
+    expect(hits, hasLength(1));
+    expect(hits.first.messageId, 'm1');
+  });
+
+  test('messages-to-self transition resets the cursor to (0, \'\')', () async {
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('self_messages', {
+      'id': 's1',
+      'message': 'encrypted',
+      'type': 'text',
+      'timestamp': 100,
+    });
+
+    final store = _FakeStore();
+    await MessageSearchBackfillService(
+      keyManager: KeyManager(),
+      userId: 'me',
+      store: store,
+    ).startIfNeeded();
+
+    expect(await store.getSearchBackfillPhase(), 'self');
+    expect(await store.getSearchBackfillCursorTimestamp(), 0);
+    expect(await store.getSearchBackfillCursorId(), '');
+    expect(await store.isSearchBackfillComplete(), isFalse);
+    expect(await store.getSearchBackfillFailureCount('s1'), 1);
+  });
+
+  test('resumption from a non-zero cursor skips earlier rows', () async {
+    final keyManager = await unlockedKeyManager();
+    final encrypted = await keyManager.encryptForSelf('needle in haystack');
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('messages', {
+      'id': 'm1',
+      'senderId': 'me',
+      'receiverId': 'peer',
+      'message': encrypted,
+      'type': 'text',
+      'timestamp': 100,
+      'status': 'sent',
+    });
+    await db.insert('messages', {
+      'id': 'm2',
+      'senderId': 'me',
+      'receiverId': 'peer',
+      'message': encrypted,
+      'type': 'text',
+      'timestamp': 200,
+      'status': 'sent',
+    });
+
+    final store = _FakeStore();
+    await store.setSearchBackfillCursor(timestamp: 100, id: 'm1');
+    await MessageSearchBackfillService(
+      keyManager: keyManager,
+      userId: 'me',
+      store: store,
+    ).startIfNeeded();
+
+    expect(await store.isSearchBackfillComplete(), isTrue);
+    const dao = MessageSearchDao();
+    final hits = await dao.searchGlobal('needle');
+    // m1 sits at/behind the cursor and must not be re-indexed; only m2 is.
+    expect(hits.map((h) => h.messageId).toList(), ['m2']);
+  });
+
+  test('resumption skips already-indexed rows', () async {
+    final keyManager = await unlockedKeyManager();
+    final encrypted = await keyManager.encryptForSelf('needle in haystack');
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('messages', {
+      'id': 'm1',
+      'senderId': 'me',
+      'receiverId': 'peer',
+      'message': encrypted,
+      'type': 'text',
+      'timestamp': 100,
+      'status': 'sent',
+    });
+
+    const dao = MessageSearchDao();
+    await dao.upsert(
+      messageId: 'm1',
+      conversationId: 'peer',
+      scope: 'direct',
+      timestamp: 100,
+      body: 'pre-indexed copy',
+    );
+
+    final store = _FakeStore();
+    await MessageSearchBackfillService(
+      keyManager: keyManager,
+      userId: 'me',
+      store: store,
+    ).startIfNeeded();
+
+    expect(await store.isSearchBackfillComplete(), isTrue);
+    final hits = await dao.searchGlobal('pre-indexed');
+    expect(hits, hasLength(1));
+    expect(hits.first.body, 'pre-indexed copy');
+  });
+
+  test('backfill permanently skips a row after max retries and completes',
+      () async {
+    final store = _FakeStore();
+    final service = MessageSearchBackfillService(
+      keyManager: KeyManager(),
+      userId: 'me',
+      store: store,
+    );
+
+    // Exhaust the retry budget for m1, then a fresh run skips it permanently.
+    for (var i = 0; i < 4; i++) {
+      await service.startIfNeeded();
+    }
+    expect(await store.getSearchBackfillFailureCount('m1'), 4);
+    expect(await store.isSearchBackfillComplete(), isFalse);
+
+    await service.startIfNeeded();
+    expect(await store.getSearchBackfillFailureCount('m1'), 5);
     expect(await store.isSearchBackfillComplete(), isTrue);
     const dao = MessageSearchDao();
     expect(await dao.searchGlobal('anything'), isEmpty);

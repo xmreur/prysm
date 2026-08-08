@@ -674,10 +674,13 @@ class InboundMessageRouter {
     }
 
     if (inserted != null && inserted['status'] != 'pending_auth') {
-      await MessageSearchIndexService(
-        keyManager: keyManager,
-        userId: localId,
-      ).indexInboundRow(inserted, localId);
+      final row = inserted;
+      await MessageSearchIndexService.indexBestEffort(
+        () => MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: localId,
+        ).indexInboundRow(row, localId),
+      );
 
       InboundMessageNotifier.instance.notify(
         InboundMessageEvent.fromRow(inserted),

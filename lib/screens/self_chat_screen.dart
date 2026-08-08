@@ -168,6 +168,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     final initialId = widget.initialScrollToMessageId;
     if (initialId != null && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         unawaited(_scrollToMessage(initialId));
       });
     }
@@ -615,7 +616,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       actions: [
         PrysmIconButton(
           icon: PrysmIcons.search,
-          onPressed: () => setState(() => _showChatSearch = !_showChatSearch),
+          onPressed: () => setState(() {
+            _showChatSearch = !_showChatSearch;
+            if (!_showChatSearch) _chatHighlightQuery = '';
+          }),
         ),
       ],
       bottom: _showChatSearch

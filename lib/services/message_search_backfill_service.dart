@@ -1,4 +1,3 @@
-import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/message_id_codec.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
@@ -6,6 +5,8 @@ import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/message_blob_store.dart';
+
 abstract class MessageSearchBackfillStore {
   Future<bool> isSearchBackfillComplete();
   Future<void> setSearchBackfillComplete(bool value);
@@ -17,6 +18,8 @@ abstract class MessageSearchBackfillStore {
     required int timestamp,
     required String id,
   });
+  Future<int> getSearchBackfillFailureCount(String rowKey);
+  Future<void> setSearchBackfillFailureCount(String rowKey, int count);
 }
 
 class SettingsMessageSearchBackfillStore implements MessageSearchBackfillStore {
@@ -52,6 +55,14 @@ class SettingsMessageSearchBackfillStore implements MessageSearchBackfillStore {
     required String id,
   }) =>
       _settings.setSearchBackfillCursor(timestamp: timestamp, id: id);
+
+  @override
+  Future<int> getSearchBackfillFailureCount(String rowKey) =>
+      _settings.getSearchBackfillFailureCount(rowKey);
+
+  @override
+  Future<void> setSearchBackfillFailureCount(String rowKey, int count) =>
+      _settings.setSearchBackfillFailureCount(rowKey, count);
 }
 
 /// Backfills the FTS index for messages stored before search was enabled.
@@ -70,7 +81,14 @@ class MessageSearchBackfillService {
   final MessageSearchBackfillStore _settings;
 
   static const _batchSize = 200;
-  bool _running = false;
+
+  /// Attempts before an un-indexable row is skipped permanently so backfill
+  /// completion is never blocked forever.
+  static const _maxRowRetries = 5;
+
+  /// Shared across instances so overlapping startIfNeeded calls observe the
+  /// same guard.
+  static bool _running = false;
 
   Future<void> startIfNeeded() async {
     if (_running) return;
@@ -107,39 +125,73 @@ class MessageSearchBackfillService {
           await _settings.setSearchBackfillCursor(timestamp: 0, id: '');
           continue;
         }
+        phase = 'done';
+        await _settings.setSearchBackfillPhase(phase);
         await _settings.setSearchBackfillComplete(true);
         return;
       }
 
+      var lastProcessed = <String, dynamic>{};
       for (final row in batch) {
         final messageId = phase == 'self'
             ? row['id'] as String
             : MessageIdCodec.wireIdFromStorage(row['id'] as String);
-        if (await _searchDao.exists(messageId)) continue;
+        if (await _searchDao.exists(messageId)) {
+          lastProcessed = row;
+          continue;
+        }
 
-        try {
-          if (phase == 'self') {
-            await indexService.indexSelfRow(row);
-          } else {
-            await indexService.indexInboundRow(row, userId);
+        final ok = phase == 'self'
+            ? await indexService.indexSelfRow(row)
+            : await indexService.indexInboundRow(row, userId);
+        if (!ok) {
+          final rowKey = row['id'] as String;
+          final failures =
+              await _settings.getSearchBackfillFailureCount(rowKey) + 1;
+          await _settings.setSearchBackfillFailureCount(rowKey, failures);
+          if (failures < _maxRowRetries) {
+            Logging.error(
+              'Search backfill failed for $messageId '
+              '($failures/$_maxRowRetries attempts), retrying next run',
+              'MessageSearchBackfill',
+            );
+            if (lastProcessed.isNotEmpty) {
+              await _settings.setSearchBackfillCursor(
+                timestamp: lastProcessed['timestamp'] as int,
+                id: lastProcessed['id'] as String,
+              );
+            }
+            return;
           }
-        } catch (e) {
           Logging.error(
-            'Search backfill failed for $messageId: $e',
+            'Search backfill permanently skipping un-indexable row '
+            '$messageId after $failures attempts',
             'MessageSearchBackfill',
           );
         }
+        lastProcessed = row;
       }
 
-      final last = batch.last;
-      cursorTs = last['timestamp'] as int;
-      cursorId = last['id'] as String;
       await _settings.setSearchBackfillCursor(
-        timestamp: cursorTs,
-        id: cursorId,
+        timestamp: lastProcessed['timestamp'] as int,
+        id: lastProcessed['id'] as String,
       );
+      cursorTs = lastProcessed['timestamp'] as int;
+      cursorId = lastProcessed['id'] as String;
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
+  }
+
+  static const _messageColumns =
+      'id, type, timestamp, groupId, senderId, receiverId, message, '
+      'fileName, deletedAt, viewOnce, viewed';
+
+  static const _selfColumns =
+      'id, type, timestamp, message, fileName, deletedAt, viewOnce, viewed';
+
+  static String _typeInClause(List<String> types) {
+    final placeholders = List.filled(types.length, '?').join(', ');
+    return 'type IS NULL OR type IN ($placeholders)';
   }
 
   Future<List<Map<String, dynamic>>> _fetchMessagesBatch(
@@ -147,15 +199,17 @@ class MessageSearchBackfillService {
     String cursorId,
   ) async {
     final db = await MessagesDb.database;
-    return db.rawQuery(
+    final rows = await db.rawQuery(
       '''
-      SELECT *
+      SELECT $_messageColumns
       FROM messages
       WHERE deletedAt IS NULL
         AND (viewOnce IS NULL OR viewOnce = 0 OR viewed IS NULL OR viewed = 0)
         AND (
-          type IS NULL
-          OR type IN ('text', 'file', 'image', 'audio', ?, ?, ?, ?)
+          ${_typeInClause([
+        ...MessageSearchIndexService.searchableDirectTypes,
+        ...MessageSearchIndexService.searchableGroupTypes,
+      ])}
         )
         AND (
           timestamp > ?
@@ -165,16 +219,15 @@ class MessageSearchBackfillService {
       LIMIT ?
       ''',
       [
-        groupTextType,
-        groupImageType,
-        groupFileType,
-        groupAudioType,
+        ...MessageSearchIndexService.searchableDirectTypes,
+        ...MessageSearchIndexService.searchableGroupTypes,
         cursorTs,
         cursorTs,
         cursorId,
         _batchSize,
       ],
     );
+    return _resolveMessageBlobs(rows);
   }
 
   Future<List<Map<String, dynamic>>> _fetchSelfBatch(
@@ -182,13 +235,15 @@ class MessageSearchBackfillService {
     String cursorId,
   ) async {
     final db = await MessagesDb.database;
-    return db.rawQuery(
+    final rows = await db.rawQuery(
       '''
-      SELECT *
+      SELECT $_selfColumns
       FROM self_messages
       WHERE deletedAt IS NULL
         AND (viewOnce IS NULL OR viewOnce = 0 OR viewed IS NULL OR viewed = 0)
-        AND (type IS NULL OR type IN ('text', 'file', 'image', 'audio'))
+        AND (
+          ${_typeInClause(MessageSearchIndexService.searchableDirectTypes)}
+        )
         AND (
           timestamp > ?
           OR (timestamp = ? AND id > ?)
@@ -196,7 +251,28 @@ class MessageSearchBackfillService {
       ORDER BY timestamp ASC, id ASC
       LIMIT ?
       ''',
-      [cursorTs, cursorTs, cursorId, _batchSize],
+      [
+        ...MessageSearchIndexService.searchableDirectTypes,
+        cursorTs,
+        cursorTs,
+        cursorId,
+        _batchSize,
+      ],
     );
+    return _resolveMessageBlobs(rows);
+  }
+
+  /// Resolves `blob:` payload markers back into the original message payload
+  /// so decryption downstream receives the full ciphertext.
+  static Future<List<Map<String, dynamic>>> _resolveMessageBlobs(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    for (final row in rows) {
+      final wire = row['message'] as String?;
+      if (wire != null && MessageBlobStore.isMarker(wire)) {
+        row['message'] = await MessageBlobStore.resolve(wire);
+      }
+    }
+    return rows;
   }
 }

@@ -53,11 +53,12 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 300), () async {
+      final submitted = trimmed;
       final hits = await MessagesDb.searchMessagesInConversation(
         widget.conversationId,
-        trimmed,
+        submitted,
       );
-      if (!mounted) return;
+      if (!mounted || submitted != _query) return;
       setState(() {
         _results = hits;
         _currentIndex = hits.isEmpty ? 0 : hits.length - 1;

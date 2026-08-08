@@ -42,6 +42,10 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _profilePhoto = true;
   GroupInviteMode _groupInviteMode = SettingsService().groupInviteMode;
 
+  /// True while a mode change is being persisted. Blocks a second selection
+  /// from racing the first one's `GroupPendingInviteStore.clear()`.
+  bool _applyingInviteMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -82,17 +86,32 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 
   Future<void> _onGroupInviteModeChanged(GroupInviteMode? value) async {
     if (value == null || value == _groupInviteMode) return;
-    setState(() => _groupInviteMode = value);
-    await settings.setGroupInviteMode(value);
-    if (value == GroupInviteMode.contactsOnly) {
-      // The mode promises nothing is stored: switching to it discards what
-      // was held, so the requests screen cannot keep showing rows the user
-      // just asked not to keep.
-      await GroupPendingInviteStore.clear();
-      // The sidebar caches the pending count and would keep advertising
-      // requests that no longer exist; this is the notifier the home screen
-      // already listens to for a light reload.
-      ConversationRefreshNotifier.instance.notifyInboundMessage();
+    // Reentrancy guard, not decoration. Without it: tap contactsOnly, tap
+    // holdAsRequest before the first await returns, and the first invocation
+    // resumes with its own captured `value` still == contactsOnly and wipes
+    // the store — while the committed mode is the one that allows holding.
+    if (_applyingInviteMode) return;
+    setState(() {
+      _groupInviteMode = value;
+      _applyingInviteMode = true;
+    });
+    try {
+      await settings.setGroupInviteMode(value);
+      // Re-read what was actually committed instead of trusting `value`: the
+      // clear is destructive and must follow the persisted mode, not the
+      // intent this closure was created with.
+      if (settings.groupInviteMode == GroupInviteMode.contactsOnly) {
+        // The mode promises nothing is stored: switching to it discards what
+        // was held, so the requests screen cannot keep showing rows the user
+        // just asked not to keep.
+        await GroupPendingInviteStore.clear();
+        // The sidebar caches the pending count and would keep advertising
+        // requests that no longer exist; this is the notifier the home screen
+        // already listens to for a light reload.
+        ConversationRefreshNotifier.instance.notifyInboundMessage();
+      }
+    } finally {
+      if (mounted) setState(() => _applyingInviteMode = false);
     }
   }
 
@@ -167,7 +186,9 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                         groupValue: _groupInviteMode,
                         title: mode.label,
                         subtitle: mode.description,
-                        onChanged: _onGroupInviteModeChanged,
+                        onChanged: _applyingInviteMode
+                            ? null
+                            : _onGroupInviteModeChanged,
                       ),
                   ],
                 ),

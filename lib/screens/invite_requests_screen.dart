@@ -14,6 +14,7 @@ import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 
 /// Group invites received from senders who are not in the local contacts.
@@ -45,6 +46,7 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
   List<Map<String, Object?>> _rows = const [];
   bool _loading = true;
   String? _busySenderId;
+  String? _error;
 
   @override
   void initState() {
@@ -53,12 +55,25 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
   }
 
   Future<void> _load() async {
-    final rows = await GroupPendingInviteStore.pending();
-    if (!mounted) return;
-    setState(() {
-      _rows = rows;
-      _loading = false;
-    });
+    try {
+      final rows = await GroupPendingInviteStore.pending();
+      if (!mounted) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      // Without this the screen keeps the progress indicator forever and the
+      // exception escapes the unawaited future in initState.
+      Logging.error('Reading the pending invites failed: $e',
+          'InviteRequestsScreen');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not read the pending requests.';
+      });
+    }
     widget.onChanged?.call();
   }
 
@@ -82,33 +97,54 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
   }
 
   Future<void> _accept(String senderId) async {
+    if (_busySenderId != null) return;
     setState(() => _busySenderId = senderId);
+    String? failTitle;
+    String? failBody;
     try {
       final added = await ContactAddService.instance.addContact(
         onionId: senderId,
         displayName: '',
       );
-      if (!mounted) return;
       if (!added) {
-        await showPrysmDialog<void>(
-          context: context,
-          title: 'Could not reach this contact',
-          content: const Text(
-            'The invite is still waiting. Try again when they are online.',
-          ),
-          confirmLabel: 'OK',
-          onConfirm: () => Navigator.of(context).pop(),
-        );
-        return;
+        failTitle = 'Could not reach this contact';
+        failBody = 'The invite is still waiting. '
+            'Try again when they are online.';
+      } else {
+        final joined = await GroupInvitePromoter(
+          userId: widget.onionAddress,
+          keyManager: widget.keyManager,
+        ).promote(senderId);
+        if (!joined) {
+          // promote() consumes the row either way — an envelope that fails to
+          // authenticate is garbage and retrying it forever is worse. Say so,
+          // or the request just disappears with no group to show for it and
+          // the contact silently added.
+          failTitle = 'Could not join the group';
+          failBody = 'The contact was added, but this invite could not be '
+              'applied and has been removed. Ask them to invite you again.';
+        }
       }
-      await GroupInvitePromoter(
-        userId: widget.onionAddress,
-        keyManager: widget.keyManager,
-      ).promote(senderId);
+    } catch (e) {
+      Logging.error(
+        'Accepting the invite from ${Logging.redactOnion(senderId)} failed: $e',
+        'InviteRequestsScreen',
+      );
+      failTitle = 'Could not join the group';
+      failBody = 'Something went wrong while accepting this invite.';
     } finally {
       if (mounted) setState(() => _busySenderId = null);
     }
+    // Always reload: the row may be gone whether or not the join succeeded.
     await _load();
+    if (!mounted || failTitle == null) return;
+    await showPrysmDialog<void>(
+      context: context,
+      title: failTitle,
+      content: Text(failBody!),
+      confirmLabel: 'OK',
+      onConfirm: () => Navigator.of(context).pop(),
+    );
   }
 
   Future<void> _discard(String senderId) async {
@@ -134,7 +170,16 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
       ),
       body: _loading
           ? const Center(child: PrysmProgressIndicator())
-          : _rows.isEmpty
+          : _error != null
+              ? Center(
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: context.prysmStyle.tokens.textMuted,
+                    ),
+                  ),
+                )
+              : _rows.isEmpty
               ? Center(
                   child: Text(
                     'No invite requests',
@@ -152,6 +197,11 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
                     final senderId = row['senderId'] as String;
                     final short = _shortOnion(senderId);
                     final busy = _busySenderId == senderId;
+                    // Every row is locked while any accept runs, not just the
+                    // busy one: _busySenderId holds a single sender, so a
+                    // second tap would steal it, drop the first row's spinner
+                    // and leave two accept flows racing the same store.
+                    final locked = _busySenderId != null;
 
                     return PrysmListRow(
                       leading: ContactAvatar(name: short, avatarBase64: null),
@@ -167,11 +217,13 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
                               children: [
                                 PrysmTextButton(
                                   label: 'Discard',
-                                  onPressed: () => _discard(senderId),
+                                  onPressed:
+                                      locked ? null : () => _discard(senderId),
                                 ),
                                 PrysmTextButton(
                                   label: 'Add contact and join',
-                                  onPressed: () => _accept(senderId),
+                                  onPressed:
+                                      locked ? null : () => _accept(senderId),
                                 ),
                               ],
                             ),

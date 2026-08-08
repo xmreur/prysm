@@ -55,7 +55,14 @@ void main() {
     expect(scoped.first.messageId, 'm2');
 
     await dao.remove('m1');
-    expect(await dao.exists('m1'), isFalse);
+    expect(
+      await dao.exists(
+        messageId: 'm1',
+        conversationId: 'peer1',
+        scope: 'direct',
+      ),
+      isFalse,
+    );
     expect(await dao.searchGlobal('hello'), isEmpty);
   });
 
@@ -102,7 +109,14 @@ void main() {
     );
 
     expect(await dao.searchGlobal('hello'), isEmpty);
-    expect(await dao.exists('m1'), isFalse);
+    expect(
+      await dao.exists(
+        messageId: 'm1',
+        conversationId: 'peer1',
+        scope: 'direct',
+      ),
+      isFalse,
+    );
   });
 
   test('same messageId in two groups stays independent', () async {
@@ -140,12 +154,34 @@ void main() {
 
     // Removing one group must not delete the other group's hit.
     await dao.remove('shared', conversationId: 'groupA', scope: 'group');
-    expect(await dao.exists('shared'), isTrue);
+    expect(
+      await dao.exists(
+        messageId: 'shared',
+        conversationId: 'groupA',
+        scope: 'group',
+      ),
+      isFalse,
+    );
+    expect(
+      await dao.exists(
+        messageId: 'shared',
+        conversationId: 'groupB',
+        scope: 'group',
+      ),
+      isTrue,
+    );
     final remaining = await dao.searchGlobal('beta');
     expect(remaining, hasLength(1));
     expect(remaining.first.conversationId, 'groupB');
 
     await dao.remove('shared', conversationId: 'groupB', scope: 'group');
-    expect(await dao.exists('shared'), isFalse);
+    expect(
+      await dao.exists(
+        messageId: 'shared',
+        conversationId: 'groupB',
+        scope: 'group',
+      ),
+      isFalse,
+    );
   });
 }

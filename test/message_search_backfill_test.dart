@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/message_search_dao.dart';
@@ -7,6 +8,21 @@ import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/message_search_backfill_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+class _FailingSearchDao extends MessageSearchDao {
+  const _FailingSearchDao();
+
+  @override
+  Future<void> upsert({
+    required String messageId,
+    required String conversationId,
+    required String scope,
+    required int timestamp,
+    required String body,
+  }) async {
+    throw StateError('fts write failed');
+  }
+}
 
 class _FakeStore implements MessageSearchBackfillStore {
   final Map<String, Object> store = {};
@@ -268,6 +284,98 @@ void main() {
     await service.startIfNeeded();
     expect(await store.getSearchBackfillFailureCount('m1'), 5);
     expect(await store.isSearchBackfillComplete(), isTrue);
+    const dao = MessageSearchDao();
+    expect(await dao.searchGlobal('anything'), isEmpty);
+  });
+
+  test('identical wire ids in two groups are backfilled independently',
+      () async {
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('messages', {
+      'id': 'groupA::shared',
+      'senderId': 'alice',
+      'receiverId': 'me',
+      'message': 'unused',
+      'type': groupFileType,
+      'groupId': 'groupA',
+      'fileName': 'alpha.txt',
+      'timestamp': 100,
+      'status': 'sent',
+    });
+    await db.insert('messages', {
+      'id': 'groupB::shared',
+      'senderId': 'alice',
+      'receiverId': 'me',
+      'message': 'unused',
+      'type': groupFileType,
+      'groupId': 'groupB',
+      'fileName': 'beta.txt',
+      'timestamp': 200,
+      'status': 'sent',
+    });
+
+    final store = _FakeStore();
+    await MessageSearchBackfillService(
+      keyManager: KeyManager(),
+      userId: 'me',
+      store: store,
+    ).startIfNeeded();
+
+    expect(await store.isSearchBackfillComplete(), isTrue);
+    const dao = MessageSearchDao();
+    final alpha = await dao.searchGlobal('alpha');
+    expect(alpha, hasLength(1));
+    expect(alpha.first.messageId, 'shared');
+    expect(alpha.first.conversationId, 'groupA');
+    final beta = await dao.searchGlobal('beta');
+    expect(beta, hasLength(1));
+    expect(beta.first.messageId, 'shared');
+    expect(beta.first.conversationId, 'groupB');
+
+    // Deleting one group's hit leaves the other group's hit intact.
+    await dao.remove('shared', conversationId: 'groupA', scope: 'group');
+    expect(await dao.searchGlobal('beta'), hasLength(1));
+  });
+
+  test('backfill retries when the FTS write fails, retaining the cursor',
+      () async {
+    final db = await MessagesDb.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: ['m1']);
+    await db.insert('messages', {
+      'id': 'groupX::m1',
+      'senderId': 'alice',
+      'receiverId': 'me',
+      'message': 'unused',
+      'type': groupFileType,
+      'groupId': 'groupX',
+      'fileName': 'f.txt',
+      'timestamp': 100,
+      'status': 'sent',
+    });
+
+    final store = _FakeStore();
+    final service = MessageSearchBackfillService(
+      keyManager: KeyManager(),
+      userId: 'me',
+      store: store,
+      searchDao: const _FailingSearchDao(),
+    );
+
+    await service.startIfNeeded();
+
+    expect(await store.isSearchBackfillComplete(), isFalse);
+    expect(await store.getSearchBackfillPhase(), 'messages');
+    expect(await store.getSearchBackfillCursorTimestamp(), 0);
+    expect(await store.getSearchBackfillCursorId(), '');
+    expect(await store.getSearchBackfillFailureCount('groupX::m1'), 1);
+
+    // A second run retries the same row instead of advancing past it.
+    await service.startIfNeeded();
+    expect(await store.getSearchBackfillFailureCount('groupX::m1'), 2);
+    expect(await store.getSearchBackfillCursorTimestamp(), 0);
+    expect(await store.isSearchBackfillComplete(), isFalse);
+
     const dao = MessageSearchDao();
     expect(await dao.searchGlobal('anything'), isEmpty);
   });

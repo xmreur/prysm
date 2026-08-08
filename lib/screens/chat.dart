@@ -717,6 +717,16 @@ class _ChatScreenState extends State<ChatScreen> {
     if (oldWidget.peerAvatarBase64 != widget.peerAvatarBase64) {
       setState(() => _peerAvatarBase64 = widget.peerAvatarBase64);
     }
+
+    final scrollId = widget.initialScrollToMessageId;
+    if (scrollId != null &&
+        scrollId != oldWidget.initialScrollToMessageId &&
+        oldWidget.peerId == widget.peerId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(scrollId));
+      });
+    }
   }
 
   void _applyModifyUpdate(MessageModifyUpdate update) {

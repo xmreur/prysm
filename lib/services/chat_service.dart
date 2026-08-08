@@ -352,10 +352,11 @@ class ChatService {
       DisappearingActivityNotifier.instance.notify();
     }
 
-    final wsConnected =
+    final wsConnected = TransportProvider.isConfigured &&
         TransportProvider.instance.isRealtimeConnected(peerId);
-    final peerSupports = TransportProvider.instance.wsManager
-        .peerSupportsFileTransfer(peerId);
+    final peerSupports = TransportProvider.isConfigured &&
+        TransportProvider.instance.wsManager
+            .peerSupportsFileTransfer(peerId);
     if (FileTransferPolicy.shouldUseChunkedTransfer(
       fileSizeBytes: bytes.length,
       wsConnected: wsConnected,

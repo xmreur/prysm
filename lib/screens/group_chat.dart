@@ -307,6 +307,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _senderNames.clear();
       _memberCount = 0;
       _bootstrapForGroup();
+      return;
+    }
+    final scrollId = widget.initialScrollToMessageId;
+    if (scrollId != null && scrollId != oldWidget.initialScrollToMessageId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(scrollId));
+      });
     }
   }
 

@@ -147,6 +147,18 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant SelfChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final scrollId = widget.initialScrollToMessageId;
+    if (scrollId != null && scrollId != oldWidget.initialScrollToMessageId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(scrollId));
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _highlightTimer?.cancel();
     _detachedInboundSub?.cancel();

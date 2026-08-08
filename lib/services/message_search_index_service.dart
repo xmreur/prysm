@@ -152,7 +152,12 @@ class MessageSearchIndexService {
         body: plaintext,
       );
 
-  Future<void> removeMessage(String messageId) => _dao.remove(messageId);
+  Future<void> removeMessage(
+    String messageId, {
+    String? conversationId,
+    String? scope,
+  }) =>
+      _dao.remove(messageId, conversationId: conversationId, scope: scope);
 
   /// Indexes an inbound row; returns false when the row could not be indexed
   /// (decryption failure, missing group text, unreadable payload) so callers
@@ -177,23 +182,33 @@ class MessageSearchIndexService {
       if (type == groupTextType) {
         final text = await _decryptGroupText(row, groupId, senderId);
         if (text == null) return false;
-        await _dao.upsert(
-          messageId: wireId,
-          conversationId: groupId,
-          scope: 'group',
-          timestamp: timestamp,
-          body: text,
-        );
+        try {
+          await _dao.upsert(
+            messageId: wireId,
+            conversationId: groupId,
+            scope: 'group',
+            timestamp: timestamp,
+            body: text,
+          );
+        } catch (e) {
+          Logging.error('Search index group-text write failed: $e', 'MessageSearch');
+          return false;
+        }
       } else {
         final fileName = row['fileName'] as String?;
         if (fileName == null || fileName.trim().isEmpty) return true;
-        await indexOutboundFile(
-          messageId: wireId,
-          conversationId: groupId,
-          scope: 'group',
-          timestamp: timestamp,
-          fileName: fileName,
-        );
+        try {
+          await indexOutboundFile(
+            messageId: wireId,
+            conversationId: groupId,
+            scope: 'group',
+            timestamp: timestamp,
+            fileName: fileName,
+          );
+        } catch (e) {
+          Logging.error('Search index group-file write failed: $e', 'MessageSearch');
+          return false;
+        }
       }
       return true;
     }
@@ -225,13 +240,18 @@ class MessageSearchIndexService {
       if (fileName == null || fileName.trim().isEmpty) return true;
       final peerId =
           senderId == localUserId ? row['receiverId'] as String : senderId;
-      await indexOutboundFile(
-        messageId: wireId,
-        conversationId: peerId,
-        scope: 'direct',
-        timestamp: timestamp,
-        fileName: fileName,
-      );
+      try {
+        await indexOutboundFile(
+          messageId: wireId,
+          conversationId: peerId,
+          scope: 'direct',
+          timestamp: timestamp,
+          fileName: fileName,
+        );
+      } catch (e) {
+        Logging.error('Search index direct-file write failed: $e', 'MessageSearch');
+        return false;
+      }
       return true;
     }
   }
@@ -265,11 +285,16 @@ class MessageSearchIndexService {
     } else {
       final fileName = row['fileName'] as String?;
       if (fileName == null || fileName.trim().isEmpty) return true;
-      await indexSelfFile(
-        messageId: messageId,
-        timestamp: timestamp,
-        fileName: fileName,
-      );
+      try {
+        await indexSelfFile(
+          messageId: messageId,
+          timestamp: timestamp,
+          fileName: fileName,
+        );
+      } catch (e) {
+        Logging.error('Search index self-file write failed: $e', 'MessageSearch');
+        return false;
+      }
       return true;
     }
   }

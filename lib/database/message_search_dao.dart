@@ -106,14 +106,18 @@ class MessageSearchDao {
     );
   }
 
-  Future<bool> exists(String messageId) async {
+  Future<bool> exists({
+    required String messageId,
+    required String conversationId,
+    required String scope,
+  }) async {
     return _protect(() async {
       final db = await _database;
       final rows = await db.query(
         'message_search_fts',
         columns: const ['messageId'],
-        where: 'messageId = ?',
-        whereArgs: [messageId],
+        where: 'messageId = ? AND conversationId = ? AND scope = ?',
+        whereArgs: [messageId, conversationId, scope],
         limit: 1,
       );
       return rows.isNotEmpty;

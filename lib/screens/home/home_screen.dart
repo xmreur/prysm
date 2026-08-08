@@ -219,23 +219,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       return;
     }
-    setState(() => _messageSearchLoading = true);
+    setState(() {
+      _messageSearchResults = [];
+      _messageSearchLoading = true;
+    });
     _messageSearchDebounce = Timer(const Duration(milliseconds: 300), () async {
       final submitted = query;
-      final hits = await MessagesDb.searchMessagesGlobal(submitted);
-      if (!mounted || submitted != _searchQuery) return;
-      final enriched = hits
-          .where((h) => !BlockService.instance.isBlocked(h.conversationId))
-          .map(
-            (h) => h.copyWith(
-              snippet: MessageSearchIndexService.buildSnippet(h.body, submitted),
-            ),
-          )
-          .toList();
-      setState(() {
-        _messageSearchResults = enriched;
-        _messageSearchLoading = false;
-      });
+      try {
+        final hits = await MessagesDb.searchMessagesGlobal(submitted);
+        if (!mounted || submitted != _searchQuery) return;
+        final enriched = hits
+            .where((h) => !BlockService.instance.isBlocked(h.conversationId))
+            .map(
+              (h) => h.copyWith(
+                snippet: MessageSearchIndexService.buildSnippet(h.body, submitted),
+              ),
+            )
+            .toList();
+        setState(() {
+          _messageSearchResults = enriched;
+          _messageSearchLoading = false;
+        });
+      } catch (e) {
+        if (!mounted || submitted != _searchQuery) return;
+        setState(() {
+          _messageSearchResults = [];
+          _messageSearchLoading = false;
+        });
+      }
     });
   }
 
@@ -257,8 +268,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _openMessageSearchResult(MessageSearchHit hit) {
-    _pendingScrollToMessageId = hit.messageId;
+    _pendingScrollToMessageId = null;
     if (hit.scope == 'self') {
+      _pendingScrollToMessageId = hit.messageId;
       onSelectSelfChat();
       return;
     }
@@ -268,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             orElse: () => null,
           );
       if (group != null) {
+        _pendingScrollToMessageId = hit.messageId;
         onSelectGroup(group);
       }
       return;
@@ -277,6 +290,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           orElse: () => null,
         );
     if (contact != null) {
+      _pendingScrollToMessageId = hit.messageId;
       onSelectContact(contact);
     }
   }
@@ -298,10 +312,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildSearchSidebarItem(int index) {
     var cursor = 0;
     if (_messageSearchLoading && _messageSearchResults.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Center(child: PrysmProgressIndicator()),
-      );
+      if (index == cursor) {
+        return const Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(child: PrysmProgressIndicator()),
+        );
+      }
+      cursor++;
     }
     if (_filteredConversations.isNotEmpty) {
       if (index == cursor) return _buildSearchSectionHeader('Chats');

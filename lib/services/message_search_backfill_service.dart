@@ -1,6 +1,7 @@
 import 'package:prysm/database/message_id_codec.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/models/conversation.dart';
 import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -133,17 +134,63 @@ class MessageSearchBackfillService {
 
       var lastProcessed = <String, dynamic>{};
       for (final row in batch) {
-        final messageId = phase == 'self'
-            ? row['id'] as String
-            : MessageIdCodec.wireIdFromStorage(row['id'] as String);
-        if (await _searchDao.exists(messageId)) {
+        if (phase == 'self') {
+          final messageId = row['id'] as String;
+          if (await _searchDao.exists(
+            messageId: messageId,
+            conversationId: SelfConversation.conversationId,
+            scope: 'self',
+          )) {
+            lastProcessed = row;
+            continue;
+          }
+          final ok = await indexService.indexSelfRow(row);
+          if (!ok) {
+            final rowKey = row['id'] as String;
+            final failures =
+                await _settings.getSearchBackfillFailureCount(rowKey) + 1;
+            await _settings.setSearchBackfillFailureCount(rowKey, failures);
+            if (failures < _maxRowRetries) {
+              Logging.error(
+                'Search backfill failed for $messageId '
+                '($failures/$_maxRowRetries attempts), retrying next run',
+                'MessageSearchBackfill',
+              );
+              if (lastProcessed.isNotEmpty) {
+                await _settings.setSearchBackfillCursor(
+                  timestamp: lastProcessed['timestamp'] as int,
+                  id: lastProcessed['id'] as String,
+                );
+              }
+              return;
+            }
+            Logging.error(
+              'Search backfill permanently skipping un-indexable row '
+              '$messageId after $failures attempts',
+              'MessageSearchBackfill',
+            );
+          }
           lastProcessed = row;
           continue;
         }
 
-        final ok = phase == 'self'
-            ? await indexService.indexSelfRow(row)
-            : await indexService.indexInboundRow(row, userId);
+        final messageId = MessageIdCodec.wireIdFromStorage(row['id'] as String);
+        final groupId = row['groupId'] as String?;
+        final conversationId = groupId ??
+            (row['senderId'] == userId
+                ? row['receiverId'] as String
+                : row['senderId'] as String);
+        final scope = groupId != null ? 'group' : 'direct';
+        if (await _searchDao.exists(
+          messageId: messageId,
+          conversationId: conversationId,
+          scope: scope,
+        )) {
+          lastProcessed = row;
+          continue;
+        }
+
+        final ok = await indexService.indexInboundRow(row, userId);
         if (!ok) {
           final rowKey = row['id'] as String;
           final failures =

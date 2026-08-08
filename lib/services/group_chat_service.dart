@@ -279,19 +279,21 @@ class GroupChatService {
       'expiresAt': ?expiresAt,
     });
 
-    await MessageSearchIndexService.indexBestEffort(
-      () => MessageSearchIndexService(
-        keyManager: keyManager,
-        userId: userId,
-        groupService: groupService,
-      ).indexOutboundFile(
-        messageId: id,
-        conversationId: groupId,
-        scope: 'group',
-        timestamp: timestamp,
-        fileName: fileName,
-      ),
-    );
+    if (!viewOnce) {
+      await MessageSearchIndexService.indexBestEffort(
+        () => MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: userId,
+          groupService: groupService,
+        ).indexOutboundFile(
+          messageId: id,
+          conversationId: groupId,
+          scope: 'group',
+          timestamp: timestamp,
+          fileName: fileName,
+        ),
+      );
+    }
 
     if (expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();

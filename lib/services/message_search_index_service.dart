@@ -7,6 +7,7 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_view_mapper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/message_blob_store.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 
 /// Keeps the FTS5 search index in sync with message lifecycle events.
@@ -168,7 +169,12 @@ class MessageSearchIndexService {
     String localUserId,
   ) async {
     if (row['deletedAt'] != null) return true;
-    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return true;
+    if ((row['viewOnce'] ?? 0) == 1) return true;
+    final wire = row['message'] as String?;
+    if (MessageBlobStore.isMarker(wire)) {
+      // Rows from sqflite are read-only; resolve into a fresh map.
+      row = {...row, 'message': await MessageBlobStore.resolve(wire)};
+    }
 
     final storageId = row['id'] as String;
     final wireId = MessageIdCodec.wireIdFromStorage(storageId);
@@ -260,7 +266,12 @@ class MessageSearchIndexService {
   /// indexed so callers like the backfill can retry it.
   Future<bool> indexSelfRow(Map<String, dynamic> row) async {
     if (row['deletedAt'] != null) return true;
-    if ((row['viewOnce'] ?? 0) == 1 && (row['viewed'] ?? 0) == 1) return true;
+    if ((row['viewOnce'] ?? 0) == 1) return true;
+    final wire = row['message'] as String?;
+    if (MessageBlobStore.isMarker(wire)) {
+      // Rows from sqflite are read-only; resolve into a fresh map.
+      row = {...row, 'message': await MessageBlobStore.resolve(wire)};
+    }
 
     final messageId = row['id'] as String;
     final type = row['type'] as String?;
@@ -328,6 +339,7 @@ class MessageSearchIndexService {
   }
 
   static String buildSnippet(String body, String query, {int maxLen = 80}) {
+    if (body.length <= maxLen) return body;
     final lowerBody = body.toLowerCase();
     final tokens = query
         .trim()

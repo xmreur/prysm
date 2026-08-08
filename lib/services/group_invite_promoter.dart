@@ -40,7 +40,19 @@ class GroupInvitePromoter {
   final KeyManager keyManager;
   final GroupService _groupService;
 
+  /// Applies the invite held for [senderId], if any. Returns whether a group
+  /// was actually joined.
+  ///
+  /// Refuses while the mode is `contactsOnly`. The gate belongs **here**, on
+  /// the effect, and not only on [promoteResolvable]: that mode promises
+  /// nothing is applied, `take` removes the row even when nothing can be done
+  /// with it, and this method is reachable from a screen that was already open
+  /// when the user changed the mode — its rows are whatever the last load
+  /// returned, not what the store holds now.
   Future<bool> promote(String senderId) async {
+    if (SettingsService().groupInviteMode == GroupInviteMode.contactsOnly) {
+      return false;
+    }
     final wire = await GroupPendingInviteStore.take(senderId);
     if (wire == null) return false;
     try {
@@ -62,9 +74,9 @@ class GroupInvitePromoter {
   /// Promotes every pending invite whose sender is now locally known.
   /// Returns how many were applied.
   ///
-  /// A no-op while the mode is `contactsOnly`: that mode promises nothing is
-  /// stored and nothing is applied, and any rows still present (e.g. held
-  /// before the mode changed) must not be promoted behind the user's back.
+  /// A no-op while the mode is `contactsOnly`. [promote] refuses there too, so
+  /// this is a fast path that skips the store read and the identity lookups —
+  /// not the guarantee itself.
   Future<int> promoteResolvable() async {
     if (SettingsService().groupInviteMode == GroupInviteMode.contactsOnly) {
       return 0;

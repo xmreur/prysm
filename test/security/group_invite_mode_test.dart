@@ -580,6 +580,45 @@ void main() {
           expect(await dbHelperDb.query('groups'), isEmpty);
         },
       );
+
+      test(
+        'contactsOnly: a direct promote applies nothing and keeps the row',
+        () async {
+          final inviter = await IdentityKeyPair.generate();
+          await router.handleMessage(await _inviteMessage(
+            id: 'm1',
+            inviterId: 'stranger.onion',
+            inviter: inviter,
+            recipient: localIdentity,
+            groupId: 'g1',
+          ));
+          expect(await GroupPendingInviteStore.count(), 1);
+          final json = jsonEncode(await inviter.toPublicJson());
+          await DBHelper.insertOrUpdateUser({
+            'id': 'stranger.onion',
+            'name': 'Stranger',
+            'identityJson': json,
+            'publicKeyPem': json,
+          });
+          await SettingsService().setGroupInviteMode(
+            GroupInviteMode.contactsOnly,
+          );
+
+          // promote() is what the invite requests screen calls. That screen
+          // can still be sitting on rows it loaded before the mode changed,
+          // so the gate has to hold here and not only in promoteResolvable —
+          // and it must refuse BEFORE take(), or the row is destroyed by the
+          // very call that was not allowed to apply it.
+          final joined = await GroupInvitePromoter(
+            userId: 'local.onion',
+            keyManager: KeyManager.fromIdentity(localIdentity),
+          ).promote('stranger.onion');
+
+          expect(joined, isFalse);
+          expect(await dbHelperDb.query('groups'), isEmpty);
+          expect(await GroupPendingInviteStore.count(), 1);
+        },
+      );
     });
   });
 }

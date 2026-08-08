@@ -185,6 +185,36 @@ void main() {
       expect(row['publicKeyPem'], peerIdentityJson);
     });
 
+    test(
+        'keeps the name the row already had instead of clobbering it with an '
+        'empty string', () async {
+      // The real sequence behind an invite request: inbound traffic created
+      // the row through ensureUserExist long before the user accepted. Since
+      // insertOrUpdateUser is INSERT OR REPLACE, a hardcoded name:'' would
+      // not "leave the name empty", it would destroy the only display name
+      // this contact has — the invite flow passes displayName:'' on purpose
+      // (a nickname is the user's to choose), so there is no customName to
+      // fall back to and enrichment may never supply a username.
+      await DBHelper.ensureUserExist(onionId);
+      final fallback = 'Unknown - ${onionId.substring(0, 6)}';
+      expect((await DBHelper.getUserById(onionId))?['name'], fallback);
+
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => '{}',
+      );
+
+      final added = await service.addContact(
+        onionId: onionId,
+        displayName: '',
+      );
+
+      expect(added, isTrue);
+      final row = await DBHelper.getUserById(onionId);
+      expect(row?['name'], fallback);
+      expect(row?['customName'], isNull);
+    });
+
     test('returns false when the fetched identity JSON is malformed',
         () async {
       final service = ContactAddService.forTesting(

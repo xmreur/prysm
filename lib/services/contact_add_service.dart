@@ -112,9 +112,20 @@ class ContactAddService {
       return false;
     }
 
+    // Keep whatever name the row already carries. insertOrUpdateUser is
+    // INSERT OR REPLACE, i.e. a whole-row write, so hardcoding name:'' here
+    // does not "leave the name empty" — it destroys what was there. The row
+    // normally exists before this call: ensureUserExist creates it on every
+    // inbound handler with 'Unknown - xxxxxx', which is the only display name
+    // a contact added from an invite request ever has, because that flow
+    // passes displayName:'' (a nickname it has no business inventing) and
+    // _enrichFromProfile is unawaited and writes 'name' only when the peer
+    // actually serves a username.
+    final existing = await DBHelper.getUserById(onionId);
+
     final newUser = Contact(
       id: onionId,
-      name: '',
+      name: (existing?['name'] as String?) ?? '',
       avatarUrl: '',
       avatarBase64: null,
       customName: displayName.isNotEmpty ? displayName : null,

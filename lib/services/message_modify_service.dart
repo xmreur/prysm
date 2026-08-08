@@ -150,15 +150,17 @@ class MessageModifyService {
     final timestamp = rows.isNotEmpty
         ? rows.first['timestamp'] as int
         : modifiedAt;
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-    ).reindexEditedMessage(
-      messageId: targetMessageId,
-      conversationId: peerId!,
-      scope: 'direct',
-      timestamp: timestamp,
-      plaintext: newText,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+      ).reindexEditedMessage(
+        messageId: targetMessageId,
+        conversationId: peerId!,
+        scope: 'direct',
+        timestamp: timestamp,
+        plaintext: newText,
+      ),
     );
 
     _notifyEdit(targetMessageId, newText, modifiedAt);
@@ -205,16 +207,18 @@ class MessageModifyService {
     final timestamp = rows.isNotEmpty
         ? rows.first['timestamp'] as int
         : modifiedAt;
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-      groupService: gs,
-    ).reindexEditedMessage(
-      messageId: targetMessageId,
-      conversationId: groupId!,
-      scope: 'group',
-      timestamp: timestamp,
-      plaintext: newText,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+        groupService: gs,
+      ).reindexEditedMessage(
+        messageId: targetMessageId,
+        conversationId: groupId!,
+        scope: 'group',
+        timestamp: timestamp,
+        plaintext: newText,
+      ),
     );
 
     _notifyEdit(targetMessageId, newText, modifiedAt);
@@ -428,16 +432,19 @@ class MessageModifyService {
         groupService: groupService,
       );
       if (newText != null) {
-        await MessageSearchIndexService(
-          keyManager: keyManager,
-          userId: localUserId,
-          groupService: groupService,
-        ).reindexEditedMessage(
-          messageId: payload.targetMessageId,
-          conversationId: groupId ?? senderId,
-          scope: groupId != null ? 'group' : 'direct',
-          timestamp: row['timestamp'] as int,
-          plaintext: newText,
+        final indexedText = newText;
+        await MessageSearchIndexService.indexBestEffort(
+          () => MessageSearchIndexService(
+            keyManager: keyManager,
+            userId: localUserId,
+            groupService: groupService,
+          ).reindexEditedMessage(
+            messageId: payload.targetMessageId,
+            conversationId: groupId ?? senderId,
+            scope: groupId != null ? 'group' : 'direct',
+            timestamp: row['timestamp'] as int,
+            plaintext: indexedText,
+          ),
         );
       }
     }

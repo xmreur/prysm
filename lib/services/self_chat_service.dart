@@ -35,13 +35,15 @@ class SelfChatService {
       'replyTo': replyToId,
     });
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-    ).indexSelfText(
-      messageId: id,
-      timestamp: timestamp,
-      plaintext: text,
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+      ).indexSelfText(
+        messageId: id,
+        timestamp: timestamp,
+        plaintext: text,
+      ),
     );
 
     return id;
@@ -75,14 +77,20 @@ class SelfChatService {
       'viewOnce': viewOnce ? 1 : 0,
     });
 
-    await MessageSearchIndexService(
-      keyManager: keyManager,
-      userId: userId,
-    ).indexSelfFile(
-      messageId: id,
-      timestamp: timestamp,
-      fileName: fileName,
-    );
+    // ponytail: guard instead of a viewOnce param on indexOutboundFile — a
+    // view-once write is dead weight: viewing wipes the row and de-indexes.
+    if (!viewOnce) {
+      await MessageSearchIndexService.indexBestEffort(
+        () => MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: userId,
+        ).indexSelfFile(
+          messageId: id,
+          timestamp: timestamp,
+          fileName: fileName,
+        ),
+      );
+    }
 
     return id;
   }

@@ -185,6 +185,95 @@ void main() {
       expect(row['publicKeyPem'], peerIdentityJson);
     });
 
+    test(
+        'keeps the name the row already had instead of clobbering it with an '
+        'empty string', () async {
+      // The real sequence behind an invite request: inbound traffic created
+      // the row through ensureUserExist long before the user accepted. Since
+      // insertOrUpdateUser is INSERT OR REPLACE, a hardcoded name:'' would
+      // not "leave the name empty", it would destroy the only display name
+      // this contact has — the invite flow passes displayName:'' on purpose
+      // (a nickname is the user's to choose), so there is no customName to
+      // fall back to and enrichment may never supply a username.
+      await DBHelper.ensureUserExist(onionId);
+      final fallback = 'Unknown - ${onionId.substring(0, 6)}';
+      expect((await DBHelper.getUserById(onionId))?['name'], fallback);
+
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => '{}',
+      );
+
+      final added = await service.addContact(
+        onionId: onionId,
+        displayName: '',
+      );
+
+      expect(added, isTrue);
+      final row = await DBHelper.getUserById(onionId);
+      expect(row?['name'], fallback);
+      expect(row?['customName'], isNull);
+    });
+
+    test(
+        'an empty displayName keeps the existing nickname and avatar instead '
+        'of nulling them', () async {
+      // Re-adding someone who is already a contact: the invite flow passes
+      // displayName:'' and the write is INSERT OR REPLACE, so without the
+      // merge this nulls a user-chosen nickname. Nothing restores it —
+      // _enrichFromProfile writes only 'name' and 'avatarBase64'.
+      await DBHelper.insertOrUpdateUser({
+        'id': onionId,
+        'name': 'Alice B.',
+        'avatarUrl': '',
+        'avatarBase64': 'YWJj',
+        'customName': 'Bob',
+        'identityJson': null,
+        'publicKeyPem': null,
+      });
+
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => '{}',
+      );
+
+      expect(
+        await service.addContact(onionId: onionId, displayName: ''),
+        isTrue,
+      );
+
+      final row = await DBHelper.getUserById(onionId);
+      expect(row?['customName'], 'Bob');
+      expect(row?['name'], 'Alice B.');
+      expect(row?['avatarBase64'], 'YWJj');
+      // The identity is the one thing this call is meant to overwrite.
+      expect(row?['identityJson'], peerIdentityJson);
+    });
+
+    test('a non-empty displayName still replaces the nickname', () async {
+      await DBHelper.insertOrUpdateUser({
+        'id': onionId,
+        'name': 'Alice B.',
+        'avatarUrl': '',
+        'avatarBase64': null,
+        'customName': 'Bob',
+        'identityJson': null,
+        'publicKeyPem': null,
+      });
+
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => '{}',
+      );
+
+      expect(
+        await service.addContact(onionId: onionId, displayName: 'Carol'),
+        isTrue,
+      );
+
+      expect((await DBHelper.getUserById(onionId))?['customName'], 'Carol');
+    });
+
     test('returns false when the fetched identity JSON is malformed',
         () async {
       final service = ContactAddService.forTesting(

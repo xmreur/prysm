@@ -22,6 +22,7 @@ import 'package:prysm/app/app_composition.dart';
 import 'package:prysm/app/conversation_list_repository.dart';
 import 'package:prysm/app/tor_connection_controller.dart';
 import 'package:prysm/screens/settings_screen.dart';
+import 'package:prysm/screens/invite_requests_screen.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
@@ -45,6 +46,7 @@ import 'package:prysm/screens/group_chat.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/services/conversation_preferences_service.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/models/share_target.dart';
@@ -54,6 +56,7 @@ import 'package:prysm/services/detached_chat_host.dart';
 import 'package:prysm/services/detached_chat_window_registry.dart';
 import 'package:prysm/screens/widgets/conversation_context_menu.dart';
 import 'package:prysm/screens/widgets/conversation_actions_sheet.dart';
+import 'package:prysm/services/group_invite_promoter.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/desktop_platform.dart';
@@ -72,6 +75,7 @@ import 'package:prysm/ui/core/prysm_pressable.dart';
 import 'package:prysm/util/notification_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/group_membership_notifier.dart';
+import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/screens/widgets/add_contact_dialog.dart';
 import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/screens/widgets/prysm_id_qr.dart';
@@ -155,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadUsersQueued = false;
   bool _loadUsersQueuedLight = false;
   bool _sharePickerOpen = false;
+  int _pendingInviteCount = 0;
 
   int get _archivedCount => conversations
       .where((c) => _conversationPrefs[c.id]?.isArchived ?? false)
@@ -179,6 +184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return 0;
     }
     var count = 0;
+    if (_pendingInviteCount > 0) count++;
     if (_archivedCount > 0) count++;
     if (_blockedCount > 0) count++;
     return count;
@@ -400,6 +406,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       unawaited(AppUpdateService().checkOnStartup(context));
     });
+
+    // Invites held while their sender was unknown apply themselves once the
+    // contact exists — including when the user added them from somewhere
+    // else entirely. Skipped in decoy mode: a panic session must not touch
+    // real group state. Also skipped in contactsOnly mode, where nothing
+    // may be stored or applied: the promoter itself refuses there too, but
+    // the sweep should not even start.
+    if (!widget.decoyMode &&
+        settings.groupInviteMode == GroupInviteMode.holdAsRequest) {
+      unawaited(
+        GroupInvitePromoter(
+          userId: widget.onionAddress,
+          keyManager: widget.keyManager,
+        )
+            .promoteResolvable()
+            .catchError((Object e, StackTrace st) {
+              Logging.error('Promoting held invites failed: $e\n$st', 'Main');
+              return 0;
+            })
+            .then((promoted) {
+              if (promoted > 0 && mounted) scheduleLoadUsers(light: true);
+            }),
+      );
+    }
 
     _startAutoRefresh();
     if (!widget.offlineMode) {
@@ -854,6 +884,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _selfChatLastTimestamp = deferred[2] as int?;
         _selfChatLastPreview = deferred[3] as String?;
       }
+
+      final pendingInvites = await GroupPendingInviteStore.count();
+      if (!mounted) return;
+      setState(() => _pendingInviteCount = pendingInvites);
 
       _applyLoadedUsers(
         userMaps: userMaps,
@@ -1460,8 +1494,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               itemBuilder: (_, index) {
                 if (index >= _filteredConversations.length) {
                   final footerIndex = index - _filteredConversations.length;
+                  if (_pendingInviteCount > 0 && footerIndex == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      child: PrysmListRow(
+                        leading: Icon(
+                          PrysmIcons.group,
+                          color: context.prysmStyle.tokens.accent,
+                        ),
+                        title: 'Invite requests',
+                        subtitle:
+                            '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            PrysmPageRoute(
+                              page: InviteRequestsScreen(
+                                onClose: () => Navigator.of(context).pop(),
+                                onionAddress: widget.onionAddress,
+                                keyManager: widget.keyManager,
+                                onChanged: () => scheduleLoadUsers(light: true),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  }
                   final showArchivedFooter = _archivedCount > 0;
-                  if (showArchivedFooter && footerIndex == 0) {
+                  if (showArchivedFooter &&
+                      footerIndex == (_pendingInviteCount > 0 ? 1 : 0)) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,

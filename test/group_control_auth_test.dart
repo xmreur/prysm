@@ -8,6 +8,7 @@ import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/crypto/wire.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -86,6 +87,7 @@ Future<Database> _openTestDb() async {
             groupId TEXT
           )
         ''');
+        await MessageSchemaMigrations.createMessageSearchFtsTable(db);
         await GroupSenderIndexStore.ensureTable(db);
         await GroupPendingInviteStore.ensureTable(db);
         await RatchetSessionStore.ensureTable(db);

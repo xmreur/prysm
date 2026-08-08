@@ -29,6 +29,9 @@ import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/chat_search_bar.dart';
+import 'package:prysm/models/conversation.dart';
+import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/chat_scroll.dart';
@@ -45,6 +48,7 @@ class SelfChatScreen extends StatefulWidget {
   final VoidCallback onCloseChat;
   final VoidCallback reloadSidebar;
   final DetachedChatClient? detachedClient;
+  final String? initialScrollToMessageId;
 
   const SelfChatScreen({
     required this.userId,
@@ -54,6 +58,7 @@ class SelfChatScreen extends StatefulWidget {
     required this.onCloseChat,
     required this.reloadSidebar,
     this.detachedClient,
+    this.initialScrollToMessageId,
     super.key,
   });
 
@@ -67,6 +72,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   final _scrollController = ScrollController();
 
   StreamSubscription? _detachedInboundSub;
+  String? _highlightedMessageId;
+  Timer? _highlightTimer;
+  bool _showChatSearch = false;
+  String _chatHighlightQuery = '';
 
   Future<List<Message>> _decryptForDisplay(
     List<Map<String, dynamic>> rows,
@@ -138,7 +147,20 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant SelfChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final scrollId = widget.initialScrollToMessageId;
+    if (scrollId != null && scrollId != oldWidget.initialScrollToMessageId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(scrollId));
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _highlightTimer?.cancel();
     _detachedInboundSub?.cancel();
     _scrollController.removeListener(_controller.onListScroll);
     _scrollController.dispose();
@@ -154,6 +176,36 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         _controller.messages,
         isMounted: () => mounted,
       );
+    }
+    final initialId = widget.initialScrollToMessageId;
+    if (initialId != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(initialId));
+      });
+    }
+  }
+
+  Future<void> _scrollToMessage(String messageId) async {
+    final found = await scrollToChatMessage(
+      controller: _controller.messages,
+      messageId: messageId,
+      loadMore: () async {
+        if (!_controller.hasMore || _controller.loading) return false;
+        final countBefore = _controller.messages.messages.length;
+        await _controller.loadMoreMessages();
+        return _controller.messages.messages.length > countBefore;
+      },
+    );
+    if (!mounted) return;
+    if (found) {
+      setState(() => _highlightedMessageId = messageId);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() => _highlightedMessageId = null);
+        }
+      });
     }
   }
 
@@ -367,6 +419,8 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
               textColor: tokens.onAccent,
               fontSize: 14,
               onOpenUrl: _openUrl,
+              highlightQuery:
+                  _showChatSearch ? _chatHighlightQuery : null,
             ),
             const SizedBox(height: 4),
             Align(
@@ -571,6 +625,29 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       ),
       title: 'Chat with myself',
       subtitle: 'Notes to yourself',
+      actions: [
+        PrysmIconButton(
+          icon: PrysmIcons.search,
+          onPressed: () => setState(() {
+            _showChatSearch = !_showChatSearch;
+            if (!_showChatSearch) _chatHighlightQuery = '';
+          }),
+        ),
+      ],
+      bottom: _showChatSearch
+          ? ChatSearchBar(
+              conversationId: SelfConversation.conversationId,
+              onClose: () => setState(() {
+                _showChatSearch = false;
+                _chatHighlightQuery = '';
+              }),
+              onQueryChanged: (query) =>
+                  setState(() => _chatHighlightQuery = query),
+              onResultSelected: (hit, _) {
+                unawaited(_scrollToMessage(hit.messageId));
+              },
+            )
+          : null,
       body: PrysmChatDropTarget(
         onFileDropped: _handleDroppedFile,
         child: Column(
@@ -613,20 +690,32 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                     child = const SizedBox.shrink();
                   }
 
+                  final isHighlighted = _highlightedMessageId == message.id;
+                  final tokens = context.prysmStyle.tokens;
+
                   return Column(
                     children: [
                       if (showHeader) PrysmDateHeader(date: msgDate),
                       GestureDetector(
                         onLongPress: () => _showMessageMenu(context, message),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Flexible(
-                                child: _displayChildForMessage(message, child),
-                              ),
-                            ],
+                        child: ColoredBox(
+                          color: isHighlighted
+                              ? Color.lerp(
+                                  tokens.background,
+                                  tokens.accentMuted,
+                                  0.25,
+                                )!
+                              : const Color(0x00000000),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Flexible(
+                                  child: _displayChildForMessage(message, child),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),

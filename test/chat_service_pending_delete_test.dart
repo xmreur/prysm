@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/chat_service.dart';
 import 'package:prysm/util/db_helper.dart';
@@ -83,6 +84,7 @@ Future<Database> _openMessagesDb() async {
       expiresAt INTEGER
     )
   ''');
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

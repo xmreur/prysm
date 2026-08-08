@@ -27,6 +27,7 @@ import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
+import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
@@ -86,6 +87,7 @@ class GroupChatScreen extends StatefulWidget {
   final VoidCallback? onCloseChat;
   final Widget? torStatusAction;
   final DetachedChatClient? detachedClient;
+  final String? initialScrollToMessageId;
 
   const GroupChatScreen({
     required this.userId,
@@ -96,6 +98,7 @@ class GroupChatScreen extends StatefulWidget {
     this.onCloseChat,
     this.torStatusAction,
     this.detachedClient,
+    this.initialScrollToMessageId,
     super.key,
   });
 
@@ -132,6 +135,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   List<String> _groupMemberIds = [];
   String? _highlightedMessageId;
   Timer? _highlightTimer;
+  bool _showChatSearch = false;
+  String _chatHighlightQuery = '';
 
   Set<String> get selectedMessageIds => _controller.selectedMessageIds;
   PrysmChatMessageList get _messages => _controller.messages;
@@ -302,6 +307,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _senderNames.clear();
       _memberCount = 0;
       _bootstrapForGroup();
+      return;
+    }
+    final scrollId = widget.initialScrollToMessageId;
+    if (scrollId != null && scrollId != oldWidget.initialScrollToMessageId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(scrollId));
+      });
     }
   }
 
@@ -400,6 +413,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     if (mounted && _controller.messages.messages.isNotEmpty) {
       _controller.scheduleScrollToBottomAfterSend();
+    }
+
+    final initialId = widget.initialScrollToMessageId;
+    if (initialId != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToMessage(initialId));
+      });
     }
 
     if (mounted) setState(() {});
@@ -1294,6 +1315,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       : context.prysmStyle.tokens.textPrimary,
                   fontSize: 16,
                   onOpenUrl: _openUrl,
+                  highlightQuery:
+                      _showChatSearch ? _chatHighlightQuery : null,
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -1608,6 +1631,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       titleWidget: _buildGroupTitle(),
       actions: [
         if (widget.torStatusAction != null) widget.torStatusAction!,
+        PrysmIconButton(
+          icon: PrysmIcons.search,
+          onPressed: () => setState(() {
+            _showChatSearch = !_showChatSearch;
+            if (!_showChatSearch) _chatHighlightQuery = '';
+          }),
+        ),
         if (selectedMessageIds.isNotEmpty)
           PrysmIconButton(
             icon: PrysmIcons.deleteOutline,
@@ -1618,6 +1648,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           onPressed: _openSettings,
         ),
       ],
+      bottom: _showChatSearch
+          ? ChatSearchBar(
+              conversationId: widget.group.id,
+              onClose: () => setState(() {
+                _showChatSearch = false;
+                _chatHighlightQuery = '';
+              }),
+              onQueryChanged: (query) =>
+                  setState(() => _chatHighlightQuery = query),
+              onResultSelected: (hit, _) {
+                unawaited(_scrollToMessage(hit.messageId));
+              },
+            )
+          : null,
       body: PrysmChatDropTarget(
         onFileDropped: _handleDroppedFile,
         child: Column(

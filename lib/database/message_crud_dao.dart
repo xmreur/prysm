@@ -3,6 +3,7 @@ import 'package:prysm/database/message_query_filters.dart';
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
+import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_blob_store.dart';
@@ -12,7 +13,10 @@ import 'package:sqflite/sqflite.dart';
 /// including the encrypted wire payload (`getMessageWire`/`getMessageById`
 /// share the blob-store fallback so they stay together).
 class MessageCrudDao {
-  const MessageCrudDao();
+  const MessageCrudDao({MessageSearchDao? searchDao})
+      : _searchDao = searchDao ?? const MessageSearchDao();
+
+  final MessageSearchDao _searchDao;
 
   Future<Database> get _database => MessagesDatabase.database;
 
@@ -42,6 +46,50 @@ class MessageCrudDao {
     return normalized;
   }
 
+  /// Removes a message's FTS row, scoped to its conversation. The caller must
+  /// already hold [MessagesDatabase.mutex]. Pass [row] when the `messages` row
+  /// is about to be (or has already been) deleted; otherwise it is read here.
+  ///
+  /// A direct row's conversationId is the peer, which is one of the two
+  /// participants — both are tried, so the delete is never widened to a bare
+  /// `messageId` match. That matters because the wire id is chosen by the
+  /// sender: an unscoped delete lets a peer wipe search rows of unrelated
+  /// conversations by reusing an id it has seen.
+  Future<void> _removeSearchRow(
+    Database db, {
+    required String storageId,
+    required String wireId,
+    Map<String, Object?>? row,
+  }) async {
+    if (row == null) {
+      final rows = await db.query(
+        'messages',
+        columns: const ['groupId', 'senderId', 'receiverId'],
+        where: 'id = ?',
+        whereArgs: [storageId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      row = rows.first;
+    }
+    final groupId = row['groupId'] as String?;
+    if (groupId != null) {
+      await _searchDao.removeUnprotected(
+        wireId,
+        conversationId: groupId,
+        scope: 'group',
+      );
+      return;
+    }
+    for (final side in const ['senderId', 'receiverId']) {
+      await _searchDao.removeUnprotected(
+        wireId,
+        conversationId: row[side] as String,
+        scope: 'direct',
+      );
+    }
+  }
+
   /// Mark a view-once message as viewed and wipe its content
   Future<void> markViewOnceViewed(
     String messageId, {
@@ -56,6 +104,7 @@ class MessageCrudDao {
         where: 'id = ? AND viewOnce = 1',
         whereArgs: [storageId],
       );
+      await _removeSearchRow(db, storageId: storageId, wireId: messageId);
     });
   }
 
@@ -257,6 +306,7 @@ class MessageCrudDao {
         whereArgs: [storageId],
       );
       await MessageBlobStore.delete(storageId);
+      await _removeSearchRow(db, storageId: storageId, wireId: wireId);
     });
   }
 
@@ -282,6 +332,13 @@ class MessageCrudDao {
   Future<void> deleteMessageById(String id) async {
     await _protect(() async {
       final db = await _database;
+      final rows = await db.query(
+        'messages',
+        columns: const ['groupId', 'senderId', 'receiverId'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
       await db.transaction((txn) async {
         await txn.update(
           'messages',
@@ -291,6 +348,18 @@ class MessageCrudDao {
         );
         await txn.delete('messages', where: 'id = ?', whereArgs: [id]);
       });
+      if (rows.isEmpty) return;
+      // De-index AFTER the row is gone: a broken search index must not be able
+      // to block a delete. Strip the row's own groupId prefix rather than
+      // re-parsing via the codec — the wire id is sender-chosen and may itself
+      // contain '::'.
+      final groupId = rows.first['groupId'] as String?;
+      await _removeSearchRow(
+        db,
+        storageId: id,
+        wireId: groupId == null ? id : id.substring(groupId.length + 2),
+        row: rows.first,
+      );
     });
   }
 

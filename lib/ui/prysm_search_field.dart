@@ -3,7 +3,6 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
-import 'package:prysm/ui/core/prysm_text_field.dart';
 
 class PrysmSearchField extends StatefulWidget {
   const PrysmSearchField({
@@ -24,15 +23,19 @@ class PrysmSearchField extends StatefulWidget {
 }
 
 class _PrysmSearchFieldState extends State<PrysmSearchField> {
+  late final FocusNode _focusNode;
+
   @override
   void initState() {
     super.initState();
+    _focusNode = FocusNode();
     widget.controller.addListener(_onTextChanged);
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -42,6 +45,9 @@ class _PrysmSearchFieldState extends State<PrysmSearchField> {
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
     final tokens = style.tokens;
+    final showHint =
+        widget.hintText.isNotEmpty && widget.controller.text.isEmpty;
+
     return Container(
       height: 40,
       decoration: BoxDecoration(
@@ -54,10 +60,21 @@ class _PrysmSearchFieldState extends State<PrysmSearchField> {
           Icon(PrysmIcons.search, size: 20, color: tokens.textMuted),
           const SizedBox(width: PrysmTokens.spacing8),
           Expanded(
-            child: PrysmTextField(
-              controller: widget.controller,
-              hintText: widget.hintText,
-              onChanged: widget.onChanged,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                if (showHint)
+                  Text(widget.hintText, style: style.captionStyle),
+                EditableText(
+                  controller: widget.controller,
+                  focusNode: _focusNode,
+                  style: style.bodyStyle.copyWith(color: tokens.textPrimary),
+                  cursorColor: tokens.accent,
+                  backgroundCursorColor: tokens.textMuted,
+                  maxLines: 1,
+                  onChanged: widget.onChanged,
+                ),
+              ],
             ),
           ),
           if (widget.controller.text.isNotEmpty && widget.onClear != null)

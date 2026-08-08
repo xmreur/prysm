@@ -4,6 +4,7 @@ import 'package:prysm/constants/media_constants.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:uuid/uuid.dart';
@@ -33,6 +34,17 @@ class SelfChatService {
       'timestamp': timestamp,
       'replyTo': replyToId,
     });
+
+    await MessageSearchIndexService.indexBestEffort(
+      () => MessageSearchIndexService(
+        keyManager: keyManager,
+        userId: userId,
+      ).indexSelfText(
+        messageId: id,
+        timestamp: timestamp,
+        plaintext: text,
+      ),
+    );
 
     return id;
   }
@@ -64,6 +76,21 @@ class SelfChatService {
       'replyTo': replyToId,
       'viewOnce': viewOnce ? 1 : 0,
     });
+
+    // ponytail: guard instead of a viewOnce param on indexOutboundFile — a
+    // view-once write is dead weight: viewing wipes the row and de-indexes.
+    if (!viewOnce) {
+      await MessageSearchIndexService.indexBestEffort(
+        () => MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: userId,
+        ).indexSelfFile(
+          messageId: id,
+          timestamp: timestamp,
+          fileName: fileName,
+        ),
+      );
+    }
 
     return id;
   }

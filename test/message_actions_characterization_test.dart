@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/message_reactions.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
@@ -63,6 +64,7 @@ Future<Database> _openMessagesDb() async {
     )
   ''');
   await MessageReactionsDb.createTable(db);
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

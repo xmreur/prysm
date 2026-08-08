@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 13;
+  static const int dbVersion = 14;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -33,6 +33,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 10) await _upgradeToV10(db);
     if (oldVersion < 12) await _upgradeToV12(db);
     if (oldVersion < 13) await _upgradeToV13(db);
+    if (oldVersion < 14) await _upgradeToV14(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -132,6 +133,7 @@ class MessageSchemaMigrations {
     await createReadReceiptsTable(db);
     await createSelfMessagesTable(db);
     await createScheduledMessagesTable(db);
+    await createMessageSearchFtsTable(db);
   }
 
   /// CHANGES: added readAt timestamp
@@ -254,6 +256,25 @@ class MessageSchemaMigrations {
       'CREATE INDEX IF NOT EXISTS idx_messages_expires_at '
       'ON messages(expiresAt) WHERE expiresAt IS NOT NULL AND deletedAt IS NULL',
     );
+  }
+
+  static Future<void> _upgradeToV14(Database db) async {
+    Logging.info('UPGRADING DB TO v14', 'MessagesDb');
+    await createMessageSearchFtsTable(db);
+  }
+
+  /// Plaintext FTS5 index for local message search (protected by SQLCipher).
+  static Future<void> createMessageSearchFtsTable(Database db) async {
+    await db.execute('''
+      CREATE VIRTUAL TABLE IF NOT EXISTS message_search_fts USING fts5(
+        messageId UNINDEXED,
+        conversationId UNINDEXED,
+        scope UNINDEXED,
+        timestamp UNINDEXED,
+        body,
+        tokenize = 'unicode61 remove_diacritics 2'
+      )
+    ''');
   }
 
   /// Owns message_reactions' schema; MessageReactionsDb.createTable delegates here.

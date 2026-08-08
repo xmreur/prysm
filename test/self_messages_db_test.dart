@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
+import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -15,14 +17,17 @@ void main() {
         version: 1,
         onCreate: (db, version) async {
           await SelfMessagesDb.createTable(db);
+          await MessageSchemaMigrations.createMessageSearchFtsTable(db);
         },
       ),
     );
     SelfMessagesDb.setDatabaseForTest(db);
+    MessagesDatabase.setDatabaseForTest(db);
   });
 
   tearDown(() async {
     SelfMessagesDb.setDatabaseForTest(null);
+    MessagesDatabase.setDatabaseForTest(null);
   });
 
   test('insert and batch query returns newest first', () async {

@@ -26,6 +26,10 @@ Future<bool> _tableExists(Database db, String name) async {
   return rows.isNotEmpty;
 }
 
+Future<bool> _virtualTableExists(Database db, String name) async {
+  return _tableExists(db, name);
+}
+
 void main() {
   late Directory docsDir;
 
@@ -74,6 +78,7 @@ void main() {
       expect(await _tableExists(db, 'message_read_receipts'), isTrue);
       expect(await _tableExists(db, 'self_messages'), isTrue);
       expect(await _tableExists(db, 'scheduled_messages'), isTrue);
+      expect(await _virtualTableExists(db, 'message_search_fts'), isTrue);
 
       await db.close();
     });
@@ -281,6 +286,39 @@ void main() {
       final sent = (await db.query('messages', where: 'id = ?', whereArgs: ['sent1'])).single;
       expect(sent['readAt'], 999);
 
+      await db.close();
+    });
+  });
+
+  group('v14 FTS search index', () {
+    test('onCreate includes message_search_fts virtual table', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(db, MessageSchemaMigrations.dbVersion);
+
+      expect(await _virtualTableExists(db, 'message_search_fts'), isTrue);
+
+      await db.execute('''
+        INSERT INTO message_search_fts(messageId, conversationId, scope, timestamp, body)
+        VALUES ('m1', 'peer1', 'direct', 100, 'hello world')
+      ''');
+      final hits = await db.rawQuery(
+        "SELECT messageId FROM message_search_fts WHERE message_search_fts MATCH 'hello'",
+      );
+      expect(hits, hasLength(1));
+      expect(hits.first['messageId'], 'm1');
+
+      await db.close();
+    });
+
+    test('upgrade from v13 adds message_search_fts', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(db, MessageSchemaMigrations.dbVersion);
+      await db.execute('DROP TABLE IF EXISTS message_search_fts');
+      expect(await _virtualTableExists(db, 'message_search_fts'), isFalse);
+
+      await MessageSchemaMigrations.onUpgrade(db, 13, 14);
+
+      expect(await _virtualTableExists(db, 'message_search_fts'), isTrue);
       await db.close();
     });
   });

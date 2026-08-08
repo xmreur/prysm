@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/services/group_chat_service.dart';
@@ -111,6 +112,7 @@ Future<Database> _openMessagesDb() async {
       expiresAt INTEGER
     )
   ''');
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

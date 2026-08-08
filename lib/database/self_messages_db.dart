@@ -1,12 +1,16 @@
 import 'package:prysm/database/message_schema_migrations.dart';
+import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/models/conversation.dart';
 import 'package:prysm/util/message_preview_label.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// Local-only notes-to-self messages (no P2P).
 class SelfMessagesDb {
   SelfMessagesDb._();
+
+  static const MessageSearchDao _searchDao = MessageSearchDao();
 
   static Database? _testDatabase;
 
@@ -112,6 +116,11 @@ class SelfMessagesDb {
         where: 'id = ?',
         whereArgs: [messageId],
       );
+      await _searchDao.removeUnprotected(
+        messageId,
+        conversationId: SelfConversation.conversationId,
+        scope: 'self',
+      );
     });
   }
 
@@ -153,6 +162,11 @@ class SelfMessagesDb {
         {'viewed': 1, 'message': null},
         where: 'id = ? AND viewOnce = 1',
         whereArgs: [messageId],
+      );
+      await _searchDao.removeUnprotected(
+        messageId,
+        conversationId: SelfConversation.conversationId,
+        scope: 'self',
       );
     });
   }

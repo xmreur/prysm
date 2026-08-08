@@ -112,30 +112,38 @@ class ContactAddService {
       return false;
     }
 
-    // Keep whatever name the row already carries. insertOrUpdateUser is
-    // INSERT OR REPLACE, i.e. a whole-row write, so hardcoding name:'' here
-    // does not "leave the name empty" — it destroys what was there. The row
-    // normally exists before this call: ensureUserExist creates it on every
-    // inbound handler with 'Unknown - xxxxxx', which is the only display name
-    // a contact added from an invite request ever has, because that flow
-    // passes displayName:'' (a nickname it has no business inventing) and
-    // _enrichFromProfile is unawaited and writes 'name' only when the peer
-    // actually serves a username.
+    // insertOrUpdateUser is INSERT OR REPLACE, i.e. a whole-row write: every
+    // column not carried over here is destroyed. Only the identity is meant
+    // to be overwritten by this call, so the row is read first and merged —
+    // the same shape PeerIdentityResolver already uses for this exact
+    // operation (peer_identity_resolver.dart:113-121).
+    //
+    // This is not defensive: the row normally exists before the call, because
+    // ensureUserExist runs on every inbound handler and seeds
+    // 'Unknown - xxxxxx'. And the invite-request flow passes displayName:''
+    // on purpose — a nickname is the user's to choose, not a screen's to
+    // invent — so without the merge that flow would blank both the only
+    // display name the contact has and any nickname already set for them.
     final existing = await DBHelper.getUserById(onionId);
 
     final newUser = Contact(
       id: onionId,
       name: (existing?['name'] as String?) ?? '',
-      avatarUrl: '',
-      avatarBase64: null,
-      customName: displayName.isNotEmpty ? displayName : null,
+      avatarUrl: (existing?['avatarUrl'] as String?) ?? '',
+      avatarBase64: existing?['avatarBase64'] as String?,
+      // Nothing ever restores a nickname: _enrichFromProfile writes only
+      // 'name' and 'avatarBase64'. Replace it only when this caller actually
+      // supplies one.
+      customName: displayName.isNotEmpty
+          ? displayName
+          : existing?['customName'] as String?,
       identityJson: identityJson,
     );
     await DBHelper.insertOrUpdateUser({
       'id': newUser.id,
       'name': newUser.name,
       'avatarUrl': newUser.avatarUrl,
-      'avatarBase64': null,
+      'avatarBase64': newUser.avatarBase64,
       'customName': newUser.customName,
       'identityJson': identityJson,
       'publicKeyPem': identityJson,

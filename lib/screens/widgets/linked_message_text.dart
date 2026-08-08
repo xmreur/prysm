@@ -81,7 +81,7 @@ class LinkedMessageText extends StatelessWidget {
 
     appendHighlightedSegment(lastEnd, text.length);
 
-    return RichText(text: TextSpan(children: spans));
+    return Text.rich(TextSpan(children: spans));
   }
 
   /// Builds spans for [segment], highlighting query token matches when a

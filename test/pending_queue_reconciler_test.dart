@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/pending_queue_reconciler.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -54,6 +55,7 @@ Future<Database> _openMessagesDb() async {
       expiresAt INTEGER
     )
   ''');
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

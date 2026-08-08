@@ -38,6 +38,7 @@ Future<Database> _openMessagesDb() async {
   ''');
   await MessageSchemaMigrations.createReactionsTable(db);
   await MessageSchemaMigrations.createReadReceiptsTable(db);
+  await MessageSchemaMigrations.createMessageSearchFtsTable(db);
   return db;
 }
 

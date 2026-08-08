@@ -1,11 +1,15 @@
 import 'package:prysm/database/message_query_filters.dart';
+import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// Direct/group conversation message queries (batched + paginated reads) and
 /// their bulk deletes.
 class ConversationQueriesDao {
-  const ConversationQueriesDao();
+  const ConversationQueriesDao({MessageSearchDao? searchDao})
+      : _searchDao = searchDao ?? const MessageSearchDao();
+
+  final MessageSearchDao _searchDao;
 
   Future<Database> get _database => MessagesDatabase.database;
 
@@ -109,6 +113,8 @@ class ConversationQueriesDao {
             "groupId IS NULL AND ${MessageQueryFilters.directChatTypeFilter} AND ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ? AND status = 'system') OR (senderId = ? AND receiverId = ? AND status = 'system'))",
         whereArgs: [userId, receiverId, receiverId, userId, userId, receiverId, receiverId, userId],
       );
+      await _searchDao.removeForConversationUnprotected(userId, 'direct');
+      await _searchDao.removeForConversationUnprotected(receiverId, 'direct');
     });
   }
 
@@ -155,6 +161,7 @@ class ConversationQueriesDao {
     await _protect(() async {
       final db = await _database;
       await db.delete('messages', where: 'groupId = ?', whereArgs: [groupId]);
+      await _searchDao.removeForConversationUnprotected(groupId, 'group');
     });
   }
 
@@ -168,6 +175,11 @@ class ConversationQueriesDao {
         'messages',
         where: 'groupId = ? AND timestamp < ?',
         whereArgs: [groupId, beforeTimestamp],
+      );
+      await _searchDao.removeForConversationUnprotected(
+        groupId,
+        'group',
+        beforeTimestamp: beforeTimestamp,
       );
     });
   }

@@ -59,8 +59,8 @@ class MessageSearchDao {
 
   Future<void> remove(
     String messageId, {
-    String? conversationId,
-    String? scope,
+    required String conversationId,
+    required String scope,
   }) =>
       _protect(
         () => removeUnprotected(
@@ -74,8 +74,8 @@ class MessageSearchDao {
   /// [MessagesDatabase.mutex] (via [_protect]) before invoking this.
   Future<void> removeUnprotected(
     String messageId, {
-    String? conversationId,
-    String? scope,
+    required String conversationId,
+    required String scope,
   }) async {
     final db = await _database;
     await _deleteRow(
@@ -89,20 +89,32 @@ class MessageSearchDao {
   Future<void> _deleteRow(
     Database db,
     String messageId, {
-    String? conversationId,
-    String? scope,
+    required String conversationId,
+    required String scope,
   }) {
-    if (conversationId != null && scope != null) {
-      return db.delete(
-        'message_search_fts',
-        where: 'messageId = ? AND conversationId = ? AND scope = ?',
-        whereArgs: [messageId, conversationId, scope],
-      );
-    }
     return db.delete(
       'message_search_fts',
-      where: 'messageId = ?',
-      whereArgs: [messageId],
+      where: 'messageId = ? AND conversationId = ? AND scope = ?',
+      whereArgs: [messageId, conversationId, scope],
+    );
+  }
+
+  /// Lock-free conversation-scoped search-row deletion: the caller must
+  /// already hold [MessagesDatabase.mutex] (via [_protect]) before invoking.
+  Future<void> removeForConversationUnprotected(
+    String conversationId,
+    String scope, {
+    int? beforeTimestamp,
+  }) async {
+    final db = await _database;
+    await db.delete(
+      'message_search_fts',
+      where: beforeTimestamp != null
+          ? 'conversationId = ? AND scope = ? AND timestamp < ?'
+          : 'conversationId = ? AND scope = ?',
+      whereArgs: beforeTimestamp != null
+          ? [conversationId, scope, beforeTimestamp]
+          : [conversationId, scope],
     );
   }
 

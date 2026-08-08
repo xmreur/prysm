@@ -335,18 +335,22 @@ class ChatService {
       'expiresAt': ?expiresAt,
     }, notifyListeners: false);
 
-    await MessageSearchIndexService.indexBestEffort(
-      () => MessageSearchIndexService(
-        keyManager: keyManager,
-        userId: userId,
-      ).indexOutboundFile(
-        messageId: id,
-        conversationId: peerId,
-        scope: 'direct',
-        timestamp: timestamp,
-        fileName: fileName,
-      ),
-    );
+    // ponytail: guard instead of a viewOnce param on indexOutboundFile — the
+    // sender of a view-once file can never open it, so its name stays indexed.
+    if (!viewOnce) {
+      await MessageSearchIndexService.indexBestEffort(
+        () => MessageSearchIndexService(
+          keyManager: keyManager,
+          userId: userId,
+        ).indexOutboundFile(
+          messageId: id,
+          conversationId: peerId,
+          scope: 'direct',
+          timestamp: timestamp,
+          fileName: fileName,
+        ),
+      );
+    }
 
     if (expiresAt != null) {
       DisappearingActivityNotifier.instance.notify();

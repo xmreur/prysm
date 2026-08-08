@@ -6,7 +6,6 @@ import 'package:prysm/services/message_search_index_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
-import 'package:prysm/util/message_blob_store.dart';
 
 abstract class MessageSearchBackfillStore {
   Future<bool> isSearchBackfillComplete();
@@ -169,6 +168,9 @@ class MessageSearchBackfillService {
               '$messageId after $failures attempts',
               'MessageSearchBackfill',
             );
+          } else {
+            await _settings
+                .setSearchBackfillFailureCount(row['id'] as String, 0);
           }
           lastProcessed = row;
           continue;
@@ -215,6 +217,8 @@ class MessageSearchBackfillService {
             '$messageId after $failures attempts',
             'MessageSearchBackfill',
           );
+        } else {
+          await _settings.setSearchBackfillFailureCount(row['id'] as String, 0);
         }
         lastProcessed = row;
       }
@@ -251,7 +255,7 @@ class MessageSearchBackfillService {
       SELECT $_messageColumns
       FROM messages
       WHERE deletedAt IS NULL
-        AND (viewOnce IS NULL OR viewOnce = 0 OR viewed IS NULL OR viewed = 0)
+        AND (viewOnce IS NULL OR viewOnce = 0)
         AND (
           ${_typeInClause([
         ...MessageSearchIndexService.searchableDirectTypes,
@@ -274,7 +278,7 @@ class MessageSearchBackfillService {
         _batchSize,
       ],
     );
-    return _resolveMessageBlobs(rows);
+    return rows;
   }
 
   Future<List<Map<String, dynamic>>> _fetchSelfBatch(
@@ -287,7 +291,7 @@ class MessageSearchBackfillService {
       SELECT $_selfColumns
       FROM self_messages
       WHERE deletedAt IS NULL
-        AND (viewOnce IS NULL OR viewOnce = 0 OR viewed IS NULL OR viewed = 0)
+        AND (viewOnce IS NULL OR viewOnce = 0)
         AND (
           ${_typeInClause(MessageSearchIndexService.searchableDirectTypes)}
         )
@@ -306,20 +310,6 @@ class MessageSearchBackfillService {
         _batchSize,
       ],
     );
-    return _resolveMessageBlobs(rows);
-  }
-
-  /// Resolves `blob:` payload markers back into the original message payload
-  /// so decryption downstream receives the full ciphertext.
-  static Future<List<Map<String, dynamic>>> _resolveMessageBlobs(
-    List<Map<String, dynamic>> rows,
-  ) async {
-    for (final row in rows) {
-      final wire = row['message'] as String?;
-      if (wire != null && MessageBlobStore.isMarker(wire)) {
-        row['message'] = await MessageBlobStore.resolve(wire);
-      }
-    }
     return rows;
   }
 }

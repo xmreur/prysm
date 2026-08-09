@@ -270,6 +270,56 @@ void main() {
       ]);
     });
 
+    test(
+        'reachable peers ranked below throttled ones still get hints, capped',
+        () async {
+      await SettingsService().setShowOnlineStatus(true);
+
+      final wsManager = TransportProvider.instance.wsManager;
+      final base = DateTime.now().millisecondsSinceEpoch;
+      // 30 recent peers: the 5 most recent are in the sustained-failure
+      // regime, the 25 ranked below them are healthy. The hint cap must
+      // count only peers that will actually be hinted, so the throttled
+      // top-5 must not consume slots.
+      for (var i = 0; i < 30; i++) {
+        await db.insert('messages', {
+          'id': 'f1-peer-$i',
+          'senderId': 'peer$i.onion',
+          'receiverId': 'me.onion',
+          'message': 'hello',
+          'type': 'text',
+          'timestamp': base + i,
+          'status': 'received',
+        });
+      }
+      for (var i = 25; i < 30; i++) {
+        for (var f = 0; f < 7; f++) {
+          wsManager.recordConnectFailureForTest(
+            'peer$i.onion',
+            Exception(
+              'SocksClientConnectionCommandFailedException: hostUnreachable',
+            ),
+          );
+        }
+      }
+      for (var i = 25; i < 30; i++) {
+        expect(wsManager.isPeerUnreachable('peer$i.onion'), isTrue);
+      }
+
+      await WakeHintService.instance.broadcastRecentPeerHints();
+
+      final hinted = sentHints.map((h) => h['peerOnion']).toSet();
+      // The 20 most recent reachable peers (peer24..peer5) are all hinted and
+      // the cap is respected; none of the throttled top-5 are.
+      expect(hinted.length, BatterySaverPolicy.wakeHintMaxPeers);
+      for (var i = 24; i >= 5; i--) {
+        expect(hinted, contains('peer$i.onion'));
+      }
+      for (var i = 25; i < 30; i++) {
+        expect(hinted, isNot(contains('peer$i.onion')));
+      }
+    });
+
     test('incoming wake hint clears throttling state for that peer', () async {
       final wsManager = TransportProvider.instance.wsManager;
       for (var i = 0;

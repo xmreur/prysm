@@ -308,6 +308,92 @@ void main() {
     timeout: const Timeout(Duration(minutes: 3)),
   );
 
+  test(
+    'quarantine is authoritative: survives stop()/start(), gates wake hints '
+    'through the final minute, and clears on a successful connect',
+    () async {
+      var now = DateTime.now();
+      final socks = _FakeSocksServer(mode: _FakeSocksMode.close);
+      await socks.start();
+      addTearDown(socks.close);
+      final db = await _openMessagesDb();
+      MessagesDb.setDatabaseForTest(db);
+      addTearDown(() async {
+        await db.close();
+        MessagesDb.setDatabaseForTest(null);
+      });
+      await db.insert('messages', {
+        'id': 'm1',
+        'senderId': 'peer.onion',
+        'receiverId': 'me.onion',
+        'message': 'hello',
+        'type': 'text',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'status': 'received',
+      });
+
+      final manager = WsConnectionManager(
+        _torManagerWithOnion(
+          dataDir: Directory.systemTemp.createTempSync('ws-manager-q-auth').path,
+          socksPort: socks.port,
+        ),
+        now: () => now,
+      );
+      addTearDown(manager.dispose);
+
+      // Drive 10 real dial failures through the production heartbeat path.
+      manager.start();
+      await _waitFor(() => manager.retryDelayForTest('peer.onion') != null);
+      for (var i = 1;
+          i < WsConnectionManager.hostUnreachableQuarantineThreshold;
+          i++) {
+        manager.stop();
+        manager.start();
+        await _waitFor(() => manager.retryDelayForTest('peer.onion') != null);
+      }
+      expect(manager.isPeerUnreachable('peer.onion'), isTrue);
+
+      // (b) The quarantine gates wake hints for its whole window: with only
+      // 30s left, the retry bookkeeping is below the 60s hint-suppression
+      // threshold, but the peer must still count as unreachable —
+      // WakeHintService filters hints on exactly this predicate.
+      now = now.add(
+        WsConnectionManager.hostUnreachableQuarantine -
+            const Duration(seconds: 30),
+      );
+      expect(manager.isPeerUnreachable('peer.onion'), isTrue);
+
+      // (a) stop() clears the retry bookkeeping but must not lift the gate:
+      // the quarantined peer stays in backoff and hint-suppressed.
+      manager.stop();
+      expect(manager.retryDelayForTest('peer.onion'), isNull);
+      expect(manager.isPeerUnreachable('peer.onion'), isTrue);
+      await expectLater(
+        manager.ensureConnected(
+          'peer.onion',
+          connectBudget: WsConnectionManager.interactiveConnectBudget,
+        ),
+        throwsA(isA<PeerInBackoffError>()),
+      );
+      // The restarted heartbeat loop must skip the quarantined peer entirely.
+      manager.start();
+      final dialsBefore = socks.dialCount;
+      await Future<void>.delayed(const Duration(seconds: 4));
+      expect(socks.dialCount, dialsBefore);
+      manager.stop();
+
+      // (c) Once the window elapses and the peer proves reachable again, the
+      // successful connect clears the quarantine alongside the backoff.
+      now = now.add(const Duration(seconds: 31));
+      await socks.setMode(_FakeSocksMode.success);
+      manager.start();
+      await _waitFor(() => manager.isConnected('peer.onion'));
+      expect(manager.isPeerUnreachable('peer.onion'), isFalse);
+      expect(manager.retryDelayForTest('peer.onion'), isNull);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
   test('a fast-fail while the peer is in backoff does not extend the window',
       () async {
     final socks = _FakeSocksServer(mode: _FakeSocksMode.hostUnreachable);

@@ -28,7 +28,8 @@ class PeerInBackoffError extends StateError {
 
 /// Maintains one full-duplex WebSocket link per peer (dialer or acceptor).
 class WsConnectionManager {
-  WsConnectionManager(this._torManager);
+  WsConnectionManager(this._torManager, {DateTime Function()? now})
+      : _now = now ?? DateTime.now;
 
   static const Duration interactiveConnectBudget = Duration(seconds: 25);
 
@@ -50,6 +51,7 @@ class WsConnectionManager {
   static const Duration hostUnreachableQuarantine = Duration(minutes: 10);
 
   final TorManager _torManager;
+  final DateTime Function() _now;
   final Map<String, WsPeerLink> _links = {};
   final Map<String, Future<void>> _connectChains = {};
   final Map<String, Future<void>> _requestChains = {};
@@ -217,6 +219,9 @@ class WsConnectionManager {
         await ensureConnected(peer);
         _connectFailures.remove(peer);
         _nextRetryAfter.remove(peer);
+        // A successful connect proves the peer reachable: lift the quarantine
+        // alongside the retry bookkeeping.
+        _quarantineUntil.remove(peer);
       } catch (e) {
         // A fast-fail because the peer is already in backoff never reached
         // the wire: it must not count as a fresh failure or re-arm the window.
@@ -234,9 +239,12 @@ class WsConnectionManager {
   }
 
   bool _isInBackoff(String peerOnion) {
+    // The quarantine is authoritative: while it is active the peer is gated
+    // even if the retry bookkeeping was cleared (e.g. by [stop]).
+    if (_isQuarantined(peerOnion)) return true;
     final retryAfter = _nextRetryAfter[peerOnion];
     if (retryAfter == null) return false;
-    return DateTime.now().isBefore(retryAfter);
+    return _now().isBefore(retryAfter);
   }
 
   void _recordConnectFailure(String peerOnion, Object error) {
@@ -247,7 +255,7 @@ class WsConnectionManager {
     final backoff = Duration(
       seconds: backoffSeconds.clamp(1, _maxReconnectBackoff.inSeconds),
     );
-    _nextRetryAfter[peerOnion] = DateTime.now().add(backoff);
+    _nextRetryAfter[peerOnion] = _now().add(backoff);
 
     if (_isPeerUnreachableError(error)) {
       final streak = (_hostUnreachableStreak[peerOnion] ?? 0) + 1;
@@ -274,13 +282,13 @@ class WsConnectionManager {
   bool _isQuarantined(String peerOnion) {
     final until = _quarantineUntil[peerOnion];
     if (until == null) return false;
-    if (DateTime.now().isBefore(until)) return true;
+    if (_now().isBefore(until)) return true;
     _quarantineUntil.remove(peerOnion);
     return false;
   }
 
   void _enterQuarantine(String peerOnion) {
-    final until = DateTime.now().add(hostUnreachableQuarantine);
+    final until = _now().add(hostUnreachableQuarantine);
     _quarantineUntil[peerOnion] = until;
     _nextRetryAfter[peerOnion] = until;
     Logging.debug(
@@ -304,10 +312,13 @@ class WsConnectionManager {
   /// must not suppress hints: the hint is the nudge that wakes a sleeping
   /// peer.
   bool isPeerUnreachable(String peerOnion) {
+    // The quarantine gates hints for its whole window, including the final
+    // minute where the retry bookkeeping's remaining window has already
+    // fallen below [_wakeHintUnreachableMinBackoff].
+    if (_isQuarantined(peerOnion)) return true;
     final retryAfter = _nextRetryAfter[peerOnion];
     if (retryAfter == null) return false;
-    return retryAfter.difference(DateTime.now()) >=
-        _wakeHintUnreachableMinBackoff;
+    return retryAfter.difference(_now()) >= _wakeHintUnreachableMinBackoff;
   }
 
   /// Resets throttling state for [peerOnion] because it proved reachable
@@ -772,7 +783,7 @@ class WsConnectionManager {
   Duration? retryDelayForTest(String peerOnion) {
     final retryAfter = _nextRetryAfter[peerOnion];
     if (retryAfter == null) return null;
-    final remaining = retryAfter.difference(DateTime.now());
+    final remaining = retryAfter.difference(_now());
     return remaining.isNegative ? Duration.zero : remaining;
   }
 

@@ -323,6 +323,57 @@ void main() {
     });
   });
 
+  group('v15 FTS rowid side table', () {
+    test('onCreate includes the rowid side table next to the FTS index',
+        () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(
+          db, MessageSchemaMigrations.dbVersion);
+
+      expect(await _virtualTableExists(db, 'message_search_fts'), isTrue);
+      expect(await _tableExists(db, 'message_search_rows'), isTrue);
+
+      await db.close();
+    });
+
+    test('upgrade from v14 creates the side table and backfills it from the '
+        'existing FTS index', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(
+          db, MessageSchemaMigrations.dbVersion);
+      // Simulate a v14 install: the FTS index exists with data, the side
+      // table does not.
+      await db.execute('DROP TABLE IF EXISTS message_search_rows');
+      await db.execute('''
+        INSERT INTO message_search_fts(messageId, conversationId, scope, timestamp, body)
+        VALUES ('m1', 'peer1', 'direct', 100, 'hello world'),
+               ('m2', 'peer2', 'direct', 200, 'goodbye moon'),
+               ('g1::m3', 'g1', 'group', 300, 'group note')
+      ''');
+      expect(await _tableExists(db, 'message_search_rows'), isFalse);
+
+      await MessageSchemaMigrations.onUpgrade(
+          db, 14, MessageSchemaMigrations.dbVersion);
+
+      expect(await _tableExists(db, 'message_search_rows'), isTrue);
+      final rows = await db.query('message_search_rows');
+      expect(rows, hasLength(3));
+      final byId = {
+        for (final r in rows) r['messageId'] as String: r,
+      };
+      expect(byId['m1']!['timestamp'], 100);
+      expect(byId['g1::m3']!['scope'], 'group');
+      // The backfilled ftsRowid resolves to the same FTS row.
+      final fts = await db.rawQuery(
+        'SELECT messageId, rowid FROM message_search_fts WHERE messageId = ?',
+        ['m1'],
+      );
+      expect(fts.single['rowid'], byId['m1']!['ftsRowid']);
+
+      await db.close();
+    });
+  });
+
   group('blob migration', () {
     Future<Database> openFullMessagesDb() async {
       final db = await _openBareDb();

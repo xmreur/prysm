@@ -81,6 +81,7 @@ import 'package:prysm/services/typing_state_tracker.dart';
 import 'package:prysm/util/typing_indicator_notifier.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -609,6 +610,14 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       if (data['avatar'] != null && (data['avatar'] as String).isNotEmpty) {
         updates['avatarBase64'] = data['avatar'];
+      }
+      // The peer's advertised ratchet scheme warms the send-path cache so
+      // the first message to this peer never needs a profile fetch.
+      final ratchetScheme = CryptoConstants.parseRatchetScheme(
+        data['ratchetScheme'] as String?,
+      );
+      if (ratchetScheme != null) {
+        updates['ratchetScheme'] = ratchetScheme;
       }
       if (updates.isNotEmpty) {
         await DBHelper.updateUserFields(widget.peerId, updates);

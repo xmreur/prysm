@@ -62,7 +62,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -86,7 +86,8 @@ class DBHelper {
         avatarBase64 TEXT,
         customName TEXT,
         publicKeyPem TEXT,
-        identityJson TEXT
+        identityJson TEXT,
+        ratchetScheme TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
@@ -224,6 +225,21 @@ class DBHelper {
       // the step on a database that already has the other crypto tables
       // only adds the missing one.
       await _createCryptoTables(db);
+    }
+    if (oldVersion < 15) {
+      // users.ratchetScheme (the persisted per-peer ratchet-scheme cache
+      // that keeps the first-message send path off the network). Column
+      // additions on users follow the v2/v3/v6 pattern, with one extra
+      // guard those steps do not need: this step runs for every database
+      // older than 15, including ones predating the users table, and
+      // PRAGMA table_info returns an empty list (not an error) for a table
+      // that does not exist. Empty therefore means "no users table" — skip,
+      // because onCreate already ships the column.
+      final cols = await db.rawQuery('PRAGMA table_info(users)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (cols.isNotEmpty && !colNames.contains('ratchetScheme')) {
+        await db.execute('ALTER TABLE users ADD COLUMN ratchetScheme TEXT');
+      }
     }
   }
 

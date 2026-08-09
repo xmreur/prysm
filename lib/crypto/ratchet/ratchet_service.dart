@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -9,7 +10,9 @@ import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/crypto/ratchet/ratchet_session.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/crypto/wire.dart';
+import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/db_helper.dart';
 
 /// High-level 1:1 ratchet encrypt/decrypt with SQLite session persistence.
 class RatchetService {
@@ -20,6 +23,10 @@ class RatchetService {
 
   RatchetSessionStore? _sessionStore;
   final Map<String, Mutex> _peerLocks = {};
+
+  /// Peers with a background scheme warm currently in flight, so a peer
+  /// whose profile never answers cannot pile up one fetch per message.
+  final Set<String> _inFlightSchemeWarms = {};
 
   /// Test override for peer profile ratchet-scheme lookup.
   Future<String?> Function(String peerId)? _peerRatchetSchemeFetcher;
@@ -49,13 +56,24 @@ class RatchetService {
 
   static final X25519 _x25519 = X25519();
 
+  /// Bounds the scheme profile fetch: a single attempt, a short timeout and
+  /// no TorDelivery retry/NEWNYM (maxAttempts 1 never reaches the
+  /// circuit-refresh branch of withTorRetry), so a cold first send cannot
+  /// pay 3 x 20s or tear down healthy circuits.
+  static const Duration _schemeFetchTimeout = Duration(seconds: 3);
+
   Future<String?> _peerRatchetSchemeFromProfile(String peerId) async {
     final fetcher = _peerRatchetSchemeFetcher;
     if (fetcher != null) {
       return CryptoConstants.parseRatchetScheme(await fetcher(peerId));
     }
     try {
-      final body = await TransportProvider.getProfileOrFallback(peerId);
+      final body = await TransportProvider.getProfileOrFallback(
+        peerId,
+        timeout: _schemeFetchTimeout,
+        maxAttempts: 1,
+        preference: TransportPreference.httpOnly,
+      );
       final data = jsonDecode(body) as Map<String, dynamic>;
       return CryptoConstants.parseRatchetScheme(
         data['ratchetScheme'] as String?,
@@ -65,13 +83,85 @@ class RatchetService {
     }
   }
 
+  /// The peer ratchet scheme persisted on the `users` row, warmed by the
+  /// profile fetches the app already performs (ContactAddService,
+  /// PeerIdentityResolver, the chat screen refresh and the inbound
+  /// sender-profile refresh). Null when unknown.
+  Future<String?> _cachedPeerRatchetScheme(String peerId) async {
+    try {
+      final user = await DBHelper.getUserById(peerId);
+      return CryptoConstants.parseRatchetScheme(
+        user?['ratchetScheme'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Persists [scheme] for [peerId]. A missing `users` row (or a
+  /// pre-migration schema without the column) leaves the cache cold and is
+  /// not an error: the next cold bootstrap simply re-warms.
+  Future<void> _persistPeerRatchetScheme(String peerId, String scheme) async {
+    try {
+      await DBHelper.updateUserFields(peerId, {'ratchetScheme': scheme});
+    } catch (_) {
+      // Deliberately silent: a cold cache only costs another bounded
+      // background fetch.
+    }
+  }
+
+  /// Bounded background scheme refresh for a cold cache. Never throws.
+  /// At most one background fetch per peer runs at a time: a second warm
+  /// for the same peer while one is in flight is dropped (the in-flight
+  /// one will persist the scheme if the profile ever answers).
+  Future<void> _warmPeerRatchetScheme(String peerId) async {
+    if (!_inFlightSchemeWarms.add(peerId)) return;
+    try {
+      final scheme = await _peerRatchetSchemeFromProfile(peerId);
+      if (scheme != null) {
+        await _persistPeerRatchetScheme(peerId, scheme);
+      }
+    } catch (_) {
+      // Nothing to recover: the cache simply stays cold.
+    } finally {
+      _inFlightSchemeWarms.remove(peerId);
+    }
+  }
+
+  /// Resolves the peer's ratchet scheme for a NEW session. The persisted
+  /// cache is consulted first; only a cold cache awaits the already-bounded
+  /// profile fetch (single attempt, ~3s, no NEWNYM), so a reachable peer
+  /// negotiates v3 instead of silently downgrading to the v2 initializer.
+  /// On fetch failure or timeout the send falls back to v2 and re-warms in
+  /// the background, keeping the first send bounded (never the old 3 x 20s
+  /// + NEWNYM behaviour).
   Future<String?> _resolvePeerRatchetScheme(
     String peerId,
     RatchetSession? session,
   ) async {
-    final cached = session?.peerWireScheme;
-    final profile = await _peerRatchetSchemeFromProfile(peerId);
-    return CryptoConstants.maxRatchetScheme(cached, profile);
+    final cached =
+        session?.peerWireScheme ?? await _cachedPeerRatchetScheme(peerId);
+    if (cached != null) {
+      return cached;
+    }
+    String? fromProfile;
+    try {
+      // The bound is enforced here, not only passed to the fetch: the device
+      // log is full of Tor futures that never complete ("TimeoutException
+      // after 0:00:30: Future not completed"), and a send must stay bounded
+      // even if the transport fails to honour its own timeout.
+      fromProfile = await _peerRatchetSchemeFromProfile(
+        peerId,
+      ).timeout(_schemeFetchTimeout);
+    } catch (_) {
+      // Fetch failed or timed out: fall through to the v2 fallback below.
+    }
+    if (fromProfile != null) {
+      await _persistPeerRatchetScheme(peerId, fromProfile);
+      return fromProfile;
+    }
+    unawaited(_warmPeerRatchetScheme(peerId));
+    return null;
   }
 
   Future<String> encryptText({

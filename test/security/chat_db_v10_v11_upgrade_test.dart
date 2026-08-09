@@ -13,7 +13,7 @@
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v10/v11 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 14, onUpgrade) -> real GroupSenderIndexStore
+// -> openDatabase(version: 15, onUpgrade) -> real GroupSenderIndexStore
 // calls.
 import 'dart:io';
 
@@ -263,14 +263,14 @@ void main() {
       expect(File(path).existsSync(), isTrue);
 
       // The real open path: DatabaseCipher.prepare encrypts the plaintext
-      // fixture in place, then openDatabase(version: 14, onUpgrade) runs the
+      // fixture in place, then openDatabase(version: 15, onUpgrade) runs the
       // oldVersion < 11 and oldVersion < 13 steps that create
       // group_inbound_seen and group_inbound_floor. The handle is closed by
       // DBHelper.closeForWipe() in tearDown.
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 14);
+      expect(uv.first.values.single, 15);
 
       final inbound = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -366,7 +366,7 @@ void main() {
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 14);
+      expect(uv.first.values.single, 15);
 
       final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
       final colNames = cols.map((c) => c['name']).toSet();

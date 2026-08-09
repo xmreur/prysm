@@ -76,11 +76,13 @@ class PeerIdentityResolver {
     if (TorRuntimeGate.blocked) return null;
     try {
       String? identityJson;
+      String? ratchetScheme;
       late IdentityPublicKeys identity;
       PrekeyBundle? prekeyBundle;
       try {
         final profileBody = await _fetchProfile(peerId);
         final data = jsonDecode(profileBody) as Map<String, dynamic>;
+        ratchetScheme = ratchetSchemeFromProfile(data);
         identityJson = IdentityKeyPair.storedPeerIdentityRaw(
           (data['identityJson'] as String?)?.trim(),
           (data['publicKeyPem'] as String?)?.trim(),
@@ -99,7 +101,7 @@ class PeerIdentityResolver {
         identity = keyManager.importPeerIdentity(identityJson);
         onIdentityResolved?.call(identity);
       }
-      await _persist(identityJson);
+      await _persist(identityJson, ratchetScheme: ratchetScheme);
       return ResolvedPeerIdentity(identity, prekeyBundle);
     } catch (e) {
       Logging.error('Failed to fetch peer identity: $e', 'PeerIdentityResolver');
@@ -107,7 +109,7 @@ class PeerIdentityResolver {
     }
   }
 
-  Future<void> _persist(String identityJson) async {
+  Future<void> _persist(String identityJson, {String? ratchetScheme}) async {
     try {
       final existing = await DBHelper.getUserById(peerId);
       await DBHelper.insertOrUpdateUser({
@@ -118,6 +120,9 @@ class PeerIdentityResolver {
         'customName': existing?['customName'],
         'identityJson': identityJson,
         'publicKeyPem': identityJson,
+        // Warms the send-path ratchet-scheme cache; preserves a previously
+        // recorded scheme when this profile advertised none.
+        'ratchetScheme': ratchetScheme ?? existing?['ratchetScheme'] as String?,
       });
     } catch (e) {
       Logging.error('Failed to persist peer public key: $e', 'PeerIdentityResolver');

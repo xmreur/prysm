@@ -37,7 +37,8 @@ Future<Database> _openTestDb() async {
       avatarBase64 TEXT,
       customName TEXT,
       publicKeyPem TEXT,
-      identityJson TEXT
+      identityJson TEXT,
+      ratchetScheme TEXT
     )
   ''');
   await db.execute('''

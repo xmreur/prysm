@@ -62,6 +62,20 @@ void main() {
         version: 1,
         onCreate: (db, _) async {
           await RatchetSessionStore.ensureTable(db);
+          // Mirrors DBHelper._createDB so the send path can consult the
+          // persisted per-peer ratchet-scheme cache (users.ratchetScheme).
+          await db.execute('''
+            CREATE TABLE users (
+              id TEXT PRIMARY KEY,
+              name TEXT,
+              avatarUrl TEXT,
+              avatarBase64 TEXT,
+              customName TEXT,
+              publicKeyPem TEXT,
+              identityJson TEXT,
+              ratchetScheme TEXT
+            )
+          ''');
         },
       ),
     );
@@ -163,6 +177,13 @@ void main() {
 
     final bobBundle = await PrekeyBundle.generate(bob, persist: true);
 
+    // The peer's profile fetch has already recorded its scheme (the normal
+    // pre-first-message path): v3 must be negotiated from the cache.
+    await DBHelper.ensureUserExist(bobOnion);
+    await DBHelper.updateUserFields(bobOnion, {
+      'ratchetScheme': CryptoConstants.schemeRatchet3,
+    });
+
     final wire = await RatchetService.instance.encryptText(
       peerId: bobOnion,
       plaintext: 'ratchet hello',
@@ -182,6 +203,175 @@ void main() {
       peer: alicePub,
     );
     expect(plain, 'ratchet hello');
+  });
+
+  test('cold cache awaits the bounded scheme fetch and negotiates v3', () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final bobPub = await _publicKeys(bob);
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    // Cold cache: the users row exists but no scheme was recorded yet. The
+    // row is replaced outright so a scheme seeded by an earlier test in this
+    // process cannot leak in (the in-memory DB is shared across tests).
+    await DBHelper.insertOrUpdateUser({'id': bobOnion});
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
+      (_) async {
+        await Future.delayed(const Duration(milliseconds: 300));
+        return CryptoConstants.schemeRatchet3;
+      },
+    );
+
+    final wire = await RatchetService.instance.encryptText(
+      peerId: bobOnion,
+      plaintext: 'hello',
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+    );
+
+    // The cold send awaited the bounded fetch instead of returning null
+    // immediately: v3 is negotiated, not a silent downgrade to v2.
+    final envelope = jsonDecode(wire) as Map<String, dynamic>;
+    expect(envelope['scheme'], CryptoConstants.schemeRatchet3);
+    final session = await RatchetSessionStore(await DBHelper.database)
+        .load(bobOnion);
+    expect(session!.version, 3);
+
+    // The awaited fetch also warmed the persisted cache for later sends.
+    final user = await DBHelper.getUserById(bobOnion);
+    expect(user?['ratchetScheme'], CryptoConstants.schemeRatchet3);
+  });
+
+  test('cold cache with a dead profile falls back to v2 within the bounded fetch',
+      () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final bobPub = await _publicKeys(bob);
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    await DBHelper.insertOrUpdateUser({'id': bobOnion});
+    var completedCalls = 0;
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest((_) async {
+      await Future.delayed(const Duration(milliseconds: 400));
+      completedCalls++;
+      return null;
+    });
+
+    final stopwatch = Stopwatch()..start();
+    final wire = await RatchetService.instance.encryptText(
+      peerId: bobOnion,
+      plaintext: 'hello',
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+    );
+    stopwatch.stop();
+
+    // The cold send awaited the bounded fetch: the fetch completed before
+    // the send returned (pre-fix it was still in flight in the background).
+    expect(completedCalls, greaterThanOrEqualTo(1));
+    // Bounded by the short timeout: nowhere near the old 3 x 20s.
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+    // No scheme known: the v2 initializer is used and ratchet-1 emitted.
+    final envelope = jsonDecode(wire) as Map<String, dynamic>;
+    expect(envelope['scheme'], isNot(CryptoConstants.schemeRatchet3));
+    final session = await RatchetSessionStore(await DBHelper.database)
+        .load(bobOnion);
+    expect(session!.version, 2);
+  });
+
+  test(
+      'repeated cold sends to a dead-profile peer keep background fetches bounded',
+      () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final bobPub = await _publicKeys(bob);
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    // The users row exists but no scheme was ever recorded: every send sees
+    // a cold cache and the profile never answers.
+    await DBHelper.insertOrUpdateUser({'id': bobOnion});
+
+    var concurrent = 0;
+    var maxConcurrent = 0;
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest((_) async {
+      concurrent++;
+      if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+      await Future.delayed(const Duration(milliseconds: 300));
+      concurrent--;
+      return null;
+    });
+
+    // Drop the persisted session between sends so every send re-enters the
+    // cold bootstrap path (the only path that resolves the peer scheme).
+    final store = RatchetSessionStore(await DBHelper.database);
+    for (var i = 0; i < 4; i++) {
+      await store.delete(bobOnion);
+      await RatchetService.instance.encryptText(
+        peerId: bobOnion,
+        plaintext: 'msg-$i',
+        local: alice,
+        peer: bobPub,
+        peerBundle: bobBundle,
+      );
+    }
+
+    // At most the awaited fetch plus one background warm are ever in flight
+    // for a peer: repeated bootstraps must not pile up one background fetch
+    // per message.
+    expect(maxConcurrent, lessThanOrEqualTo(2));
+  });
+
+  test('cached peer scheme bootstraps a v3 session without a fetch', () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final alicePub = await _publicKeys(alice);
+    final bobPub = await _publicKeys(bob);
+    const aliceOnion = 'alice.peer.onion';
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    // Warm cache: a profile fetch has already recorded the peer's scheme.
+    // Any fetch now would be a regression, so the seam is armed to fail
+    // loudly if the send path consults it.
+    await DBHelper.ensureUserExist(bobOnion);
+    await DBHelper.updateUserFields(bobOnion, {
+      'ratchetScheme': CryptoConstants.schemeRatchet3,
+    });
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
+      (_) async => throw StateError('scheme fetch must not run on cache hit'),
+    );
+
+    final wire = await RatchetService.instance.encryptText(
+      peerId: bobOnion,
+      plaintext: 'hello v3',
+      local: alice,
+      peer: bobPub,
+      peerBundle: bobBundle,
+    );
+
+    final envelope = jsonDecode(wire) as Map<String, dynamic>;
+    expect(envelope['scheme'], CryptoConstants.schemeRatchet3);
+
+    final plain = await RatchetService.instance.decryptText(
+      peerId: aliceOnion,
+      wire: wire,
+      local: bob,
+      peer: alicePub,
+    );
+    expect(plain, 'hello v3');
+
+    final session = await RatchetSessionStore(await DBHelper.database)
+        .load(bobOnion);
+    expect(session!.version, 3);
   });
 
   test('second ratchet message without handshake', () async {

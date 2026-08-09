@@ -4,12 +4,13 @@
 // for invites from senders whose identity is not local yet). Before the
 // v14 bump the table was only created from onCreate and from the
 // oldVersion < 7 step, so an install at version 13 would throw "no such
-// table: group_pending_invites" on the first hold.
+// table: group_pending_invites" on the first hold. The v15 bump (the
+// users.ratchetScheme send-path cache) rides the same upgrade path.
 //
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v13 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 14, onUpgrade) -> real GroupPendingInviteStore
+// -> openDatabase(version: 15, onUpgrade) -> real GroupPendingInviteStore
 // calls.
 import 'dart:io';
 
@@ -171,25 +172,32 @@ void main() {
     }
   }
 
-  test('v13 -> v14 adds group_pending_invites and keeps existing rows',
-      () async {
+  test('v13 -> v15 adds group_pending_invites and ratchetScheme, keeping '
+      'existing rows', () async {
     final path = '${tempDir.path}/prysm/chat_app.db';
     await buildV13Fixture(path);
     expect(File(path).existsSync(), isTrue);
 
     // The real open path: DatabaseCipher.prepare encrypts the plaintext
-    // fixture in place, then openDatabase(version: 14, onUpgrade) runs the
-    // oldVersion < 14 step that creates group_pending_invites. The handle
-    // is closed by DBHelper.closeForWipe() in tearDown.
+    // fixture in place, then openDatabase(version: 15, onUpgrade) runs the
+    // oldVersion < 14 step that creates group_pending_invites and the
+    // oldVersion < 15 step that adds users.ratchetScheme. The handle is
+    // closed by DBHelper.closeForWipe() in tearDown.
     final db = await DBHelper.database;
 
-    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 14);
+    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 15);
     expect(
       await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         ['group_pending_invites'],
       ),
       hasLength(1),
+    );
+    // The v15 step adds the ratchet-scheme cache column to users.
+    final usersCols = await db.rawQuery('PRAGMA table_info(users)');
+    expect(
+      usersCols.map((c) => c['name']),
+      contains('ratchetScheme'),
     );
     // The upgrade is not allowed to lose what was already there.
     expect(await db.query('users'), hasLength(1));

@@ -148,61 +148,67 @@ class _PinScreenState extends State<PinScreen> {
         color: tokens.background,
         child: SafeArea(
           child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  _title,
-                  style: TextStyle(
-                    color: tokens.textPrimary,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 30,
-                  ),
-                ),
-                if (widget.showBiometricButton &&
-                    !_isSetup &&
-                    widget.onTryBiometric != null) ...[
-                  const SizedBox(height: 16),
-                  PrysmIconButton(
-                    icon: PrysmIcons.fingerprint,
-                    tooltip: 'Unlock with biometrics',
-                    onPressed: widget.onTryBiometric,
-                  ),
-                ],
-                const SizedBox(height: 30),
-                isLoading
-                    ? const PrysmProgressIndicator()
-                    : PinDots(filledCount: _pin.length),
-                if (error != null) ...[
-                  const SizedBox(height: 12),
+            // The fixed-height keypad (4x80px rows plus spacing) plus title,
+            // biometrics, lockout status and Tor progress can exceed the
+            // screen height on small devices; scroll instead of overflowing.
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    error!,
-                    style: TextStyle(color: tokens.danger),
-                  ),
-                ],
-                UnlockLockoutStatus(
-                  showAttemptsRemaining: !_isSetup,
-                  lastFailure: _lastFailure,
-                ),
-                if (widget.torBootstrapProgress != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Tor: ${widget.torBootstrapProgress}%',
+                    _title,
                     style: TextStyle(
-                      fontSize: 13,
-                      color: tokens.textPrimary.withValues(alpha: 0.6),
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 30,
+                    ),
+                  ),
+                  if (widget.showBiometricButton &&
+                      !_isSetup &&
+                      widget.onTryBiometric != null) ...[
+                    const SizedBox(height: 16),
+                    PrysmIconButton(
+                      icon: PrysmIcons.fingerprint,
+                      tooltip: 'Unlock with biometrics',
+                      onPressed: widget.onTryBiometric,
+                    ),
+                  ],
+                  const SizedBox(height: 30),
+                  isLoading
+                      ? const PrysmProgressIndicator()
+                      : PinDots(filledCount: _pin.length),
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      error!,
+                      style: TextStyle(color: tokens.danger),
+                    ),
+                  ],
+                  UnlockLockoutStatus(
+                    showAttemptsRemaining: !_isSetup,
+                    lastFailure: _lastFailure,
+                  ),
+                  if (widget.torBootstrapProgress != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Tor: ${widget.torBootstrapProgress}%',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: tokens.textPrimary.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 50),
+                  Opacity(
+                    opacity: inputDisabled ? 0.4 : 1,
+                    child: IgnorePointer(
+                      ignoring: inputDisabled,
+                      child: PinKeypad(onKeyPress: _onKeyPress),
                     ),
                   ),
                 ],
-                const SizedBox(height: 50),
-                Opacity(
-                  opacity: inputDisabled ? 0.4 : 1,
-                  child: IgnorePointer(
-                    ignoring: inputDisabled,
-                    child: PinKeypad(onKeyPress: _onKeyPress),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),

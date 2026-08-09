@@ -30,6 +30,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_constrained_composer.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
@@ -1724,52 +1725,62 @@ class _ChatScreenState extends State<ChatScreen> {
       body: PrysmChatDropTarget(
         enabled: !_isPeerBlocked,
         onFileDropped: _handleDroppedFile,
-        child: Column(
-          children: [
-            Expanded(
-              child: PrysmChatList(
-                controller: _messages,
-                scrollController: _listScrollController,
-                onLoadMore: _controller.loadMoreMessages,
-                showJumpToBottom: selectedMessageIds.isEmpty,
-                onStickToBottomChanged: _controller.setStickToBottomSilently,
-                itemBuilder: _buildChatListItem,
-              ),
-            ),
-            if (_isPeerBlocked)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Column(
+            children: [
+              Expanded(
+                child: PrysmChatList(
+                  controller: _messages,
+                  scrollController: _listScrollController,
+                  onLoadMore: _controller.loadMoreMessages,
+                  showJumpToBottom: selectedMessageIds.isEmpty,
+                  onStickToBottomChanged: _controller.setStickToBottomSilently,
+                  itemBuilder: _buildChatListItem,
                 ),
-                decoration: BoxDecoration(
-                  color: context.prysmTokens.surfaceElevated,
-                  border: Border(
-                    top: BorderSide(color: context.prysmTokens.divider),
+              ),
+              if (_isPeerBlocked)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: context.prysmTokens.surfaceElevated,
+                    border: Border(
+                      top: BorderSide(color: context.prysmTokens.divider),
+                    ),
+                  ),
+                  child: Text(
+                    'Unblock to send messages',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.prysmTokens.textMuted),
+                  ),
+                )
+              else
+                // With the keyboard open the app content is padded by the
+                // full keyboard inset (PrysmApp), so the composer (reply
+                // preview + typing bar + input row) can be taller than the
+                // body's remaining height; constrain and scroll it instead of
+                // overflowing the body Column.
+                PrysmConstrainedComposer(
+                  maxHeight: constraints.maxHeight,
+                  composer: PrysmChatComposerColumn(
+                    draftKey: _draftKey,
+                    replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
+                        ? _buildReplyPreview()
+                        : null,
+                    typingTypistNames: _controller.typingTypistNames(),
+                    onSendText: _controller.handleSendText,
+                    onSendImage: _handleSendImage,
+                    onSendFile: _handleSendFile,
+                    onSendVoice: _controller.sendVoice,
+                    onScheduleText:
+                        widget.detachedClient == null ? _scheduleText : null,
+                    onTypingChanged: _controller.onComposerTypingChanged,
                   ),
                 ),
-                child: Text(
-                  'Unblock to send messages',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.prysmTokens.textMuted),
-                ),
-              )
-            else
-              PrysmChatComposerColumn(
-                draftKey: _draftKey,
-                replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
-                    ? _buildReplyPreview()
-                    : null,
-                typingTypistNames: _controller.typingTypistNames(),
-                onSendText: _controller.handleSendText,
-                onSendImage: _handleSendImage,
-                onSendFile: _handleSendFile,
-                onSendVoice: _controller.sendVoice,
-                onScheduleText:
-                    widget.detachedClient == null ? _scheduleText : null,
-                onTypingChanged: _controller.onComposerTypingChanged,
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

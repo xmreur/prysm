@@ -342,15 +342,23 @@ void main() {
     await seed(18000, 2000);
     final largePerOp = await medianRemoveMicros(2000);
 
-    // O(N) deletes scale ~10x with a 10x row count; the rowid probe keeps
-    // the ratio near 1. Bound at 4x to absorb CI noise without allowing a
-    // linear regression through.
+    // The rowid probe keeps the ratio near 1 (~0.9x measured on this
+    // machine); an O(N) scan of the UNINDEXED FTS metadata columns measures
+    // 3.2-3.8x at 20k rows — the scan alone scales ~10x, but ~0.55ms of
+    // fixed per-op mutex/transaction/FFI overhead dilutes the total. Bound
+    // at 3x to sit between the two. Floor the denominator at 20us so a
+    // small-index measurement that collapses to a few us (fast runner)
+    // cannot let one scheduler stall push the ratio through the bound;
+    // inert on this machine, where smallPerOp never drops below ~0.6ms.
+    const floorMicros = 20.0;
+    final smallDenominator =
+        smallPerOp < floorMicros ? floorMicros : smallPerOp;
     expect(
       largePerOp,
-      lessThan(smallPerOp * 4),
+      lessThan(smallDenominator * 3),
       reason: 'per-op delete grew '
-          '${(largePerOp / smallPerOp).toStringAsFixed(1)}x '
-          '(${smallPerOp.toStringAsFixed(1)}us -> '
+          '${(largePerOp / smallDenominator).toStringAsFixed(1)}x '
+          '(${smallDenominator.toStringAsFixed(1)}us -> '
           '${largePerOp.toStringAsFixed(1)}us) between ~2k and ~20k rows',
     );
   });

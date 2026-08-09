@@ -162,7 +162,10 @@ class MessageSearchDao {
   }
 
   /// Lock-free conversation-scoped search-row deletion: the caller must
-  /// already hold [MessagesDatabase.mutex] (via [_protect]) before invoking.
+  /// already hold [MessagesDatabase.mutex] (via [_protect]) before invoking
+  /// this. Opens its own transaction, so no caller may invoke this from
+  /// inside an already-open one (sqflite rejects nested transactions) —
+  /// every current caller runs outside `db.transaction`.
   Future<void> removeForConversationUnprotected(
     String conversationId,
     String scope, {

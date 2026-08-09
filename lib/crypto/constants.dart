@@ -60,9 +60,11 @@ class CryptoConstants {
     return ratchetSchemeRank(a) >= ratchetSchemeRank(b) ? a : b;
   }
 
-  /// Validates a profile or wire ratchet scheme string.
-  static String? parseRatchetScheme(String? raw) {
-    if (raw == null) return null;
+  /// Validates a profile or wire ratchet scheme string. Peer-controlled
+  /// profile JSON may carry a non-string value (a number or object); those
+  /// are ignored (null), never thrown on.
+  static String? parseRatchetScheme(Object? raw) {
+    if (raw is! String) return null;
     final trimmed = raw.trim();
     switch (trimmed) {
       case schemeRatchet1:

@@ -180,7 +180,7 @@ class ContactAddService {
       // The peer's advertised ratchet scheme warms the send-path cache so
       // the first message to this peer never needs a profile fetch.
       final ratchetScheme = CryptoConstants.parseRatchetScheme(
-        profileData['ratchetScheme'] as String?,
+        profileData['ratchetScheme'],
       );
       if (ratchetScheme != null) {
         updates['ratchetScheme'] = ratchetScheme;

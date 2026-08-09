@@ -199,8 +199,15 @@ void main() {
       usersCols.map((c) => c['name']),
       contains('ratchetScheme'),
     );
-    // The upgrade is not allowed to lose what was already there.
-    expect(await db.query('users'), hasLength(1));
+    // The upgrade is not allowed to lose what was already there. hasLength
+    // alone would pass a migration that deleted local-user and inserted a
+    // different row: assert the preserved identity, and that the fresh
+    // column stays null for pre-existing rows.
+    final users = await db.query('users');
+    expect(users, hasLength(1));
+    expect(users.single['id'], 'local-user');
+    expect(users.single['name'], 'Local');
+    expect(users.single['ratchetScheme'], isNull);
     expect(
       (await db.query('group_sender_index')).single['nextIndex'],
       7,

@@ -271,6 +271,14 @@ void main() {
 
       final uv = await db.rawQuery('PRAGMA user_version');
       expect(uv.first.values.single, 15);
+      // The v15 step must add the users.ratchetScheme cache column, not
+      // just bump the version: a step that skipped the ALTER would pass a
+      // version-only assertion.
+      final usersCols = await db.rawQuery('PRAGMA table_info(users)');
+      expect(
+        usersCols.map((c) => c['name']),
+        contains('ratchetScheme'),
+      );
 
       final inbound = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -367,6 +375,14 @@ void main() {
 
       final uv = await db.rawQuery('PRAGMA user_version');
       expect(uv.first.values.single, 15);
+      // The v15 step must add the users.ratchetScheme cache column, not
+      // just bump the version: a step that skipped the ALTER would pass a
+      // version-only assertion.
+      final usersCols = await db.rawQuery('PRAGMA table_info(users)');
+      expect(
+        usersCols.map((c) => c['name']),
+        contains('ratchetScheme'),
+      );
 
       final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');
       final colNames = cols.map((c) => c['name']).toSet();

@@ -31,9 +31,11 @@ void main() {
     CryptoKeyStore.setUseInMemoryStorageOnly(false);
   });
 
+  late Database db;
+
   setUp(() async {
     CryptoKeyStore.resetInMemoryStorageForTest();
-    final db = await databaseFactory.openDatabase(
+    db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
         version: 1,
@@ -61,8 +63,13 @@ void main() {
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
   });
 
-  tearDown(() {
+  tearDown(() async {
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
+    // Close the database: sqflite_common_ffi caches inMemoryDatabasePath
+    // (singleInstance is the default), so without a close the next setUp's
+    // openDatabase returns THIS database and earlier tests' users rows
+    // (including ratchetScheme) leak into the next test's "cold" cache.
+    await db.close();
     DBHelper.setDatabaseForTest(null);
   });
 

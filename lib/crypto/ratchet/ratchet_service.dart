@@ -24,9 +24,13 @@ class RatchetService {
   RatchetSessionStore? _sessionStore;
   final Map<String, Mutex> _peerLocks = {};
 
-  /// Peers with a background scheme warm currently in flight, so a peer
-  /// whose profile never answers cannot pile up one fetch per message.
-  final Set<String> _inFlightSchemeWarms = {};
+  /// The one in-flight profile fetch per peer. Both the foreground
+  /// resolve path and the background warm share this future, so a peer
+  /// whose profile never answers cannot pile up one fetch per message
+  /// (or per cold bootstrap). The entry is removed when the fetch
+  /// settles; while it hangs, every cold caller waits on the same
+  /// request instead of starting a new one.
+  final Map<String, Future<String?>> _inFlightSchemeFetches = {};
 
   /// Test override for peer profile ratchet-scheme lookup.
   Future<String?> Function(String peerId)? _peerRatchetSchemeFetcher;
@@ -75,9 +79,7 @@ class RatchetService {
         preference: TransportPreference.httpOnly,
       );
       final data = jsonDecode(body) as Map<String, dynamic>;
-      return CryptoConstants.parseRatchetScheme(
-        data['ratchetScheme'] as String?,
-      );
+      return CryptoConstants.parseRatchetScheme(data['ratchetScheme']);
     } catch (_) {
       return null;
     }
@@ -90,9 +92,7 @@ class RatchetService {
   Future<String?> _cachedPeerRatchetScheme(String peerId) async {
     try {
       final user = await DBHelper.getUserById(peerId);
-      return CryptoConstants.parseRatchetScheme(
-        user?['ratchetScheme'] as String?,
-      );
+      return CryptoConstants.parseRatchetScheme(user?['ratchetScheme']);
     } catch (_) {
       return null;
     }
@@ -110,22 +110,36 @@ class RatchetService {
     }
   }
 
-  /// Bounded background scheme refresh for a cold cache. Never throws.
-  /// At most one background fetch per peer runs at a time: a second warm
-  /// for the same peer while one is in flight is dropped (the in-flight
-  /// one will persist the scheme if the profile ever answers).
-  Future<void> _warmPeerRatchetScheme(String peerId) async {
-    if (!_inFlightSchemeWarms.add(peerId)) return;
-    try {
-      final scheme = await _peerRatchetSchemeFromProfile(peerId);
-      if (scheme != null) {
-        await _persistPeerRatchetScheme(peerId, scheme);
+  /// Returns the one shared in-flight profile fetch for [peerId], starting
+  /// it if none is running. Never throws: fetch and persistence failures
+  /// surface as a null scheme. The scheme is persisted off this shared
+  /// future, so the result is stored even when the foreground caller has
+  /// already timed out and moved on. The entry is cleared when the future
+  /// settles, letting the next cold bootstrap start a fresh fetch.
+  Future<String?> _sharedSchemeFetch(String peerId) {
+    final inFlight = _inFlightSchemeFetches[peerId];
+    if (inFlight != null) return inFlight;
+    final future = _peerRatchetSchemeFromProfile(peerId).then((scheme) async {
+      if (scheme == null) return null;
+      await _persistPeerRatchetScheme(peerId, scheme);
+      return scheme;
+    });
+    _inFlightSchemeFetches[peerId] = future;
+    unawaited(future.whenComplete(() {
+      // Only clear our own entry: a newer fetch for the same peer must not
+      // be evicted by the settling of this one.
+      if (identical(_inFlightSchemeFetches[peerId], future)) {
+        _inFlightSchemeFetches.remove(peerId);
       }
-    } catch (_) {
-      // Nothing to recover: the cache simply stays cold.
-    } finally {
-      _inFlightSchemeWarms.remove(peerId);
-    }
+    }));
+    return future;
+  }
+
+  /// Bounded background scheme refresh for a cold cache. Never throws.
+  /// A second warm for the same peer while a fetch is in flight reuses
+  /// the shared fetch instead of starting a new one.
+  Future<void> _warmPeerRatchetScheme(String peerId) async {
+    unawaited(_sharedSchemeFetch(peerId));
   }
 
   /// Resolves the peer's ratchet scheme for a NEW session. The persisted
@@ -149,15 +163,19 @@ class RatchetService {
       // The bound is enforced here, not only passed to the fetch: the device
       // log is full of Tor futures that never complete ("TimeoutException
       // after 0:00:30: Future not completed"), and a send must stay bounded
-      // even if the transport fails to honour its own timeout.
-      fromProfile = await _peerRatchetSchemeFromProfile(
+      // even if the transport fails to honour its own timeout. The timeout
+      // stops THIS caller waiting; the shared fetch keeps running so a
+      // background warm (or the next cold bootstrap) reuses it instead of
+      // starting a duplicate fetch.
+      fromProfile = await _sharedSchemeFetch(
         peerId,
       ).timeout(_schemeFetchTimeout);
     } catch (_) {
       // Fetch failed or timed out: fall through to the v2 fallback below.
     }
     if (fromProfile != null) {
-      await _persistPeerRatchetScheme(peerId, fromProfile);
+      // Persistence hangs off the shared fetch (see _sharedSchemeFetch), so
+      // the cache is already warm by the time the future completed here.
       return fromProfile;
     }
     unawaited(_warmPeerRatchetScheme(peerId));

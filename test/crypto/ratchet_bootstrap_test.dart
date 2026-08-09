@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -51,12 +52,14 @@ void main() {
     CryptoKeyStore.setUseInMemoryStorageOnly(false);
   });
 
+  late Database db;
+
   setUp(() async {
     CryptoKeyStore.resetInMemoryStorageForTest();
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
       (_) async => CryptoConstants.schemeRatchet3,
     );
-    final db = await databaseFactory.openDatabase(
+    db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
         version: 1,
@@ -83,8 +86,13 @@ void main() {
     await RatchetSessionStore(db).deleteAll();
   });
 
-  tearDown(() {
+  tearDown(() async {
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
+    // Close the database: sqflite_common_ffi caches inMemoryDatabasePath
+    // (singleInstance is the default), so without a close the next setUp's
+    // openDatabase returns THIS database and earlier tests' users rows
+    // (including ratchetScheme) leak into the next test's "cold" cache.
+    await db.close();
     DBHelper.setDatabaseForTest(null);
   });
 
@@ -213,9 +221,7 @@ void main() {
 
     final bobBundle = await PrekeyBundle.generate(bob, persist: true);
 
-    // Cold cache: the users row exists but no scheme was recorded yet. The
-    // row is replaced outright so a scheme seeded by an earlier test in this
-    // process cannot leak in (the in-memory DB is shared across tests).
+    // Cold cache: the users row exists but no scheme was recorded yet.
     await DBHelper.insertOrUpdateUser({'id': bobOnion});
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
       (_) async {
@@ -1027,5 +1033,52 @@ void main() {
     );
     // 96 bytes DH1||DH2||DH3 + 32-byte DH4 term.
     expect(sharedResp.material.length, 128);
+  });
+
+  test(
+      'repeated cold bootstraps to a hanging profile share one in-flight '
+      'fetch', () async {
+    final alice = await IdentityKeyPair.generate();
+    final bob = await IdentityKeyPair.generate();
+    final bobPub = await _publicKeys(bob);
+    const bobOnion = 'bob.peer.onion';
+
+    final bobBundle = await PrekeyBundle.generate(bob, persist: true);
+
+    // Cold cache: the users row exists but no scheme was ever recorded.
+    await DBHelper.insertOrUpdateUser({'id': bobOnion});
+
+    // A profile that never answers: the fetcher hangs on an uncompleted
+    // Completer, so only genuinely started fetches are counted.
+    final hang = Completer<String?>();
+    var fetchCount = 0;
+    RatchetService.instance.setPeerRatchetSchemeFetcherForTest((_) {
+      fetchCount++;
+      return hang.future;
+    });
+
+    final store = RatchetSessionStore(await DBHelper.database);
+    for (var i = 0; i < 3; i++) {
+      // Drop the persisted session so every send re-enters the cold
+      // bootstrap path (the only path that resolves the peer scheme).
+      await store.delete(bobOnion);
+      await RatchetService.instance.encryptText(
+        peerId: bobOnion,
+        plaintext: 'msg-$i',
+        local: alice,
+        peer: bobPub,
+        peerBundle: bobBundle,
+      );
+    }
+
+    // Every cold bootstrap must share the single in-flight fetch: the count
+    // must not grow with each send (pre-fix, each send started a fresh
+    // untracked foreground fetch on top of a background warm).
+    expect(fetchCount, 1);
+
+    // Let the shared fetch settle so the service's in-flight entry clears
+    // and no later test in this file inherits a hanging entry for the peer.
+    hang.complete(null);
+    await Future<void>.delayed(Duration.zero);
   });
 }

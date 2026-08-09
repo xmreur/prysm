@@ -20,6 +20,27 @@ import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/util/logging.dart';
 
+/// Outcome of applying an inbound modify payload, so the transport can
+/// decide whether to ack the sender or surface a rejection. The rejection
+/// categories need different sender-facing outcomes: an envelope that cannot
+/// be authenticated or decrypted is a security rejection, a missing target
+/// row is a benign no-op, and an ownership mismatch is a policy violation.
+enum InboundModifyOutcome {
+  /// The modify authenticated, targeted an existing message row owned by the
+  /// sender, and was applied.
+  applied,
+
+  /// The envelope could not be authenticated or decrypted (for example a
+  /// legacy unsigned `dh-aead` envelope from a pre-v0.7 peer).
+  decryptFailed,
+
+  /// The targeted message row does not exist locally.
+  unknownTarget,
+
+  /// The targeted message row exists but is owned by a different sender.
+  ownershipRejected,
+}
+
 class MessageModifyService {
   final String userId;
   final KeyManager keyManager;
@@ -109,10 +130,11 @@ class MessageModifyService {
       modifiedAt: modifiedAt,
     );
 
+    final bool propagated;
     if (groupId != null) {
-      await _sendGroupModify(payload);
+      propagated = await _sendGroupModify(payload);
     } else {
-      await _sendDirectModify(payload);
+      propagated = await _sendDirectModify(payload);
     }
 
     MessageModifyRefreshNotifier.instance.notify(
@@ -122,7 +144,7 @@ class MessageModifyService {
         modifiedAt: modifiedAt,
       ),
     );
-    return true;
+    return propagated;
   }
 
   Future<bool> _editDirectText(
@@ -301,12 +323,18 @@ class MessageModifyService {
     return true;
   }
 
-  Future<void> _sendDirectModify(MessageModifyPayload payload) async {
-    if (peerId == null) return;
+  /// Returns whether the modify was delivered to the peer right now.
+  /// `false` means the send failed (the row is queued for a later retry, or
+  /// nothing was attempted: there is no peer id, or the peer's public
+  /// identity is unknown and no test override is installed). Callers that
+  /// want at-least-once semantics (edits) treat `false` as "queued"; the
+  /// delete path reports it as not-yet-propagated.
+  Future<bool> _sendDirectModify(MessageModifyPayload payload) async {
+    if (peerId == null) return false;
 
     final override = postDirectOverride;
     final peerKey = await _loadPeerPublicKey();
-    if (peerKey == null && override == null) return;
+    if (peerKey == null && override == null) return false;
 
     final encrypted = peerKey != null
         ? await keyManager.encryptHybridForPeer(
@@ -322,7 +350,7 @@ class MessageModifyService {
       modifiedAt: payload.modifiedAt,
     );
 
-    await _transport.sendDirectAndQueue(
+    return _transport.sendDirectAndQueue(
       id: eventId,
       peerId: peerId!,
       encrypted: encrypted,
@@ -331,15 +359,19 @@ class MessageModifyService {
     );
   }
 
-  Future<void> _sendGroupModify(
+  /// Returns whether the modify was delivered to every target right now.
+  /// `false` means at least one target send failed (that row is queued for a
+  /// later retry, or nothing was attempted: the group service or group key is
+  /// unavailable).
+  Future<bool> _sendGroupModify(
     MessageModifyPayload payload, {
     Set<String>? onlyTargets,
   }) async {
     final gs = groupService;
-    if (gs == null || groupId == null) return;
+    if (gs == null || groupId == null) return false;
 
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
-    if (groupKey == null) return;
+    if (groupKey == null) return false;
 
     final encrypted = await GroupCryptoV2.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
@@ -355,8 +387,9 @@ class MessageModifyService {
       modifiedAt: payload.modifiedAt,
     );
 
+    var allDelivered = true;
     for (final target in targets) {
-      await _transport.sendGroupAndQueue(
+      final ok = await _transport.sendGroupAndQueue(
         id: '${eventId}__$target',
         groupId: groupId!,
         targetMemberId: target,
@@ -364,7 +397,9 @@ class MessageModifyService {
         timestamp: payload.modifiedAt,
         type: groupMessageModifyType,
       );
+      if (!ok) allDelivered = false;
     }
+    return allDelivered;
   }
 
   Future<IdentityPublicKeys?> _loadPeerPublicKey() async {
@@ -377,7 +412,7 @@ class MessageModifyService {
     }
   }
 
-  static Future<void> applyInbound({
+  static Future<InboundModifyOutcome> applyInbound({
     required KeyManager keyManager,
     required String localUserId,
     required String encrypted,
@@ -394,16 +429,37 @@ class MessageModifyService {
       groupId: groupId,
       groupService: groupService,
     );
-    if (plaintext == null) return;
+    if (plaintext == null) {
+      Logging.error(
+        'Inbound message modify from ${Logging.redactOnion(senderId)} '
+        'rejected: could not authenticate or decrypt the envelope',
+        'MessageModifyService',
+      );
+      return InboundModifyOutcome.decryptFailed;
+    }
 
     final payload = MessageModifyPayload.decode(plaintext);
     final rows = await MessagesDb.getMessageById(
       payload.targetMessageId,
       groupId: groupId,
     );
-    if (rows.isEmpty) return;
+    if (rows.isEmpty) {
+      Logging.error(
+        'Inbound message modify from ${Logging.redactOnion(senderId)} '
+        'targets unknown message ${payload.targetMessageId}',
+        'MessageModifyService',
+      );
+      return InboundModifyOutcome.unknownTarget;
+    }
     final row = rows.first;
-    if (row['senderId'] != senderId) return;
+    if (row['senderId'] != senderId) {
+      Logging.error(
+        'Inbound message modify from ${Logging.redactOnion(senderId)} '
+        'rejected: message ${payload.targetMessageId} is not owned by the sender',
+        'MessageModifyService',
+      );
+      return InboundModifyOutcome.ownershipRejected;
+    }
 
     String? newText;
     if (payload.isDelete) {
@@ -457,6 +513,7 @@ class MessageModifyService {
         modifiedAt: payload.modifiedAt,
       ),
     );
+    return InboundModifyOutcome.applied;
   }
 
   static Future<String?> _decryptEditedBody({
@@ -519,7 +576,10 @@ class MessageModifyService {
           publicKeyPem: user?['publicKeyPem'] as String?,
         );
         if (peerKey == null) return null;
-        return keyManager.decryptPeerMessage(
+        // Awaited so a decrypt rejection (e.g. a legacy unsigned `dh-aead`
+        // envelope) is caught below and reported as `decryptFailed` instead
+        // of escaping as an unclassified internal error.
+        return await keyManager.decryptPeerMessage(
           peerId: senderId,
           wire: encrypted,
           peer: peerKey,
@@ -542,7 +602,10 @@ class MessageModifyService {
         return await GroupCryptoV2.decryptText(groupKey, encrypted);
       }
     } catch (e) {
-      Logging.error('Message modify decrypt failed: $e', 'MessageModifyService');
+      Logging.error(
+        'Message modify decrypt failed for ${Logging.redactOnion(senderId)}: $e',
+        'MessageModifyService',
+      );
     }
     return null;
   }

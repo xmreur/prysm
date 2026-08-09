@@ -24,7 +24,15 @@ class TorHttpTransport implements OutboundTransport {
   DateTime? lastSuccessForPeer(String peerOnion) =>
       _lastSuccessByPeer[peerOnion];
 
+  /// Test seam: replaces the per-request [TorHttpClient] so transport-level
+  /// status handling can be exercised without a live Tor circuit. The
+  /// production [postJson] body (retry, body read, status check) still runs.
+  @visibleForTesting
+  static TorHttpClient Function()? clientFactory;
+
   TorHttpClient _client() {
+    final factory = clientFactory;
+    if (factory != null) return factory();
     return TorHttpClient(
       proxyHost: '127.0.0.1',
       proxyPort: _torManager.socksPort,
@@ -149,7 +157,14 @@ class TorHttpTransport implements OutboundTransport {
               jsonEncode(payload),
             )
             .timeout(timeout);
-        await client.readUtf8Body(response);
+        final body = await client.readUtf8Body(response);
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          // The peer is reachable and answered, but rejected the payload
+          // (4xx) or failed to process it (5xx). Surface it as a failure so
+          // callers queue a retry instead of reporting a phantom success —
+          // the same signal the WebSocket path produces via ack errors.
+          throw StateError('HTTP ${response.statusCode}: $body');
+        }
       } finally {
         await client.close();
       }

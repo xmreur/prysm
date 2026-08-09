@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
 import 'package:prysm/crypto/ratchet/session_store.dart';
 import 'package:prysm/database/message_reactions.dart';
@@ -96,6 +97,15 @@ Future<Database> _openDbHelperDb() async {
       groupId TEXT PRIMARY KEY,
       encryptedKey TEXT NOT NULL,
       keyVersion INTEGER NOT NULL DEFAULT 1
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE group_members (
+      groupId TEXT NOT NULL,
+      memberId TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joinedAt INTEGER NOT NULL,
+      PRIMARY KEY (groupId, memberId)
     )
   ''');
   await RatchetSessionStore.ensureTable(db);
@@ -206,6 +216,15 @@ void main() {
     test('a sender-owned, already-sent message is soft-deleted (kept row)',
         () async {
       const wireId = 'wire-2';
+      // The side-channel post succeeds so the delete-for-everyone branch
+      // reports a delivered propagation (not the failure outcome).
+      MessageModifyService.postDirectOverride = ({
+        required id,
+        required encrypted,
+        required timestamp,
+        required peerId,
+      }) async =>
+          true;
       await MessagesDb.insertMessage({
         'id': wireId,
         'senderId': 'me',
@@ -305,6 +324,17 @@ void main() {
       const wireId = 'wire-5';
       const groupId = 'group-1';
       final groupService = GroupService(userId: 'me', keyManager: keyManager);
+      // A stored group key makes the group side-channel propagation succeed,
+      // so the delete-for-everyone branch reports a delivered propagation.
+      final groupKey = GroupCryptoV2.generateGroupKey();
+      await DBHelper.upsertGroupKey(
+        groupId: groupId,
+        encryptedKey: await GroupCryptoV2.encryptGroupKeyForStorage(
+          groupKey,
+          keyManager.identity,
+        ),
+        keyVersion: 1,
+      );
       final actions = MessageActionsService(
         modifyService: MessageModifyService.group(
           userId: 'me',

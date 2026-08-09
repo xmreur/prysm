@@ -125,6 +125,43 @@ class WsFrameRouter {
         return [];
       }
 
+      if (frame.op == 'message_modify') {
+        // Verify-then-ack for modify control frames: an optimistic ack would
+        // tell the sender the modify was applied even when it was rejected
+        // (unauthenticated envelope, unknown target, ownership mismatch).
+        // Await processing and propagate failures as an error frame so the
+        // sender's transport throws and `sendDirectAndQueue` queues a retry
+        // (at-least-once instead of silent loss).
+        try {
+          final result = await router.processMessage(payload);
+          if (result.statusCode >= 400) {
+            return [
+              WsFrame.error(
+                id: frame.id!,
+                message: result.jsonBody?['error']?.toString() ??
+                    'Processing failed',
+              ).encode(),
+            ];
+          }
+          return [
+            WsFrame.response(
+              op: '${frame.op}_ack',
+              id: frame.id!,
+              payload: result.jsonBody ?? router.optimisticAckBody(payload),
+            ).encode(),
+          ];
+        } catch (e, stack) {
+          Logging.error(
+            'message_modify from ${Logging.redactOnion('${payload['senderId']}')} '
+            'processing error: $e\n$stack',
+            'WsFrameRouter',
+          );
+          return [
+            WsFrame.error(id: frame.id!, message: 'Processing failed').encode(),
+          ];
+        }
+      }
+
       final ackOp = frame.op == 'message' ? 'message_ack' : '${frame.op}_ack';
       final ack = WsFrame.response(
         op: ackOp,

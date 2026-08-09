@@ -535,10 +535,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     setState(() {
       if (outcome == MessageDeleteOutcome.markedDeletedForEveryone) {
         _messages.updateMessage(message, markMessageDeleted(message));
+      } else if (outcome ==
+          MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
+        // The tombstone was applied locally, but the peer was not notified:
+        // surface the send-failure state (metadata['failed'] -> 'Failed').
+        _messages.updateMessage(
+          message,
+          markMessageDeleted(
+            message.copyWith(
+              metadata: {...?message.metadata, 'failed': true},
+            ),
+          ),
+        );
       } else {
         _messages.removeMessage(message);
       }
     });
+    if (outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
+      showPrysmToast(context, 'Could not delete for everyone');
+    }
   }
 
   Future<void> _editMessage(Message message) async {

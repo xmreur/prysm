@@ -19,6 +19,13 @@ import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
+/// Thrown by [WsConnectionManager.ensureConnected] when the peer is already in
+/// reconnect backoff. The attempt never reached the wire, so it is not a fresh
+/// connect failure: callers must not record it or re-arm the backoff window.
+class PeerInBackoffError extends StateError {
+  PeerInBackoffError() : super('Peer reconnect backoff active');
+}
+
 /// Maintains one full-duplex WebSocket link per peer (dialer or acceptor).
 class WsConnectionManager {
   WsConnectionManager(this._torManager);
@@ -29,12 +36,27 @@ class WsConnectionManager {
   static const Duration _maxReconnectBackoff = Duration(minutes: 2);
   static const int _maxPingFailures = 3;
 
+  /// Consecutive real dial failures after which a peer is quarantined: its
+  /// retry cadence drops from the ~2 min backoff cap to
+  /// [hostUnreachableQuarantine] until it proves reachable again (inbound
+  /// contact, authenticated wake hint, or explicit user action).
+  ///
+  /// A failure counts when it falls in the dial path's own retry taxonomy
+  /// ([TorDelivery.isRetryableError]) — `hostUnreachable` SOCKS replies,
+  /// connect timeouts, and the other peer-reachability failures the device
+  /// log shows for dead peers. Local state errors (no local onion, Tor
+  /// stopped) never count.
+  static const int hostUnreachableQuarantineThreshold = 10;
+  static const Duration hostUnreachableQuarantine = Duration(minutes: 10);
+
   final TorManager _torManager;
   final Map<String, WsPeerLink> _links = {};
   final Map<String, Future<void>> _connectChains = {};
   final Map<String, Future<void>> _requestChains = {};
   final Map<String, int> _requestQueueDepthByPeer = {};
   final Map<String, int> _connectFailures = {};
+  final Map<String, int> _hostUnreachableStreak = {};
+  final Map<String, DateTime> _quarantineUntil = {};
   final Map<String, int> _pingFailures = {};
   final Map<String, DateTime> _lastSuccessByPeer = {};
   final Map<String, DateTime> _nextRetryAfter = {};
@@ -77,7 +99,12 @@ class WsConnectionManager {
     return link.onPushFrames;
   }
 
-  void pinPeer(String peerOnion) => _pinnedPeers.add(peerOnion);
+  void pinPeer(String peerOnion) {
+    // Opening a chat, calling, or transferring is an explicit user action:
+    // lift any backoff/quarantine so the fresh attempt is not rate-limited.
+    clearPeerFailureState(peerOnion);
+    _pinnedPeers.add(peerOnion);
+  }
 
   void unpinPeer(String peerOnion) => _pinnedPeers.remove(peerOnion);
 
@@ -190,8 +217,11 @@ class WsConnectionManager {
         await ensureConnected(peer);
         _connectFailures.remove(peer);
         _nextRetryAfter.remove(peer);
-      } catch (_) {
-        _recordConnectFailure(peer);
+      } catch (e) {
+        // A fast-fail because the peer is already in backoff never reached
+        // the wire: it must not count as a fresh failure or re-arm the window.
+        if (e is PeerInBackoffError) continue;
+        _recordConnectFailure(peer, e);
       }
     }
 
@@ -209,7 +239,7 @@ class WsConnectionManager {
     return DateTime.now().isBefore(retryAfter);
   }
 
-  void _recordConnectFailure(String peerOnion) {
+  void _recordConnectFailure(String peerOnion, Object error) {
     final failures = (_connectFailures[peerOnion] ?? 0) + 1;
     _connectFailures[peerOnion] = failures;
 
@@ -218,11 +248,83 @@ class WsConnectionManager {
       seconds: backoffSeconds.clamp(1, _maxReconnectBackoff.inSeconds),
     );
     _nextRetryAfter[peerOnion] = DateTime.now().add(backoff);
+
+    if (_isPeerUnreachableError(error)) {
+      final streak = (_hostUnreachableStreak[peerOnion] ?? 0) + 1;
+      _hostUnreachableStreak[peerOnion] = streak;
+      if (streak >= hostUnreachableQuarantineThreshold &&
+          !_isQuarantined(peerOnion)) {
+        // Overrides the regular backoff with the longer quarantine window.
+        _enterQuarantine(peerOnion);
+      }
+    } else {
+      // A local or protocol failure (no local onion, Tor stopped) breaks the
+      // peer-unreachable streak.
+      _hostUnreachableStreak.remove(peerOnion);
+    }
+  }
+
+  /// True when [error] indicates the peer did not answer a real dial attempt
+  /// — the peer-reachability class the dial path itself retries
+  /// ([TorDelivery.isRetryableError]). A local state error (e.g. no local
+  /// onion address) is not the peer's fault and never counts.
+  bool _isPeerUnreachableError(Object error) =>
+      TorDelivery.isRetryableError(error);
+
+  bool _isQuarantined(String peerOnion) {
+    final until = _quarantineUntil[peerOnion];
+    if (until == null) return false;
+    if (DateTime.now().isBefore(until)) return true;
+    _quarantineUntil.remove(peerOnion);
+    return false;
+  }
+
+  void _enterQuarantine(String peerOnion) {
+    final until = DateTime.now().add(hostUnreachableQuarantine);
+    _quarantineUntil[peerOnion] = until;
+    _nextRetryAfter[peerOnion] = until;
+    Logging.debug(
+      'Quarantining ${Logging.redactOnion(peerOnion)} after '
+      '$hostUnreachableQuarantineThreshold consecutive unreachable dial failures',
+      'WsConnectionManager',
+    );
+  }
+
+  /// Minimum remaining backoff window before a peer counts as genuinely,
+  /// repeatedly unreachable for wake-hint suppression. The backoff ladder
+  /// (1, 2, 4, 8, 16, 32 s, then the 120 s cap) only reaches this at the
+  /// seventh consecutive failure, so a single transient blip never silences
+  /// hints, while a peer in the capped dead-peer regime — and the 10-minute
+  /// quarantine, which is a 10-minute window — is left alone.
+  static const Duration _wakeHintUnreachableMinBackoff = Duration(seconds: 60);
+
+  /// True when [peerOnion] is in reconnect backoff with a window long enough
+  /// to indicate sustained, repeated unreachability — wake hints to such peers
+  /// only feed the failure storm. A single transient failure (short window)
+  /// must not suppress hints: the hint is the nudge that wakes a sleeping
+  /// peer.
+  bool isPeerUnreachable(String peerOnion) {
+    final retryAfter = _nextRetryAfter[peerOnion];
+    if (retryAfter == null) return false;
+    return retryAfter.difference(DateTime.now()) >=
+        _wakeHintUnreachableMinBackoff;
+  }
+
+  /// Resets throttling state for [peerOnion] because it proved reachable
+  /// (inbound contact, authenticated wake hint) or the user explicitly
+  /// engaged with it, so the next connect attempt is not rate-limited.
+  void clearPeerFailureState(String peerOnion) {
+    _connectFailures.remove(peerOnion);
+    _nextRetryAfter.remove(peerOnion);
+    _hostUnreachableStreak.remove(peerOnion);
+    _quarantineUntil.remove(peerOnion);
   }
 
   void prepareForTorReconnect() {
     _connectFailures.clear();
     _nextRetryAfter.clear();
+    _hostUnreachableStreak.clear();
+    _quarantineUntil.clear();
     _localOnion = null;
     for (final peer in _links.keys.toList()) {
       unawaited(_removeLink(peer));
@@ -266,8 +368,11 @@ class WsConnectionManager {
     if (_links[peerOnion]?.isConnected == true) {
       return Future<void>.value();
     }
-    if (connectBudget == null && _isInBackoff(peerOnion)) {
-      return Future.error(StateError('Peer reconnect backoff active'));
+    if (_isInBackoff(peerOnion)) {
+      // Respect backoff on every path: a user-initiated connect against a
+      // throttled peer fails fast so callers fall back to the HTTP path
+      // instead of blocking the UI for the interactive connect budget.
+      return Future.error(PeerInBackoffError());
     }
 
     final prev = _connectChains[peerOnion] ?? Future<void>.value();
@@ -449,6 +554,8 @@ class WsConnectionManager {
     PeerTransportRegistry.instance.markWebSocket(peerOnion);
     _connectFailures.remove(peerOnion);
     _nextRetryAfter.remove(peerOnion);
+    _hostUnreachableStreak.remove(peerOnion);
+    _quarantineUntil.remove(peerOnion);
     _pingFailures.remove(peerOnion);
     _lastSuccessByPeer[peerOnion] = DateTime.now();
 
@@ -654,6 +761,19 @@ class WsConnectionManager {
     bool outbound = false,
   }) {
     _registerLink(peerOnion, link, outbound: outbound);
+  }
+
+  @visibleForTesting
+  void recordConnectFailureForTest(String peerOnion, Object error) {
+    _recordConnectFailure(peerOnion, error);
+  }
+
+  @visibleForTesting
+  Duration? retryDelayForTest(String peerOnion) {
+    final retryAfter = _nextRetryAfter[peerOnion];
+    if (retryAfter == null) return null;
+    final remaining = retryAfter.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
   }
 
   void dispose() {

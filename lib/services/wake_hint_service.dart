@@ -105,6 +105,11 @@ class WakeHintService {
           .take(BatterySaverPolicy.wakeHintMaxPeers)
           .map((e) => e.key)
           .where((id) => id != userId)
+          // Don't wake peers the connection manager is already throttling:
+          // each hint to a dead peer burns a full HTTP timeout.
+          .where(
+            (id) => !TransportProvider.instance.wsManager.isPeerUnreachable(id),
+          )
           .toSet();
     } catch (_) {
       return;
@@ -152,6 +157,9 @@ class WakeHintService {
     _lastReceivedFromPeer[senderId] = DateTime.now();
 
     if (TransportProvider.isConfigured) {
+      // The sender proved reachability with an authenticated hint: lift any
+      // backoff/quarantine so the flush connect is not rate-limited.
+      TransportProvider.instance.wsManager.clearPeerFailureState(senderId);
       unawaited(
         TransportProvider.instance.wsManager
             .ensureConnected(senderId)

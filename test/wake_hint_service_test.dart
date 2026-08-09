@@ -4,8 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/wake_hint_service.dart';
+import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -203,6 +206,97 @@ void main() {
         {'peerOnion': 'peer.onion', 'senderId': 'me.onion'},
       ]);
     });
+
+    test('skips peers with sustained connect failures', () async {
+      await SettingsService().setShowOnlineStatus(true);
+
+      // A single blip must NOT suppress hints; only the sustained dead-peer
+      // regime (capped 120s backoff, i.e. ~7+ consecutive failures) does.
+      for (var i = 0; i < 7; i++) {
+        TransportProvider.instance.wsManager.recordConnectFailureForTest(
+          'peer.onion',
+          Exception(
+            'SocksClientConnectionCommandFailedException: hostUnreachable',
+          ),
+        );
+      }
+      expect(
+        TransportProvider.instance.wsManager.isPeerUnreachable('peer.onion'),
+        isTrue,
+      );
+
+      await WakeHintService.instance.broadcastRecentPeerHints();
+
+      expect(sentHints, isEmpty);
+    });
+
+    test('sends a wake hint after a single transient connect failure',
+        () async {
+      await SettingsService().setShowOnlineStatus(true);
+
+      // Drive ONE real dial failure through the production path — the
+      // maintenance heartbeat dial against a peer whose connection is reset —
+      // then verify the hint still goes out: a single blip must not silence
+      // the nudge that wakes a sleeping peer.
+      final socks = _ClosingSocksServer();
+      await socks.start();
+      addTearDown(socks.close);
+      final dataDir = Directory.systemTemp.createTempSync('ws-hint-onion');
+      Directory('${dataDir.path}/hidden_service').createSync(recursive: true);
+      File('${dataDir.path}/hidden_service/hostname')
+          .writeAsStringSync('me.onion');
+      final tor = TorManager(
+        torPath: '/bin/false',
+        dataDir: dataDir.path,
+        controlPassword: 'test-password',
+        socksPort: socks.port,
+      );
+      TorRuntimeGate.resetForTest();
+      TransportProvider.resetForTest();
+      TransportProvider.configure(tor);
+      final wsManager = TransportProvider.instance.wsManager;
+      wsManager.start();
+      await _waitFor(() => wsManager.retryDelayForTest('peer.onion') != null);
+      TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
+
+      // One failure recorded: the peer is in a 1s backoff, far below the
+      // sustained-unreachable threshold.
+      expect(wsManager.isPeerUnreachable('peer.onion'), isFalse);
+
+      await WakeHintService.instance.broadcastRecentPeerHints();
+
+      expect(sentHints, [
+        {'peerOnion': 'peer.onion', 'senderId': 'me.onion'},
+      ]);
+    });
+
+    test('incoming wake hint clears throttling state for that peer', () async {
+      final wsManager = TransportProvider.instance.wsManager;
+      for (var i = 0;
+          i < WsConnectionManager.hostUnreachableQuarantineThreshold;
+          i++) {
+        wsManager.recordConnectFailureForTest(
+          'peer.onion',
+          Exception(
+            'SocksClientConnectionCommandFailedException: hostUnreachable',
+          ),
+        );
+      }
+      expect(wsManager.isPeerUnreachable('peer.onion'), isTrue);
+
+      // Re-configure with a pending-check seam so handleIncomingHint does not
+      // touch the real pending_messages database.
+      WakeHintService.instance.configure(
+        userId: 'me.onion',
+        onFlushPeer: (_) async => true,
+        hasOutboundPendingForSender: (_) async => false,
+      );
+
+      await WakeHintService.instance.handleIncomingHint('peer.onion');
+
+      expect(wsManager.isPeerUnreachable('peer.onion'), isFalse);
+      expect(wsManager.retryDelayForTest('peer.onion'), isNull);
+    });
   });
 
   test('wake hint policy constants are sensible', () {
@@ -210,4 +304,38 @@ void main() {
     expect(BatterySaverPolicy.wakeHintReceiveDebounce.inSeconds, 30);
     expect(BatterySaverPolicy.wakeHintSendCooldown.inMinutes, 5);
   });
+}
+
+/// Polls [predicate] until it returns true or [timeout] elapses.
+Future<void> _waitFor(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 30),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('condition not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+  }
+}
+
+/// Accepts and immediately destroys incoming TCP connections: the production
+/// dial path fails with a socket-level error (connection reset), which the
+/// connection manager records as a real dial failure — no SOCKS protocol
+/// needed.
+class _ClosingSocksServer {
+  ServerSocket? _server;
+  int port = 0;
+
+  Future<void> start() async {
+    _server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    port = _server!.port;
+    _server!.listen((client) => client.destroy());
+  }
+
+  Future<void> close() async {
+    await _server?.close();
+    _server = null;
+  }
 }

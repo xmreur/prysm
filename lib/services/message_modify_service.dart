@@ -34,6 +34,11 @@ enum InboundModifyOutcome {
   /// legacy unsigned `dh-aead` envelope from a pre-v0.7 peer).
   decryptFailed,
 
+  /// The envelope authenticated, but its plaintext is not a modify payload
+  /// this build can parse. Kept apart from [decryptFailed] so the log and the
+  /// status say which half failed.
+  malformedPayload,
+
   /// The targeted message row does not exist locally.
   unknownTarget,
 
@@ -438,7 +443,21 @@ class MessageModifyService {
       return InboundModifyOutcome.decryptFailed;
     }
 
-    final payload = MessageModifyPayload.decode(plaintext);
+    final MessageModifyPayload payload;
+    try {
+      payload = MessageModifyPayload.decode(plaintext);
+    } catch (e) {
+      // An authenticated peer can still send a payload this build cannot
+      // parse (a buggy or hostile client). Report it as a rejection instead
+      // of letting the throw reach the caller's catch-all, which would blame
+      // a 500 on us for input we can never accept.
+      Logging.error(
+        'Inbound message modify from ${Logging.redactOnion(senderId)} '
+        'rejected: malformed payload: $e',
+        'MessageModifyService',
+      );
+      return InboundModifyOutcome.malformedPayload;
+    }
     final rows = await MessagesDb.getMessageById(
       payload.targetMessageId,
       groupId: groupId,

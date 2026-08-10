@@ -435,42 +435,45 @@ void main() {
           controlPassword: 'test-password',
         ),
       );
+      // Registered at the point of assignment: a throw before the asserts
+      // would otherwise leak this process-global wiring into later tests.
+      addTearDown(TransportProvider.resetForTest);
       TorHttpTransport.clientFactory = () => _FakeTorHttpClient(
         _FakeHttpClientResponse(
           400,
           '{"error":"Message modify target not found"}',
         ),
       );
+      addTearDown(() {
+        TorHttpTransport.clientFactory = null;
+        TorDelivery.resetForTest();
+      });
       // The production HTTP path gates on the runtime gate; the default test
       // lifecycle is `stopped`, which would fail the send for the wrong
       // reason.
       TorRuntimeGate.resetForTest();
+      addTearDown(
+        () => TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped),
+      );
 
-      try {
-        final service = MessageModifyService.direct(
-          userId: 'me.onion',
-          keyManager: keyManager,
-          peerId: 'peer.onion',
-        );
-        final ok = await service.deleteMessage(targetMessageId: wireId);
+      final service = MessageModifyService.direct(
+        userId: 'me.onion',
+        keyManager: keyManager,
+        peerId: 'peer.onion',
+      );
+      final ok = await service.deleteMessage(targetMessageId: wireId);
 
-        expect(ok, isFalse);
-        // The rejection is queued for a later retry, not dropped.
-        final pending =
-            await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
-          senderId: 'me.onion',
-          receiverId: 'peer.onion',
-        );
-        expect(
-          pending.where((row) => row['type'] == messageModifyType),
-          hasLength(1),
-        );
-      } finally {
-        TransportProvider.resetForTest();
-        TorHttpTransport.clientFactory = null;
-        TorDelivery.resetForTest();
-        TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped);
-      }
+      expect(ok, isFalse);
+      // The rejection is queued for a later retry, not dropped.
+      final pending =
+          await PendingMessageDbHelper.getPendingDirectMessagesForReceiver(
+        senderId: 'me.onion',
+        receiverId: 'peer.onion',
+      );
+      expect(
+        pending.where((row) => row['type'] == messageModifyType),
+        hasLength(1),
+      );
     });
   });
 
@@ -515,6 +518,77 @@ void main() {
       // 2xx, not 4xx: the sender's transport must not queue an unbounded
       // retry of a rejection that can never succeed.
       expect(result.statusCode, 200);
+    });
+  });
+
+  group('malformed payload handling', () {
+    test('an authenticated envelope with an unparseable payload reports '
+        'malformedPayload, not a decrypt failure', () async {
+      final sender = await IdentityKeyPair.generate();
+      final receiver = await IdentityKeyPair.generate();
+      final receiverKm = KeyManager.fromIdentity(receiver);
+      final senderKm = KeyManager.fromIdentity(sender);
+      final publicJson = jsonEncode(await sender.toPublicJson());
+      await DBHelper.insertOrUpdateUser({
+        'id': 'peer.onion',
+        'name': 'Peer',
+        'identityJson': publicJson,
+        'publicKeyPem': publicJson,
+      });
+      // The envelope authenticates; only its plaintext is not a payload.
+      final encrypted = await senderKm.encryptHybridForPeer(
+        'not a modify payload',
+        await _publicKeysOf(receiver),
+        peerId: 'me.onion',
+      );
+
+      final outcome = await MessageModifyService.applyInbound(
+        keyManager: receiverKm,
+        localUserId: 'me.onion',
+        encrypted: encrypted,
+        senderId: 'peer.onion',
+        type: messageModifyType,
+      );
+
+      expect(outcome, InboundModifyOutcome.malformedPayload);
+    });
+
+    test('a malformed payload answers 4xx, not a 500 that blames our own '
+        'processing', () async {
+      final sender = await IdentityKeyPair.generate();
+      final receiver = await IdentityKeyPair.generate();
+      final receiverKm = KeyManager.fromIdentity(receiver);
+      final senderKm = KeyManager.fromIdentity(sender);
+      final publicJson = jsonEncode(await sender.toPublicJson());
+      await DBHelper.insertOrUpdateUser({
+        'id': 'peer.onion',
+        'name': 'Peer',
+        'identityJson': publicJson,
+        'publicKeyPem': publicJson,
+      });
+      // Well-formed JSON, but not a modify payload: `decode` throws on the
+      // missing `targetMessageId` cast rather than on `jsonDecode`.
+      final encrypted = await senderKm.encryptHybridForPeer(
+        '{"action":"delete"}',
+        await _publicKeysOf(receiver),
+        peerId: 'me.onion',
+      );
+
+      final router = InboundMessageRouter(
+        keyManager: receiverKm,
+        settings: SettingsService(),
+        localOnionAddress: () => 'me.onion',
+      );
+      final result = await router.handleMessage({
+        'id': 'modify-event-2',
+        'senderId': 'peer.onion',
+        'receiverId': 'me.onion',
+        'message': encrypted,
+        'type': messageModifyType,
+        'timestamp': 5,
+      });
+
+      expect(result.statusCode, 400);
     });
   });
 }

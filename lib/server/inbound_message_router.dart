@@ -393,6 +393,13 @@ class InboundMessageRouter {
           return InboundHandleResult.badRequest(
             'Message modify could not be authenticated or decrypted',
           );
+        case InboundModifyOutcome.malformedPayload:
+          // The envelope authenticated but the payload is unparseable: a 4xx
+          // says the input is the problem, where the catch-all below would
+          // report a 500 and blame our own processing.
+          return InboundHandleResult.badRequest(
+            'Message modify payload is malformed',
+          );
         case InboundModifyOutcome.unknownTarget:
           // Benign no-op (see InboundModifyOutcome): the target message no
           // longer exists locally (disappearing-message expiry, conversation

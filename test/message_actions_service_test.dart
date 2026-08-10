@@ -17,6 +17,7 @@ import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/message_actions_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
+import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
@@ -262,6 +263,45 @@ void main() {
       );
     });
 
+    test('a rejected delete-for-everyone still tombstones locally', () async {
+      const wireId = 'wire-7';
+      // The side-channel post is rejected (override returns false), so the
+      // delete-for-everyone branch reports the send-failure outcome even
+      // though the local tombstone was still applied (row kept, deletedAt
+      // set): local delete succeeds, propagation did not.
+      MessageModifyService.postDirectOverride = ({
+        required id,
+        required encrypted,
+        required timestamp,
+        required peerId,
+      }) async =>
+          false;
+      await MessagesDb.insertMessage({
+        'id': wireId,
+        'senderId': 'me',
+        'receiverId': 'peer',
+        'message': 'cipher',
+        'type': 'text',
+        'status': 'sent',
+        'timestamp': 1,
+      });
+
+      final outcome = await actions.deleteMessage(
+        TextMessage(
+          id: wireId,
+          authorId: 'me',
+          text: 'x',
+          sentAt: DateTime.fromMillisecondsSinceEpoch(1),
+        ),
+        localUserId: 'me',
+      );
+
+      expect(outcome, MessageDeleteOutcome.markedDeletedForEveryoneFailed);
+      final rows = await MessagesDb.getMessageById(wireId);
+      expect(rows, hasLength(1));
+      expect(rows.first['deletedAt'], isNotNull);
+    });
+
     test('a peer-owned message is removed locally only', () async {
       const wireId = 'wire-3';
       await MessagesDb.insertMessage({
@@ -324,8 +364,17 @@ void main() {
       const wireId = 'wire-5';
       const groupId = 'group-1';
       final groupService = GroupService(userId: 'me', keyManager: keyManager);
-      // A stored group key makes the group side-channel propagation succeed,
-      // so the delete-for-everyone branch reports a delivered propagation.
+      // One other member so the per-target send loop actually runs; with an
+      // empty group_members table getMembers would return [] and the loop
+      // would report all-delivered without ever sending anything.
+      await DBHelper.addGroupMember({
+        'groupId': groupId,
+        'memberId': 'memberA',
+        'role': 'member',
+        'joinedAt': 1,
+      });
+      // A stored group key plus a deterministic postman whose sends all
+      // succeed make the group side-channel propagation report delivered.
       final groupKey = GroupCryptoV2.generateGroupKey();
       await DBHelper.upsertGroupKey(
         groupId: groupId,
@@ -335,6 +384,7 @@ void main() {
         ),
         keyVersion: 1,
       );
+      MessageModifyService.testPostman = _FakePostman();
       final actions = MessageActionsService(
         modifyService: MessageModifyService.group(
           userId: 'me',
@@ -364,6 +414,70 @@ void main() {
       );
 
       expect(outcome, MessageDeleteOutcome.markedDeletedForEveryone);
+      final rows = await MessagesDb.getMessageById(wireId, groupId: groupId);
+      expect(rows, hasLength(1));
+      expect(rows.first['deletedAt'], isNotNull);
+    });
+
+    test(
+        'a partially failed group delete-for-everyone still tombstones '
+        'locally and reports the failure', () async {
+      const wireId = 'wire-8';
+      const groupId = 'group-1';
+      final groupService = GroupService(userId: 'me', keyManager: keyManager);
+      final groupKey = GroupCryptoV2.generateGroupKey();
+      await DBHelper.upsertGroupKey(
+        groupId: groupId,
+        encryptedKey: await GroupCryptoV2.encryptGroupKeyForStorage(
+          groupKey,
+          keyManager.identity,
+        ),
+        keyVersion: 1,
+      );
+      // Two other members: the postman delivers to memberA but rejects
+      // memberB, so the aggregation must report the send failure instead of
+      // a delivered delete (impossible with an empty member list, which
+      // would trivially report all-delivered).
+      await DBHelper.addGroupMember({
+        'groupId': groupId,
+        'memberId': 'memberA',
+        'role': 'member',
+        'joinedAt': 1,
+      });
+      await DBHelper.addGroupMember({
+        'groupId': groupId,
+        'memberId': 'memberB',
+        'role': 'member',
+        'joinedAt': 1,
+      });
+      MessageModifyService.testPostman =
+          _FakePostman(failingMembers: {'memberB'});
+      final actions = MessageActionsService(
+        modifyService: MessageModifyService.group(
+          userId: 'me',
+          keyManager: keyManager,
+          groupId: groupId,
+          groupService: groupService,
+        ),
+        groupId: groupId,
+      );
+      await MessagesDb.insertMessage({
+        'id': wireId,
+        'senderId': 'me',
+        'receiverId': 'memberA',
+        'message': 'cipher',
+        'type': 'text',
+        'status': 'sent',
+        'timestamp': 1,
+        'groupId': groupId,
+      });
+
+      final outcome = await actions.deleteMessage(
+        TextMessage(id: wireId, authorId: 'me', text: 'x'),
+        localUserId: 'me',
+      );
+
+      expect(outcome, MessageDeleteOutcome.markedDeletedForEveryoneFailed);
       final rows = await MessagesDb.getMessageById(wireId, groupId: groupId);
       expect(rows, hasLength(1));
       expect(rows.first['deletedAt'], isNotNull);
@@ -405,4 +519,31 @@ void main() {
       );
     });
   });
+}
+
+/// Deterministic side-channel postman for group tests: succeeds for every
+/// member except those listed in [failingMembers], which are rejected with a
+/// neutral error (no Tor retry tokens, so delivery fails fast).
+class _FakePostman implements SideChannelPostman {
+  final Set<String> failingMembers;
+
+  _FakePostman({this.failingMembers = const {}});
+
+  @override
+  Future<void> postDirect({
+    required String peerId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {}
+
+  @override
+  Future<void> postGroup({
+    required String targetMemberId,
+    required Map<String, dynamic> payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (failingMembers.contains(targetMemberId)) {
+      throw Exception('peer rejected');
+    }
+  }
 }

@@ -85,6 +85,28 @@ void main() {
     expect(frame.id, 'req-2');
   });
 
+  test('message_modify returns an error frame when processing throws', () async {
+    final router = WsFrameRouter()..routerOverride = _ThrowingModifyRouter();
+
+    const payload = {
+      'id': 'modify-3',
+      'senderId': 'aaa.onion',
+      'receiverId': 'bbb.onion',
+      'message': 'cipher',
+      'type': 'message_modify',
+      'timestamp': 1,
+    };
+
+    final responses = await router.handleInboundFrame(
+      const WsFrame(op: 'message_modify', id: 'req-4', payload: payload),
+    );
+
+    expect(responses, hasLength(1));
+    final frame = WsFrame.decode(responses.first);
+    expect(frame.op, 'error');
+    expect(frame.id, 'req-4');
+  });
+
   test('other side-channel ops keep the optimistic fast ack', () async {
     final inbound = _SlowSideChannelRouter();
     final router = WsFrameRouter()..routerOverride = inbound;
@@ -126,6 +148,20 @@ class _FailingModifyRouter extends InboundMessageRouter {
   @override
   Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
     return InboundHandleResult.internalError('modify rejected');
+  }
+}
+
+class _ThrowingModifyRouter extends InboundMessageRouter {
+  _ThrowingModifyRouter()
+      : super(
+          keyManager: KeyManager(),
+          settings: SettingsService(),
+          localOnionAddress: () => 'bbb.onion',
+        );
+
+  @override
+  Future<InboundHandleResult> processMessage(Map<String, dynamic> data) async {
+    throw StateError('modify processing crashed');
   }
 }
 

@@ -50,16 +50,13 @@ class TorDelivery {
   static bool isCircuitError(Object error) {
     if (error is HttpException) return true;
     final message = _errorText(error);
-    return message.contains('hostunreachable') ||
-        message.contains('networkunreachable') ||
-        message.contains('ttlexpired') ||
+    return message.contains('ttlexpired') ||
         message.contains('connection closed while receiving') ||
         message.contains('general socks server failure');
   }
 
   static Future<void> _maybeRefreshCircuit({
     required bool circuitError,
-    bool force = false,
   }) async {
     final manager = _torManager;
     if (manager == null) return;
@@ -67,8 +64,7 @@ class TorDelivery {
     final now = DateTime.now();
     final minInterval =
         circuitError ? _circuitNewnymMinInterval : _newnymMinInterval;
-    if (!force &&
-        _lastNewnymAt != null &&
+    if (_lastNewnymAt != null &&
         now.difference(_lastNewnymAt!) < minInterval) {
       return;
     }
@@ -115,7 +111,7 @@ class TorDelivery {
         }
         final circuit = isCircuitError(e);
         if (circuit) {
-          await _maybeRefreshCircuit(circuitError: true, force: i == 0);
+          await _maybeRefreshCircuit(circuitError: true);
         }
         final delay = _retryDelays[min(i, _retryDelays.length - 1)];
         await Future.delayed(delay);

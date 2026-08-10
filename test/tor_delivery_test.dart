@@ -5,6 +5,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_service.dart';
 
+class _CountingTorManager extends TorManager {
+  _CountingTorManager()
+      : super(
+          torPath: '/bin/false',
+          dataDir: '/tmp/tor-delivery-counting',
+          controlPassword: 'test-password',
+        );
+
+  int refreshCount = 0;
+
+  @override
+  Future<bool> refreshCircuit() async {
+    refreshCount++;
+    return true;
+  }
+}
+
 void main() {
   setUp(TorDelivery.resetForTest);
 
@@ -29,7 +46,7 @@ void main() {
       expect(TorDelivery.isCircuitError(error), isTrue);
     });
 
-    test('treats hostUnreachable as retryable circuit error', () {
+    test('treats hostUnreachable as retryable but not a circuit error', () {
       expect(
         TorDelivery.isRetryableError(
           Exception(
@@ -44,7 +61,7 @@ void main() {
             'SocksClientConnectionCommandFailedException: hostUnreachable',
           ),
         ),
-        isTrue,
+        isFalse,
       );
     });
 
@@ -112,6 +129,62 @@ void main() {
         },
       );
       expect(attempts, 2);
+    });
+
+    test('repeated hostUnreachable failures never refresh the circuit', () async {
+      final manager = _CountingTorManager();
+      TorDelivery.configure(manager);
+
+      await expectLater(
+        TorDelivery.withTorRetry<void>(
+          attempt: () async => throw Exception(
+            'SocksClientConnectionCommandFailedException: hostUnreachable',
+          ),
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(manager.refreshCount, 0);
+    });
+
+    test('genuine circuit error still refreshes the circuit', () async {
+      final manager = _CountingTorManager();
+      TorDelivery.configure(manager);
+
+      var attempts = 0;
+      await TorDelivery.withTorRetry<void>(
+        maxAttempts: 2,
+        attempt: () async {
+          attempts++;
+          if (attempts == 1) {
+            throw HttpException(
+              'Connection closed while receiving data',
+              uri: Uri.parse('http://peer.onion/profile'),
+            );
+          }
+        },
+      );
+      expect(attempts, 2);
+      expect(manager.refreshCount, 1);
+    });
+
+    test('circuit refresh still respects the NEWNYM rate limit', () async {
+      final manager = _CountingTorManager();
+      TorDelivery.configure(manager);
+      TorDelivery.setLastNewnymForTest(
+        DateTime.now().subtract(const Duration(seconds: 1)),
+      );
+
+      await expectLater(
+        TorDelivery.withTorRetry<void>(
+          maxAttempts: 2,
+          attempt: () async => throw HttpException(
+            'Connection closed while receiving data',
+            uri: Uri.parse('http://peer.onion/profile'),
+          ),
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(manager.refreshCount, 0);
     });
   });
 }

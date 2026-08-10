@@ -526,12 +526,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
 
-  Future<void> _deleteMessage(Message message) async {
+  /// Deletes [message] and returns the outcome, so the bulk path can report a
+  /// single aggregated failure instead of one toast per selected message.
+  Future<MessageDeleteOutcome> _deleteMessage(
+    Message message, {
+    bool showFailureToast = true,
+  }) async {
     final outcome = await _actionsService.deleteMessage(
       message,
       localUserId: widget.userId,
     );
-    if (!mounted) return;
+    if (!mounted) return outcome;
     setState(() {
       if (outcome == MessageDeleteOutcome.markedDeletedForEveryone) {
         _messages.updateMessage(message, markMessageDeleted(message));
@@ -551,9 +556,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _messages.removeMessage(message);
       }
     });
-    if (outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
+    if (showFailureToast &&
+        outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
       showPrysmToast(context, 'Could not delete for everyone');
     }
+    return outcome;
   }
 
   Future<void> _editMessage(Message message) async {
@@ -659,14 +666,28 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   Future<void> _deleteSelectedMessages() async {
     final ids = List<String>.from(selectedMessageIds);
+    var failed = 0;
     for (final id in ids) {
       try {
         final msg = _messages.messages.firstWhere((m) => m.id == id);
-        await _deleteMessage(msg);
+        final outcome = await _deleteMessage(msg, showFailureToast: false);
+        if (outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
+          failed++;
+        }
       } catch (_) {}
     }
     if (mounted) {
       _controller.clearSelection();
+      // One toast for the whole selection: the per-message toast is
+      // suppressed above so N failures do not stack N toasts.
+      if (failed > 0) {
+        showPrysmToast(
+          context,
+          failed == 1
+              ? 'Could not delete for everyone'
+              : 'Could not delete $failed messages for everyone',
+        );
+      }
     }
   }
 

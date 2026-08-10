@@ -73,19 +73,16 @@ void main() {
       TorHttpTransport.clientFactory = () => _FakeTorHttpClient(
         _FakeHttpClientResponse(400, '{"error":"Message modify target not found"}'),
       );
+      addTearDown(() => TorHttpTransport.clientFactory = null);
 
-      try {
-        await expectLater(
-          transport.postJson(
-            peerOnion: 'peer.onion',
-            path: 'message',
-            payload: const {'a': 1},
-          ),
-          throwsA(isA<StateError>()),
-        );
-      } finally {
-        TorHttpTransport.clientFactory = null;
-      }
+      await expectLater(
+        transport.postJson(
+          peerOnion: 'peer.onion',
+          path: 'message',
+          payload: const {'a': 1},
+        ),
+        throwsA(isA<PeerHttpStatusException>()),
+      );
     });
 
     test('postJson throws on a 5xx status instead of reporting success',
@@ -97,19 +94,57 @@ void main() {
       TorHttpTransport.clientFactory = () => _FakeTorHttpClient(
         _FakeHttpClientResponse(500, '{"error":"Processing failed"}'),
       );
+      addTearDown(() => TorHttpTransport.clientFactory = null);
 
+      await expectLater(
+        transport.postJson(
+          peerOnion: 'peer.onion',
+          path: 'message',
+          payload: const {'a': 1},
+        ),
+        throwsA(isA<PeerHttpStatusException>()),
+      );
+    });
+
+    test('a hostile response body cannot buy retries or a circuit reset',
+        () async {
+      final transport = TorHttpTransport.createForTest(
+        TorManager(torPath: '/bin/false', dataDir: '/tmp/http-transport-hostile', controlPassword: 'test-password'),
+      );
+      addTearDown(transport.dispose);
+      // TorDelivery classifies by substring on the error text, so a peer that
+      // answers with these tokens in its body would otherwise be treated as a
+      // transient circuit failure: three retries and a global NEWNYM per
+      // delivery, remotely triggerable.
+      var posts = 0;
+      TorHttpTransport.clientFactory = () {
+        posts++;
+        return _FakeTorHttpClient(
+          _FakeHttpClientResponse(
+            400,
+            'hostUnreachable general SOCKS server failure ttlExpired',
+          ),
+        );
+      };
+      addTearDown(() => TorHttpTransport.clientFactory = null);
+
+      Object? thrown;
       try {
-        await expectLater(
-          transport.postJson(
+        await TorDelivery.withTorRetry<void>(
+          attempt: () => transport.postJson(
             peerOnion: 'peer.onion',
             path: 'message',
             payload: const {'a': 1},
           ),
-          throwsA(isA<StateError>()),
         );
-      } finally {
-        TorHttpTransport.clientFactory = null;
+      } catch (e) {
+        thrown = e;
       }
+
+      expect(thrown, isA<PeerHttpStatusException>());
+      expect(posts, 1, reason: 'a peer-chosen body must not earn a retry');
+      expect(TorDelivery.isRetryableError(thrown!), isFalse);
+      expect(TorDelivery.isCircuitError(thrown), isFalse);
     });
 
     test('postJson returns normally on a 2xx status', () async {
@@ -120,16 +155,13 @@ void main() {
       TorHttpTransport.clientFactory = () => _FakeTorHttpClient(
         _FakeHttpClientResponse(200, '{"status":"received"}'),
       );
+      addTearDown(() => TorHttpTransport.clientFactory = null);
 
-      try {
-        await transport.postJson(
-          peerOnion: 'peer.onion',
-          path: 'message',
-          payload: const {'a': 1},
-        );
-      } finally {
-        TorHttpTransport.clientFactory = null;
-      }
+      await transport.postJson(
+        peerOnion: 'peer.onion',
+        path: 'message',
+        payload: const {'a': 1},
+      );
     });
   });
 }

@@ -191,6 +191,9 @@ void main() {
     'Tor progress',
     (tester) async {
       UnlockLockoutService.setUseInMemoryStorageOnly(true);
+      // Process-global: restore it so the mode does not depend on this test
+      // being last in the file.
+      addTearDown(() => UnlockLockoutService.setUseInMemoryStorageOnly(false));
       tester.view.physicalSize = const Size(360 * 3, 640 * 3);
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);

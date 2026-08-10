@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 14;
+  static const int dbVersion = 15;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -34,6 +34,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 12) await _upgradeToV12(db);
     if (oldVersion < 13) await _upgradeToV13(db);
     if (oldVersion < 14) await _upgradeToV14(db);
+    if (oldVersion < 15) await _upgradeToV15(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -263,7 +264,25 @@ class MessageSchemaMigrations {
     await createMessageSearchFtsTable(db);
   }
 
-  /// Plaintext FTS5 index for local message search (protected by SQLCipher).
+  /// CHANGES: added the message_search_rows side table mapping each
+  /// (messageId, conversationId, scope) to its FTS rowid, so deletes become
+  /// rowid probes instead of full scans of the UNINDEXED FTS metadata
+  /// columns. Backfills the side table from the existing FTS index so the
+  /// current index is preserved, not rebuilt.
+  static Future<void> _upgradeToV15(Database db) async {
+    Logging.info('UPGRADING DB TO v15', 'MessagesDb');
+    await createMessageSearchFtsTable(db);
+    await db.execute('''
+      INSERT OR IGNORE INTO message_search_rows(
+        messageId, conversationId, scope, timestamp, ftsRowid
+      )
+      SELECT messageId, conversationId, scope, timestamp, rowid
+      FROM message_search_fts
+    ''');
+  }
+
+  /// Plaintext FTS5 index for local message search (protected by SQLCipher),
+  /// plus the message_search_rows side table that keeps deletes O(1).
   static Future<void> createMessageSearchFtsTable(Database db) async {
     await db.execute('''
       CREATE VIRTUAL TABLE IF NOT EXISTS message_search_fts USING fts5(
@@ -273,6 +292,16 @@ class MessageSchemaMigrations {
         timestamp UNINDEXED,
         body,
         tokenize = 'unicode61 remove_diacritics 2'
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS message_search_rows(
+        messageId TEXT NOT NULL,
+        conversationId TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        ftsRowid INTEGER NOT NULL,
+        PRIMARY KEY (messageId, conversationId, scope)
       )
     ''');
   }

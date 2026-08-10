@@ -31,14 +31,30 @@ void main() {
     CryptoKeyStore.setUseInMemoryStorageOnly(false);
   });
 
+  late Database db;
+
   setUp(() async {
     CryptoKeyStore.resetInMemoryStorageForTest();
-    final db = await databaseFactory.openDatabase(
+    db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
         version: 1,
         onCreate: (db, _) async {
           await RatchetSessionStore.ensureTable(db);
+          // Mirrors DBHelper._createDB so the send path can consult the
+          // persisted per-peer ratchet-scheme cache (users.ratchetScheme).
+          await db.execute('''
+            CREATE TABLE users (
+              id TEXT PRIMARY KEY,
+              name TEXT,
+              avatarUrl TEXT,
+              avatarBase64 TEXT,
+              customName TEXT,
+              publicKeyPem TEXT,
+              identityJson TEXT,
+              ratchetScheme TEXT
+            )
+          ''');
         },
       ),
     );
@@ -47,8 +63,13 @@ void main() {
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
   });
 
-  tearDown(() {
+  tearDown(() async {
     RatchetService.instance.setPeerRatchetSchemeFetcherForTest(null);
+    // Close the database: sqflite_common_ffi caches inMemoryDatabasePath
+    // (singleInstance is the default), so without a close the next setUp's
+    // openDatabase returns THIS database and earlier tests' users rows
+    // (including ratchetScheme) leak into the next test's "cold" cache.
+    await db.close();
     DBHelper.setDatabaseForTest(null);
   });
 
@@ -97,9 +118,13 @@ void main() {
 
       final bobBundle = await PrekeyBundle.generate(bob, persist: true);
 
-      RatchetService.instance.setPeerRatchetSchemeFetcherForTest(
-        (_) async => CryptoConstants.schemeRatchet3,
-      );
+      // The profile fetch has already recorded ratchet-3 on the users row
+      // (ContactAddService / PeerIdentityResolver / chat refresh all do
+      // this); the send path must negotiate v3 from that cache.
+      await DBHelper.ensureUserExist(bobOnion);
+      await DBHelper.updateUserFields(bobOnion, {
+        'ratchetScheme': CryptoConstants.schemeRatchet3,
+      });
 
       final wire = await RatchetService.instance.encryptText(
         peerId: bobOnion,

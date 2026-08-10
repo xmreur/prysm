@@ -394,6 +394,14 @@ class PrysmServer {
         if (data['avatar'] != null && (data['avatar'] as String).isNotEmpty) {
           updates['avatarBase64'] = data['avatar'];
         }
+        // The sender's advertised ratchet scheme warms the send-path cache
+        // so the reply's first message never needs a profile fetch.
+        final ratchetScheme = PeerIdentityResolver.ratchetSchemeFromProfile(
+          data,
+        );
+        if (ratchetScheme != null) {
+          updates['ratchetScheme'] = ratchetScheme;
+        }
         if (updates.isNotEmpty) {
           await DBHelper.updateUserFields(senderId, updates);
         }

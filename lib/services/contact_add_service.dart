@@ -147,6 +147,9 @@ class ContactAddService {
       'customName': newUser.customName,
       'identityJson': identityJson,
       'publicKeyPem': identityJson,
+      // INSERT OR REPLACE destroys every column not carried over: keep a
+      // scheme already recorded by an earlier profile fetch.
+      'ratchetScheme': existing?['ratchetScheme'] as String?,
     });
 
     unawaited(_enrichFromProfile(onionId));
@@ -173,6 +176,14 @@ class ContactAddService {
       final avatar = profileData['avatar'] as String?;
       if (avatar != null && avatar.isNotEmpty) {
         updates['avatarBase64'] = avatar;
+      }
+      // The peer's advertised ratchet scheme warms the send-path cache so
+      // the first message to this peer never needs a profile fetch.
+      final ratchetScheme = CryptoConstants.parseRatchetScheme(
+        profileData['ratchetScheme'],
+      );
+      if (ratchetScheme != null) {
+        updates['ratchetScheme'] = ratchetScheme;
       }
       if (updates.isEmpty) {
         return;

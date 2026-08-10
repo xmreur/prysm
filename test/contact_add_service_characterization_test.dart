@@ -37,7 +37,8 @@ Future<Database> _openTestDb() async {
       avatarBase64 TEXT,
       customName TEXT,
       publicKeyPem TEXT,
-      identityJson TEXT
+      identityJson TEXT,
+      ratchetScheme TEXT
     )
   ''');
   await db.execute('''
@@ -356,6 +357,43 @@ void main() {
         identityJson: row['identityJson'] as String,
       );
       expect(contact.displayName, 'Alice');
+    });
+
+    test(
+        'a non-string ratchetScheme in the profile is ignored without '
+        'breaking name/avatar enrichment', () async {
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => jsonEncode({
+          'identityJson': peerIdentityJson,
+          'username': 'Alice B.',
+          'avatar': 'YWJj',
+          // Peer-controlled JSON must not be trusted to carry a string: a
+          // numeric scheme used to throw a TypeError that aborted the whole
+          // enrichment, silently dropping name and avatar too.
+          'ratchetScheme': 42,
+        }),
+      );
+
+      final added = await service.addContact(
+        onionId: onionId,
+        displayName: 'Alice',
+      );
+      expect(added, isTrue);
+
+      Map<String, dynamic>? row;
+      for (var i = 0; i < 20; i++) {
+        row = await DBHelper.getUserById(onionId);
+        if (row != null && row['avatarBase64'] == 'YWJj') break;
+        await Future.delayed(const Duration(milliseconds: 5));
+      }
+
+      // The rest of the profile is still applied...
+      expect(row?['name'], 'Alice B.');
+      expect(row?['customName'], 'Alice');
+      expect(row?['avatarBase64'], 'YWJj');
+      // ...and the non-string scheme is ignored, not stored.
+      expect(row?['ratchetScheme'], isNull);
     });
 
     test(

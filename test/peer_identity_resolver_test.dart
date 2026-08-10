@@ -20,7 +20,8 @@ Future<Database> _openDbHelperDb() async {
       avatarBase64 TEXT,
       customName TEXT,
       publicKeyPem TEXT,
-      identityJson TEXT
+      identityJson TEXT,
+      ratchetScheme TEXT
     )
   ''');
   return db;
@@ -154,6 +155,40 @@ void main() {
         expect(partialIdentity!.fingerprint,
             IdentityKeyPair.fingerprintFromPublicJson(
                 await peerKeyPair.toPublicJson()));
+      },
+    );
+
+    test(
+      'a non-string ratchetScheme in the profile is ignored without '
+      'breaking identity resolution',
+      () async {
+        TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.ready);
+
+        final peerKeyPair = await IdentityKeyPair.generate();
+        final peerIdentityJson = jsonEncode(await peerKeyPair.toPublicJson());
+
+        final injectedResolver = PeerIdentityResolver(
+          peerId: peerId,
+          keyManager: keyManager,
+          fetchProfile: (_) async => jsonEncode({
+            'identityJson': peerIdentityJson,
+            // Peer-controlled JSON must not be trusted to carry a string: a
+            // numeric scheme used to throw a TypeError that aborted the
+            // whole fetch, so the identity below was never applied.
+            'ratchetScheme': 42,
+          }),
+          fetchPublic: (_) async =>
+              throw StateError('fallback must not be needed'),
+        );
+
+        final resolved = await injectedResolver.fetchOverTor();
+
+        // The identity is still resolved and persisted...
+        expect(resolved, isNotNull);
+        final row = await DBHelper.getUserById(peerId);
+        expect(row?['identityJson'], peerIdentityJson);
+        // ...and the non-string scheme is ignored, not stored.
+        expect(row?['ratchetScheme'], isNull);
       },
     );
   });

@@ -53,7 +53,8 @@ Future<Database> _openDbHelperDb() async {
       avatarBase64 TEXT,
       customName TEXT,
       publicKeyPem TEXT,
-      identityJson TEXT
+      identityJson TEXT,
+      ratchetScheme TEXT
     )
   ''');
   // ChatService.encryptForPeer routes through KeyManager into the shared

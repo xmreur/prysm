@@ -25,6 +25,7 @@ import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_constrained_composer.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/chat_search_bar.dart';
@@ -1664,33 +1665,42 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           : null,
       body: PrysmChatDropTarget(
         onFileDropped: _handleDroppedFile,
-        child: Column(
-          children: [
-            Expanded(
-              child: PrysmChatList(
-                controller: _messages,
-                scrollController: _listScrollController,
-                onLoadMore: _controller.loadMoreMessages,
-                showJumpToBottom: selectedMessageIds.isEmpty,
-                onStickToBottomChanged: _controller.setStickToBottomSilently,
-                itemBuilder: _buildGroupChatListItem,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Column(
+            children: [
+              Expanded(
+                child: PrysmChatList(
+                  controller: _messages,
+                  scrollController: _listScrollController,
+                  onLoadMore: _controller.loadMoreMessages,
+                  showJumpToBottom: selectedMessageIds.isEmpty,
+                  onStickToBottomChanged: _controller.setStickToBottomSilently,
+                  itemBuilder: _buildGroupChatListItem,
+                ),
               ),
-            ),
-            PrysmChatComposerColumn(
-              draftKey: _draftKey,
-              replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
-                  ? _buildReplyPreview()
-                  : null,
-              typingTypistNames: _controller.typingTypistNames(),
-              onSendText: _controller.handleSendText,
-              onSendImage: _handleSendImage,
-              onSendFile: _handleSendFile,
-              onSendVoice: _controller.sendVoice,
-              onScheduleText:
-                  widget.detachedClient == null ? _scheduleText : null,
-              onTypingChanged: _controller.onComposerTypingChanged,
-            ),
-          ],
+              // Same keyboard-inset overflow as the 1:1 chat body: the
+              // composer is a non-flex Column child laid out with unbounded
+              // main-axis constraints, so constrain and scroll it instead of
+              // overflowing.
+              PrysmConstrainedComposer(
+                maxHeight: constraints.maxHeight,
+                composer: PrysmChatComposerColumn(
+                  draftKey: _draftKey,
+                  replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
+                      ? _buildReplyPreview()
+                      : null,
+                  typingTypistNames: _controller.typingTypistNames(),
+                  onSendText: _controller.handleSendText,
+                  onSendImage: _handleSendImage,
+                  onSendFile: _handleSendFile,
+                  onSendVoice: _controller.sendVoice,
+                  onScheduleText:
+                      widget.detachedClient == null ? _scheduleText : null,
+                  onTypingChanged: _controller.onComposerTypingChanged,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -28,6 +28,7 @@ import 'package:prysm/services/self_chat_service.dart';
 import 'package:prysm/util/chat_attachment_ingress.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
+import 'package:prysm/ui/chat/prysm_constrained_composer.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/models/conversation.dart';
@@ -650,88 +651,97 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           : null,
       body: PrysmChatDropTarget(
         onFileDropped: _handleDroppedFile,
-        child: Column(
-          children: [
-            Expanded(
-              child: PrysmChatList(
-                controller: _controller.messages,
-                scrollController: _scrollController,
-                onLoadMore: _controller.loadMoreMessages,
-                onStickToBottomChanged: _controller.setStickToBottomSilently,
-                itemBuilder: (context, message, index) {
-                  final showHeader = shouldShowChatDateHeader(
-                    _controller.messages.messages,
-                    index,
-                  );
-                  final msgDate = message.createdAt ?? DateTime.now();
-                  Widget child;
-                  if (message is TextMessage) {
-                    child = _textMessageBuilder(
-                      context,
-                      message,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Column(
+            children: [
+              Expanded(
+                child: PrysmChatList(
+                  controller: _controller.messages,
+                  scrollController: _scrollController,
+                  onLoadMore: _controller.loadMoreMessages,
+                  onStickToBottomChanged: _controller.setStickToBottomSilently,
+                  itemBuilder: (context, message, index) {
+                    final showHeader = shouldShowChatDateHeader(
+                      _controller.messages.messages,
                       index,
-                      isSentByMe: true,
                     );
-                  } else if (message is ImageMessage) {
-                    child = _imageMessageBuilder(
-                      context,
-                      message,
-                      index,
-                      isSentByMe: true,
-                    );
-                  } else if (message is FileMessage) {
-                    child = _fileMessageBuilder(
-                      context,
-                      message,
-                      index,
-                      isSentByMe: true,
-                    );
-                  } else {
-                    child = const SizedBox.shrink();
-                  }
-
-                  final isHighlighted = _highlightedMessageId == message.id;
-                  final tokens = context.prysmStyle.tokens;
-
-                  return Column(
-                    children: [
-                      if (showHeader) PrysmDateHeader(date: msgDate),
-                      GestureDetector(
-                        onLongPress: () => _showMessageMenu(context, message),
-                        child: ColoredBox(
-                          color: isHighlighted
-                              ? Color.lerp(
-                                  tokens.background,
-                                  tokens.accentMuted,
-                                  0.25,
-                                )!
-                              : const Color(0x00000000),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                Flexible(
-                                  child: _displayChildForMessage(message, child),
-                                ),
-                              ],
+                    final msgDate = message.createdAt ?? DateTime.now();
+                    Widget child;
+                    if (message is TextMessage) {
+                      child = _textMessageBuilder(
+                        context,
+                        message,
+                        index,
+                        isSentByMe: true,
+                      );
+                    } else if (message is ImageMessage) {
+                      child = _imageMessageBuilder(
+                        context,
+                        message,
+                        index,
+                        isSentByMe: true,
+                      );
+                    } else if (message is FileMessage) {
+                      child = _fileMessageBuilder(
+                        context,
+                        message,
+                        index,
+                        isSentByMe: true,
+                      );
+                    } else {
+                      child = const SizedBox.shrink();
+                    }
+  
+                    final isHighlighted = _highlightedMessageId == message.id;
+                    final tokens = context.prysmStyle.tokens;
+  
+                    return Column(
+                      children: [
+                        if (showHeader) PrysmDateHeader(date: msgDate),
+                        GestureDetector(
+                          onLongPress: () => _showMessageMenu(context, message),
+                          child: ColoredBox(
+                            color: isHighlighted
+                                ? Color.lerp(
+                                    tokens.background,
+                                    tokens.accentMuted,
+                                    0.25,
+                                  )!
+                                : const Color(0x00000000),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Flexible(
+                                    child: _displayChildForMessage(message, child),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-            PrysmChatComposerColumn(
-              draftKey: 'self:${widget.userId}',
-              onSendText: _handleSendText,
-              onSendImage: _handleSendImage,
-              onSendFile: _handleSendFile,
-              onSendVoice: _handleSendVoice,
-            ),
-          ],
+              // Same keyboard-inset overflow as the 1:1 chat body: the
+              // composer is a non-flex Column child laid out with unbounded
+              // main-axis constraints, so constrain and scroll it instead of
+              // overflowing.
+              PrysmConstrainedComposer(
+                maxHeight: constraints.maxHeight,
+                composer: PrysmChatComposerColumn(
+                  draftKey: 'self:${widget.userId}',
+                  onSendText: _handleSendText,
+                  onSendImage: _handleSendImage,
+                  onSendFile: _handleSendFile,
+                  onSendVoice: _handleSendVoice,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

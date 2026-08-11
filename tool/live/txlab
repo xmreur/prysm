@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""txlab — measure real P2P transmission between two live Prysm labs.
+
+A THIN driver over tool/live/prysmlab: it shells out, it never reimplements.
+Each peer is a prysmlab instance in its own container with its own Tor and
+identity; peers talk over the REAL Tor network (no host ports, no LAN
+transport). Two-peer transmission found defects a one-peer UI lab cannot see —
+stale WS links, group lists that never refresh, WS links that never form.
+
+    tool/live/txlab onion a            # onion + base58 contact id
+    tool/live/txlab send a b --reps 10
+    tool/live/txlab watch droid --secs 60
+
+`send` needs both apps up, the sender's composer empty, and BOTH peers on the
+chat screen. A second Linux peer — identity is per-container, image shared:
+
+    PRYSMLAB_CONTAINER=prysm-lab-b PRYSMLAB_HOST_LAB=/tmp/prysm-lab-b \
+      PRYSMLAB_VOLUME=prysm-lab-b-pub tool/live/prysmlab up
+"""
+
+from __future__ import annotations
+
+import argparse
+import calendar
+import json
+import os
+import re
+import statistics
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PRYSMLAB = os.path.join(HERE, "prysmlab")
+
+# ---- the only configuration -------------------------------------------------
+# Each peer is a full prysmlab identity: own container, staging dir, tor and
+# pub-cache volume. Identity lives in the container's writable layer, so a
+# second container IS a second identity. `droid` (Android) has no hostname
+# file, so its onion is read off the live HomeScreen widget (cmd_onion).
+PEERS = {
+    "a":     {"platform": "linux",   "container": "prysm-lab-a",
+              "host_lab": "/tmp/prysm-lab-a",       "volume": "prysm-lab-a-pub"},
+    "b":     {"platform": "linux",   "container": "prysm-lab-b",
+              "host_lab": "/tmp/prysm-lab-b",       "volume": "prysm-lab-b-pub"},
+    # A third Linux peer: the group scenario needs two members who are both
+    # contacts of the admin but not of each other.
+    "c":     {"platform": "linux",   "container": "prysm-lab-c",
+              "host_lab": "/tmp/prysm-lab-c",       "volume": "prysm-lab-c-pub"},
+    "droid": {"platform": "android", "container": "prysm-lab-android",
+              "host_lab": "/tmp/prysm-lab-android", "volume": "prysm-lab-android-pub"},
+}
+
+# Failure signatures worth counting on a live peer (cmd_watch).
+SIGNATURES = [
+    r"WS failed .*TimeoutException",      # stale WS link, full send budget burned
+    r"rejecting hello from unknown peer", # group member with no contact identity
+    r"hostUnreachable",                   # SOCKS says the peer's onion is dead
+    r"sync-hint to .* failed",            # wake hint did not reach a peer
+    r"Quarantin",                         # peer put in the 10-min dial quarantine
+]
+
+# Base58 alphabet as lib/util/onion_id_codec.dart uses it (package:bs58).
+BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+# Not anchored: Android lines arrive through logcat as
+# `I/flutter ( 2617): [2026-08-11 13:00:24.856] INFO …`, so the bracket is not
+# at column 0 and an `^` here makes every Android read come back empty.
+LOG_TS = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.(\d{3})\]")
+
+def die(msg: str, code: int = 1):
+    print(f"txlab: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+def plab(peer: str, argv: list[str], check: bool = True) -> str:
+    """Run a prysmlab subcommand for a peer, with that peer's identity env."""
+    cfg = PEERS[peer]
+    env = dict(os.environ, PRYSMLAB_CONTAINER=cfg["container"],
+               PRYSMLAB_HOST_LAB=cfg["host_lab"], PRYSMLAB_VOLUME=cfg["volume"],
+               PRYSMLAB_PLATFORM=cfg["platform"])
+    res = subprocess.run([PRYSMLAB, *argv], capture_output=True, text=True, env=env)
+    if res.returncode != 0 and check:
+        die(f"{peer}: prysmlab {' '.join(argv)} failed: "
+            f"{(res.stderr or res.stdout).strip()}")
+    return res.stdout
+
+def parse_log_ts(line: str) -> float | None:
+    # App timestamps are UTC; the host may not be. timegm treats them as UTC;
+    # time.mktime would apply the host's local offset and skew every
+    # cross-side delta by it.
+    m = LOG_TS.search(line)   # search, not match: the bracket is not at column 0 on Android
+    if not m:
+        return None
+    return calendar.timegm(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")) \
+        + int(m.group(2)) / 1000.0
+
+def newest_match(peer: str, regex: str, after: float) -> tuple[float, str] | None:
+    # Log lines carry no message id, so correlation is by ordering: keep ONE
+    # message in flight per rep, anchored on a mark taken just before the send.
+    # `prysmlab logs` takes `--tail`, not `--lines` — the wrong flag returns
+    # nothing and every message silently looks lost.
+    out = plab(peer, ["logs", "--grep", regex, "--tail", "4000"])
+    best = None
+    for line in out.splitlines():
+        ts = parse_log_ts(line)
+        if ts is not None and ts > after and (best is None or ts > best[0]):
+            best = (ts, line)
+    return best
+
+def cmd_onion(args) -> int:
+    if PEERS[args.peer]["platform"] == "android":
+        # Android has no hostname file; read the live HomeScreen widget. The
+        # eval stays in the default widgets/binding.dart library: `eval --lib`
+        # is STICKY, and after a --lib package:prysm/... eval plain tap/where
+        # break until `eval --lib package:flutter/src/widgets/binding.dart 1`
+        # resets it — txlab must never leave that behind.
+        expr = ("(() { final b = WidgetsBinding.instance; final hits = <Element>[]; "
+                "void walk(Element e) { final dynamic w = e.widget; "
+                "if (w.runtimeType.toString() == 'HomeScreen') { hits.add(e); } "
+                "e.visitChildren(walk); } final r = b.rootElement; "
+                "if (r == null) return 'ERR no-root'; walk(r); "
+                "if (hits.isEmpty) return 'NOTFOUND HomeScreen'; "
+                "final dynamic home = hits.first.widget; return home.onionAddress; })()")
+        onion = plab(args.peer, ["eval", expr]).strip()
+    else:
+        onion = plab(args.peer, ["peer", "onion"]).strip()
+    # Base58 of the utf8 bytes, `.onion` stripped — mirrors onion_id_codec.dart.
+    raw = (onion[:-6] if onion.endswith(".onion") else onion).encode()
+    n = int.from_bytes(raw, "big")
+    b58 = ""
+    while n:
+        n, digit = divmod(n, 58)
+        b58 = BASE58[digit] + b58
+    pad = 0
+    for byte in raw:
+        if byte:
+            break
+        pad += 1
+    print(onion)
+    print("1" * pad + (b58 or ""))
+    return 0
+
+def wait_for_render(peer: str, mark: str, timeout: float) -> float | None:
+    # A delivered bubble is one Text + one RichText at the same y — exactly 2
+    # hits is ONE bubble, not a duplicate (both carry the text in toString).
+    expr = ("(() { final b = WidgetsBinding.instance; int n = 0; "
+            "void walk(Element e) { final dynamic w = e.widget; "
+            "final String t = w.runtimeType.toString(); "
+            "if ((t == 'RichText' || t == 'Text') && "
+            f"w.toString().contains({json.dumps(mark)}))" + " { n++; } "
+            "e.visitChildren(walk); } final r = b.rootElement; "
+            "if (r == null) return 'ERR no-root'; walk(r); "
+            "return 'HITS ' + n.toString(); })()")
+    deadline = time.time() + timeout
+    while True:
+        m = re.search(r"HITS (\d+)", plab(peer, ["eval", expr]).strip())
+        if m and int(m.group(1)) >= 2:
+            return time.time()
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.4)
+
+def cmd_send(args) -> int:
+    if args.frm == args.to:
+        die("sender and receiver must be different peers")
+    # Receiver arrival line per chat kind: 1:1 logs `Received text from`,
+    # group logs `Received group_text from`; --group selects it.
+    recv_re = r"Received group_text from" if args.group else r"Received text from"
+    rows = []
+    lost = skipped = 0
+    for rep in range(1, args.reps + 1):
+        mark = f"txlab{args.frm}{rep}-{time.time_ns()}"
+        # Count real EditableText ELEMENTS, not occurrences of the string in the
+        # dump: the raw tree names the type on every ancestor line too, which
+        # over-counts wildly (27 vs the 2 widgets `type -n` actually indexes).
+        walk = ("(() { final b = WidgetsBinding.instance; var n = 0; "
+                "void walk(Element e) { if (e.widget.runtimeType.toString() == 'EditableText') n++; "
+                "e.visitChildren(walk); } b.rootElement!.visitChildren(walk); return 'N=$n'; })()")
+        m = re.search(r"N=(\d+)", plab(args.frm, ["eval", walk]))
+        n = int(m.group(1)) if m else 0
+        if n == 0:
+            die(f"{args.frm}: no EditableText in the tree — is the chat screen open?")
+        typed = plab(args.frm, ["type", mark, "-n", str(n - 1)])  # composer = LAST field
+        m = re.search(r"now=(.*)", typed)
+        if not m or m.group(1) != mark:
+            skipped += 1
+            print(f"rep {rep}: SKIPPED — composer not clean (now={m.group(1) if m else '?'})")
+            continue
+        # Pre-send marks, newest matching line per side just before the tap,
+        # so the post-send read takes "newest strictly newer than the mark".
+        before_s = newest_match(args.frm, r"send ok", 0.0)
+        before_r = newest_match(args.to, recv_re, 0.0)
+        t0 = time.time()  # host wall clock right before the tap
+        # A non-TAPPED result (OCCLUDED / NOTFOUND) is a normal harness outcome,
+        # not a crash: prysmlab exits 2, so tolerate it and count the rep lost.
+        tapped = plab(args.frm, ["tap-widget", "--type", "PrysmIconButton",
+                                 "--contains", "send", "--settle", "0"], check=False)
+        if not tapped.startswith("TAPPED"):
+            lost += 1
+            print(f"rep {rep}: LOST — tap failed ({tapped.strip()})")
+            continue
+        # Both containers share the host kernel clock (measured skew 1 ms), so
+        # host wall-clock times and UTC log timestamps are one clock; do not
+        # "fix" the deltas with an NTP dance.
+        t_render = wait_for_render(args.to, mark, args.timeout)
+        sent = newest_match(args.frm, r"send ok", before_s[0] if before_s else 0.0)
+        recv = newest_match(args.to, recv_re, before_r[0] if before_r else 0.0)
+        if recv is None:
+            lost += 1
+            # wait_for_render returns as soon as the bubble shows, so the poll may
+            # have lasted far less than --timeout; say what actually happened.
+            waited = time.time() - t0
+            why = ("bubble rendered but no log line — wrong chat kind? "
+                   "1:1 logs 'Received text from', a group logs 'Received group_text from'"
+                   if t_render else "nothing rendered either")
+            print(f"rep {rep}: LOST — no receiver '{recv_re}' line after "
+                  f"{waited:.1f}s ({why})")
+            continue
+        recv_ts, _ = recv
+        if sent is None:
+            path, ack = "?", None
+        else:
+            sent_ts, sent_line = sent
+            # Only `HTTP send ok` names its transport for certain. The
+            # ws-preferred line cannot: withPeer may have fallen back to HTTP
+            # inside the same call, so report it as unknown rather than "WS".
+            path = "HTTP" if "HTTP send ok" in sent_line else "ws-pref?"
+            ack = sent_ts - recv_ts
+        render = None if t_render is None else t_render - recv_ts
+        rows.append((recv_ts - t0, ack, render, path))
+        print(f"rep {rep}: wire={rows[-1][0]:.3f}s "
+              f"ack={'n/a' if ack is None else f'{ack:.3f}s'} "
+              f"render={'n/a' if render is None else f'{render:.3f}s'} path={path}")
+    for key, idx in (("wire", 0), ("ack", 1), ("render", 2)):
+        vals = sorted(r[idx] for r in rows if r[idx] is not None)
+        if vals:
+            print(f"summary {key}: median={statistics.median(vals):.3f}s "
+                  f"min={vals[0]:.3f}s max={vals[-1]:.3f}s (n={len(vals)})")
+    paths = {}
+    for _, _, _, path in rows:
+        if path != "?":
+            paths[path] = paths.get(path, 0) + 1
+    if paths:
+        print("summary path: " + " ".join(f"{k}={v}" for k, v in paths.items()))
+    print(f"summary lost: {lost}/{args.reps}" + (f"  skipped: {skipped}" if skipped else ""))
+    return 1 if lost else 0
+
+def cmd_watch(args) -> int:
+    # One combined grep per sample keeps the docker execs down; the per-
+    # signature split happens here on the host. `logs --grep` filters the
+    # whole log then tails 4000 matching lines, so only a >4000-match burst
+    # could undercount.
+    combined = "|".join(f"({s})" for s in SIGNATURES)
+
+    def sample() -> dict:
+        out = plab(args.peer, ["logs", "--grep", combined, "--tail", "4000"])
+        return {s: sum(1 for ln in out.splitlines() if re.search(s, ln))
+                for s in SIGNATURES}
+
+    first = sample()
+    last = first
+    deadline = time.time() + args.secs
+    while time.time() < deadline:
+        time.sleep(2)
+        last = sample()
+    print(f"watch {args.peer} over {args.secs:g}s: new occurrences per signature")
+    for sig in SIGNATURES:
+        print(f"  {last[sig] - first[sig]:5d}  {sig}")
+    return 0
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="txlab", description=__doc__.split("\n\n")[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("onion", help="print a peer's onion and base58 contact id")
+    s.add_argument("peer", choices=sorted(PEERS))
+    s.set_defaults(func=cmd_onion)
+    s = sub.add_parser("send", help="measure sends between two peers, rep by rep")
+    s.add_argument("frm", metavar="FROM", choices=sorted(PEERS))
+    s.add_argument("to", metavar="TO", choices=sorted(PEERS))
+    s.add_argument("--reps", type=int, default=5)
+    s.add_argument("--group", action="store_true",
+                   help="group chat: receiver logs 'Received group_text from'")
+    s.add_argument("--timeout", type=float, default=120.0,
+                   help="per-rep wait for the bubble to render, seconds")
+    s.set_defaults(func=cmd_send)
+    s = sub.add_parser("watch", help="count failure signatures in a peer's log")
+    s.add_argument("peer", choices=sorted(PEERS))
+    s.add_argument("--secs", type=float, default=30.0,
+                   help="watch window in seconds")
+    s.set_defaults(func=cmd_watch)
+    return p
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        return 130
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

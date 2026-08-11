@@ -60,6 +60,10 @@ class TorWebSocketTransport implements OutboundTransport {
     });
   }
 
+  // Healthy acks take 0.22-0.47 s, worst healthy wire 6.5 s: 8 s never bites
+  // a healthy link and bounds a wrong "connected" guess.
+  static const Duration _wsAckCap = Duration(seconds: 8);
+
   @override
   Future<void> postMessage({
     required String peerOnion,
@@ -72,7 +76,8 @@ class TorWebSocketTransport implements OutboundTransport {
         peerOnion,
         op,
         payload: payload,
-        timeout: timeout,
+        // WS leg only; the HTTP fallback keeps the full timeout for its own.
+        timeout: timeout < _wsAckCap ? timeout : _wsAckCap,
       );
       final error = ack['error'];
       if (error != null) {

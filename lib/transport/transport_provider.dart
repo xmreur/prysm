@@ -386,8 +386,6 @@ class TransportProvider implements OutboundTransport {
     );
   }
 
-  static const Duration _wsSendBudget = Duration(seconds: 30);
-
   static bool _shouldDisconnectWsAfterFailure(Object error) {
     if (error is TimeoutException) return false;
     if (error is StateError) {
@@ -396,11 +394,6 @@ class TransportProvider implements OutboundTransport {
           message.contains('disconnected');
     }
     return true;
-  }
-
-  static Duration _wsSendTimeoutFor(Duration requested) {
-    if (requested > _wsSendBudget) return requested;
-    return requested < _wsSendBudget ? requested : _wsSendBudget;
   }
 
   static Future<void> postMessageOrFallback({
@@ -431,17 +424,19 @@ class TransportProvider implements OutboundTransport {
         );
       }
       if (inst.isRealtimeConnected(peerOnion) && !skipWsForLargePayload) {
-        final wsTimeout = _wsSendTimeoutFor(timeout);
         Object? lastWsError;
         for (var attempt = 0; attempt < 2; attempt++) {
           try {
             await inst.postMessageWithPreference(
               peerOnion: peerOnion,
               payload: payload,
-              timeout: wsTimeout,
+              timeout: timeout,
               preference: TransportPreference.wsIfConnected,
             );
-            Logging.debug('WS send ok $peerOnion', 'TransportProvider');
+            Logging.debug(
+              'WS-preferred send ok $peerOnion (may have used HTTP)',
+              'TransportProvider',
+            );
             return;
           } catch (e) {
             lastWsError = e;

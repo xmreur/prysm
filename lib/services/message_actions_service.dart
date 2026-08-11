@@ -19,6 +19,14 @@ enum MessageDeleteOutcome {
   /// delete-for-everyone): the DB row stays, only its reactions are wiped.
   markedDeletedForEveryone,
 
+  /// Delete-for-everyone was applied locally (tombstone + reaction wipe),
+  /// but the modify was not delivered to the peer right now: the send failed
+  /// (unknown peer identity / no group key, transport error, or a 4xx/5xx
+  /// rejection). The modify is queued for a later retry when the failure was
+  /// transient; either way the peer has not confirmed the delete, so the
+  /// caller should surface the send-failure state.
+  markedDeletedForEveryoneFailed,
+
   /// Local-only delete: artifacts wiped, DB row and reactions removed.
   removedLocally,
 }
@@ -67,11 +75,15 @@ class MessageActionsService {
     }
 
     if (canDeleteForEveryone(message, localUserId)) {
-      await modifyService.deleteMessage(targetMessageId: message.id);
+      final propagated = await modifyService.deleteMessage(
+        targetMessageId: message.id,
+      );
       await MessageReactionsDb.deleteReactionsForMessage(
         _storageId(message.id),
       );
-      return MessageDeleteOutcome.markedDeletedForEveryone;
+      return propagated
+          ? MessageDeleteOutcome.markedDeletedForEveryone
+          : MessageDeleteOutcome.markedDeletedForEveryoneFailed;
     }
 
     await _deleteLocalOnly(message.id);

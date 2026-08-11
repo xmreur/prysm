@@ -375,7 +375,7 @@ class InboundMessageRouter {
     final groupService = GroupService(userId: localId, keyManager: keyManager);
 
     try {
-      await MessageModifyService.applyInbound(
+      final outcome = await MessageModifyService.applyInbound(
         keyManager: keyManager,
         localUserId: localId,
         encrypted: data['message'] as String,
@@ -384,14 +384,42 @@ class InboundMessageRouter {
         groupId: data['groupId'] as String?,
         groupService: groupService,
       );
+      switch (outcome) {
+        case InboundModifyOutcome.applied:
+          return InboundHandleResult.ok(
+            {'status': 'received', 'id': data['id']},
+          );
+        case InboundModifyOutcome.decryptFailed:
+          return InboundHandleResult.badRequest(
+            'Message modify could not be authenticated or decrypted',
+          );
+        case InboundModifyOutcome.malformedPayload:
+          // The envelope authenticated but the payload is unparseable: a 4xx
+          // says the input is the problem, where the catch-all below would
+          // report a 500 and blame our own processing.
+          return InboundHandleResult.badRequest(
+            'Message modify payload is malformed',
+          );
+        case InboundModifyOutcome.unknownTarget:
+          // Benign no-op (see InboundModifyOutcome): the target message no
+          // longer exists locally (disappearing-message expiry, conversation
+          // purge, or a delete that raced ahead of the message). Ack it as a
+          // 2xx so the sender does not queue an unbounded retry of a
+          // rejection that can never succeed.
+          return InboundHandleResult.ok(
+            {'status': 'noop', 'id': data['id']},
+          );
+        case InboundModifyOutcome.ownershipRejected:
+          return InboundHandleResult.forbidden(
+            'Message modify ownership rejected',
+          );
+      }
     } catch (e) {
       Logging.error('Message modify handling failed: $e', 'InboundMessageRouter');
       return InboundHandleResult.internalError(
         'Message modify processing failed',
       );
     }
-
-    return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
   }
 
   Future<InboundHandleResult> _handleReadReceipt(

@@ -15,6 +15,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
+import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
@@ -359,11 +360,13 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   void _showMessageMenu(BuildContext context, Message message) {
     if (isMessageDeleted(message)) return;
 
+    final text = messageCopyText(message);
     showPrysmSheet(
       context: context,
       builder: (ctx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (text.isNotEmpty) copyMessageTile(context: context, text: text),
           PrysmListRow(
             leading: const Icon(PrysmIcons.deleteOutline),
             title: 'Delete',

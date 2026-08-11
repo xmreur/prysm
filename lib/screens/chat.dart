@@ -39,6 +39,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
+import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
@@ -1322,11 +1323,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _getMessageText(Message message) {
-    if (message is TextMessage) return message.text;
-    if (message is FileMessage) return message.name;
-    if (message is ImageMessage) return '📷 Image';
     if (message is PrysmCallMessage) return _callMessageLabel(message);
-    return '';
+    return messageCopyText(message);
   }
 
   String _callMessageLabel(PrysmCallMessage message) {
@@ -1427,16 +1425,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final isSentByMe = message.authorId == widget.userId;
     final danger = context.prysmStyle.tokens.danger;
     final tiles = <Widget>[
-      if (text.isNotEmpty)
-        PrysmListRow(
-          leading: const Icon(PrysmIcons.copy),
-          title: 'Copy',
-          onTap: () {
-            Navigator.pop(context);
-            Clipboard.setData(ClipboardData(text: text));
-            showPrysmToast(context, 'Copied to clipboard');
-          },
-        ),
+      if (text.isNotEmpty) copyMessageTile(context: context, text: text),
       if (canEditMessage(message, widget.userId))
         PrysmListRow(
           leading: const Icon(PrysmIcons.editOutlined),

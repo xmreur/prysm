@@ -8,6 +8,7 @@ import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -118,8 +119,12 @@ void main() {
         controlPassword: 'test-password',
       ),
     );
-    // Open the gate: the default stopped state refuses before asking.
+    // Open the gate: the default stopped state refuses before asking. It is
+    // process-wide, so put it back or the next test inherits a ready gate.
     TorRuntimeGate.resetForTest();
+    addTearDown(
+      () => TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped),
+    );
 
     final link = _FakeWsPeerLink('peer.onion', stallAck: true);
     TransportProvider.instance.wsManager.registerLinkForTest(
@@ -140,8 +145,9 @@ void main() {
     stopwatch.stop();
 
     // A stale-but-connected link must not eat the whole 30 s send budget.
+    // Pin the cap exactly: `lessThan(15s)` would accept a 14 s regression.
     expect(stopwatch.elapsed, lessThan(const Duration(seconds: 15)));
-    expect(link.lastRequestTimeout, lessThan(const Duration(seconds: 15)));
+    expect(link.lastRequestTimeout, const Duration(seconds: 8));
   });
 
   test('recoverWebSocket learns the identity of an undialable peer', () async {

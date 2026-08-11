@@ -30,10 +30,17 @@ PrysmListRow copyMessageTile({
   return PrysmListRow(
     leading: const Icon(PrysmIcons.copy),
     title: 'Copy',
-    onTap: () {
+    onTap: () async {
       Navigator.pop(context);
-      Clipboard.setData(ClipboardData(text: text));
-      showPrysmToast(context, 'Copied to clipboard');
+      // Claiming success before the write lands makes the toast a lie when
+      // the platform refuses the clipboard (PlatformException). Await it.
+      try {
+        await Clipboard.setData(ClipboardData(text: text));
+      } catch (_) {
+        if (context.mounted) showPrysmToast(context, 'Could not copy');
+        return;
+      }
+      if (context.mounted) showPrysmToast(context, 'Copied to clipboard');
     },
   );
 }

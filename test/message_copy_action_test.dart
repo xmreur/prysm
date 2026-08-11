@@ -18,6 +18,7 @@ import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_list_row.dart';
 
 Widget wrapWithStyle(Widget child) {
   final style = PrysmStyleResolver.resolve(
@@ -118,7 +119,7 @@ void main() {
 
     expect(find.text('Copy'), findsOneWidget);
     await tester.tap(find.text('Copy'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     // The row also confirms the copy, and showPrysmToast holds a 3s
     // Future.delayed to pull its overlay entry: the binding fails the test on
@@ -130,5 +131,54 @@ void main() {
         calls.where((call) => call.method == 'Clipboard.setData').toList();
     expect(setData, hasLength(1));
     expect((setData.single.arguments as Map)['text'], 'axolotl dossier');
+  });
+
+  testWidgets('tapping Copy dismisses the sheet it sits in', (tester) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async => null);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    late BuildContext screenContext;
+    await tester.pumpWidget(
+      wrapWithStyle(
+        WidgetsApp(
+          color: const Color(0xFF000000),
+          pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
+              PageRouteBuilder<T>(
+            settings: settings,
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                builder(context),
+          ),
+          home: Builder(
+            builder: (context) {
+              screenContext = context;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+
+    // The real sheet helper, opened with the SCREEN's context — the trap the
+    // tile's dartdoc warns about is passing the sheet builder's instead.
+    showPrysmSheet<void>(
+      context: screenContext,
+      builder: (_) => copyMessageTile(
+        context: screenContext,
+        text: 'axolotl dossier',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Copy'), findsOneWidget);
+
+    await tester.tap(find.text('Copy'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy'), findsNothing, reason: 'the sheet must close');
+    expect(find.text('Copied to clipboard'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
   });
 }

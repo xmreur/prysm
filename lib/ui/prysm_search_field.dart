@@ -3,6 +3,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/ui/core/prysm_text_selection.dart';
 
 class PrysmSearchField extends StatefulWidget {
   const PrysmSearchField({
@@ -65,12 +66,13 @@ class _PrysmSearchFieldState extends State<PrysmSearchField> {
               children: [
                 if (showHint)
                   Text(widget.hintText, style: style.captionStyle),
-                EditableText(
+                PrysmEditableText(
                   controller: widget.controller,
                   focusNode: _focusNode,
                   style: style.bodyStyle.copyWith(color: tokens.textPrimary),
                   cursorColor: tokens.accent,
                   backgroundCursorColor: tokens.textMuted,
+                  selectionColor: tokens.accent.withValues(alpha: 0.40),
                   maxLines: 1,
                   onChanged: widget.onChanged,
                 ),

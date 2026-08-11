@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_text_selection.dart';
 
-/// Material-free text input using [EditableText].
+/// Material-free text input using [PrysmEditableText].
 class PrysmTextField extends StatefulWidget {
   const PrysmTextField({
     required this.controller,
@@ -73,7 +74,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
     final showHint =
         widget.hintText != null && widget.controller.text.isEmpty;
 
-    final field = EditableText(
+    final field = PrysmEditableText(
       controller: widget.controller,
       focusNode: _focusNode,
       style: style.bodyStyle.copyWith(
@@ -81,6 +82,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       ),
       cursorColor: tokens.accent,
       backgroundCursorColor: tokens.textMuted,
+      selectionColor: tokens.accent.withValues(alpha: 0.40),
       minLines: widget.obscureText ? 1 : widget.minLines,
       maxLines: widget.obscureText ? 1 : widget.maxLines,
       autofocus: widget.autofocus,

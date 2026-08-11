@@ -145,7 +145,7 @@ def init_platform(name: str) -> None:
     PLATFORM = name
     IMAGE = os.environ.get("PRYSMLAB_IMAGE", cfg["image"])
     CONTAINER = os.environ.get("PRYSMLAB_CONTAINER", cfg["container"])
-    VOLUME = cfg["volume"]
+    VOLUME = os.environ.get("PRYSMLAB_VOLUME", cfg["volume"])
     HOST_LAB = os.environ.get("PRYSMLAB_HOST_LAB", cfg["host_lab"])
     WORK = os.path.join(HOST_LAB, "work")
     LAB = "/home/ubuntu/lab"

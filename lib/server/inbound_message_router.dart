@@ -514,6 +514,9 @@ class InboundMessageRouter {
       );
     }
 
+    // Sidebar must learn about an inbound timer change like inbound text.
+    ConversationRefreshNotifier.instance.notifyInboundMessage();
+
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
   }
 

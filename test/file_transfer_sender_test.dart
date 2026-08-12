@@ -415,4 +415,48 @@ void main() {
     expect(envelope, isNotNull);
     expect(envelope!['scheme'], CryptoConstants.schemeFileAead1);
   });
+
+  test(
+      'handleEnd rebuilds file-aead-1 when begin carries an unrecognized '
+      'scheme',
+      () async {
+    final handler = FileTransferHandler.instance;
+    const transferId = '550e8400-e29b-41d4-a716-4466554400cc';
+    final ciphertext =
+        Uint8List.fromList(List<int>.generate(300, (i) => i % 251));
+
+    final beginResult = await handler.handleBegin(
+      _beginPayload(
+        transferId: transferId,
+        messageId: 'msg-rebuild-unknown',
+        senderId: 'peer.onion',
+        receiverId: 'local.onion',
+        ciphertext: ciphertext,
+        scheme: 'file-signed-99',
+      ),
+      peerOnion: 'peer.onion',
+      localOnion: 'local.onion',
+    );
+    expect(beginResult['ok'], isTrue);
+
+    await _deliverChunks(
+      handler,
+      transferId,
+      ciphertext,
+      peerOnion: 'peer.onion',
+    );
+
+    final testRouter = _TestRouter();
+    handler.routerOverride = testRouter;
+    final endResult = await handler.handleEnd(
+      {'transferId': transferId},
+      peerOnion: 'peer.onion',
+    );
+    expect(endResult['ok'], isTrue);
+
+    final wire = testRouter.lastProcessed?['message'] as String;
+    final envelope = CryptoEnvelope.tryParse(wire);
+    expect(envelope, isNotNull);
+    expect(envelope!['scheme'], CryptoConstants.schemeFileAead1);
+  });
 }

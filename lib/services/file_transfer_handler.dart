@@ -222,7 +222,17 @@ class FileTransferHandler {
     // clean `file-signed-1` is treated exactly like today's legacy
     // `file-aead-1` transfer, and only the two known constants are ever
     // stored or handed to the crypto layer.
-    final scheme = payload['scheme'] == CryptoConstants.schemeFileSigned1
+    final declaredScheme = payload['scheme'];
+    if (declaredScheme != null &&
+        declaredScheme != CryptoConstants.schemeFileSigned1 &&
+        declaredScheme != CryptoConstants.schemeFileAead1) {
+      Logging.debug(
+        'begin unknown scheme=$declaredScheme transfer=$transferId '
+        'message=${payload['messageId']} falling back to file-aead-1',
+        'FileTransferHandler',
+      );
+    }
+    final scheme = declaredScheme == CryptoConstants.schemeFileSigned1
         ? CryptoConstants.schemeFileSigned1
         : CryptoConstants.schemeFileAead1;
 

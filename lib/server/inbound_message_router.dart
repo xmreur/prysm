@@ -356,6 +356,8 @@ class InboundMessageRouter {
     // reveal that we are online.
     if (handled) {
       fetchSenderProfile?.call(data['senderId'] as String);
+      // Sidebar must learn about a new/renamed/left group like inbound text.
+      ConversationRefreshNotifier.instance.notifyInboundMessage();
     }
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
@@ -511,6 +513,9 @@ class InboundMessageRouter {
         'Disappearing timer processing failed',
       );
     }
+
+    // Sidebar must learn about an inbound timer change like inbound text.
+    ConversationRefreshNotifier.instance.notifyInboundMessage();
 
     return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
   }

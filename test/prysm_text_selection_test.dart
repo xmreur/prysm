@@ -24,6 +24,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_text_selection.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/ui/core/prysm_pressable.dart';
 import 'package:prysm/ui/prysm_search_field.dart';
 
 Widget wrapWithStyle(Widget child) {
@@ -108,6 +109,19 @@ List<ContextMenuButtonItem> itemsWithOverflow() => [
       buttonItem('Read aloud'),
     ];
 
+/// Sets the surface size for a toolbar test and restores it afterwards, then
+/// pumps [child] inside the Prysm app. Shared by [pumpToolbar] and
+/// [pumpHarness] so the size bookkeeping lives in one place.
+Future<void> pumpSized(
+  WidgetTester tester,
+  Widget child, {
+  required double width,
+}) async {
+  await tester.binding.setSurfaceSize(Size(width, 800));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await pumpInPrysmApp(tester, child, width: width);
+}
+
 /// Pumps the toolbar directly with a hand-built item list. The surface is
 /// wider than a test's default 800x600 so the Ahem test font (every glyph a
 /// 15px square) still fits the primaries plus the more button on one row.
@@ -116,9 +130,7 @@ Future<void> pumpToolbar(
   List<ContextMenuButtonItem> items, {
   double width = 600,
 }) async {
-  await tester.binding.setSurfaceSize(Size(width, 800));
-  addTearDown(() => tester.binding.setSurfaceSize(null));
-  await pumpInPrysmApp(
+  await pumpSized(
     tester,
     PrysmTextSelectionToolbar(
       anchors: const TextSelectionToolbarAnchors(
@@ -159,9 +171,7 @@ Future<void> pumpHarness(
   List<ContextMenuButtonItem> items, {
   double width = 600,
 }) async {
-  await tester.binding.setSurfaceSize(Size(width, 800));
-  addTearDown(() => tester.binding.setSurfaceSize(null));
-  await pumpInPrysmApp(tester, ToolbarHarness(items: items), width: width);
+  await pumpSized(tester, ToolbarHarness(items: items), width: width);
 }
 
 void main() {
@@ -570,8 +580,14 @@ void main() {
       reason: 'the more button sits beside the primaries, not below them',
     );
 
-    final oneRowHeight = tester.getSize(find.text('Cut')).height +
-        const EdgeInsets.symmetric(horizontal: 14, vertical: 11).vertical;
+    // The height of one rendered row, measured from the widget that carries
+    // the toolbar's own vertical padding: the pressable holding the Cut
+    // label. A rendered baseline (not a copied EdgeInsets) stays honest if
+    // the production padding ever changes.
+    final oneRowHeight = tester.getSize(find.ancestor(
+      of: find.text('Cut'),
+      matching: find.byType(PrysmPressable),
+    )).height;
     expect(
       tester.getSize(find.byType(Wrap)).height,
       lessThan(oneRowHeight * 1.5),
@@ -812,32 +828,6 @@ void main() {
               'keyboard');
     });
 
-    testWidgets('the clear button wins its own taps and leaves the caret '
-        'alone', (tester) async {
-      final controller = TextEditingController(text: 'hello world');
-      addTearDown(controller.dispose);
-      // A caret the clear button must not move.
-      controller.selection = const TextSelection.collapsed(offset: 0);
-
-      var cleared = false;
-      await pumpInPrysmApp(
-        tester,
-        PrysmSearchField(
-          controller: controller,
-          onClear: () => cleared = true,
-        ),
-      );
-
-      await tester.tap(find.byType(PrysmClearButton));
-      await tester.pump();
-
-      expect(cleared, isTrue,
-          reason: 'the clear button must win the tap against the selection '
-              'gesture detector');
-      expect(controller.selection, const TextSelection.collapsed(offset: 0),
-          reason: 'the tap must not be stolen by the field caret placement');
-    });
-
     testWidgets('a disabled field stays keyboard-free when its chrome is '
         'tapped', (tester) async {
       final controller = TextEditingController(text: 'read only');
@@ -862,6 +852,34 @@ void main() {
       );
       expect(tester.testTextInput.isVisible, isFalse,
           reason: 'a tap on a disabled field must not open the keyboard');
+    });
+  });
+
+  group('the clear button wins its own taps and leaves the caret alone', () {
+    testWidgets('the clear button wins its own taps and leaves the caret '
+        'alone', (tester) async {
+      final controller = TextEditingController(text: 'hello world');
+      addTearDown(controller.dispose);
+      // A caret the clear button must not move.
+      controller.selection = const TextSelection.collapsed(offset: 0);
+
+      var cleared = false;
+      await pumpInPrysmApp(
+        tester,
+        PrysmSearchField(
+          controller: controller,
+          onClear: () => cleared = true,
+        ),
+      );
+
+      await tester.tap(find.byType(PrysmClearButton));
+      await tester.pump();
+
+      expect(cleared, isTrue,
+          reason: 'the clear button must win the tap against the selection '
+              'gesture detector');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0),
+          reason: 'the tap must not be stolen by the field caret placement');
     });
   });
 }

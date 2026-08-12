@@ -3,6 +3,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/ui/core/prysm_text_selection.dart';
 
 class PrysmSearchField extends StatefulWidget {
   const PrysmSearchField({
@@ -48,38 +49,45 @@ class _PrysmSearchFieldState extends State<PrysmSearchField> {
     final showHint =
         widget.hintText.isNotEmpty && widget.controller.text.isEmpty;
 
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: tokens.surfaceElevated,
-        borderRadius: style.composerRadius,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: PrysmTokens.spacing12),
-      child: Row(
-        children: [
-          Icon(PrysmIcons.search, size: 20, color: tokens.textMuted),
-          const SizedBox(width: PrysmTokens.spacing8),
-          Expanded(
-            child: Stack(
-              alignment: Alignment.centerLeft,
-              children: [
-                if (showHint)
-                  Text(widget.hintText, style: style.captionStyle),
-                EditableText(
-                  controller: widget.controller,
-                  focusNode: _focusNode,
-                  style: style.bodyStyle.copyWith(color: tokens.textPrimary),
-                  cursorColor: tokens.accent,
-                  backgroundCursorColor: tokens.textMuted,
-                  maxLines: 1,
-                  onChanged: widget.onChanged,
-                ),
-              ],
+    return PrysmEditableText(
+      controller: widget.controller,
+      focusNode: _focusNode,
+      style: style.bodyStyle.copyWith(color: tokens.textPrimary),
+      cursorColor: tokens.accent,
+      backgroundCursorColor: tokens.textMuted,
+      selectionColor: tokens.accent.withValues(alpha: 0.40),
+      maxLines: 1,
+      onChanged: widget.onChanged,
+      // Same shape as PrysmTextField: the chrome sits inside the decorate
+      // callback, under the selection gesture detector, so taps on the
+      // container's padding reopen the keyboard instead of landing on dead
+      // space. PrysmClearButton keeps its own PrysmPressable, which is deeper
+      // in the tree and still wins taps aimed at it.
+      decorate: (context, editable) => Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: tokens.surfaceElevated,
+          borderRadius: style.composerRadius,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: PrysmTokens.spacing12),
+        child: Row(
+          children: [
+            Icon(PrysmIcons.search, size: 20, color: tokens.textMuted),
+            const SizedBox(width: PrysmTokens.spacing8),
+            Expanded(
+              child: Stack(
+                alignment: Alignment.centerLeft,
+                children: [
+                  if (showHint)
+                    Text(widget.hintText, style: style.captionStyle),
+                  editable,
+                ],
+              ),
             ),
-          ),
-          if (widget.controller.text.isNotEmpty && widget.onClear != null)
-            PrysmClearButton(onPressed: widget.onClear!),
-        ],
+            if (widget.controller.text.isNotEmpty && widget.onClear != null)
+              PrysmClearButton(onPressed: widget.onClear!),
+          ],
+        ),
       ),
     );
   }

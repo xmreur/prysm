@@ -1337,7 +1337,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   bool _isEditableFocused() {
     final ctx = FocusManager.instance.primaryFocus?.context;
-    return ctx?.widget is EditableText;
+    // The focused context is EditableText's inner Focus, not the field.
+    return ctx?.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 
   Map<ShortcutActivator, VoidCallback> _desktopShortcut(

@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_text_selection.dart';
 
-/// Material-free text input using [EditableText].
+/// Material-free text input using [PrysmEditableText].
 class PrysmTextField extends StatefulWidget {
   const PrysmTextField({
     required this.controller,
@@ -52,11 +53,36 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       _ownsFocus = true;
     }
     widget.controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(PrysmTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onTextChanged);
+      widget.controller.addListener(_onTextChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      _focusNode.removeListener(_onFocusChanged);
+      if (widget.focusNode != null) {
+        if (_ownsFocus) {
+          _focusNode.dispose();
+          _ownsFocus = false;
+        }
+        _focusNode = widget.focusNode!;
+      } else {
+        _focusNode = FocusNode();
+        _ownsFocus = true;
+      }
+      _focusNode.addListener(_onFocusChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
     if (_ownsFocus) _focusNode.dispose();
     super.dispose();
   }
@@ -66,6 +92,10 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
     widget.onChanged?.call(widget.controller.text);
   }
 
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
@@ -73,7 +103,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
     final showHint =
         widget.hintText != null && widget.controller.text.isEmpty;
 
-    final field = EditableText(
+    final field = PrysmEditableText(
       controller: widget.controller,
       focusNode: _focusNode,
       style: style.bodyStyle.copyWith(
@@ -81,6 +111,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       ),
       cursorColor: tokens.accent,
       backgroundCursorColor: tokens.textMuted,
+      selectionColor: tokens.accent.withValues(alpha: 0.40),
       minLines: widget.obscureText ? 1 : widget.minLines,
       maxLines: widget.obscureText ? 1 : widget.maxLines,
       autofocus: widget.autofocus,
@@ -88,6 +119,41 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       obscureText: widget.obscureText,
       onSubmitted: widget.onSubmitted,
       onChanged: widget.onChanged,
+      // The chrome lives INSIDE the decorate callback so the selection
+      // gesture detector — and with it requestKeyboard() on tap — covers the
+      // padding and border, not just the text strip.
+      decorate: (context, editable) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: tokens.surfaceElevated,
+          borderRadius: style.composerRadius,
+          border: Border.all(
+            color: _focusNode.hasFocus ? tokens.accent : tokens.outline,
+            width: _focusNode.hasFocus ? 1.5 : 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              if (widget.prefixIcon != null) ...[
+                widget.prefixIcon!,
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    if (showHint)
+                      Text(widget.hintText!, style: style.captionStyle),
+                    editable,
+                  ],
+                ),
+              ),
+              if (widget.suffixIcon != null) widget.suffixIcon!,
+            ],
+          ),
+        ),
+      ),
     );
 
     return Column(
@@ -98,38 +164,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
           Text(widget.labelText!, style: style.captionStyle),
           const SizedBox(height: 6),
         ],
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: tokens.surfaceElevated,
-            borderRadius: style.composerRadius,
-            border: Border.all(
-              color: _focusNode.hasFocus ? tokens.accent : tokens.outline,
-              width: _focusNode.hasFocus ? 1.5 : 1,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              children: [
-                if (widget.prefixIcon != null) ...[
-                  widget.prefixIcon!,
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      if (showHint)
-                        Text(widget.hintText!, style: style.captionStyle),
-                      field,
-                    ],
-                  ),
-                ),
-                if (widget.suffixIcon != null) widget.suffixIcon!,
-              ],
-            ),
-          ),
-        ),
+        field,
       ],
     );
   }

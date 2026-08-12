@@ -6,6 +6,7 @@ import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
 import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/message_search_backfill_service.dart';
+import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/services/read_receipt_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
@@ -13,6 +14,7 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -53,6 +55,15 @@ class AppComposition {
       } catch (_) {
         return null;
       }
+    };
+    // Cache-miss only: a hit means the hello gate can already resolve them.
+    TransportProvider.learnPeerIdentity = (peerOnion) async {
+      if (!keyManager.isUnlocked) return;
+      if (await loadPeerIdentityFromDb(keyManager, peerOnion) != null) return;
+      await PeerIdentityResolver(
+        peerId: peerOnion,
+        keyManager: keyManager,
+      ).fetchOverTor();
     };
     CallManager.configure(keyManager: keyManager);
     CallManager.instance.start();

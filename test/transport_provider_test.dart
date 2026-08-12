@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/services/ws_connection_manager.dart';
 import 'package:prysm/transport/peer_transport_registry.dart';
@@ -6,6 +8,8 @@ import 'package:prysm/transport/transport_preference.dart';
 import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/transport/ws_peer_link.dart';
 import 'package:prysm/util/tor_delivery.dart';
+import 'package:prysm/util/tor_lifecycle_state.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
 void main() {
@@ -106,13 +110,80 @@ void main() {
     expect(usedWs, isTrue);
     expect(result, 'ok');
   });
+
+  test('WS ack wait is capped when a connected link never acks', () async {
+    TransportProvider.configure(
+      TorManager(
+        torPath: '/bin/false',
+        dataDir: '/tmp/transport-provider-ws-ack-cap',
+        controlPassword: 'test-password',
+      ),
+    );
+    // Open the gate: the default stopped state refuses before asking. It is
+    // process-wide, so put it back or the next test inherits a ready gate.
+    TorRuntimeGate.resetForTest();
+    addTearDown(
+      () => TorRuntimeGate.resetForTest(lifecycle: TorLifecycleState.stopped),
+    );
+
+    final link = _FakeWsPeerLink('peer.onion', stallAck: true);
+    TransportProvider.instance.wsManager.registerLinkForTest(
+      'peer.onion',
+      link,
+    );
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      await TransportProvider.instance.postMessageWithPreference(
+        peerOnion: 'peer.onion',
+        payload: {'type': 'text'},
+        preference: TransportPreference.wsIfConnected,
+      );
+    } catch (_) {
+      // WS leg timed out at its cap; the HTTP fallback cannot deliver.
+    }
+    stopwatch.stop();
+
+    // A stale-but-connected link must not eat the whole 30 s send budget.
+    // Pin the cap exactly: `lessThan(15s)` would accept a 14 s regression.
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 15)));
+    expect(link.lastRequestTimeout, const Duration(seconds: 8));
+  });
+
+  test('recoverWebSocket learns the identity of an undialable peer', () async {
+    TransportProvider.configure(
+      TorManager(
+        torPath: '/bin/false',
+        dataDir: '/tmp/transport-provider-learn-identity',
+        controlPassword: 'test-password',
+      ),
+    );
+
+    final learned = <String>[];
+    TransportProvider.learnPeerIdentity = (peerOnion) async {
+      learned.add(peerOnion);
+    };
+
+    // No link is registered, so the dial fails: this is the group co-member
+    // we can reach over HTTP but whose hello we keep rejecting because their
+    // keys were never stored. Recovery must go and learn them.
+    await TransportProvider.instance.recoverWebSocket('stranger.onion');
+
+    expect(learned, ['stranger.onion']);
+  });
 }
 
 class _FakeWsPeerLink implements WsPeerLink {
-  _FakeWsPeerLink(this.peerOnion);
+  _FakeWsPeerLink(this.peerOnion, {this.stallAck = false});
 
   @override
   final String peerOnion;
+
+  /// When true, [request] never answers; only its own timeout can fire.
+  final bool stallAck;
+
+  /// Last timeout handed to [request]; lets tests see the applied cap.
+  Duration? lastRequestTimeout;
 
   @override
   bool isConnected = true;
@@ -134,8 +205,15 @@ class _FakeWsPeerLink implements WsPeerLink {
     String op, {
     Map<String, dynamic>? payload,
     Duration timeout = const Duration(seconds: 30),
-  }) async =>
-      <String, dynamic>{};
+  }) {
+    lastRequestTimeout = timeout;
+    if (!stallAck) {
+      return Future<Map<String, dynamic>>.value(<String, dynamic>{});
+    }
+    // A half-dead socket reports connected but never acks: mirror the real
+    // link, where only the passed timeout can fire.
+    return Completer<Map<String, dynamic>>().future.timeout(timeout);
+  }
 
   @override
   Future<void> send(String op, {Map<String, dynamic>? payload}) async {}

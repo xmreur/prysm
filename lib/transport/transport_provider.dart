@@ -61,6 +61,8 @@ class TransportProvider implements OutboundTransport {
   static void resetForTest() {
     _instance?.dispose();
     _instance = null;
+    // Static hook: without this it leaks into every later test in the file.
+    learnPeerIdentity = null;
     PeerTransportRegistry.instance.resetForTest();
   }
 
@@ -93,6 +95,13 @@ class TransportProvider implements OutboundTransport {
 
   void unpinPeer(String peerOnion) => _wsManager.unpinPeer(peerOnion);
 
+  /// Composition-time hook, not ambient global state: same reason as
+  /// [PeerProof.localIdentity] — this layer is built from a [TorManager]
+  /// alone and has no path to a [KeyManager] or to the user store. The
+  /// composition root sets it; the closure resolves and persists a peer's
+  /// public keys, and must swallow its own failures.
+  static Future<void> Function(String peerOnion)? learnPeerIdentity;
+
   /// Tries to restore a WebSocket after HTTP fallback or disconnect.
   Future<void> recoverWebSocket(String peerOnion) async {
     if (isRealtimeConnected(peerOnion)) return;
@@ -108,6 +117,15 @@ class TransportProvider implements OutboundTransport {
     } catch (_) {}
 
     if (isRealtimeConnected(peerOnion)) return;
+
+    // Reachable over HTTP but undialable is the signature of a peer whose
+    // keys we never learned — a group co-member we never added. The hello
+    // gate resolves cache-only by design, so their dial to us keeps getting
+    // rejected until their identity is in our store. Learn it here, off the
+    // send path, so the next dial in either direction can succeed.
+    try {
+      await learnPeerIdentity?.call(peerOnion);
+    } catch (_) {}
 
     try {
       await postSyncHint(peerOnion: peerOnion);
@@ -386,8 +404,6 @@ class TransportProvider implements OutboundTransport {
     );
   }
 
-  static const Duration _wsSendBudget = Duration(seconds: 30);
-
   static bool _shouldDisconnectWsAfterFailure(Object error) {
     if (error is TimeoutException) return false;
     if (error is StateError) {
@@ -396,11 +412,6 @@ class TransportProvider implements OutboundTransport {
           message.contains('disconnected');
     }
     return true;
-  }
-
-  static Duration _wsSendTimeoutFor(Duration requested) {
-    if (requested > _wsSendBudget) return requested;
-    return requested < _wsSendBudget ? requested : _wsSendBudget;
   }
 
   static Future<void> postMessageOrFallback({
@@ -431,17 +442,19 @@ class TransportProvider implements OutboundTransport {
         );
       }
       if (inst.isRealtimeConnected(peerOnion) && !skipWsForLargePayload) {
-        final wsTimeout = _wsSendTimeoutFor(timeout);
         Object? lastWsError;
         for (var attempt = 0; attempt < 2; attempt++) {
           try {
             await inst.postMessageWithPreference(
               peerOnion: peerOnion,
               payload: payload,
-              timeout: wsTimeout,
+              timeout: timeout,
               preference: TransportPreference.wsIfConnected,
             );
-            Logging.debug('WS send ok $peerOnion', 'TransportProvider');
+            Logging.debug(
+              'WS-preferred send ok $peerOnion (may have used HTTP)',
+              'TransportProvider',
+            );
             return;
           } catch (e) {
             lastWsError = e;

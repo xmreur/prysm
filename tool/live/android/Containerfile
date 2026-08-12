@@ -1,0 +1,161 @@
+# Prysm — live app testing environment (Android emulator)
+#
+# Same containment argument as tool/live/Containerfile: TorManager._killOrphanTorForce
+# runs a bare `pkill -9 tor` (lib/util/tor_service.dart:497) and the container's
+# PID namespace is what keeps that away from the host's tor. The Android emulator
+# runs inside this container too, so the app's loopback server (127.0.0.1:12345)
+# lives inside the emulator and is reachable only through the `adb forward` that
+# the launcher (tool/live/android/labd.sh) sets up — the host never sees it.
+#
+# Layers 1-5 are byte-identical to .l3e2e/Containerfile and tool/live/Containerfile
+# so Docker reuses their cache — in particular the ~1 GB Flutter SDK download.
+# Keep them in sync. If one of the three files changes, change all three.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Last group: runtime libraries for the bundled tor binary (ldd on
+# tor_executable/tor — it is NOT statically linked). Kept byte-identical to the
+# sibling Containerfiles for cache reuse; the Android app ignores this binary
+# (tor comes from the info.guardianproject:tor-android AAR at build time), but
+# splitting the layer would cost the shared cache.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git xz-utils unzip \
+      build-essential \
+      psmisc procps \
+      libevent-2.1-7t64 libssl3t64 liblzma5 libzstd1 zlib1g \
+      libcap2 libseccomp2 libsystemd0 libbrotli1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Official Flutter SDK, same version as the host toolchain and .dart_tool/version.
+# SHA-256 from Google's releases_linux.json for this exact archive — verified
+# against storage.googleapis.com so a tampered or truncated download aborts the
+# build before extraction.
+ARG FLUTTER_VERSION=3.44.8
+ARG FLUTTER_SHA256=672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d
+RUN curl -fsSL -o /tmp/flutter.tar.xz \
+      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+    && echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/flutter.tar.xz -C /opt \
+    && rm /tmp/flutter.tar.xz
+
+ENV PATH="/opt/flutter/bin:${PATH}"
+RUN git config --global --add safe.directory /opt/flutter \
+    && flutter --disable-analytics \
+    && flutter precache --linux
+
+# --- everything below is specific to running the Android app on an emulator ---
+#
+# JDK 17: AGP 8.x requires it; the cmdline-tools' sdkmanager needs it too.
+# Emulator runtime libraries: the set below is what an ubuntu:24.04 container
+# needs for the emulator's qemu binary — verified by a transitive ldd scan of
+# the emulator package (with the emulator's own lib64 dir on LD_LIBRARY_PATH,
+# so bundled libs resolve) plus `emulator -version`, which also caught two
+# dlopen-only deps that ldd cannot see: libpng16-16 and libxkbfile1.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openjdk-17-jdk-headless \
+      libpulse0 libnss3 libxcursor1 libxdamage1 libxcomposite1 libxi6 libxtst6 \
+      libasound2t64 libgl1 libglu1-mesa libpng16-16 libxkbfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Android commandline-tools, pinned and SHA-256-verified (same discipline as the
+# Flutter tarball above: a silently truncated download must abort the build).
+ARG CMDLINE_TOOLS_SHA256=2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258
+RUN curl -fsSL -o /tmp/cmdline-tools.zip \
+      "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
+    && echo "${CMDLINE_TOOLS_SHA256}  /tmp/cmdline-tools.zip" | sha256sum -c - \
+    && mkdir -p /opt/android-sdk/cmdline-tools \
+    && unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdtools-unzip \
+    && mv /tmp/cmdtools-unzip/cmdline-tools /opt/android-sdk/cmdline-tools/latest \
+    && rm -rf /tmp/cmdline-tools.zip /tmp/cmdtools-unzip
+
+ENV ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    PATH="/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/emulator:${PATH}"
+
+# Pinned SDK packages (versions verified against Google's repository XML before
+# writing this file):
+#   platforms;android-35      decided minimum; the app's compileSdk is
+#                             flutter.compileSdkVersion = 36 (Flutter 3.44.8),
+#                             so android-36 is installed as well — AGP uses it
+#                             for the real compile and auto-downloads anything
+#                             else when the licences are accepted (they are).
+#   ndk;28.2.13676358         flutter.ndkVersion; the opus_flutter_android
+#                             plugin builds libopus from source with ndkBuild,
+#                             so the NDK is a hard build requirement.
+#   build-tools;35.0.0        AGP 8.11.1's default Build Tools version.
+#   system-images;android-34;default;x86_64  x86_64 host; the app packages the
+#                             x86_64 engine ABI (FlutterPlugin clears
+#                             abiFilters and adds PLATFORM_ABI_LIST).
+# Accept every licence non-interactively so AGP can auto-install anything a
+# plugin needs beyond this set. `flutter precache --android` pulls the engine
+# artifacts into /opt/flutter/bin/cache so the first gradle build does not
+# download them.
+RUN yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager --install \
+         "platform-tools" \
+         "emulator" \
+         "platforms;android-35" \
+         "platforms;android-36" \
+         "build-tools;35.0.0" \
+         "ndk;28.2.13676358" \
+         "system-images;android-34;default;x86_64" \
+    && flutter precache --android \
+    && test -x /opt/android-sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless \
+    && miss=$(LD_LIBRARY_PATH=/opt/android-sdk/emulator/lib64 \
+         ldd /opt/android-sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless 2>&1 | grep "not found" || true) \
+    && if [ -n "$miss" ]; then echo "emulator runtime deps missing:"; echo "$miss"; exit 1; fi \
+    && /opt/android-sdk/emulator/emulator -version
+
+# receive_sharing_intent (^1.9.0, in pubspec.lock) declares compileSdk 37, but
+# Google ships android-37.0 — there is no plain android-37 — and AGP asks for
+# the exact directory name. Install 37.0 and provide the android-37 dir AGP
+# wants: AGP reads the ApiLevel from source.properties, so the copy satisfies
+# it without touching the shipped app config or the plugin. (AGP prints a
+# harmless "inconsistent location" warning for the duplicate.)
+RUN sdkmanager --install "platforms;android-37.0" >/dev/null \
+    && cp -a /opt/android-sdk/platforms/android-37.0 /opt/android-sdk/platforms/android-37
+
+# The CLI forwards itself into the container as `python3 /opt/lab/prysmlab`
+# (forward()), so the container needs a python3 interpreter even though the
+# Android image has no other use for one. In a separate layer so the ~1 GB SDK
+# layer above stays shared with the Linux lab.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bind-mount ownership: ubuntu:24.04 ships a default uid-1000 user
+# 'ubuntu', but the host user may be any uid. tool/live/prysmlab passes the host
+# uid/gid as build args, and this step remaps 'ubuntu' to match, so the
+# bind-mounted /work stays readable/writable for the container user.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+#
+# --non-unique is required, not defensive: ubuntu:24.04 already owns gid 20
+# (dialout) and gid 100 (users), and plain `groupmod -g` refuses a gid another
+# group holds ("GID '20' already exists"), which aborts the whole build for any
+# host user on one of those gids. Sharing the id is harmless here — `chown
+# ubuntu:ubuntu` still resolves by name, and the container is single-user.
+# The Android SDK is chowned too: the emulator and AGP (running as `ubuntu`)
+# write into it at runtime — a root-owned SDK would make AGP's auto-download of
+# a missing package fail with a permission error instead of working.
+RUN if [ "${HOST_UID}" != "1000" ] || [ "${HOST_GID}" != "1000" ]; then \
+      groupmod --non-unique -g "${HOST_GID}" ubuntu \
+      && usermod --non-unique -u "${HOST_UID}" -g "${HOST_GID}" ubuntu; \
+    fi \
+    && chown -R ubuntu:ubuntu /opt/flutter \
+    && chown -R ubuntu:ubuntu /opt/android-sdk \
+    && mkdir -p /home/ubuntu/.pub-cache /home/ubuntu/lab \
+    && chown -R ubuntu:ubuntu /home/ubuntu
+
+# The pub cache is a named Docker volume so nothing lands in the host's HOME and
+# `prysmlab down --purge` can drop it. Docker seeds a fresh volume from the image
+# path, so that path must already exist and belong to `ubuntu` — otherwise the
+# volume comes up root-owned and `flutter pub get` dies on hosted-hashes.
+
+USER ubuntu
+ENV HOME=/home/ubuntu \
+    PUB_CACHE=/home/ubuntu/.pub-cache \
+    XDG_RUNTIME_DIR=/tmp/xdg-runtime
+
+WORKDIR /work

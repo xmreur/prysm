@@ -1,14 +1,25 @@
 ---
 name: live-app-testing
-description: "Use when you need to prove UI<->state integration on the real, running Prysm desktop app: screens render what the stores contain, taps land, routes open and close. Proves the app's own wiring end to end. It does NOT prove pixels, does NOT prove the compositor's input path, and does NOT run in CI."
+description: "Use when you need to prove UI<->state integration on the real, running Prysm app — Linux desktop or Android — : screens render what the stores contain, taps and long presses land, routes open and close. Proves the app's own wiring end to end. It does NOT prove pixels by itself, does NOT prove the compositor's input path, and does NOT run in CI."
 ---
 
 # Live App Testing
 
-Drive the real Prysm Linux desktop app with `tool/live/prysmlab` — observation (Dart VM
-Service widget trees), control (in-app pointer events via `evaluate`), and data injection
-(HTTP against the app's loopback server). The app runs in a throwaway container under Xvfb
-with a private D-Bus session and keyring.
+Drive the real Prysm app with `tool/live/prysmlab` — observation (Dart VM Service widget
+trees), control (in-app pointer events via `evaluate`), and data injection (HTTP against the
+app's loopback server). Two platforms, one CLI:
+
+| | command | what runs |
+|---|---|---|
+| Linux desktop | `prysmlab …` (default) | the GTK app under Xvfb, private D-Bus session + keyring |
+| Android | `prysmlab -p android …` | the real APK on an in-container x86_64 emulator (KVM), AVD `pixel_5` |
+
+Everything downstream of the VM Service is identical on both; only the lifecycle differs.
+**Pick the platform the report came from.** A layout or gesture complaint from a phone is not
+refuted by the desktop build: `defaultTargetPlatform` changes the gesture branch that runs
+(on Linux a long press inside a focused field moves the caret, on Android it selects a word),
+and the two builds do not even render the same navigation surfaces.
+The Android lab has its own handoff: `HANDOFF-android-lab.md`.
 
 ## When to use it — and when not
 
@@ -18,10 +29,15 @@ close, a store whose change the UI never reflects. That is where this method fou
 
 Do NOT use it for:
 
-- **Pixels.** The dump is text: what is in the tree, not how it looks. Alignment, contrast,
-  truncation, overlap are invisible here. `prysmlab shot` writes a PNG of the Xvfb framebuffer
-  (verified: 1440x900), but producing an image is not reading one: with no vision-capable tool
-  available, the PNG proves nothing on its own.
+- **Pixels, by default.** The dump is text: what is in the tree, not how it looks.
+  `prysmlab shot` writes a PNG (Xvfb framebuffer on Linux, `adb exec-out screencap` on
+  Android) — and on a harness with an image-inspection tool that PNG *is* readable, which is
+  how the selection handles were caught pointing the wrong way:
+  `SHOT=$(prysmlab -p android shot | tail -1) && docker cp prysm-lab-android:"$SHOT" /tmp/x.png`,
+  then inspect `/tmp/x.png`. Use it for **geometry and presence**, never for values: the
+  reading is a description, not a measurement, and it has already mistaken the app's own light
+  theme for "a Material toolbar" and a system dialog's scrim for "a dark app". For colours,
+  read the live token with an `eval`; for rects, read the `RenderBox` with an `eval`.
 - **The compositor's input path.** `prysmlab tap` delivers `PointerDown/UpEvent` through
   Flutter's own hit test and gesture recognizers. It proves the app's wiring, not that a real
   click (window focus, display scaling, layered windows) arrives the same way.
@@ -58,7 +74,12 @@ prysmlab tap "Settings"   # act
 prysmlab down --purge     # teardown is part of the method — always
 ```
 
-`up` prints progress; the first run compiles the Linux bundle (minutes). `up --fresh` destroys
+The Android lab is the same seven lines with `-p android`; `doctor` there checks `/dev/kvm`
+instead of the repo tor binary, and `up` budgets ~6-7 min from cold (image from the Docker
+cache, emulator boot, gradle build). On the narrow Android home the sidebar is behind a
+button: `prysmlab -p android tap-widget --type Semantics --contains "Open menu"`.
+
+`up` prints progress; the first run compiles the app (minutes). `up --fresh` destroys
 the container first (loses the test identity) and re-stages; `prysmlab sync` re-stages without
 relaunching (a running app keeps the old code); `prysmlab restart [--sync]` relaunches the app
 in the running container — the way to pick up code changes (hot restart over stdin is not an
@@ -179,6 +200,82 @@ are forwarded into the container.
     `prysmlab type "<text>" [-n IDX] [--submit]` (verified working) finds an `EditableText` and
     feeds the text through `updateEditingValue` — the real platform-input entry point — so input
     formatters run and `onChanged` fires. Assigning to `controller.text` instead fires neither.
+
+13. **`tap` can never open a long-press menu; use `longpress`.**
+    `tap` sends down and up in the same turn, far below any
+    `LongPressGestureRecognizer` deadline, so the whole class of "hold down and nothing
+    happens" defects was invisible to this lab until `longpress` existed.
+    `prysmlab longpress "<text>" | --type <Widget> [--contains …] [-n IDX] [--hold MS]`
+    holds the pointer and schedules the release on the app's own event loop (`evaluate` is
+    synchronous, so it cannot wait). **Read the result with the next `screen`/`count`, not
+    from the command's output** — the command returns while the gesture is still in flight.
+    Message bubbles carry their text in `RichText`, not `Text`, so target them with
+    `--type RichText --contains "<word>"`; a composer is `--type PrysmEditableText`.
+
+14. **A long press does different things per platform, and both are correct.**
+    `TextSelectionGestureDetectorBuilder.onSingleLongTapStart` branches on
+    `defaultTargetPlatform`: on Android it selects the word under the finger, on Linux/Windows
+    it only moves the caret when the field already has focus. So an empty-looking Linux result
+    (`sel=105..105`, menu with just "Select all") is not a bug and does not refute an Android
+    report. The desktop gesture for the same menu is a **secondary tap**: fire a
+    `PointerDownEvent(buttons: kSecondaryButton)` through `eval`. It calls `toggleToolbar()`,
+    so if the menu is already open the first right-click closes it.
+
+15. **The emulator's clipboard is dead; assert on `Cut`, not `Copy`.**
+    On the headless AVD `Clipboard.setData` followed by `Clipboard.getData` returns `<null>`
+    even with no UI involved, and `adb shell cmd clipboard` does not exist on the android-34
+    image: Android denies clipboard access to an app without window focus, and `-no-window`
+    never has it. A missing "Paste" entry in the selection menu is this, not a defect. What is
+    observable in-app is `Cut` — it mutates the field — and the app's own
+    "Copied to clipboard" toast.
+    The **soft keyboard has the same cause and the same answer**: `show_ime_with_hard_keyboard
+    1` is accepted, the IME binds (`mHaveConnection=true`), and it still never shows
+    (`mInputShown=false`) even for an explicit `TextInput.show` — a windowless app cannot raise
+    it, so `viewInsets.bottom` is always 0 and no amount of tapping produces a keyboard-open
+    layout. To exercise what a keyboard actually does to layout, shrink the display instead:
+    `adb shell wm size 1080x1600` moves every bottom-anchored widget up by ~270 dp and forces
+    the same relayout, `adb shell wm size reset` restores it.
+
+16. **A group chat is reachable without a second peer — create it with an `eval`.**
+    Adding a contact through the UI needs the peer online (it fetches their public key over
+    Tor), so the group screens look untestable. They are not: `GroupService.createGroup` only
+    needs a member *string*. Take the live `HomeScreen` widget's `onionAddress` and `keyManager`
+    (walk the element tree; the field is `onionAddress`, not `userId`), then
+    `GroupService(userId: home.onionAddress, keyManager: home.keyManager).createGroup('name',
+    ['<56 base32 chars>.onion'])` from `--lib package:prysm/screens/group_chat.dart`, which is
+    where both `GroupService` and the widget types are visible. Print the id from `.then()` and
+    read it with `logs --grep` (rule 3). The invite delivery fails against the fake onion and
+    that is fine — the group, its key and its membership are already committed locally.
+    `restart` once: HomeScreen caches the "N contacts · N groups" counts and will not show the
+    group until it re-reads the DB. After that the group chat is a normal screen — compose,
+    send, `longpress --type RichText --contains "<word>"` on the bubble.
+
+17. **Two peers, real Tor: the lab can test transmission, not just UI.**
+    The Linux lab is a second identity in a second container: every host resource is
+    env-overridable, including the pub-cache volume (`VOLUME = os.environ.get("PRYSMLAB_VOLUME", …)`,
+    `tool/live/prysmlab:148`), so a second peer is `PRYSMLAB_CONTAINER=prysm-lab-b
+    PRYSMLAB_HOST_LAB=/tmp/prysm-lab-b PRYSMLAB_VOLUME=prysm-lab-b-pub tool/live/prysmlab up`. Identity
+    lives in the container's writable layer, so each container IS a new identity; the image is shared,
+    so build once and `up` both. Peers talk over the real Tor network — no host ports are published and
+    there is no LAN/direct transport. Pairing is a real Tor round trip: "Add contact" fetches the peer's
+    public key, so the peer must be ONLINE. Measured: Linux→Linux 2.5 s and 7.1 s, Linux→Android 9.6 s,
+    Android→Linux 21.8 s (a cold phone Tor sits near the 2×12 s ContactAddService ceiling). A real-member
+    group is `GroupService(userId: home.onionAddress, keyManager: home.keyManager).createGroup('name',
+    ['<peer onion>'])` from `--lib package:prysm/screens/group_chat.dart`, with `onionAddress`/`keyManager`
+    off the live `HomeScreen` widget (rule 16); invite delivery is a sequential fan-out, measured
+    0.58-1.22 s per member. `tool/live/txlab` runs the measurement: host clock for the tap, app-log
+    timestamps for arrival and ack (UTC — parse with `calendar.timegm`, never `time.mktime`), widget-tree
+    poll for render. Baseline, 1:1 Linux↔Linux over an established WS link: median wire 0.43 s, ack
+    0.22 s, bubble on screen 1.47 s, 0 lost in 36 messages; serialized outbound ceiling ~1.4 msg/s
+    (20-message programmatic burst, median inter-arrival 0.71 s, all in order); a peer that was offline
+    drains its backlog 8-11 s after it returns. Re-check, don't re-discover: (1) a stale WS link costs
+    the full 30 s `_wsSendBudget` before HTTP fallback — 1 send in 10 to the Android peer took ~50 s,
+    zero occurrences Linux↔Linux; (2) a group invite applies to the DB in ~1 s but the receiver's
+    conversation list does not refresh — invisible on Android until an app restart, ~15.6 s on Linux;
+    (3) two members of the same group who are not mutual contacts cannot form a WS link at all
+    (`rejecting hello from unknown peer`; identity resolution is cache-only by design at
+    lib/transport/inbound_ws_peer_link.dart:229-237), so their first group message took 134 s and later
+    ones still ran 19-22 s against 0.6 s for a contact pair.
 
 ## Worked example
 

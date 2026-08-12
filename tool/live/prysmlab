@@ -49,18 +49,115 @@ import urllib.request
 
 IN_CONTAINER = os.environ.get("PRYSMLAB_IN_CONTAINER") == "1"
 
-# ---- host side -------------------------------------------------------------
-IMAGE = os.environ.get("PRYSMLAB_IMAGE", "prysm-lab")
-CONTAINER = os.environ.get("PRYSMLAB_CONTAINER", "prysm-lab")
-VOLUME = "prysm-lab-pub"
-HOST_LAB = os.environ.get("PRYSMLAB_HOST_LAB", "/tmp/prysm-lab")
-WORK = os.path.join(HOST_LAB, "work")
+# ---- platform config -------------------------------------------------------
+# The same CLI drives two labs; only the lifecycle differs. Everything that
+# differs lives in this table: the Linux desktop app under Xvfb, and the Android
+# app on an in-container emulator. Everything downstream of the Dart VM Service
+# (WebSocket JSON-RPC, widget-tree walking, pointer injection, `type` via
+# updateEditingValue) is platform-independent and shared. The Linux values are
+# byte-identical to the pre-platform version of this file — that lab is in
+# production and must not regress.
+PLATFORM_DEFAULTS = {
+    "linux": {
+        "image": "prysm-lab",
+        "container": "prysm-lab",
+        "volume": "prysm-lab-pub",
+        "host_lab": "/tmp/prysm-lab",
+        "containerfile": "tool/live/Containerfile",
+        "build_context": "tool/live",
+        "launcher": "/opt/lab/labd.sh",
+        "root_script": "/opt/lab/labroot.sh",
+        "run_args": [],
+        "vm_ready": "Dart VM Service on Linux is available at:",
+        "fail_tokens": {
+            "PRYSMLAB_XVFB_FAILED":
+                "Xvfb never came up inside the container; see `prysmlab logs`",
+        },
+        "stage_paths": [
+            "lib", "test", "assets", "linux", "packages", "tor_executable",
+            "pubspec.yaml", "pubspec.lock", "analysis_options.yaml",
+            "devtools_options.yaml",
+        ],
+        "stage_excludes": [".dart_tool", "linux/flutter/ephemeral", "build"],
+    },
+    "android": {
+        "image": "prysm-lab-android",
+        "container": "prysm-lab-android",
+        "volume": "prysm-lab-android-pub",
+        "host_lab": "/tmp/prysm-lab-android",
+        "containerfile": "tool/live/android/Containerfile",
+        "build_context": "tool/live/android",
+        "launcher": "/opt/lab/android/labd.sh",
+        "root_script": None,
+        "run_args": ["--device", "/dev/kvm"],
+        "vm_ready": "Dart VM Service on",
+        "fail_tokens": {
+            "PRYSMLAB_KVM_FAILED":
+                "/dev/kvm is not usable inside the container; the Android "
+                "emulator needs KVM. Check that docker passes --device /dev/kvm "
+                "and that KVM is enabled on the host.",
+            "PRYSMLAB_EMULATOR_FAILED":
+                "the emulator died before the device came online; "
+                "see `prysmlab logs` for the emulator log tail",
+            "PRYSMLAB_BOOT_TIMEOUT":
+                "the emulator never finished booting (sys.boot_completed); "
+                "see `prysmlab logs` for the emulator log tail",
+        },
+        "stage_paths": [
+            "lib", "test", "assets", "packages", "android",
+            "pubspec.yaml", "pubspec.lock", "analysis_options.yaml",
+            "devtools_options.yaml",
+        ],
+        "stage_excludes": [
+            ".dart_tool", "build",
+            "android/.gradle", "android/app/build", "android/local.properties",
+        ],
+    },
+}
 
-# ---- container side --------------------------------------------------------
-LAB = "/home/ubuntu/lab"
-LOG_PATH = f"{LAB}/app.log"
-STATE_PATH = f"{LAB}/state.json"
+# ---- host side -------------------------------------------------------------
+PLATFORM = "linux"
+IMAGE = CONTAINER = VOLUME = HOST_LAB = WORK = ""
+LAB = LOG_PATH = STATE_PATH = ""
+LAUNCHER = ""
+ROOT_SCRIPT: str | None = None
+RUN_ARGS: list[str] = []
+VM_READY = ""
+FAIL_TOKENS: dict[str, str] = {}
+STAGE_PATHS: list[str] = []
+STAGE_EXCLUDES: list[str] = []
 APP_PORT = 12345
+
+
+def init_platform(name: str) -> None:
+    """Bind the module-level lab constants for the active platform.
+
+    Called from main() before dispatch, so the same globals keep working for
+    every command; the in-container side picks the same platform because
+    dexec()/forward() propagate PRYSMLAB_PLATFORM on every docker exec.
+    """
+    global PLATFORM, IMAGE, CONTAINER, VOLUME, HOST_LAB, WORK
+    global LAB, LOG_PATH, STATE_PATH, LAUNCHER, ROOT_SCRIPT, RUN_ARGS
+    global VM_READY, FAIL_TOKENS, STAGE_PATHS, STAGE_EXCLUDES
+    if name not in PLATFORM_DEFAULTS:
+        die(f"unknown platform {name!r} (choose from {', '.join(PLATFORM_DEFAULTS)})")
+    cfg = PLATFORM_DEFAULTS[name]
+    PLATFORM = name
+    IMAGE = os.environ.get("PRYSMLAB_IMAGE", cfg["image"])
+    CONTAINER = os.environ.get("PRYSMLAB_CONTAINER", cfg["container"])
+    VOLUME = os.environ.get("PRYSMLAB_VOLUME", cfg["volume"])
+    HOST_LAB = os.environ.get("PRYSMLAB_HOST_LAB", cfg["host_lab"])
+    WORK = os.path.join(HOST_LAB, "work")
+    LAB = "/home/ubuntu/lab"
+    LOG_PATH = f"{LAB}/app.log"
+    STATE_PATH = f"{LAB}/state.json"
+    LAUNCHER = cfg["launcher"]
+    ROOT_SCRIPT = cfg["root_script"]
+    RUN_ARGS = cfg["run_args"]
+    VM_READY = cfg["vm_ready"]
+    FAIL_TOKENS = cfg["fail_tokens"]
+    STAGE_PATHS = cfg["stage_paths"]
+    STAGE_EXCLUDES = cfg["stage_excludes"]
 
 # Evaluation context. Flutter's own widgets/binding.dart imports foundation,
 # gestures, rendering, scheduler and services, so WidgetsBinding, Element,
@@ -70,13 +167,6 @@ APP_PORT = 12345
 PREFERRED_LIB = "package:flutter/src/widgets/binding.dart"
 
 HOST_COMMANDS = {"up", "down", "doctor", "sync", "shell", "build-image", "restart"}
-
-# Staged into /work. Excludes .dart_tool and linux/flutter/ephemeral so the
-# container regenerates them for its own toolchain.
-STAGE_PATHS = [
-    "lib", "test", "assets", "linux", "packages", "tor_executable",
-    "pubspec.yaml", "pubspec.lock", "analysis_options.yaml", "devtools_options.yaml",
-]
 
 
 class Fail(Exception):
@@ -114,7 +204,8 @@ def image_exists() -> bool:
 
 def dexec(argv: list[str], capture: bool = True, timeout: float | None = None,
           stdin_data: str | None = None) -> subprocess.CompletedProcess:
-    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER] + argv
+    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1",
+           "-e", f"PRYSMLAB_PLATFORM={PLATFORM}", CONTAINER] + argv
     if capture:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                               input=stdin_data)
@@ -125,7 +216,8 @@ def forward(argv: list[str]) -> int:
     """Re-run this same CLI inside the container with the same arguments."""
     if container_state() != "running":
         die("no lab container is running — start it with `prysmlab up`")
-    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER,
+    cmd = ["docker", "exec", "-i", "-e", "PRYSMLAB_IN_CONTAINER=1",
+           "-e", f"PRYSMLAB_PLATFORM={PLATFORM}", CONTAINER,
            "python3", "/opt/lab/prysmlab"] + argv
     return subprocess.run(cmd).returncode
 
@@ -144,7 +236,7 @@ def vm_base() -> str:
             text = fh.read()
     except OSError as exc:
         raise Fail(f"no app log at {LOG_PATH} ({exc}); run `prysmlab up`") from exc
-    hits = re.findall(r"Dart VM Service on Linux is available at:\s*(\S+)", text)
+    hits = re.findall(r"Dart VM Service on .*? is available at:\s*(\S+)", text)
     if not hits:
         raise Fail("the app has not published a VM Service yet — see `prysmlab logs`")
     return hits[-1]
@@ -433,6 +525,31 @@ def tap_expr(pred: str, idx: int, pointer: int = 7, force: bool = False) -> str:
     )
 
 
+def longpress_expr(pred: str, idx: int, hold_ms: int = 900,
+                   force: bool = False) -> str:
+    """Hold a pointer down on the target, then release it after `hold_ms`.
+
+    `tap_expr` releases in the same turn, which is below every LongPressGestureRecognizer's
+    deadline, so it can never open a long-press menu. The release is scheduled on the
+    app's own event loop because `evaluate` returns synchronously: the expression
+    reports the press, and the gesture completes a moment later. Read the result
+    with a follow-up `screen`/`count`, not from this call's output.
+    """
+    # A fresh id per call; a never-released down (stuck press) must not collide
+    # with the next invocation's press.
+    pointer = 1000 + (time.time_ns() // 1000000) % 100000
+    guard = "" if force else (
+        "if (hit == 'no') " + _REPORT.format(tag="OCCLUDED") + " "
+    )
+    return (
+        "(() { " + _WALK.format(pred=pred, idx=idx) + guard
+        + f"b.handlePointerEvent(PointerDownEvent(position: c, pointer: {pointer}, viewId: vid)); "
+        + f"Future.delayed(const Duration(milliseconds: {hold_ms}), () {{ "
+        + f"b.handlePointerEvent(PointerUpEvent(position: c, pointer: {pointer}, viewId: vid)); }}); "
+        + _REPORT.format(tag="LONGPRESSED") + " })()"
+    )
+
+
 SCROLL_EXPR = (
     "(() {{ final b = WidgetsBinding.instance; dynamic best; double bestExtent = -1; "
     "void walk(Element e) {{ if (e is StatefulElement && "
@@ -536,10 +653,9 @@ def count_text(tree: str, needle: str) -> int:
 
 def stage_repo(repo: str) -> None:
     os.makedirs(WORK, exist_ok=True)
-    cmd = ["rsync", "-a", "--delete",
-           "--exclude", ".dart_tool",
-           "--exclude", "linux/flutter/ephemeral",
-           "--exclude", "build"]
+    cmd = ["rsync", "-a", "--delete"]
+    for ex in STAGE_EXCLUDES:
+        cmd += ["--exclude", ex]
     cmd += [os.path.join(repo, p) for p in STAGE_PATHS if os.path.exists(os.path.join(repo, p))]
     cmd.append(WORK + "/")
     res = run(cmd)
@@ -549,11 +665,12 @@ def stage_repo(repo: str) -> None:
 
 def cmd_build_image(args) -> int:
     repo = repo_root()
-    cmd = ["docker", "build", "-f", os.path.join(repo, "tool/live/Containerfile"),
+    cfg = PLATFORM_DEFAULTS[PLATFORM]
+    cmd = ["docker", "build", "-f", os.path.join(repo, cfg["containerfile"]),
            "-t", IMAGE,
            "--build-arg", f"HOST_UID={os.getuid()}",
            "--build-arg", f"HOST_GID={os.getgid()}",
-           os.path.join(repo, "tool/live")]
+           os.path.join(repo, cfg["build_context"])]
     print(" ".join(cmd))
     return subprocess.run(cmd).returncode
 
@@ -562,6 +679,10 @@ def cmd_up(args) -> int:
     repo = repo_root()
     if run(["docker", "version"]).returncode != 0:
         die("docker is not usable")
+    if PLATFORM == "android" and not (
+            os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.R_OK | os.W_OK)):
+        die("the Android lab needs /dev/kvm (present and writable); "
+            "`prysmlab -p android doctor` explains what to install")
     if not image_exists():
         print(f"image {IMAGE} missing — building it")
         if cmd_build_image(args) != 0:
@@ -580,6 +701,7 @@ def cmd_up(args) -> int:
         res = run([
             "docker", "run", "-d", "--name", CONTAINER,
             "--init", "--shm-size=512m",
+        ] + RUN_ARGS + [
             "-v", f"{WORK}:/work",
             "-v", f"{os.path.join(repo, 'tool/live')}:/opt/lab:ro",
             "-v", f"{VOLUME}:/home/ubuntu/.pub-cache",
@@ -589,15 +711,18 @@ def cmd_up(args) -> int:
             die(f"docker run failed: {res.stderr.strip()}")
         print(f"container {CONTAINER} up ({res.stdout.strip()[:12]})")
 
-    root = run(["docker", "exec", "-u", "0", CONTAINER, "/opt/lab/labroot.sh"])
-    if "PRYSMLAB_UPOWER_FAILED" in root.stdout:
-        die("system D-Bus is up but nothing claimed org.freedesktop.UPower. "
-            "battery_plus would hang AppBootstrap.initializeServices and "
-            "runApp would never be reached, so the app would open a window "
-            "and render nothing. Check /var/log/upowerd.log in the container.")
-    if "PRYSMLAB_SYSTEM_BUS_UP" not in root.stdout:
-        die("could not bring up the container's system D-Bus: "
-            + (root.stderr or root.stdout).strip())
+    if ROOT_SCRIPT is not None:
+        root = run(["docker", "exec", "-u", "0",
+                    "-e", f"PRYSMLAB_PLATFORM={PLATFORM}",
+                    CONTAINER, ROOT_SCRIPT])
+        if "PRYSMLAB_UPOWER_FAILED" in root.stdout:
+            die("system D-Bus is up but nothing claimed org.freedesktop.UPower. "
+                "battery_plus would hang AppBootstrap.initializeServices and "
+                "runApp would never be reached, so the app would open a window "
+                "and render nothing. Check /var/log/upowerd.log in the container.")
+        if "PRYSMLAB_SYSTEM_BUS_UP" not in root.stdout:
+            die("could not bring up the container's system D-Bus: "
+                + (root.stderr or root.stdout).strip())
 
     # The bracket keeps the pattern from matching the `sh -lc` that carries it.
     running = dexec(["sh", "-lc", "pgrep -f '[f]lutter_tools.snapshot run' >/dev/null && echo yes"])
@@ -614,22 +739,23 @@ def start_app():
     dexec(["sh", "-lc", f"pkill -f '[f]lutter_tools.snapshot run'; sleep 1; "
                         f"mkdir -p {LAB} && rm -f {LOG_PATH} {STATE_PATH}"])
     subprocess.run([
-        "docker", "exec", "-d", "-e", "PRYSMLAB_IN_CONTAINER=1", CONTAINER,
-        "sh", "-lc", f"/opt/lab/labd.sh > {LOG_PATH} 2>&1",
+        "docker", "exec", "-d", "-e", "PRYSMLAB_IN_CONTAINER=1",
+        "-e", f"PRYSMLAB_PLATFORM={PLATFORM}", CONTAINER,
+        "sh", "-lc", f"{LAUNCHER} > {LOG_PATH} 2>&1",
     ], check=False)
-    print("app starting (the first run compiles the Linux bundle, a few minutes)")
+    print("app starting (the first run compiles the bundle, a few minutes)")
 
 
 def wait_for_vm(timeout: float):
     deadline = time.time() + timeout
-    pattern = "Dart VM Service on Linux is available at:"
     last = ""
     while time.time() < deadline:
         log = dexec(["sh", "-lc", f"cat {LOG_PATH} 2>/dev/null"]).stdout
-        if pattern in log:
+        if VM_READY in log:
             return
-        if "PRYSMLAB_XVFB_FAILED" in log:
-            die("Xvfb never came up inside the container; see `prysmlab logs`")
+        for token, msg in FAIL_TOKENS.items():
+            if token in log:
+                die(msg)
         tail = (log.strip().splitlines() or [""])[-1]
         if tail != last:
             last = tail
@@ -665,7 +791,9 @@ def cmd_sync(args) -> int:
 
 
 def cmd_shell(args) -> int:
-    return subprocess.run(["docker", "exec", "-it", CONTAINER, "bash", "-l"]).returncode
+    return subprocess.run(
+        ["docker", "exec", "-it", "-e", f"PRYSMLAB_PLATFORM={PLATFORM}",
+         CONTAINER, "bash", "-l"]).returncode
 
 
 def cmd_doctor(args) -> int:
@@ -684,8 +812,16 @@ def cmd_doctor(args) -> int:
           "rootless docker must be running")
     check(image_exists(), f"image {IMAGE} present", "run `prysmlab build-image`")
     check(shutil.which("rsync") is not None, "rsync present", "needed to stage the repo")
-    check(os.path.exists(os.path.join(repo, "tor_executable/tor")),
-          "repo tor binary present", "the app would download ~14 MB inside the container")
+    if PLATFORM == "linux":
+        check(os.path.exists(os.path.join(repo, "tor_executable/tor")),
+              "repo tor binary present",
+              "the app would download ~14 MB inside the container")
+    else:
+        kvm = os.path.exists("/dev/kvm")
+        check(kvm and os.access("/dev/kvm", os.R_OK | os.W_OK),
+              "/dev/kvm present and writable",
+              "the Android emulator needs KVM; install qemu-kvm or enable "
+              "nested virtualization")
 
     status = container_state()
     print(f"  info  container {CONTAINER}: {status}")
@@ -738,6 +874,11 @@ def cmd_down(args) -> int:
                IMAGE]).stdout.strip()
     print(f"  image {IMAGE}: " + (img or "removed"))
     print("  host tor: " + (run(["pgrep", "-a", "tor"]).stdout.strip() or "none"))
+    if PLATFORM == "android":
+        qemu = run(["pgrep", "-a", "-f", "[q]emu-system"]).stdout.strip()
+        print("  host qemu/emulator: " + (qemu or "none")
+              + "  (the emulator ran inside the container; nothing may remain "
+                "on the host)")
     repo = repo_root()
     dirty = run(["git", "-C", repo, "status", "--porcelain"]).stdout.strip()
     print("  repo working tree: " + (dirty.replace("\n", " | ") if dirty else "clean"))
@@ -852,6 +993,27 @@ def cmd_tap_widget(args) -> int:
     return 0 if out.startswith("TAPPED") else 2
 
 
+def cmd_longpress(args) -> int:
+    if args.hold < 500:
+        die("--hold must clear kLongPressTimeout (500 ms) or no gesture fires")
+    if args.type:
+        # `--contains` doubles as a flag for texts and as a value for widget
+        # types; a bare flag means "no substring" on the widget path.
+        needle = args.contains if isinstance(args.contains, str) else None
+        pred = pred_widget(args.type, needle)
+    elif args.text:
+        pred = pred_text(args.text, not args.contains)
+    else:
+        die("longpress needs a text or --type")
+    out = eval_dart(longpress_expr(pred, args.index, hold_ms=args.hold,
+                                   force=args.force))
+    print(out)
+    # The release is scheduled inside the app; wait past it plus the settle so
+    # the next `screen` sees whatever the gesture opened.
+    time.sleep(args.hold / 1000.0 + args.settle)
+    return 0 if out.startswith("LONGPRESSED") else 2
+
+
 def cmd_scroll(args) -> int:
     print(scroll_by(args.dy))
     return 0
@@ -964,13 +1126,22 @@ def cmd_onboard(args) -> int:
         if digits <= texts:
             entries += 1
             print(f"[{step}] pin pad (entry {entries}) -> {args.pin}")
+            entered = True
             for digit in args.pin:
                 out = eval_dart(tap_expr(pred_text(digit), 0, force=True))
                 if not out.startswith("TAPPED"):
-                    print(f"       digit {digit}: {out}", file=sys.stderr)
-                    return 2
+                    # A pad can vanish mid-entry: after a successful confirm the
+                    # route pops, and during the pop transition both the pad and
+                    # the next screen are in the tree. The pad read was stale —
+                    # that is a transient, not a failed onboarding. Re-evaluate
+                    # the screen instead of aborting.
+                    print(f"       digit {digit}: {out} (screen moved on)",
+                          file=sys.stderr)
+                    entered = False
+                    break
                 time.sleep(0.25)
-            time.sleep(args.settle)
+            if entered:
+                time.sleep(args.settle)
             continue
         target = next((t for t in advance if t in texts), None)
         if target:
@@ -989,9 +1160,14 @@ def cmd_onboard(args) -> int:
 
 def cmd_shot(args) -> int:
     out = args.out or f"{LAB}/shot-{int(time.time())}.png"
-    display = os.environ.get("DISPLAY", ":99")
-    res = run(["sh", "-lc",
-               f"xwd -root -display {display} | xwdtopnm 2>/dev/null | pnmtopng > {out}"])
+    if PLATFORM == "android":
+        # adb exec-out writes the raw PNG to stdout; the emulator is reachable
+        # because adb runs in this container against the lab emulator.
+        res = run(["sh", "-lc", f"adb exec-out screencap -p > {out}"])
+    else:
+        display = os.environ.get("DISPLAY", ":99")
+        res = run(["sh", "-lc",
+                   f"xwd -root -display {display} | xwdtopnm 2>/dev/null | pnmtopng > {out}"])
     if res.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
         die(f"screenshot failed: {res.stderr.strip()}")
     print(out)
@@ -1008,6 +1184,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="lifecycle commands run on the host; all others are forwarded into "
                "the container automatically",
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("-p", "--platform", choices=sorted(PLATFORM_DEFAULTS),
+                   default=None,
+                   help="linux (Xvfb desktop app) or android (in-container "
+                        "emulator); default from $PRYSMLAB_PLATFORM, else linux")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("doctor", help="preflight checks, host and container")
@@ -1084,6 +1264,22 @@ def build_parser() -> argparse.ArgumentParser:
                        help="tap even if the hit test says something covers it")
         s.add_argument("--settle", type=float, default=1.2)
 
+    s = sub.add_parser("longpress",
+                       help="hold a widget down long enough for a long-press "
+                            "gesture (text selection menus, message menus)")
+    s.add_argument("text", nargs="?", help="text of the target; omit when using --type")
+    s.add_argument("--type", help="widget type instead of a text, e.g. PrysmEditableText")
+    s.add_argument("--contains", nargs="?", const=True, default=None,
+                   help="with a text: match a substring; with --type: substring of "
+                        "the widget's toString")
+    s.add_argument("-n", "--index", type=int, default=0)
+    s.add_argument("--hold", type=int, default=900,
+                   help="milliseconds to hold; must clear the recogniser deadline (500ms)")
+    s.add_argument("--force", action="store_true",
+                   help="press even if the hit test says something covers it")
+    s.add_argument("--settle", type=float, default=1.2)
+    s.set_defaults(func=cmd_longpress)
+
     s = sub.add_parser("scroll", help="jump the longest scrollable by dy pixels")
     s.add_argument("dy", type=int)
     s.set_defaults(func=cmd_scroll)
@@ -1139,10 +1335,45 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def resolve_platform(argv: list[str]) -> str:
+    """The -p/--platform flag wins over $PRYSMLAB_PLATFORM, then linux.
+
+    Scanned manually before argparse so the choice is known before subcommand
+    dispatch and can steer the forward()/host-command decision in main().
+    """
+    for i, a in enumerate(argv):
+        if a == "--":  # after it, -p is a literal arg, not the flag
+            break
+        if a in ("-p", "--platform") and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--platform="):
+            return a.split("=", 1)[1]
+    return os.environ.get("PRYSMLAB_PLATFORM", "linux")
+
+
+def strip_platform_args(argv: list[str]) -> list[str]:
+    """argv minus the -p/--platform pair, for the HOST_COMMANDS check."""
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-p", "--platform"):
+            i += 2
+            continue
+        if a.startswith("--platform="):
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out
+
+
 def main(argv: list[str]) -> int:
-    if not IN_CONTAINER and argv and argv[0] not in HOST_COMMANDS \
-            and not argv[0].startswith("-"):
-        return forward(argv)
+    init_platform(resolve_platform(argv))
+    if not IN_CONTAINER:
+        rest = strip_platform_args(argv)
+        if rest and rest[0] not in HOST_COMMANDS and not rest[0].startswith("-"):
+            return forward(argv)
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

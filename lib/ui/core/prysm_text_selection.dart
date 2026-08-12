@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
+import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
 
 /// Material-free text selection for Prysm's inputs.
@@ -127,7 +129,14 @@ Widget prysmEditableTextContextMenuBuilder(
 }
 
 /// The cut/copy/paste/select-all bar, positioned against a selection.
-class PrysmTextSelectionToolbar extends StatelessWidget {
+///
+/// Android contributes an extra PROCESS_TEXT entry to the context menu for
+/// every installed app that offers one, so
+/// [EditableTextState.contextMenuButtonItems] can grow far beyond the
+/// standard four actions. Only cut/copy/paste/select all render up front;
+/// everything else is folded behind a "more" button that opens a scrollable
+/// overflow page, so the bar always stays a single row on a phone.
+class PrysmTextSelectionToolbar extends StatefulWidget {
   const PrysmTextSelectionToolbar({
     required this.anchors,
     required this.buttonItems,
@@ -154,8 +163,56 @@ class PrysmTextSelectionToolbar extends StatelessWidget {
   }
 
   @override
+  State<PrysmTextSelectionToolbar> createState() =>
+      _PrysmTextSelectionToolbarState();
+}
+
+/// Whether [type] belongs to the primary row instead of the overflow page.
+bool _isPrimaryButtonType(ContextMenuButtonType type) {
+  return switch (type) {
+    ContextMenuButtonType.cut ||
+    ContextMenuButtonType.copy ||
+    ContextMenuButtonType.paste ||
+    ContextMenuButtonType.selectAll =>
+      true,
+    _ => false,
+  };
+}
+
+class _PrysmTextSelectionToolbarState extends State<PrysmTextSelectionToolbar> {
+  /// Whether the overflow page (everything but cut/copy/paste/select all) is
+  /// showing instead of the primary row.
+  bool _showOverflow = false;
+
+  bool _sameLabels(
+    List<ContextMenuButtonItem> a,
+    List<ContextMenuButtonItem> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (PrysmTextSelectionToolbar.labelFor(a[i]) !=
+          PrysmTextSelectionToolbar.labelFor(b[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  void didUpdateWidget(PrysmTextSelectionToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new selection reuses this element with a different button list; an
+    // open overflow page would then show stale actions. Rebuilds that keep
+    // the same labels (e.g. the clipboard status flipping Paste on/off) must
+    // not reset it, or the page would close under the user.
+    if (!_sameLabels(oldWidget.buttonItems, widget.buttonItems)) {
+      _showOverflow = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (buttonItems.isEmpty) return const SizedBox.shrink();
+    if (widget.buttonItems.isEmpty) return const SizedBox.shrink();
 
     final style = context.prysmStyle;
     final tokens = style.tokens;
@@ -165,37 +222,20 @@ class PrysmTextSelectionToolbar extends StatelessWidget {
     // Anchors arrive in global coordinates; the Padding below shifts the
     // layout origin, so the delegate needs them in its own local space.
     final localAdjustment = Offset(_kToolbarScreenPadding, paddingAbove);
-    final anchorAbove =
-        anchors.primaryAnchor - const Offset(0, _kToolbarContentDistance);
-    final anchorBelow = anchors.secondaryAnchor == null
-        ? anchors.primaryAnchor
-        : anchors.secondaryAnchor! +
+    final anchorAbove = widget.anchors.primaryAnchor -
+        const Offset(0, _kToolbarContentDistance);
+    final anchorBelow = widget.anchors.secondaryAnchor == null
+        ? widget.anchors.primaryAnchor
+        : widget.anchors.secondaryAnchor! +
             const Offset(0, _kToolbarContentDistanceBelow);
 
-    final children = <Widget>[];
-    for (var i = 0; i < buttonItems.length; i++) {
-      if (i > 0) {
-        children.add(
-          Container(width: 1, height: 20, color: tokens.divider),
-        );
-      }
-      final item = buttonItems[i];
-      children.add(
-        PrysmPressable(
-          onTap: item.onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            child: Text(
-              labelFor(item),
-              style: style.bodyStyle.copyWith(
-                color: tokens.textPrimary,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      );
+    final primary = <ContextMenuButtonItem>[];
+    final overflow = <ContextMenuButtonItem>[];
+    for (final item in widget.buttonItems) {
+      (_isPrimaryButtonType(item.type) ? primary : overflow).add(item);
     }
+
+    final overflowOpen = _showOverflow && overflow.isNotEmpty;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -210,9 +250,8 @@ class PrysmTextSelectionToolbar extends StatelessWidget {
           anchorBelow: anchorBelow - localAdjustment,
         ),
         child: ConstrainedBox(
-          // Wrap + a hard cap is what keeps a long menu (Android contributes
-          // extra PROCESS_TEXT entries) from overflowing instead of folding
-          // onto a second line.
+          // The width cap keeps both pages inside the screen; the overflow
+          // page adds its own height cap on top of this.
           constraints: BoxConstraints(
             maxWidth: media.size.width - 2 * _kToolbarScreenPadding,
           ),
@@ -225,11 +264,105 @@ class PrysmTextSelectionToolbar extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(PrysmTokens.radiusCard),
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: children,
-              ),
+              child: overflowOpen
+                  ? _overflowPage(style, tokens, media, overflow)
+                  : _primaryRow(style, tokens, primary, overflow.isNotEmpty),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _primaryRow(
+    PrysmResolvedStyle style,
+    PrysmTokens tokens,
+    List<ContextMenuButtonItem> primary,
+    bool hasOverflow,
+  ) {
+    final children = <Widget>[];
+    for (var i = 0; i < primary.length; i++) {
+      if (i > 0) {
+        children.add(Container(width: 1, height: 20, color: tokens.divider));
+      }
+      children.add(_itemButton(style, tokens, primary[i]));
+    }
+    if (hasOverflow) {
+      children.add(Container(width: 1, height: 20, color: tokens.divider));
+      children.add(
+        PrysmPressable(
+          onTap: () => setState(() => _showOverflow = true),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            child: Icon(
+              PrysmIcons.more,
+              // 15px body text at weight 500 reads the same as an 18px icon;
+              // both colour and size come from tokens, never a hard-coded
+              // value.
+              size: 18,
+              color: tokens.textPrimary,
+            ),
+          ),
+        ),
+      );
+    }
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: children,
+    );
+  }
+
+  Widget _overflowPage(
+    PrysmResolvedStyle style,
+    PrysmTokens tokens,
+    MediaQueryData media,
+    List<ContextMenuButtonItem> overflow,
+  ) {
+    final children = <Widget>[
+      PrysmPressable(
+        onTap: () => setState(() => _showOverflow = false),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Icon(
+            PrysmIcons.chevronLeft,
+            size: 18,
+            color: tokens.textPrimary,
+          ),
+        ),
+      ),
+    ];
+    for (var i = 0; i < overflow.length; i++) {
+      children.add(Container(height: 1, color: tokens.divider));
+      children.add(_itemButton(style, tokens, overflow[i]));
+    }
+    return ConstrainedBox(
+      // An arbitrarily long PROCESS_TEXT list must never run off screen: cap
+      // the page at a third of the screen and let the rest scroll.
+      constraints: BoxConstraints(maxHeight: media.size.height / 3),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      ),
+    );
+  }
+
+  Widget _itemButton(
+    PrysmResolvedStyle style,
+    PrysmTokens tokens,
+    ContextMenuButtonItem item,
+  ) {
+    return PrysmPressable(
+      onTap: item.onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Text(
+          PrysmTextSelectionToolbar.labelFor(item),
+          style: style.bodyStyle.copyWith(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),
@@ -275,7 +408,6 @@ class PrysmEditableText extends StatefulWidget {
   final bool obscureText;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
-
   @override
   State<PrysmEditableText> createState() => _PrysmEditableTextState();
 }

@@ -23,6 +23,7 @@ import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_text_selection.dart';
+import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_search_field.dart';
 
 Widget wrapWithStyle(Widget child) {
@@ -33,7 +34,11 @@ Widget wrapWithStyle(Widget child) {
   return PrysmStyleScope(style: style, child: child);
 }
 
-Future<void> pumpInPrysmApp(WidgetTester tester, Widget child) async {
+Future<void> pumpInPrysmApp(
+  WidgetTester tester,
+  Widget child, {
+  double width = 320,
+}) async {
   await tester.pumpWidget(
     wrapWithStyle(
       WidgetsApp(
@@ -44,7 +49,7 @@ Future<void> pumpInPrysmApp(WidgetTester tester, Widget child) async {
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
         ),
-        home: Center(child: SizedBox(width: 320, child: child)),
+        home: Center(child: SizedBox(width: width, child: child)),
       ),
     ),
   );
@@ -52,6 +57,100 @@ Future<void> pumpInPrysmApp(WidgetTester tester, Widget child) async {
 
 EditableTextState editableState(WidgetTester tester) =>
     tester.state<EditableTextState>(find.byType(EditableText));
+
+ContextMenuButtonItem buttonItem(
+  String label, {
+  ContextMenuButtonType type = ContextMenuButtonType.custom,
+  VoidCallback? onPressed,
+}) {
+  return ContextMenuButtonItem(
+    onPressed: onPressed ?? () {},
+    type: type,
+    label: label,
+  );
+}
+
+/// The standard cut/copy/paste/select-all set EditableText reports on Android.
+List<ContextMenuButtonItem> standardItems() => [
+      ContextMenuButtonItem(onPressed: () {}, type: ContextMenuButtonType.cut),
+      ContextMenuButtonItem(onPressed: () {}, type: ContextMenuButtonType.copy),
+      ContextMenuButtonItem(
+        onPressed: () {},
+        type: ContextMenuButtonType.paste,
+      ),
+      ContextMenuButtonItem(
+        onPressed: () {},
+        type: ContextMenuButtonType.selectAll,
+      ),
+    ];
+
+/// The standard four actions plus the Android PROCESS_TEXT extras the bug
+/// report showed (installed apps arrive as `.custom` with a label).
+List<ContextMenuButtonItem> itemsWithOverflow() => [
+      ...standardItems(),
+      ContextMenuButtonItem(
+        onPressed: () {},
+        type: ContextMenuButtonType.share,
+      ),
+      buttonItem('Translate'),
+      buttonItem('Read aloud'),
+    ];
+
+/// Pumps the toolbar directly with a hand-built item list. The surface is
+/// wider than a test's default 800x600 so the Ahem test font (every glyph a
+/// 15px square) still fits the primaries plus the more button on one row.
+Future<void> pumpToolbar(
+  WidgetTester tester,
+  List<ContextMenuButtonItem> items, {
+  double width = 600,
+}) async {
+  await tester.binding.setSurfaceSize(Size(width, 800));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await pumpInPrysmApp(
+    tester,
+    PrysmTextSelectionToolbar(
+      anchors: const TextSelectionToolbarAnchors(
+        primaryAnchor: Offset(300, 120),
+      ),
+      buttonItems: items,
+    ),
+    width: width,
+  );
+}
+
+/// Rebuilds the toolbar in place across pumps, the way a new selection does:
+/// the same element receives a new [buttonItems] list, so `didUpdateWidget`
+/// runs instead of a fresh State being created.
+class ToolbarHarness extends StatefulWidget {
+  const ToolbarHarness({required this.items, super.key});
+
+  final List<ContextMenuButtonItem> items;
+
+  @override
+  State<ToolbarHarness> createState() => _ToolbarHarnessState();
+}
+
+class _ToolbarHarnessState extends State<ToolbarHarness> {
+  @override
+  Widget build(BuildContext context) {
+    return PrysmTextSelectionToolbar(
+      anchors: const TextSelectionToolbarAnchors(
+        primaryAnchor: Offset(300, 120),
+      ),
+      buttonItems: widget.items,
+    );
+  }
+}
+
+Future<void> pumpHarness(
+  WidgetTester tester,
+  List<ContextMenuButtonItem> items, {
+  double width = 600,
+}) async {
+  await tester.binding.setSurfaceSize(Size(width, 800));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await pumpInPrysmApp(tester, ToolbarHarness(items: items), width: width);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -272,4 +371,168 @@ void main() {
       );
     }
   });
+
+  // --- overflow folding (Android PROCESS_TEXT entries) -------------------
+
+  testWidgets('more than four items show the primaries and a more button, '
+      'folding the rest away', (tester) async {
+    await pumpToolbar(tester, itemsWithOverflow());
+
+    for (final label in ['Cut', 'Copy', 'Paste', 'Select all']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.byIcon(PrysmIcons.more), findsOneWidget);
+    for (final label in ['Share', 'Translate', 'Read aloud']) {
+      expect(find.text(label), findsNothing,
+          reason: 'overflow actions stay folded behind the more button');
+    }
+  }, variant: onAndroid);
+
+  testWidgets('the more button opens the overflow page and the back chevron '
+      'closes it', (tester) async {
+    await pumpToolbar(tester, itemsWithOverflow());
+
+    await tester.tap(find.byIcon(PrysmIcons.more));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(PrysmIcons.chevronLeft), findsOneWidget);
+    for (final label in ['Share', 'Translate', 'Read aloud']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    for (final label in ['Cut', 'Copy', 'Paste', 'Select all']) {
+      expect(find.text(label), findsNothing);
+    }
+
+    await tester.tap(find.byIcon(PrysmIcons.chevronLeft));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(PrysmIcons.chevronLeft), findsNothing);
+    for (final label in ['Cut', 'Copy', 'Paste', 'Select all']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    for (final label in ['Share', 'Translate', 'Read aloud']) {
+      expect(find.text(label), findsNothing);
+    }
+  }, variant: onAndroid);
+
+  testWidgets('tapping an overflow item invokes its onPressed',
+      (tester) async {
+    var translateTapped = false;
+    await pumpToolbar(
+      tester,
+      [
+        ...standardItems(),
+        buttonItem('Translate', onPressed: () => translateTapped = true),
+      ],
+    );
+
+    await tester.tap(find.byIcon(PrysmIcons.more));
+    await tester.pumpAndSettle();
+
+    expect(translateTapped, isFalse);
+    await tester.tap(find.text('Translate'));
+    await tester.pumpAndSettle();
+    expect(translateTapped, isTrue);
+  }, variant: onAndroid);
+
+  testWidgets('exactly the standard four items render no more button',
+      (tester) async {
+    await pumpToolbar(tester, standardItems());
+
+    for (final label in ['Cut', 'Copy', 'Paste', 'Select all']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.byIcon(PrysmIcons.more), findsNothing);
+  }, variant: onAndroid);
+
+  testWidgets('the collapsed page keeps the primaries and the more button on '
+      'a single row', (tester) async {
+    await pumpToolbar(tester, itemsWithOverflow());
+
+    final rowTop = tester.getTopLeft(find.text('Cut')).dy;
+    for (final label in ['Copy', 'Paste', 'Select all']) {
+      expect(tester.getTopLeft(find.text(label)).dy, rowTop,
+          reason: '$label sits on the same row as Cut');
+    }
+    expect(
+      tester.getTopLeft(find.byIcon(PrysmIcons.more)).dy,
+      closeTo(rowTop, 2),
+      reason: 'the more button sits beside the primaries, not below them',
+    );
+
+    final oneRowHeight = tester.getSize(find.text('Cut')).height +
+        const EdgeInsets.symmetric(horizontal: 14, vertical: 11).vertical;
+    expect(
+      tester.getSize(find.byType(Wrap)).height,
+      lessThan(oneRowHeight * 1.5),
+      reason: 'one row of items, not a wrapped stack',
+    );
+  }, variant: onAndroid);
+
+  testWidgets('a different item set closes the open overflow page',
+      (tester) async {
+    await pumpHarness(tester, itemsWithOverflow());
+    await tester.tap(find.byIcon(PrysmIcons.more));
+    await tester.pumpAndSettle();
+    expect(find.text('Translate'), findsOneWidget);
+
+    // A new selection reuses the same element with a different button list —
+    // here one with overflow actions of its own, which must not show stale.
+    await pumpHarness(
+      tester,
+      [
+        ...standardItems(),
+        buttonItem('Ask Meta AI'),
+        buttonItem('Ask ChatGPT'),
+      ],
+    );
+    expect(find.byIcon(PrysmIcons.more), findsOneWidget);
+    for (final label in ['Ask Meta AI', 'Ask ChatGPT', 'Translate']) {
+      expect(find.text(label), findsNothing,
+          reason: 'a different item set must fall back to the collapsed page');
+    }
+  }, variant: onAndroid);
+
+  testWidgets('rebuilding with the same labels keeps the overflow page open',
+      (tester) async {
+    await pumpHarness(tester, itemsWithOverflow());
+    await tester.tap(find.byIcon(PrysmIcons.more));
+    await tester.pumpAndSettle();
+    expect(find.text('Translate'), findsOneWidget);
+
+    // The toolbar rebuilds while open (e.g. the clipboard status flipping
+    // Paste on/off); the labels are unchanged, so the page must stay open.
+    await pumpHarness(tester, itemsWithOverflow());
+    expect(find.text('Translate'), findsOneWidget);
+    expect(find.text('Cut'), findsNothing);
+  }, variant: onAndroid);
+
+  testWidgets('a long PROCESS_TEXT list is capped at a third of the screen',
+      (tester) async {
+    await pumpToolbar(
+      tester,
+      [
+        ...standardItems(),
+        for (var i = 0; i < 25; i++) buttonItem('Action $i'),
+      ],
+    );
+    await tester.tap(find.byIcon(PrysmIcons.more));
+    await tester.pumpAndSettle();
+
+    final page = find.descendant(
+      of: find.byType(PrysmTextSelectionToolbar),
+      matching: find.byType(SingleChildScrollView),
+    );
+    expect(page, findsOneWidget);
+    final media = MediaQuery.of(
+      tester.element(find.byType(PrysmTextSelectionToolbar)),
+    );
+    expect(
+      tester.getSize(page).height,
+      lessThanOrEqualTo(media.size.height / 3 + 1),
+      reason: 'an arbitrarily long PROCESS_TEXT list must never run off '
+          'screen',
+    );
+  }, variant: onAndroid);
+
 }

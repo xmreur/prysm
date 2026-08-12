@@ -91,6 +91,12 @@ RESET_LIB = "package:flutter/src/widgets/binding.dart"
 LAB_DIR = "/home/ubuntu/lab"
 PAYLOAD_SEED = 0x9E3779B9  # fixed LCG seed: every run stages the same bytes
 PAYLOAD_BLOCK = 65536      # 64 KiB pseudo-random block, repeated to --size
+# sendFileMessage rejects payloads above this size — mirror of
+# lib/util/file_transfer_policy.dart maxFileSizeBytes (50 MiB). txlab must
+# reject them up front, BEFORE staging writes them into the sender's
+# container: a 1 GiB file would fill the lab volume and stall the app. Keep
+# this in sync with the Dart constant.
+MAX_FILE_SIZE_BYTES = 50 * (1 << 20)
 # FileTransferSender lines (lib/services/file_transfer_sender.dart). Chunked
 # transfer is used only when plaintext >= 1 MiB AND the WS link is up AND the
 # peer supports it (lib/util/file_transfer_policy.dart); below that the send
@@ -151,6 +157,19 @@ def parse_size(text: str) -> int:
         raise ValueError(
             f"bad --size {text!r} (use e.g. 200KiB, 1MiB, 4MiB or a bare byte count)")
     return int(m.group(1)) * _SIZE_UNITS[(m.group(2) or "b").lower()]
+
+def check_size(size: int, size_text: str) -> None:
+    """die() when `size` exceeds the service's sendFileMessage limit.
+
+    The app rejects oversized attachments (sendFileMessage returns null above
+    MAX_FILE_SIZE_BYTES); rejecting here, right after parsing and before
+    staging, keeps an oversized payload from being written into the sender's
+    container and stalling the lab.
+    """
+    if size > MAX_FILE_SIZE_BYTES:
+        die(f"--size {size_text} ({size} bytes) exceeds the 50 MiB "
+            f"sendFileMessage limit (lib/util/file_transfer_policy.dart "
+            f"maxFileSizeBytes)")
 
 def parse_begin_transfer(line: str) -> tuple[int, int] | None:
     """(chunks, ciphertext) from a FileTransferSender begin line, else None."""
@@ -270,11 +289,13 @@ def compose_wire_body(body: str | None, mark: str) -> str:
     prysmlab `type` echoes the composer value as `now=<value>` on ONE line, so
     a multi-paragraph body is only visible up to its first newline; the mark
     must be that first line — a single whitespace-free token — for the echo
-    to report it whole. A bare mark is the whole body when there is no text.
+    to report it whole. A non-empty body rides byte-for-byte as supplied —
+    trailing newlines included, they are part of the message being sent; a
+    bare mark is the whole body when there is no text.
     """
     if body is None:
         return mark
-    return f"{mark}\n{body.rstrip(chr(10))}"
+    return f"{mark}\n{body}"
 
 def composer_clean(typed: str, mark: str) -> tuple[bool, str | None]:
     """Did the composer end up holding exactly the mark after `type`?
@@ -287,6 +308,56 @@ def composer_clean(typed: str, mark: str) -> tuple[bool, str | None]:
     m = re.search(r"now=(.*)", typed)
     got = m.group(1) if m else None
     return got == mark, got
+
+def verify_composer_text(peer: str, wire_body: str, n: int) -> tuple[bool, str]:
+    """Byte-for-byte check of the composer against the wire body.
+
+    composer_clean only sees the FIRST line (the now= echo truncates at the
+    first newline), so a body whose LATER paragraph got mangled still passes
+    it; this closes that gap by reading the composer itself — the LAST
+    EditableText, index n-1, the same element `type -n` just typed into —
+    straight from EditableTextState.textEditingValue.text. Returns (ok,
+    verdict); on mismatch the verdict names the lengths, not the body.
+    Standalone so the self-check can feed it synthetic rows.
+    """
+    expr = ("(() { final b = WidgetsBinding.instance; final hits = <StatefulElement>[]; "
+            "void walk(Element e) { if (e is StatefulElement && "
+            "e.widget.runtimeType.toString() == 'EditableText') { hits.add(e); } "
+            "e.visitChildren(walk); } final r = b.rootElement; "
+            "if (r == null) return 'ERR no-root'; walk(r); "
+            "if (hits.length != " + str(n) + ") return 'ERR composer-count=' + hits.length.toString(); "
+            "final dynamic st = hits.last.state; "
+            "final String got = st.textEditingValue.text; "
+            "final String want = " + json.dumps(wire_body) + "; "
+            "if (got == want) return 'MATCH'; "
+            "return 'DIFF got=' + got.length.toString() + ' want=' + want.length.toString(); })()")
+    out = plab(peer, ["eval", expr]).strip()
+    if out == "MATCH":
+        return True, ""
+    m = re.search(r"got=(\d+) want=(\d+)", out)
+    if m:
+        got_len, want_len = int(m.group(1)), int(m.group(2))
+        if got_len == want_len:
+            return False, f"same length ({got_len}) but content differs"
+        return False, f"length {got_len} != {want_len}"
+    return False, out
+
+def read_body(args) -> str | None:
+    """The --text / --text-file message body, or None for a bare mark.
+
+    A --text-file must decode as UTF-8: UnicodeDecodeError is not an OSError,
+    so it is caught explicitly — the harness dies with the file's own
+    message, not a traceback.
+    """
+    if args.text is not None:
+        return args.text
+    if args.text_file is not None:
+        try:
+            with open(args.text_file, encoding="utf-8") as fh:
+                return fh.read()
+        except (OSError, UnicodeError) as exc:
+            die(f"cannot read --text-file {args.text_file!r}: {exc}")
+    return None
 
 def format_send_rep(rep: int, send_t: float | None, recv_t: float,
                     render_t: float | None, ack: float | None, path: str,
@@ -306,15 +377,7 @@ def format_send_rep(rep: int, send_t: float | None, recv_t: float,
 def cmd_send(args) -> int:
     if args.frm == args.to:
         die("sender and receiver must be different peers")
-    body = None
-    if args.text is not None:
-        body = args.text
-    elif args.text_file is not None:
-        try:
-            with open(args.text_file, encoding="utf-8") as fh:
-                body = fh.read()
-        except OSError as exc:
-            die(f"cannot read --text-file {args.text_file!r}: {exc}")
+    body = read_body(args)
     # Receiver arrival line per chat kind: 1:1 logs `Received text from`,
     # group logs `Received group_text from`; --group selects it.
     recv_re = r"Received group_text from" if args.group else r"Received text from"
@@ -325,12 +388,12 @@ def cmd_send(args) -> int:
         # The mark rides on its own FIRST line, body after: prysmlab `type`
         # echoes the composer value as `now=<value>` on ONE line, so with a
         # multi-paragraph body only the first line is visible to the check.
-        # The mark is a single whitespace-free token that survives as that
+        # the mark is a single whitespace-free token that survives as that
         # first line verbatim and stays the render-poll / log-correlation
         # anchor. prysmlab `type` JSON-quotes the argument (dq -> json.dumps),
         # so the body's newlines survive into the Dart string literal; a
         # composer that mangled them surfaces here as a SKIPPED rep via
-        # composer_clean.
+        # composer_clean / verify_composer_text.
         wire_body = compose_wire_body(body, mark)
         # Count real EditableText ELEMENTS, not occurrences of the string in the
         # dump: the raw tree names the type on every ancestor line too, which
@@ -348,6 +411,16 @@ def cmd_send(args) -> int:
             skipped += 1
             print(f"rep {rep}: SKIPPED — composer not clean "
                   f"(expected first line {mark!r}, got {got!r})")
+            continue
+        # The now= echo only proves the FIRST line; verify the whole composer
+        # against the wire body — a body whose LATER paragraph got mangled
+        # otherwise passes. Reads the same element `type` just typed into (the
+        # LAST EditableText, index n-1) from EditableTextState.
+        ok, verdict = verify_composer_text(args.frm, wire_body, n)
+        if not ok:
+            skipped += 1
+            print(f"rep {rep}: SKIPPED — composer differs from the wire body "
+                  f"({verdict})")
             continue
         # Pre-send marks, newest matching line per side just before the tap,
         # so the post-send read takes "newest strictly newer than the mark".
@@ -464,6 +537,34 @@ def send_file_expr(path: str, fname: str, typ: str) -> str:
         "return 'SENT ' + id.toString(); })()"
     )
 
+def format_file_rep(rep: int, send: float | None, recv_t: float,
+                    render: float | None, size: int, chunks: int, path: str,
+                    ciphertext: int | None = None,
+                    payload_kbps: float | None = None) -> str:
+    """Per-rep file line; all times are seconds since the host t0.
+
+    payload_kbps is PLAINTEXT throughput over the receive time — the AEAD
+    tag, the envelope, base64 on the monolithic path and every transport
+    byte are NOT included, and the harness cannot see real wire bytes.
+    Standalone so the self-check can feed it synthetic rows.
+    """
+    line = (f"rep {rep}: send={'n/a' if send is None else f'{send:.3f}s'} "
+            f"recv={recv_t:.3f}s render={'n/a' if render is None else f'{render:.3f}s'} "
+            f"bytes={size} chunks={chunks} path={path}")
+    if ciphertext is not None:
+        line += f" cipher={ciphertext}"
+    if payload_kbps is not None:
+        line += f" payload_kbps={payload_kbps:.0f}"
+    return line
+
+def summarize_payload_kbps(rows: list, size: int) -> None:
+    """Median/min/max PLAINTEXT payload throughput over the receive times."""
+    recvs = sorted(r[1] for r in rows if r[1] is not None and r[1] > 0)
+    if recvs:
+        kbps = sorted(size * 8 / 1000.0 / t for t in recvs)
+        print(f"summary payload_kbps: median={statistics.median(kbps):.0f} "
+              f"min={kbps[0]:.0f} max={kbps[-1]:.0f} (n={len(kbps)})")
+
 def cmd_file(args) -> int:
     if args.frm == args.to:
         die("sender and receiver must be different peers")
@@ -471,6 +572,7 @@ def cmd_file(args) -> int:
         size = parse_size(args.size)
     except ValueError as exc:
         die(str(exc))
+    check_size(size, args.size)  # before staging: the app rejects >50 MiB
     # 1:1 arrival lines are type-specific; a file/image arrival never logs
     # 'Received text from', so the text regex cannot double-count these reps.
     recv_re = r"Received image from" if args.type == "image" else r"Received file from"
@@ -502,7 +604,13 @@ def cmd_file(args) -> int:
         before_begin = newest_match(args.frm, r"begin transfer=", 0.0)
         before_done = newest_match(args.frm, r"transfer complete|send ok", 0.0)
         before_recv = newest_match(args.to, recv_re, 0.0)
-        # (c) t0 on the host clock (host wall clock and app UTC log stamps are
+        # (c) ImageMessageBubble baseline BEFORE the send fires: a fast
+        # receiver's new bubble can land while the send eval is still in
+        # flight, and counting then would fold it into the baseline and make
+        # the poll wait for a SECOND image until timeout.
+        pre = (count_widget_type(args.to, "ImageMessageBubble")
+               if args.type == "image" else None)
+        # (d) t0 on the host clock (host wall clock and app UTC log stamps are
         # one clock; parse_log_ts uses calendar.timegm, never time.mktime),
         # fire the send with --lib chat.dart, then reset the sticky lib.
         t0 = time.time()
@@ -523,13 +631,12 @@ def cmd_file(args) -> int:
             print(f"rep {rep}: LOST — sendFileMessage returned null "
                   "(blocked / no peer identity / over 50 MiB)")
             continue
-        # (d) render time. A FileAttachmentBubble renders Text(widget.fileName),
+        # (e) render time. A FileAttachmentBubble renders Text(widget.fileName),
         # so the existing wait_for_render predicate works verbatim with the
         # unique FILE NAME as the mark; an ImageMessageBubble shows no
-        # filename, so gate on the widget type, anchored on a pre-send count
-        # (earlier reps' bubbles stay in the chat history).
+        # filename, so gate on the widget type, anchored on the pre-send count
+        # from (c) (earlier reps' bubbles stay in the chat history).
         if args.type == "image":
-            pre = count_widget_type(args.to, "ImageMessageBubble")
             t_render = wait_for_widget_type(args.to, "ImageMessageBubble",
                                             pre + 1, args.timeout)
         else:
@@ -578,24 +685,15 @@ def cmd_file(args) -> int:
         send = None if send_ts is None else send_ts - t0
         render = None if t_render is None else t_render - t0
         recv_t = recv_ts - t0
-        kbps = None if recv_t <= 0 else size * 8 / 1000.0 / recv_t
+        # Payload throughput over the receive time — the PLAINTEXT size, so
+        # the AEAD tag, the envelope, base64 on the monolithic path and every
+        # transport byte are excluded; the harness cannot see real wire bytes.
+        payload_kbps = None if recv_t <= 0 else size * 8 / 1000.0 / recv_t
         rows.append((send, recv_t, render))
-        # All timings relative to t0, per the command's contract. kbps is
-        # computed over the receive time (bytes on the wire per second).
-        line = (f"rep {rep}: send={'n/a' if send is None else f'{send:.3f}s'} "
-                f"recv={recv_t:.3f}s render={'n/a' if render is None else f'{render:.3f}s'} "
-                f"bytes={size} chunks={chunks} path={kind}")
-        if ciphertext is not None:
-            line += f" cipher={ciphertext}"
-        if kbps is not None:
-            line += f" kbps={kbps:.0f}"
-        print(line)
+        print(format_file_rep(rep, send, recv_t, render, size, chunks, kind,
+                              ciphertext, payload_kbps))
     print_summary(rows, (("send", 0), ("recv", 1), ("render", 2)))
-    recvs = sorted(r[1] for r in rows if r[1] is not None and r[1] > 0)
-    if recvs:
-        kbps = sorted(size * 8 / 1000.0 / t for t in recvs)
-        print(f"summary kbps: median={statistics.median(kbps):.0f} "
-              f"min={kbps[0]:.0f} max={kbps[-1]:.0f} (n={len(kbps)})")
+    summarize_payload_kbps(rows, size)
     print(f"summary lost: {lost}/{args.reps}")
     return 1 if lost else 0
 

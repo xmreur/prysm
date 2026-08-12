@@ -58,6 +58,18 @@ Future<void> pumpInPrysmApp(
 EditableTextState editableState(WidgetTester tester) =>
     tester.state<EditableTextState>(find.byType(EditableText));
 
+/// The field's border, read from the [DecoratedBox] the decorate callback
+/// builds — the only one inside the field, as the chrome tests below rely on
+/// too. Reading the widget (not a painted pixel) keeps the assertion on the
+/// exact BoxDecoration the callback produced.
+Border fieldBorder(WidgetTester tester) {
+  final box = tester.widget<DecoratedBox>(find.descendant(
+    of: find.byType(PrysmTextField),
+    matching: find.byType(DecoratedBox),
+  ));
+  return (box.decoration as BoxDecoration).border! as Border;
+}
+
 ContextMenuButtonItem buttonItem(
   String label, {
   ContextMenuButtonType type = ContextMenuButtonType.custom,
@@ -302,6 +314,104 @@ void main() {
     expect(editableState(tester).widget.selectionControls, isNull);
     expect(find.byType(PrysmTextSelectionToolbar), findsNothing);
   }, variant: onAndroid);
+
+  // --- focus border repaints from the focus listener ----------------------
+
+  // The reported defect: the focused border is read inside the decorate
+  // callback, which PrysmEditableText invokes from its own state — a state
+  // that does not listen to the focus node, so focusing the field left the
+  // border unfocused until an unrelated rebuild (e.g. the first keystroke).
+  // A tap-driven test cannot see this: a tap makes _PrysmEditableTextState
+  // call setState for the selection handles, which re-invokes decorate and
+  // hides the defect. These tests drive focus programmatically instead —
+  // requestFocus()/unfocus() and nothing else.
+
+  testWidgets('programmatic focus repaints the border without any other '
+      'state change', (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    final focusNode = FocusNode();
+    addTearDown(focusNode.dispose);
+
+    await pumpInPrysmApp(
+      tester,
+      PrysmTextField(controller: controller, focusNode: focusNode),
+    );
+
+    // The same resolved style the widget reads (PrysmStyleScope.of), never a
+    // hard-coded colour literal.
+    final tokens = PrysmStyleScope.of(
+      tester.element(find.byType(PrysmTextField)),
+    ).tokens;
+
+    expect(fieldBorder(tester).top.color, tokens.outline);
+    expect(fieldBorder(tester).top.width, 1);
+
+    // The ONLY state change: programmatic focus. No tap, no typing. Two
+    // pumps: the first flushes the focus notification microtask and runs the
+    // listener's setState, the second builds the frame that re-invokes
+    // decorate (a single pump only builds if a frame happened to be pending
+    // at entry, which depends on what the previous pump left behind).
+    focusNode.requestFocus();
+    await tester.pump();
+    await tester.pump();
+
+    expect(fieldBorder(tester).top.color, tokens.accent);
+    expect(fieldBorder(tester).top.width, 1.5);
+
+    focusNode.unfocus();
+    await tester.pump();
+    await tester.pump();
+
+    expect(fieldBorder(tester).top.color, tokens.outline);
+    expect(fieldBorder(tester).top.width, 1);
+  });
+
+  testWidgets('swapping the focusNode moves the focus listener to the new '
+      'node', (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    final firstNode = FocusNode();
+    final secondNode = FocusNode();
+    addTearDown(firstNode.dispose);
+    addTearDown(secondNode.dispose);
+
+    await pumpInPrysmApp(
+      tester,
+      PrysmTextField(controller: controller, focusNode: firstNode),
+    );
+
+    // The same element is updated with a different focusNode: the state must
+    // move its listener off the old node (and, never having created it, leave
+    // firstNode alone).
+    await pumpInPrysmApp(
+      tester,
+      PrysmTextField(controller: controller, focusNode: secondNode),
+    );
+
+    final tokens = PrysmStyleScope.of(
+      tester.element(find.byType(PrysmTextField)),
+    ).tokens;
+
+    // The field now watches the NEW node, which is not focused.
+    expect(fieldBorder(tester).top.color, tokens.outline);
+    expect(fieldBorder(tester).top.width, 1);
+
+    // Focusing the new node must repaint the border (two pumps: notification
+    // microtask + build frame, as in the test above).
+    secondNode.requestFocus();
+    await tester.pump();
+    await tester.pump();
+
+    expect(fieldBorder(tester).top.color, tokens.accent);
+    expect(fieldBorder(tester).top.width, 1.5);
+
+    secondNode.unfocus();
+    await tester.pump();
+    await tester.pump();
+
+    expect(fieldBorder(tester).top.color, tokens.outline);
+  });
 
   testWidgets('the context menu labels every button type without Material '
       'localizations', (tester) async {

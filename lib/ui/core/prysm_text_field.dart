@@ -53,11 +53,36 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       _ownsFocus = true;
     }
     widget.controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(PrysmTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onTextChanged);
+      widget.controller.addListener(_onTextChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      _focusNode.removeListener(_onFocusChanged);
+      if (widget.focusNode != null) {
+        if (_ownsFocus) {
+          _focusNode.dispose();
+          _ownsFocus = false;
+        }
+        _focusNode = widget.focusNode!;
+      } else {
+        _focusNode = FocusNode();
+        _ownsFocus = true;
+      }
+      _focusNode.addListener(_onFocusChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
     if (_ownsFocus) _focusNode.dispose();
     super.dispose();
   }
@@ -65,6 +90,10 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
   void _onTextChanged() {
     if (mounted) setState(() {});
     widget.onChanged?.call(widget.controller.text);
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
   }
 
   @override

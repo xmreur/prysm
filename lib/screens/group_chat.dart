@@ -33,6 +33,7 @@ import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
+import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
@@ -477,10 +478,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void _showMessageMenu(Message message) {
     if (isMessageDeleted(message)) return;
     final isSentByMe = message.authorId == widget.userId;
+    final text = messageCopyText(message);
     showMessageActionsSheet(
       context: context,
       onReactionSelected: (emoji) => _controller.onReactionSelected(message, emoji),
       actionTiles: [
+        if (text.isNotEmpty) copyMessageTile(context: context, text: text),
         if (canEditMessage(message, widget.userId))
           PrysmListRow(
             leading: const Icon(PrysmIcons.editOutlined),

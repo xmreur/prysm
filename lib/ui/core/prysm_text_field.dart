@@ -90,6 +90,41 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
       obscureText: widget.obscureText,
       onSubmitted: widget.onSubmitted,
       onChanged: widget.onChanged,
+      // The chrome lives INSIDE the decorate callback so the selection
+      // gesture detector — and with it requestKeyboard() on tap — covers the
+      // padding and border, not just the text strip.
+      decorate: (context, editable) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: tokens.surfaceElevated,
+          borderRadius: style.composerRadius,
+          border: Border.all(
+            color: _focusNode.hasFocus ? tokens.accent : tokens.outline,
+            width: _focusNode.hasFocus ? 1.5 : 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              if (widget.prefixIcon != null) ...[
+                widget.prefixIcon!,
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    if (showHint)
+                      Text(widget.hintText!, style: style.captionStyle),
+                    editable,
+                  ],
+                ),
+              ),
+              if (widget.suffixIcon != null) widget.suffixIcon!,
+            ],
+          ),
+        ),
+      ),
     );
 
     return Column(
@@ -100,38 +135,7 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
           Text(widget.labelText!, style: style.captionStyle),
           const SizedBox(height: 6),
         ],
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: tokens.surfaceElevated,
-            borderRadius: style.composerRadius,
-            border: Border.all(
-              color: _focusNode.hasFocus ? tokens.accent : tokens.outline,
-              width: _focusNode.hasFocus ? 1.5 : 1,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              children: [
-                if (widget.prefixIcon != null) ...[
-                  widget.prefixIcon!,
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      if (showHint)
-                        Text(widget.hintText!, style: style.captionStyle),
-                      field,
-                    ],
-                  ),
-                ),
-                if (widget.suffixIcon != null) widget.suffixIcon!,
-              ],
-            ),
-          ),
-        ),
+        field,
       ],
     );
   }

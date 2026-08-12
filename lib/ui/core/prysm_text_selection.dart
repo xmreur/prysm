@@ -392,6 +392,7 @@ class PrysmEditableText extends StatefulWidget {
     this.obscureText = false,
     this.onChanged,
     this.onSubmitted,
+    this.decorate,
     super.key,
   });
 
@@ -408,6 +409,20 @@ class PrysmEditableText extends StatefulWidget {
   final bool obscureText;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+
+  /// Builds the field's visual chrome AROUND [editable], inside the selection
+  /// gesture detector.
+  ///
+  /// The detector — tap, long press, drag-select, and the `requestKeyboard()`
+  /// in [TextSelectionGestureDetectorBuilder.onSingleTapUp] — covers whatever
+  /// this returns. That is deliberate: Material's TextField wraps its
+  /// InputDecorator the same way, because a detector that stops at the bare
+  /// EditableText leaves the field's padding, border and horizontal chrome
+  /// dead — taps there neither focus the field nor reopen a dismissed
+  /// keyboard (measured: ~44% of the field's visible height was dead). Keep
+  /// the chrome here, inside the detector.
+  final Widget Function(BuildContext context, Widget editable)? decorate;
+
   @override
   State<PrysmEditableText> createState() => _PrysmEditableTextState();
 }
@@ -503,9 +518,10 @@ class _PrysmEditableTextState extends State<PrysmEditableText>
       onSubmitted: widget.onSubmitted,
     );
 
+    final child = widget.decorate?.call(context, editable) ?? editable;
     return _gestureBuilder.buildGestureDetector(
       behavior: HitTestBehavior.translucent,
-      child: editable,
+      child: child,
     );
   }
 }

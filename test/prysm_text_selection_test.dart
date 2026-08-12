@@ -535,4 +535,223 @@ void main() {
     );
   }, variant: onAndroid);
 
+  // --- keyboard reopens from the field chrome -----------------------------
+
+  // The reported defect: with the keyboard dismissed (BACK key) and the field
+  // still focused, tapping the input again did nothing until the user tapped
+  // something else first. Measured on the device, the selection gesture
+  // detector covered only the bare EditableText, so the field's padding,
+  // border and horizontal chrome (~44% of its visible height) were dead
+  // space. These tests tap that chrome and require the IME to come back.
+  group('tapping the field chrome reopens a dismissed keyboard', () {
+    /// Taps `inset` inside [box], asserting the point is outside [editable]
+    /// first — the tap must land on the field's chrome, not on the text
+    /// strip, or the test silently stops testing the fix.
+    Future<void> tapChrome(
+      WidgetTester tester, {
+      required Rect box,
+      required Rect editable,
+      required Offset inset,
+    }) async {
+      final point = box.topLeft + inset;
+      expect(box.contains(point), isTrue,
+          reason: 'the tap point must land on the field box');
+      expect(editable.contains(point), isFalse,
+          reason: 'the tap point must be outside the editable strip');
+      await tester.tapAt(point);
+      await tester.pump();
+    }
+
+    testWidgets('tapping the text strip focuses the field and opens the '
+        'keyboard', (tester) async {
+      final controller = TextEditingController(text: 'hello world');
+      addTearDown(controller.dispose);
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(controller: controller),
+      );
+
+      await tester.tap(find.byType(EditableText));
+      await tester.pump();
+
+      expect(editableState(tester).widget.focusNode.hasFocus, isTrue);
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'tapping the input must open the keyboard');
+    });
+
+    testWidgets('text field chrome reopens a dismissed keyboard without '
+        'losing focus', (tester) async {
+      final controller = TextEditingController(text: 'hello world');
+      addTearDown(controller.dispose);
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(controller: controller),
+      );
+
+      // Focus the field and open the keyboard the normal way.
+      await tester.tap(find.byType(EditableText));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      // The user dismisses the keyboard (BACK key); focus stays on the field.
+      // TestTextInput.hide() only flips a flag — it never closes the IME
+      // connection the way a real BACK press does — so the selection toolbar
+      // would stay open and cover the field's chrome. Dismiss it explicitly
+      // to reach the state the reported repro was in.
+      tester.testTextInput.hide();
+      editableState(tester).hideToolbar();
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(editableState(tester).widget.focusNode.hasFocus, isTrue,
+          reason: 'dismissing the keyboard must not move focus');
+
+      final box = tester.getRect(find.descendant(
+        of: find.byType(PrysmTextField),
+        matching: find.byType(DecoratedBox),
+      ));
+      final editable = tester.getRect(find.byType(EditableText));
+
+      // Top edge: 4 dp inside the box, above the editable strip.
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(box.width / 2, 4),
+      );
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'a tap on the top padding must reopen the keyboard');
+      tester.testTextInput.hide();
+      editableState(tester).hideToolbar();
+      await tester.pump();
+
+      // Bottom edge: 4 dp inside the box, below the editable strip.
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(box.width / 2, box.height - 4),
+      );
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'a tap on the bottom padding must reopen the keyboard');
+      tester.testTextInput.hide();
+      editableState(tester).hideToolbar();
+      await tester.pump();
+
+      // Horizontal padding: 4 dp inside the box's left edge.
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(4, box.height / 2),
+      );
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'a tap on the horizontal padding must reopen the keyboard');
+    });
+
+    testWidgets('search field chrome reopens a dismissed keyboard',
+        (tester) async {
+      final controller = TextEditingController(text: 'axolotl dossier');
+      addTearDown(controller.dispose);
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmSearchField(controller: controller),
+      );
+
+      await tester.tap(find.byType(EditableText));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      // Same as the text field: a real BACK press clears the selection
+      // toolbar along with the keyboard; the mock hide() alone would leave it
+      // covering the field's chrome.
+      tester.testTextInput.hide();
+      editableState(tester).hideToolbar();
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+
+      final box = tester.getRect(find.descendant(
+        of: find.byType(PrysmSearchField),
+        matching: find.byType(DecoratedBox),
+      ));
+      final editable = tester.getRect(find.byType(EditableText));
+
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(box.width / 2, 4),
+      );
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'a tap on the search field top padding must reopen the '
+              'keyboard');
+      tester.testTextInput.hide();
+      editableState(tester).hideToolbar();
+      await tester.pump();
+
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(box.width / 2, box.height - 4),
+      );
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'a tap on the search field bottom padding must reopen the '
+              'keyboard');
+    });
+
+    testWidgets('the clear button wins its own taps and leaves the caret '
+        'alone', (tester) async {
+      final controller = TextEditingController(text: 'hello world');
+      addTearDown(controller.dispose);
+      // A caret the clear button must not move.
+      controller.selection = const TextSelection.collapsed(offset: 0);
+
+      var cleared = false;
+      await pumpInPrysmApp(
+        tester,
+        PrysmSearchField(
+          controller: controller,
+          onClear: () => cleared = true,
+        ),
+      );
+
+      await tester.tap(find.byType(PrysmClearButton));
+      await tester.pump();
+
+      expect(cleared, isTrue,
+          reason: 'the clear button must win the tap against the selection '
+              'gesture detector');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0),
+          reason: 'the tap must not be stolen by the field caret placement');
+    });
+
+    testWidgets('a disabled field stays keyboard-free when its chrome is '
+        'tapped', (tester) async {
+      final controller = TextEditingController(text: 'read only');
+      addTearDown(controller.dispose);
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(controller: controller, enabled: false),
+      );
+
+      final box = tester.getRect(find.descendant(
+        of: find.byType(PrysmTextField),
+        matching: find.byType(DecoratedBox),
+      ));
+      final editable = tester.getRect(find.byType(EditableText));
+
+      await tapChrome(
+        tester,
+        box: box,
+        editable: editable,
+        inset: Offset(box.width / 2, 4),
+      );
+      expect(tester.testTextInput.isVisible, isFalse,
+          reason: 'a tap on a disabled field must not open the keyboard');
+    });
+  });
 }

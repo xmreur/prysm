@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:prysm/crypto/constants.dart';
 import 'package:prysm/crypto/envelope.dart';
 import 'package:prysm/server/inbound_limits.dart';
 import 'package:prysm/server/inbound_message_router.dart';
@@ -27,6 +28,7 @@ class _InboundTransfer {
     required this.ciphertextSize,
     required this.totalChunks,
     required this.chunkSize,
+    required this.scheme,
     this.replyTo,
     this.viewOnce = false,
   }) : buffer = Uint8List(ciphertextSize),
@@ -45,6 +47,7 @@ class _InboundTransfer {
   final int ciphertextSize;
   final int totalChunks;
   final int chunkSize;
+  final String scheme;
   final String? replyTo;
   final bool viewOnce;
 
@@ -215,6 +218,24 @@ class FileTransferHandler {
     final transferId = payload['transferId'] as String;
     final nonce = base64Decode(payload['nonce'] as String);
 
+    // Peers predating the scheme field send no scheme; anything that is not a
+    // clean `file-signed-1` is treated exactly like today's legacy
+    // `file-aead-1` transfer, and only the two known constants are ever
+    // stored or handed to the crypto layer.
+    final declaredScheme = payload['scheme'];
+    if (declaredScheme != null &&
+        declaredScheme != CryptoConstants.schemeFileSigned1 &&
+        declaredScheme != CryptoConstants.schemeFileAead1) {
+      Logging.debug(
+        'begin unknown scheme=$declaredScheme transfer=$transferId '
+        'message=${payload['messageId']} falling back to file-aead-1',
+        'FileTransferHandler',
+      );
+    }
+    final scheme = declaredScheme == CryptoConstants.schemeFileSigned1
+        ? CryptoConstants.schemeFileSigned1
+        : CryptoConstants.schemeFileAead1;
+
     _active[transferId] = _InboundTransfer(
       messageId: payload['messageId'] as String,
       senderId: payload['senderId'] as String,
@@ -230,6 +251,7 @@ class FileTransferHandler {
       ciphertextSize: payload['ciphertextSize'] as int,
       totalChunks: payload['totalChunks'] as int,
       chunkSize: payload['chunkSize'] as int,
+      scheme: scheme,
       replyTo: payload['replyTo'] as String?,
       viewOnce: payload['viewOnce'] == true,
     );
@@ -318,11 +340,17 @@ class FileTransferHandler {
       return {'error': 'Incomplete transfer'};
     }
 
-    final envelope = CryptoEnvelope.fileAead1(
-      wrappedKey: session.wrappedKey,
-      nonce: session.nonce,
-      ciphertext: session.buffer,
-    );
+    final envelope = session.scheme == CryptoConstants.schemeFileSigned1
+        ? CryptoEnvelope.fileSigned1(
+            wrappedKey: session.wrappedKey,
+            nonce: session.nonce,
+            ciphertext: session.buffer,
+          )
+        : CryptoEnvelope.fileAead1(
+            wrappedKey: session.wrappedKey,
+            nonce: session.nonce,
+            ciphertext: session.buffer,
+          );
     final wire = CryptoEnvelope.encode(envelope);
 
     final router = _router;

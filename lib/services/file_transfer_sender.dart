@@ -13,11 +13,13 @@ import 'package:uuid/uuid.dart';
 
 class FileTransferParts {
   const FileTransferParts({
+    required this.scheme,
     required this.wrappedKey,
     required this.nonce,
     required this.ciphertext,
   });
 
+  final String scheme;
   final Map<String, dynamic> wrappedKey;
   final Uint8List nonce;
   final Uint8List ciphertext;
@@ -25,8 +27,10 @@ class FileTransferParts {
 
 FileTransferParts parseFileTransferParts(String peerPayload) {
   final envelope = CryptoEnvelope.tryParse(peerPayload);
+  final scheme = envelope?['scheme'];
   if (envelope == null ||
-      envelope['scheme'] != CryptoConstants.schemeFileAead1) {
+      (scheme != CryptoConstants.schemeFileAead1 &&
+          scheme != CryptoConstants.schemeFileSigned1)) {
     throw const FormatException('Invalid file envelope');
   }
   final wrappedKey = envelope['wrappedKey'];
@@ -34,6 +38,7 @@ FileTransferParts parseFileTransferParts(String peerPayload) {
     throw const FormatException('Invalid wrappedKey');
   }
   return FileTransferParts(
+    scheme: scheme as String,
     wrappedKey: Map<String, dynamic>.from(wrappedKey),
     nonce: base64Decode(envelope['nonce'] as String),
     ciphertext: base64Decode(envelope['ciphertext'] as String),
@@ -143,6 +148,7 @@ class FileTransferSender {
           'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
           'wrappedKey': parts.wrappedKey,
           'nonce': base64Encode(parts.nonce),
+          'scheme': parts.scheme,
           'ciphertextSize': ciphertext.length,
           'totalChunks': totalChunks,
           'chunkSize': chunkSize,

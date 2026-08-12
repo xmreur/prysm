@@ -9,10 +9,18 @@ stale WS links, group lists that never refresh, WS links that never form.
 
     tool/live/txlab onion a            # onion + base58 contact id
     tool/live/txlab send a b --reps 10
+    tool/live/txlab send a b --text-file body.txt --reps 5
+    tool/live/txlab file a b --size 2MiB --reps 3
+    tool/live/txlab file a b --size 4MiB --type image --reps 3
     tool/live/txlab watch droid --secs 60
 
 `send` needs both apps up, the sender's composer empty, and BOTH peers on the
-chat screen. A second Linux peer — identity is per-container, image shared:
+chat screen. `file` needs the same minus the empty composer: attachment sends
+bypass the UI (`_handleSendImage`/`_handleSendFile` open native pickers, and
+the image flow blocks on a modal preview) and drive `ChatService.sendFileMessage`
+(lib/services/chat_service.dart:302) on the live ChatScreen state; `--type
+image` stages assets/logo.png padded to `--size` so the receiver can decode it.
+A second Linux peer — identity is per-container, image shared:
 
     PRYSMLAB_CONTAINER=prysm-lab-b PRYSMLAB_HOST_LAB=/tmp/prysm-lab-b \
       PRYSMLAB_VOLUME=prysm-lab-b-pub tool/live/prysmlab up
@@ -67,6 +75,32 @@ BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 # at column 0 and an `^` here makes every Android read come back empty.
 LOG_TS = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.(\d{3})\]")
 
+# ---- attachment payloads (cmd_file) ----------------------------------------
+# The UI path is unusable for measured sends: _handleSendImage/_handleSendFile
+# (lib/screens/chat.dart:1099,1119) open native pickers and the image flow
+# blocks on a modal preview screen. The deepest reachable entry that still
+# exercises encryption, chunking and transport is ChatService.sendFileMessage
+# (lib/services/chat_service.dart:302), reached from the live chat screen
+# state — which is why the staging and send evals below run with
+# --lib package:prysm/screens/chat.dart: _chatService is a PRIVATE field of
+# _ChatScreenState, and dart:io's File is in scope there. `eval --lib` is
+# STICKY, so every such eval is immediately followed by a reset eval back to
+# the widgets/binding.dart default (see cmd_file).
+CHAT_LIB = "package:prysm/screens/chat.dart"
+RESET_LIB = "package:flutter/src/widgets/binding.dart"
+LAB_DIR = "/home/ubuntu/lab"
+PAYLOAD_SEED = 0x9E3779B9  # fixed LCG seed: every run stages the same bytes
+PAYLOAD_BLOCK = 65536      # 64 KiB pseudo-random block, repeated to --size
+# FileTransferSender lines (lib/services/file_transfer_sender.dart). Chunked
+# transfer is used only when plaintext >= 1 MiB AND the WS link is up AND the
+# peer supports it (lib/util/file_transfer_policy.dart); below that the send
+# is ONE monolithic envelope and only `send ok` appears (TransportProvider).
+BEGIN_TRANSFER_RE = re.compile(
+    r"begin transfer=\S+ message=\S+ chunks=(\d+) ciphertext=(\d+) peer=\S+")
+CHUNK_RE = re.compile(r"chunk (\d+)/(\d+) sent bytes=(\d+) transfer=\S+")
+SIZE_RE = re.compile(r"^\s*(\d+)\s*(KiB|MiB|GiB|B)?\s*$", re.IGNORECASE)
+_SIZE_UNITS = {"b": 1, "kib": 1 << 10, "mib": 1 << 20, "gib": 1 << 30}
+
 def die(msg: str, code: int = 1):
     print(f"txlab: {msg}", file=sys.stderr)
     sys.exit(code)
@@ -105,6 +139,25 @@ def newest_match(peer: str, regex: str, after: float) -> tuple[float, str] | Non
         if ts is not None and ts > after and (best is None or ts > best[0]):
             best = (ts, line)
     return best
+
+def parse_size(text: str) -> int:
+    """Human size to bytes: '200KiB' -> 204800, '1MiB', '4MiB', bare bytes.
+
+    Raises ValueError on anything else, so the caller turns it into a die()
+    and the self-check can assert it.
+    """
+    m = SIZE_RE.match(text)
+    if not m:
+        raise ValueError(
+            f"bad --size {text!r} (use e.g. 200KiB, 1MiB, 4MiB or a bare byte count)")
+    return int(m.group(1)) * _SIZE_UNITS[(m.group(2) or "b").lower()]
+
+def parse_begin_transfer(line: str) -> tuple[int, int] | None:
+    """(chunks, ciphertext) from a FileTransferSender begin line, else None."""
+    m = BEGIN_TRANSFER_RE.search(line)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
 
 def cmd_onion(args) -> int:
     if PEERS[args.peer]["platform"] == "android":
@@ -159,9 +212,109 @@ def wait_for_render(peer: str, mark: str, timeout: float) -> float | None:
             return None
         time.sleep(0.4)
 
+def print_summary(rows: list, keys: list[tuple[str, int]]) -> None:
+    """One median/min/max line per (name, row-index) — shared by cmd_send and
+    cmd_file, so the summary format cannot drift between commands."""
+    for key, idx in keys:
+        vals = sorted(r[idx] for r in rows if r[idx] is not None)
+        if vals:
+            print(f"summary {key}: median={statistics.median(vals):.3f}s "
+                  f"min={vals[0]:.3f}s max={vals[-1]:.3f}s (n={len(vals)})")
+
+def _widget_type_expr(type_name: str) -> str:
+    # Count real widget ELEMENTS of a runtimeType, not occurrences in a dump:
+    # the raw tree names the type on every ancestor line too. Same walk + HITS
+    # protocol as wait_for_render, just a different predicate.
+    return ("(() { final b = WidgetsBinding.instance; int n = 0; "
+            "void walk(Element e) { final dynamic w = e.widget; "
+            f"if (w.runtimeType.toString() == {json.dumps(type_name)})" + " { n++; } "
+            "e.visitChildren(walk); } final r = b.rootElement; "
+            "if (r == null) return 'ERR no-root'; walk(r); "
+            "return 'HITS ' + n.toString(); })()")
+
+def count_widget_type(peer: str, type_name: str) -> int:
+    m = re.search(r"HITS (\d+)", plab(peer, ["eval", _widget_type_expr(type_name)]).strip())
+    return int(m.group(1)) if m else 0
+
+def wait_for_widget_type(peer: str, type_name: str, min_count: int,
+                         timeout: float) -> float | None:
+    # Image bubbles show no filename (only timeString), so the file-name
+    # render mark cannot work for them; gate on the widget type instead.
+    # min_count is the pre-send count + 1: earlier reps' bubbles stay in the
+    # chat history, so a bare count>=1 would "render" instantly on rep 2+.
+    expr = _widget_type_expr(type_name)
+    deadline = time.time() + timeout
+    while True:
+        m = re.search(r"HITS (\d+)", plab(peer, ["eval", expr]).strip())
+        if m and int(m.group(1)) >= min_count:
+            return time.time()
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.4)
+
+def wait_for_line(peer: str, regex: str, after: float, timeout: float) \
+        -> tuple[float, str] | None:
+    """Poll the log for a line newer than `after` matching `regex`."""
+    deadline = time.time() + timeout
+    while True:
+        hit = newest_match(peer, regex, after)
+        if hit is not None:
+            return hit
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.4)
+
+def compose_wire_body(body: str | None, mark: str) -> str:
+    """The text fed to the composer: the mark on its own FIRST line, body after.
+
+    prysmlab `type` echoes the composer value as `now=<value>` on ONE line, so
+    a multi-paragraph body is only visible up to its first newline; the mark
+    must be that first line — a single whitespace-free token — for the echo
+    to report it whole. A bare mark is the whole body when there is no text.
+    """
+    if body is None:
+        return mark
+    return f"{mark}\n{body.rstrip(chr(10))}"
+
+def composer_clean(typed: str, mark: str) -> tuple[bool, str | None]:
+    """Did the composer end up holding exactly the mark after `type`?
+
+    Returns (clean, echoed first line). `typed` is prysmlab's `type` output;
+    the echo line is `now=<value>`, truncated at the first newline, so the
+    comparison is against the mark line only — anything else (mangled text,
+    missing echo) is a mismatch the caller must SKIP.
+    """
+    m = re.search(r"now=(.*)", typed)
+    got = m.group(1) if m else None
+    return got == mark, got
+
+def format_send_rep(rep: int, send_t: float | None, recv_t: float,
+                    render_t: float | None, ack: float | None, path: str,
+                    chars: str = "") -> str:
+    """Per-rep send line; all times are seconds since the host t0 before the tap.
+
+    ack = sender completion − receiver arrival: positive when the transport
+    ack landed AFTER delivery (the ws-preferred case), negative when the
+    monolithic HTTP path finished first. An unknown send side prints as n/a.
+    Standalone so the self-check can feed it synthetic rows.
+    """
+    return (f"rep {rep}: {chars}send={'n/a' if send_t is None else f'{send_t:.3f}s'} "
+            f"recv={recv_t:.3f}s "
+            f"render={'n/a' if render_t is None else f'{render_t:.3f}s'} "
+            f"ack_after_recv={'n/a' if ack is None else f'{ack:.3f}s'} path={path}")
+
 def cmd_send(args) -> int:
     if args.frm == args.to:
         die("sender and receiver must be different peers")
+    body = None
+    if args.text is not None:
+        body = args.text
+    elif args.text_file is not None:
+        try:
+            with open(args.text_file, encoding="utf-8") as fh:
+                body = fh.read()
+        except OSError as exc:
+            die(f"cannot read --text-file {args.text_file!r}: {exc}")
     # Receiver arrival line per chat kind: 1:1 logs `Received text from`,
     # group logs `Received group_text from`; --group selects it.
     recv_re = r"Received group_text from" if args.group else r"Received text from"
@@ -169,6 +322,16 @@ def cmd_send(args) -> int:
     lost = skipped = 0
     for rep in range(1, args.reps + 1):
         mark = f"txlab{args.frm}{rep}-{time.time_ns()}"
+        # The mark rides on its own FIRST line, body after: prysmlab `type`
+        # echoes the composer value as `now=<value>` on ONE line, so with a
+        # multi-paragraph body only the first line is visible to the check.
+        # The mark is a single whitespace-free token that survives as that
+        # first line verbatim and stays the render-poll / log-correlation
+        # anchor. prysmlab `type` JSON-quotes the argument (dq -> json.dumps),
+        # so the body's newlines survive into the Dart string literal; a
+        # composer that mangled them surfaces here as a SKIPPED rep via
+        # composer_clean.
+        wire_body = compose_wire_body(body, mark)
         # Count real EditableText ELEMENTS, not occurrences of the string in the
         # dump: the raw tree names the type on every ancestor line too, which
         # over-counts wildly (27 vs the 2 widgets `type -n` actually indexes).
@@ -179,11 +342,12 @@ def cmd_send(args) -> int:
         n = int(m.group(1)) if m else 0
         if n == 0:
             die(f"{args.frm}: no EditableText in the tree — is the chat screen open?")
-        typed = plab(args.frm, ["type", mark, "-n", str(n - 1)])  # composer = LAST field
-        m = re.search(r"now=(.*)", typed)
-        if not m or m.group(1) != mark:
+        typed = plab(args.frm, ["type", wire_body, "-n", str(n - 1)])  # composer = LAST field
+        clean, got = composer_clean(typed, mark)
+        if not clean:
             skipped += 1
-            print(f"rep {rep}: SKIPPED — composer not clean (now={m.group(1) if m else '?'})")
+            print(f"rep {rep}: SKIPPED — composer not clean "
+                  f"(expected first line {mark!r}, got {got!r})")
             continue
         # Pre-send marks, newest matching line per side just before the tap,
         # so the post-send read takes "newest strictly newer than the mark".
@@ -202,7 +366,6 @@ def cmd_send(args) -> int:
         # host wall-clock times and UTC log timestamps are one clock; do not
         # "fix" the deltas with an NTP dance.
         t_render = wait_for_render(args.to, mark, args.timeout)
-        sent = newest_match(args.frm, r"send ok", before_s[0] if before_s else 0.0)
         recv = newest_match(args.to, recv_re, before_r[0] if before_r else 0.0)
         if recv is None:
             lost += 1
@@ -215,6 +378,14 @@ def cmd_send(args) -> int:
             print(f"rep {rep}: LOST — no receiver '{recv_re}' line after "
                   f"{waited:.1f}s ({why})")
             continue
+        # A ws-preferred send logs `send ok` only after the transport ack,
+        # which can land AFTER the receiver already rendered the bubble, so
+        # give the sender's completion the rest of the per-rep budget (capped
+        # at 15 s) before calling it missing — the same bounded grace poll
+        # cmd_file uses. A rep with no sender line stays a MEASURED rep with
+        # an unknown send side (path=? / n/a); it must not become LOST.
+        sent = wait_for_line(args.frm, r"send ok", before_s[0] if before_s else 0.0,
+                             min(15.0, max(0.0, (t0 + args.timeout) - time.time())))
         recv_ts, _ = recv
         if sent is None:
             path, ack = "?", None
@@ -225,16 +396,13 @@ def cmd_send(args) -> int:
             # inside the same call, so report it as unknown rather than "WS".
             path = "HTTP" if "HTTP send ok" in sent_line else "ws-pref?"
             ack = sent_ts - recv_ts
-        render = None if t_render is None else t_render - recv_ts
-        rows.append((recv_ts - t0, ack, render, path))
-        print(f"rep {rep}: wire={rows[-1][0]:.3f}s "
-              f"ack={'n/a' if ack is None else f'{ack:.3f}s'} "
-              f"render={'n/a' if render is None else f'{render:.3f}s'} path={path}")
-    for key, idx in (("wire", 0), ("ack", 1), ("render", 2)):
-        vals = sorted(r[idx] for r in rows if r[idx] is not None)
-        if vals:
-            print(f"summary {key}: median={statistics.median(vals):.3f}s "
-                  f"min={vals[0]:.3f}s max={vals[-1]:.3f}s (n={len(vals)})")
+        send_t = None if sent is None else sent_ts - t0
+        recv_t = recv_ts - t0
+        render_t = None if t_render is None else t_render - t0
+        rows.append((send_t, recv_t, render_t, path))
+        chars = f"chars={len(body)} " if body is not None else ""
+        print(format_send_rep(rep, send_t, recv_t, render_t, ack, path, chars))
+    print_summary(rows, (("send", 0), ("recv", 1), ("render", 2)))
     paths = {}
     for _, _, _, path in rows:
         if path != "?":
@@ -242,6 +410,193 @@ def cmd_send(args) -> int:
     if paths:
         print("summary path: " + " ".join(f"{k}={v}" for k, v in paths.items()))
     print(f"summary lost: {lost}/{args.reps}" + (f"  skipped: {skipped}" if skipped else ""))
+    return 1 if lost else 0
+
+def stage_expr(path: str, size: int, image: bool) -> str:
+    """Write an exactly-`size`-byte payload under the sender's lab dir.
+
+    Generates ONE 64 KiB pseudo-random block (fixed-seed LCG — dart:math is
+    not imported by chat.dart, so Random is out of scope there) and repeats
+    it with native copies: ~32 writeFromSync calls for 2 MiB, not N closure
+    calls that would stall the app isolate. `--type image` prefixes
+    assets/logo.png — a real, decodable image (the engine codec ignores
+    trailing bytes), which the receiver's ImageMessageBubble needs.
+    """
+    blk = str(PAYLOAD_BLOCK)
+    head = ""
+    if image:
+        head = ("final head = File('/work/assets/logo.png').readAsBytesSync(); "
+                "if (head.length >= n) return 'ERR image-too-small ' + head.length.toString(); "
+                "f.writeFromSync(head); off = head.length; ")
+    return (
+        "(() { final n = " + str(size) + "; "
+        "final block = Uint8List(" + blk + "); var s = " + str(PAYLOAD_SEED) + "; "
+        "for (var i = 0; i < " + blk + "; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; "
+        "block[i] = (s >> 16) & 0xff; } "
+        f"final f = File({json.dumps(path)}).openSync(mode: FileMode.write); "
+        "var off = 0; try { " + head +
+        "for (; off < n; off += " + blk + ") { "
+        "final len = (n - off) < " + blk + " ? (n - off) : " + blk + "; "
+        "f.writeFromSync(block, 0, len); } } finally { f.closeSync(); } "
+        "return 'WROTE ' + File(" + json.dumps(path) + ").lengthSync().toString(); })()"
+    )
+
+def send_file_expr(path: str, fname: str, typ: str) -> str:
+    """Fire ChatService.sendFileMessage on the live ChatScreen state.
+
+    Must run with --lib package:prysm/screens/chat.dart: _chatService is a
+    private field of _ChatScreenState and File needs chat.dart's dart:io
+    import. sendFileMessage returns the message id even when delivery FAILED
+    (it re-queues), and null only when blocked / no peer identity / over
+    50 MiB — so delivery evidence comes from log lines, never from this
+    return value.
+    """
+    return (
+        "(() { final b = WidgetsBinding.instance; final hits = <StatefulElement>[]; "
+        "void walk(Element e) { if (e is StatefulElement && "
+        "e.widget.runtimeType.toString() == 'ChatScreen') { hits.add(e); } "
+        "e.visitChildren(walk); } final r = b.rootElement; if (r == null) return 'ERR no-root'; "
+        "walk(r); if (hits.isEmpty) return 'NOTFOUND ChatScreen'; "
+        "final dynamic st = hits.first.state; "
+        f"final bytes = File({json.dumps(path)}).readAsBytesSync(); "
+        f"final dynamic id = st._chatService.sendFileMessage(bytes, {json.dumps(fname)}, "
+        f"{json.dumps(typ)}); "
+        "return 'SENT ' + id.toString(); })()"
+    )
+
+def cmd_file(args) -> int:
+    if args.frm == args.to:
+        die("sender and receiver must be different peers")
+    try:
+        size = parse_size(args.size)
+    except ValueError as exc:
+        die(str(exc))
+    # 1:1 arrival lines are type-specific; a file/image arrival never logs
+    # 'Received text from', so the text regex cannot double-count these reps.
+    recv_re = r"Received image from" if args.type == "image" else r"Received file from"
+    ext = "jpg" if args.type == "image" else "bin"
+    rows = []
+    lost = 0
+    for rep in range(1, args.reps + 1):
+        mark = f"txlabf{args.frm}{rep}-{time.time_ns()}"
+        fname = f"txlab-{mark}.{ext}"
+        path = f"{LAB_DIR}/{fname}"
+        # (a) stage the payload INSIDE the sender container through the eval
+        # channel (no new docker plumbing), then reset the sticky lib even if
+        # the eval itself failed — a leftover --lib breaks every later
+        # tap/type/where in that container.
+        try:
+            staged = plab(args.frm, ["eval", "--lib", CHAT_LIB,
+                                     stage_expr(path, size, args.type == "image")],
+                          check=False)
+        finally:
+            plab(args.frm, ["eval", "--lib", RESET_LIB, "1"])
+        if staged.strip().startswith("ERR"):
+            die(f"{args.frm}: staging failed: {staged.strip()}")
+        m = re.search(r"WROTE (\d+)", staged)
+        if not m or int(m.group(1)) != size:
+            die(f"{args.frm}: staging wrote {m.group(1) if m else '?'} bytes, "
+                f"wanted {size} ({staged.strip() or 'eval failed'})")
+        # (b) mark the log positions on both sides before the send, exactly as
+        # cmd_send does — correlation is by ordering, ONE message in flight.
+        before_begin = newest_match(args.frm, r"begin transfer=", 0.0)
+        before_done = newest_match(args.frm, r"transfer complete|send ok", 0.0)
+        before_recv = newest_match(args.to, recv_re, 0.0)
+        # (c) t0 on the host clock (host wall clock and app UTC log stamps are
+        # one clock; parse_log_ts uses calendar.timegm, never time.mktime),
+        # fire the send with --lib chat.dart, then reset the sticky lib.
+        t0 = time.time()
+        try:
+            sent = plab(args.frm, ["eval", "--lib", CHAT_LIB,
+                                   send_file_expr(path, fname, args.type)], check=False)
+        finally:
+            plab(args.frm, ["eval", "--lib", RESET_LIB, "1"])
+        if not sent.strip():
+            lost += 1
+            print(f"rep {rep}: LOST — send eval failed ({sent.strip() or 'eval failed'})")
+            continue
+        if sent.strip().startswith(("ERR", "NOTFOUND")):
+            die(f"{args.frm}: send eval failed: {sent.strip()} "
+                "(is the chat screen open on the sender?)")
+        if "SENT null" in sent:
+            lost += 1
+            print(f"rep {rep}: LOST — sendFileMessage returned null "
+                  "(blocked / no peer identity / over 50 MiB)")
+            continue
+        # (d) render time. A FileAttachmentBubble renders Text(widget.fileName),
+        # so the existing wait_for_render predicate works verbatim with the
+        # unique FILE NAME as the mark; an ImageMessageBubble shows no
+        # filename, so gate on the widget type, anchored on a pre-send count
+        # (earlier reps' bubbles stay in the chat history).
+        if args.type == "image":
+            pre = count_widget_type(args.to, "ImageMessageBubble")
+            t_render = wait_for_widget_type(args.to, "ImageMessageBubble",
+                                            pre + 1, args.timeout)
+        else:
+            t_render = wait_for_render(args.to, fname, args.timeout)
+        begin = newest_match(args.frm, r"begin transfer=",
+                             before_begin[0] if before_begin else 0.0)
+        done_c = newest_match(args.frm, r"transfer complete",
+                              before_done[0] if before_done else 0.0)
+        done_m = newest_match(args.frm, r"send ok",
+                              before_done[0] if before_done else 0.0)
+        recv = newest_match(args.to, recv_re, before_recv[0] if before_recv else 0.0)
+        # For a chunked transfer the sender's completion is ack-based and can
+        # land a beat AFTER the receiver's bubble (handleEnd awaits
+        # processMessage before the end_ack), so give the done line the rest
+        # of the per-rep budget before calling it missing. The monolithic path
+        # needs no grace: `send ok` precedes the receiver's arrival.
+        if begin is not None and done_c is None and done_m is None:
+            done_hit = wait_for_line(args.frm, r"transfer complete|send ok",
+                                     before_done[0] if before_done else 0.0,
+                                     max(0.0, (t0 + args.timeout) - time.time()))
+            if done_hit is not None:
+                if re.search(r"transfer complete", done_hit[1]):
+                    done_c = done_hit
+                else:
+                    done_m = done_hit
+        if recv is None:
+            lost += 1
+            waited = time.time() - t0
+            why = ("bubble rendered but no log line — wrong chat kind? "
+                   "1:1 logs 'Received file/image from'" if t_render
+                   else "nothing rendered either")
+            print(f"rep {rep}: LOST — no receiver '{recv_re}' line after "
+                  f"{waited:.1f}s ({why})")
+            continue
+        recv_ts, _ = recv
+        chunks, ciphertext, kind, send_ts = 1, None, "mono", None
+        if begin is not None:
+            kind = "chunked"
+            parsed = parse_begin_transfer(begin[1])
+            if parsed:
+                chunks, ciphertext = parsed
+            if done_c is not None:
+                send_ts = done_c[0]
+        elif done_m is not None:
+            send_ts = done_m[0]
+        send = None if send_ts is None else send_ts - t0
+        render = None if t_render is None else t_render - t0
+        recv_t = recv_ts - t0
+        kbps = None if recv_t <= 0 else size * 8 / 1000.0 / recv_t
+        rows.append((send, recv_t, render))
+        # All timings relative to t0, per the command's contract. kbps is
+        # computed over the receive time (bytes on the wire per second).
+        line = (f"rep {rep}: send={'n/a' if send is None else f'{send:.3f}s'} "
+                f"recv={recv_t:.3f}s render={'n/a' if render is None else f'{render:.3f}s'} "
+                f"bytes={size} chunks={chunks} path={kind}")
+        if ciphertext is not None:
+            line += f" cipher={ciphertext}"
+        if kbps is not None:
+            line += f" kbps={kbps:.0f}"
+        print(line)
+    print_summary(rows, (("send", 0), ("recv", 1), ("render", 2)))
+    recvs = sorted(r[1] for r in rows if r[1] is not None and r[1] > 0)
+    if recvs:
+        kbps = sorted(size * 8 / 1000.0 / t for t in recvs)
+        print(f"summary kbps: median={statistics.median(kbps):.0f} "
+              f"min={kbps[0]:.0f} max={kbps[-1]:.0f} (n={len(kbps)})")
+    print(f"summary lost: {lost}/{args.reps}")
     return 1 if lost else 0
 
 def cmd_watch(args) -> int:
@@ -278,12 +633,29 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("send", help="measure sends between two peers, rep by rep")
     s.add_argument("frm", metavar="FROM", choices=sorted(PEERS))
     s.add_argument("to", metavar="TO", choices=sorted(PEERS))
+    body = s.add_mutually_exclusive_group()
+    body.add_argument("--text", metavar="TEXT",
+                      help="message body; multi-paragraph ok, the unique mark "
+                           "is prepended on its own line")
+    body.add_argument("--text-file", metavar="PATH",
+                      help="read the message body from a UTF-8 file")
     s.add_argument("--reps", type=int, default=5)
     s.add_argument("--group", action="store_true",
                    help="group chat: receiver logs 'Received group_text from'")
     s.add_argument("--timeout", type=float, default=120.0,
                    help="per-rep wait for the bubble to render, seconds")
     s.set_defaults(func=cmd_send)
+    s = sub.add_parser("file", help="measure file/image attachment sends, rep by rep")
+    s.add_argument("frm", metavar="FROM", choices=sorted(PEERS))
+    s.add_argument("to", metavar="TO", choices=sorted(PEERS))
+    s.add_argument("--size", default="2MiB",
+                   help="payload size, e.g. 200KiB, 1MiB, 4MiB (default 2MiB)")
+    s.add_argument("--type", default="file", choices=["file", "image"],
+                   help="'image' stages assets/logo.png padded to --size")
+    s.add_argument("--reps", type=int, default=3)
+    s.add_argument("--timeout", type=float, default=300.0,
+                   help="per-rep wait for the bubble to render, seconds")
+    s.set_defaults(func=cmd_file)
     s = sub.add_parser("watch", help="count failure signatures in a peer's log")
     s.add_argument("peer", choices=sorted(PEERS))
     s.add_argument("--secs", type=float, default=30.0,

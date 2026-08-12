@@ -96,10 +96,14 @@ class _ChunkAckLink implements WsPeerLink {
 /// releases the ack, so a windowed sender can be observed mid-flight (unlike
 /// [_ChunkAckLink], whose synchronous acks hide any pipelining).
 class _GatedAckLink implements WsPeerLink {
-  _GatedAckLink(this.peerOnion);
+  _GatedAckLink(this.peerOnion, {this.throwOnSendIndex});
 
   @override
   final String peerOnion;
+
+  /// When set, [sendBytes] throws for the matching chunk index instead of
+  /// delivering the frame, simulating a failed write mid-transfer.
+  final int? throwOnSendIndex;
 
   final pushController = StreamController<Map<String, dynamic>>.broadcast();
   final sentBinary = <List<int>>[];
@@ -152,8 +156,11 @@ class _GatedAckLink implements WsPeerLink {
 
   @override
   Future<void> sendBytes(List<int> bytes) async {
-    sentBinary.add(bytes);
     final frame = FileTransferChunkFrame.decode(bytes);
+    if (frame.chunkIndex == throwOnSendIndex) {
+      throw StateError('simulated send failure for chunk ${frame.chunkIndex}');
+    }
+    sentBinary.add(bytes);
     pendingAcks.add({
       'transferId': frame.transferId,
       'chunkIndex': frame.chunkIndex,
@@ -270,6 +277,7 @@ String _envelopePayload(Uint8List ciphertext) {
   Uint8List ciphertext, {
   required String messageId,
   Duration ackTimeout = const Duration(seconds: 60),
+  int? throwOnSendIndex,
 }) {
   final manager = WsConnectionManager(
     TorManager(
@@ -278,7 +286,7 @@ String _envelopePayload(Uint8List ciphertext) {
       controlPassword: 'test-password',
     ),
   );
-  final link = _GatedAckLink('peer.onion');
+  final link = _GatedAckLink('peer.onion', throwOnSendIndex: throwOnSendIndex);
   manager.registerLinkForTest('peer.onion', link);
   final sender = FileTransferSender(manager, ackTimeout: ackTimeout);
   final send = sender.send(
@@ -751,7 +759,14 @@ void main() {
       [3],
     );
 
-    // Releasing the withheld ack completes the transfer.
+    // Releasing the withheld ack completes the transfer. The sender drops
+    // the ack key on every timeout and re-registers it on the next attempt,
+    // and releaseAckFor silently no-ops when nothing is queued, so wait for
+    // a queued ack first instead of racing the retry (a release landing in
+    // the gap would be dropped and index 3 would exhaust maxChunkRetries).
+    await _waitFor(
+      () => started.link.pendingAcks.any((a) => a['chunkIndex'] == 3),
+    );
     started.link.releaseAckFor(3);
     await _waitFor(() => ok);
     expect(started.link.sentOps, contains('file_transfer_end'));
@@ -818,14 +833,58 @@ void main() {
           FileTransferPolicy.chunkWindowSize,
     );
 
-    // Never ack anything: each index is sent maxChunkRetries times, then the
-    // whole transfer fails and the send returns false.
+    // Never ack anything: each index is retried until it exhausts
+    // maxChunkRetries, then the whole transfer fails and send returns false.
     await _waitFor(() => ok == false, timeout: const Duration(seconds: 10));
+    // A bound, not an exact count: the first index to exhaust its retries
+    // completes transferFailed and send returns, so a slower chunk may never
+    // send its third attempt, and a chunk sitting between attempts at that
+    // moment can send one extra; with a 30 ms ackTimeout both are likely
+    // under load. The upper bound (each index is sent at most
+    // maxChunkRetries times) rules out retrying past the policy cap; the
+    // lower bound (every index's first frame plus the exhausting index's
+    // remaining attempts) rules out failing before one index has run
+    // through all of its retries.
     expect(
       started.link.sentBinary.length,
-      FileTransferPolicy.chunkWindowSize * FileTransferPolicy.maxChunkRetries,
+      inInclusiveRange(
+        FileTransferPolicy.chunkWindowSize +
+            FileTransferPolicy.maxChunkRetries -
+            1,
+        FileTransferPolicy.chunkWindowSize * FileTransferPolicy.maxChunkRetries,
+      ),
     );
     expect(started.link.sentOps, isNot(contains('file_transfer_end')));
+
+    started.manager.dispose();
+  });
+
+  test('a sendBytes failure fails the transfer with no unhandled async error',
+      () async {
+    FileTransferProgress.resetForTest();
+    final ciphertext = Uint8List.fromList(List<int>.generate(
+      FileTransferPolicy.chunkWindowSize * FileTransferPolicy.chunkSizeBytes,
+      (i) => i % 251,
+    ));
+
+    // Chunk 3's write fails on the wire. The ack completer for a chunk is
+    // registered before sendBytes so an ack racing ahead of the send future
+    // can still complete it; a throw used to leave that entry in the map for
+    // send()'s finally to completeError on a future nobody listens to, which
+    // the test zone reports as an uncaught async error. The transfer must
+    // still fail (send returns false) without that leak.
+    final started = _startGatedSend(
+      ciphertext,
+      messageId: 'msg-send-fails',
+      throwOnSendIndex: 3,
+    );
+
+    expect(await started.send, isFalse);
+    expect(started.link.sentOps, isNot(contains('file_transfer_end')));
+
+    // Let any late uncaught-async-error report land inside this test's zone
+    // so the leak fails the test instead of leaking past it.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
 
     started.manager.dispose();
   });

@@ -214,7 +214,17 @@ class FileTransferSender {
               payload: chunkBytes,
             );
 
-            await _manager.sendBytes(peerOnion, frame.encode());
+            // The completer must be registered before sendBytes so an ack
+            // racing ahead of the send future can still complete it; if the
+            // send itself fails no ack will ever arrive, so drop the entry
+            // here rather than leave it for send()'s finally to completeError
+            // on a future nobody listens to (an uncaught async error).
+            try {
+              await _manager.sendBytes(peerOnion, frame.encode());
+            } catch (_) {
+              pendingChunkAcks.remove(ackKey);
+              rethrow;
+            }
             Logging.debug(
               'chunk ${index + 1}/$totalChunks sent bytes=${chunkBytes.length} '
               'transfer=$transferId',

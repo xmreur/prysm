@@ -21,8 +21,10 @@ import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/util/tor_service.dart';
 
-class _ChunkAckLink implements WsPeerLink {
-  _ChunkAckLink(this.peerOnion);
+/// Records every frame the sender pushes; only the chunk-ack policy differs
+/// between [_ChunkAckLink] (immediate) and [_GatedAckLink] (queued).
+abstract class _AckLinkBase implements WsPeerLink {
+  _AckLinkBase(this.peerOnion);
 
   @override
   final String peerOnion;
@@ -74,6 +76,16 @@ class _ChunkAckLink implements WsPeerLink {
     sentOps.add(op);
     sentPayloads.add(payload);
   }
+
+  @override
+  Future<void> sendBytes(List<int> bytes);
+
+  @override
+  Future<void> sendPing() async {}
+}
+
+class _ChunkAckLink extends _AckLinkBase {
+  _ChunkAckLink(super.peerOnion);
 
   @override
   Future<void> sendBytes(List<int> bytes) async {
@@ -87,72 +99,19 @@ class _ChunkAckLink implements WsPeerLink {
       },
     });
   }
-
-  @override
-  Future<void> sendPing() async {}
 }
 
 /// A link that records every chunk frame but does NOT ack it until the test
 /// releases the ack, so a windowed sender can be observed mid-flight (unlike
 /// [_ChunkAckLink], whose synchronous acks hide any pipelining).
-class _GatedAckLink implements WsPeerLink {
-  _GatedAckLink(this.peerOnion, {this.throwOnSendIndex});
-
-  @override
-  final String peerOnion;
+class _GatedAckLink extends _AckLinkBase {
+  _GatedAckLink(super.peerOnion, {this.throwOnSendIndex});
 
   /// When set, [sendBytes] throws for the matching chunk index instead of
   /// delivering the frame, simulating a failed write mid-transfer.
   final int? throwOnSendIndex;
 
-  final pushController = StreamController<Map<String, dynamic>>.broadcast();
-  final sentBinary = <List<int>>[];
-  final sentOps = <String>[];
-  final sentPayloads = <Map<String, dynamic>?>[];
   final pendingAcks = <Map<String, dynamic>>[];
-
-  @override
-  bool isConnected = true;
-
-  @override
-  Stream<List<int>> get onBinaryFrames => const Stream.empty();
-
-  @override
-  Stream<Map<String, dynamic>> get onPushFrames => pushController.stream;
-
-  @override
-  Future<void> close() async {
-    isConnected = false;
-  }
-
-  @override
-  Future<Map<String, dynamic>> request(
-    String op, {
-    Map<String, dynamic>? payload,
-    Duration timeout = const Duration(seconds: 30),
-  }) async {
-    sentOps.add(op);
-    sentPayloads.add(payload);
-    if (op == 'file_transfer_begin' && payload != null) {
-      return {
-        'ok': true,
-        'transferId': payload['transferId'],
-      };
-    }
-    if (op == 'file_transfer_end' && payload != null) {
-      return {
-        'ok': true,
-        'transferId': payload['transferId'],
-      };
-    }
-    return {'ok': true};
-  }
-
-  @override
-  Future<void> send(String op, {Map<String, dynamic>? payload}) async {
-    sentOps.add(op);
-    sentPayloads.add(payload);
-  }
 
   @override
   Future<void> sendBytes(List<int> bytes) async {
@@ -197,9 +156,6 @@ class _GatedAckLink implements WsPeerLink {
       }
     }
   }
-
-  @override
-  Future<void> sendPing() async {}
 }
 
 Future<IdentityPublicKeys> _publicKeys(IdentityKeyPair id) async {

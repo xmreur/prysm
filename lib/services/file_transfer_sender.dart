@@ -83,6 +83,12 @@ class FileTransferSender {
     StreamSubscription<Map<String, dynamic>>? controlSub;
     final pendingChunkAcks = <String, Completer<void>>{};
 
+    // Set once send() unwinds: a retry loop that was between attempts (its
+    // ack key already dropped) must not re-register a completer and resend
+    // frames after controlSub is cancelled. Local to send(), never a field:
+    // a field would leak one send's abandonment into a concurrent one.
+    var abandoned = false;
+
     void completeChunkAck(String key) {
       pendingChunkAcks.remove(key)?.complete();
     }
@@ -199,6 +205,11 @@ class FileTransferSender {
           for (var attempt = 0;
               attempt < FileTransferPolicy.maxChunkRetries;
               attempt++) {
+            // send() may have finished while this chunk sat between
+            // attempts: its old ack key is already gone, so continuing
+            // would strand a fresh completer and send frames on a
+            // subscription that will never ack them.
+            if (abandoned || transferFailed.isCompleted) return;
             final ackKey = '$transferId:$index';
             final ackCompleter = Completer<void>();
             pendingChunkAcks[ackKey] = ackCompleter;
@@ -316,6 +327,9 @@ class FileTransferSender {
       Logging.error('file transfer failed: $e\n$stack', 'FileTransferSender');
       return false;
     } finally {
+      // Stop any chunk still looping through retries from sending more
+      // frames once the ack subscription is gone.
+      abandoned = true;
       await controlSub.cancel();
       for (final completer in pendingChunkAcks.values) {
         if (!completer.isCompleted) {

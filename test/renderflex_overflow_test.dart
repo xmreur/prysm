@@ -32,7 +32,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/reply_preview_data.dart';
+import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/screens/pin_entry.dart';
+import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
@@ -215,6 +217,114 @@ void main() {
 
       expect(tester.takeException(), isNull,
           reason: 'PIN screen column must fit on a small phone screen');
+    },
+  );
+
+  testWidgets(
+    'onboarding unlock setup step (2/7) fits 1080x2340: the 0 key is fully '
+    'visible at scroll offset 0',
+    (tester) async {
+      // 1080x2340 @3x — the device the step cut the bottom row on. The step's
+      // SingleChildScrollView swallows any overflow, so the assertion is
+      // geometry, not an exception.
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: wrapWithStyle(
+            OnboardingScreen(
+              onionAddress: 'abc',
+              torReady: true,
+              onComplete: () {},
+              isInitialSetup: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      final scrollView = find.ancestor(
+        of: find.text('0'),
+        matching: find.byType(SingleChildScrollView),
+      );
+      expect(scrollView, findsOneWidget);
+      expect(
+        tester.getRect(find.text('0')).bottom,
+        lessThanOrEqualTo(tester.getRect(scrollView).bottom),
+        reason: 'the 0 key must sit above the fold at scroll offset 0',
+      );
+      // The digit font scales down with the key so a shrunken key is not
+      // mostly padding.
+      expect(tester.widget<Text>(find.text('1')).style?.fontSize,
+          lessThan(32));
+    },
+  );
+
+  testWidgets(
+    'PinPadScreen does not overflow its non-scrollable column on a short '
+    'phone (1080x1800 @3x)',
+    (tester) async {
+      // The 1080x2340 surface never overflowed even before the fix, so it
+      // cannot catch a regression; 1080x1800 @3x is the shortest real phone
+      // class where the fixed 400dp keypad overflowed the centered column.
+      tester.view.physicalSize = const Size(1080, 1800);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: wrapWithStyle(
+            PinPadScreen(
+              title: 'Current PIN',
+              subtitle: 'Enter your current unlock PIN.',
+              validatePin: (_) async => null,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull,
+          reason: 'PIN pad column must fit on a short phone screen');
+    },
+  );
+
+  testWidgets(
+    'PinKeypad keeps the exact 80px keys / 10px gaps on a tall surface '
+    '(no-op where it already fit)',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 3600);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: wrapWithStyle(
+            Center(
+              child: PinKeypad(onKeyPress: (_) {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final key1 = find
+          .ancestor(of: find.text('1'), matching: find.byType(SizedBox))
+          .first;
+      final key4 = find
+          .ancestor(of: find.text('4'), matching: find.byType(SizedBox))
+          .first;
+      expect(tester.getSize(key1), const Size(80, 80));
+      expect(tester.getSize(key4), const Size(80, 80));
+      // Each row carries 10 of vertical padding above and below.
+      expect(tester.getRect(key4).top - tester.getRect(key1).bottom, 20);
+      expect(tester.getSize(find.byType(PinKeypad)), const Size(360, 400));
+      // 80dp key keeps the original 32dp digit.
+      expect(tester.widget<Text>(find.text('1')).style?.fontSize, 32);
     },
   );
 }

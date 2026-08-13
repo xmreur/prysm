@@ -633,7 +633,6 @@ class ChatService {
         fileSize: fileSize,
         replyToId: replyToId,
         viewOnce: viewOnce,
-        timeout: timeout,
         expiresAt: expiresAt,
         timestamp: wireTimestamp,
       );
@@ -685,7 +684,6 @@ class ChatService {
     required int fileSize,
     String? replyToId,
     bool viewOnce = false,
-    required Duration timeout,
     int? expiresAt,
     int? timestamp,
   }) async {
@@ -716,7 +714,6 @@ class ChatService {
         peerPayload: encrypted,
         replyToId: replyToId,
         viewOnce: viewOnce,
-        timeout: timeout,
         expiresAt: expiresAt,
         timestamp: timestamp,
       );

@@ -11,6 +11,14 @@ analyzer:
   errors:
     avoid_print: true
     file_names: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

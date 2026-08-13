@@ -677,15 +677,22 @@ def seed_native_assets(repo: str) -> None:
     call. Missing on the host is fine: the container just downloads it.
 
     `--exclude .dart_tool` also stops rsync's `--delete` from reaping these,
-    so one seed survives every later `restart --sync`.
+    so one seed survives every later `restart --sync` — which is also why the
+    copy has to be atomic. A half-written `.so` left by an interrupted run
+    would satisfy a bare existence check forever and hand the container a
+    truncated library: the exact failure this function exists to prevent,
+    made permanent. Copy aside, then `os.replace` it into place.
     """
     pattern = ".dart_tool/hooks_runner/shared/*/build/download-*/*.so"
     for src in glob.glob(os.path.join(repo, pattern)):
+        size = os.path.getsize(src)
         dst = os.path.join(WORK, os.path.relpath(src, repo))
-        if os.path.exists(dst) or os.path.getsize(src) == 0:
+        if size == 0 or (os.path.exists(dst) and os.path.getsize(dst) == size):
             continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
+        part = dst + ".part"
+        shutil.copy2(src, part)
+        os.replace(part, dst)
 
 
 def cmd_build_image(args) -> int:

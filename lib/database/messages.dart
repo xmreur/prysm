@@ -319,11 +319,13 @@ class MessagesDb {
     List<String>? types,
     int limit = 50,
     int? beforeTimestamp,
+    String? beforeId,
   }) =>
       _mediaDao.getAllMediaMessages(
         types: types,
         limit: limit,
         beforeTimestamp: beforeTimestamp,
+        beforeId: beforeId,
       );
 
   /// Count of all media messages with stored content.

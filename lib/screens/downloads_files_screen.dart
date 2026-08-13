@@ -36,12 +36,18 @@ class _DownloadsFilesScreenState extends State<DownloadsFilesScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final files = await StorageUsageService.listDownloadedFiles();
-    if (!mounted) return;
-    setState(() {
-      _files = files;
-      _loading = false;
-    });
+    try {
+      final files = await StorageUsageService.listDownloadedFiles();
+      if (!mounted) return;
+      setState(() {
+        _files = files;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      showPrysmToast(context, 'Could not load downloads: $e');
+    }
   }
 
   IconData _iconFor(String name) {

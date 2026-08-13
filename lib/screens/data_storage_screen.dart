@@ -46,14 +46,20 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
 
   Future<void> _refresh() async {
     setState(() => _loading = true);
-    final breakdown = await StorageUsageService.compute();
-    final mediaCount = await MessagesDb.countAllMediaMessages();
-    if (!mounted) return;
-    setState(() {
-      _breakdown = breakdown;
-      _mediaItemCount = mediaCount;
-      _loading = false;
-    });
+    try {
+      final breakdown = await StorageUsageService.compute();
+      final mediaCount = await MessagesDb.countAllMediaMessages();
+      if (!mounted) return;
+      setState(() {
+        _breakdown = breakdown;
+        _mediaItemCount = mediaCount;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      showPrysmToast(context, 'Could not load storage usage: $e');
+    }
   }
 
   Future<void> _clearCaches() async {

@@ -114,13 +114,21 @@ class StorageUsageService {
     return entries;
   }
 
+  static Future<int> _fileBytes(File file) async {
+    try {
+      return await file.length();
+    } on FileSystemException {
+      return 0;
+    }
+  }
+
   static Future<int> _messagesDatabaseBytes(Directory prysmDir) async {
     if (!await prysmDir.exists()) return 0;
     var total = 0;
     for (final name in ['messages.db', 'messages.db-wal', 'messages.db-shm']) {
       final file = File(p.join(prysmDir.path, name));
       if (await file.exists()) {
-        total += await file.length();
+        total += await _fileBytes(file);
       }
     }
     return total;
@@ -133,7 +141,10 @@ class StorageUsageService {
     var total = 0;
 
     if (await prysmDir.exists()) {
-      await for (final entity in prysmDir.list(recursive: true)) {
+      await for (final entity in prysmDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (entity is! File) continue;
         final base = p.basename(entity.path);
         if (base == 'messages.db' ||
@@ -141,7 +152,7 @@ class StorageUsageService {
             base == 'messages.db-shm') {
           continue;
         }
-        total += await entity.length();
+        total += await _fileBytes(entity);
       }
     }
 
@@ -160,7 +171,7 @@ class StorageUsageService {
     var total = 0;
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is File && !entity.path.endsWith('.prysmbackup')) {
-        total += await entity.length();
+        total += await _fileBytes(entity);
       }
     }
     return total;
@@ -171,7 +182,7 @@ class StorageUsageService {
     var total = 0;
     await for (final entity in dir.list(recursive: true, followLinks: false)) {
       if (entity is File) {
-        total += await entity.length();
+        total += await _fileBytes(entity);
       }
     }
     return total;
@@ -187,7 +198,7 @@ class StorageUsageService {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
       if (_voiceCachePattern.hasMatch(name)) {
-        total += await entity.length();
+        total += await _fileBytes(entity);
       }
     }
     return total;

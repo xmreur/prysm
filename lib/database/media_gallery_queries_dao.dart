@@ -99,6 +99,7 @@ class MediaGalleryQueriesDao {
     List<String>? types,
     int limit = 50,
     int? beforeTimestamp,
+    String? beforeId,
   }) async {
     return await _protect(() async {
       final db = await _database;
@@ -113,16 +114,22 @@ class MediaGalleryQueriesDao {
         where += ' AND $_allMediaTypeFilter';
       }
 
-      if (beforeTimestamp != null) {
+      if (beforeTimestamp != null && beforeId != null) {
+        where += ' AND (timestamp < ? OR (timestamp = ? AND id < ?))';
+        whereArgs.addAll([beforeTimestamp, beforeTimestamp, beforeId]);
+      } else if (beforeTimestamp != null) {
         where += ' AND timestamp < ?';
         whereArgs.add(beforeTimestamp);
+      } else if (beforeId != null) {
+        where += ' AND id < ?';
+        whereArgs.add(beforeId);
       }
 
       return db.query(
         'messages',
         where: where,
         whereArgs: whereArgs,
-        orderBy: 'timestamp DESC',
+        orderBy: 'timestamp DESC, id DESC',
         limit: limit,
       );
     });

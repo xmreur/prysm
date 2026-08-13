@@ -283,6 +283,32 @@ void main() {
       expect(page.map((r) => r['id']), ['m200', 'm100']);
     });
 
+    test('beforeTimestamp with beforeId continues across equal timestamps',
+        () async {
+      for (final id in ['m-a', 'm-b', 'm-c']) {
+        await db.insert('messages', {
+          'id': id,
+          'senderId': 'peer',
+          'receiverId': 'me',
+          'message': 'cipher',
+          'type': 'image',
+          'timestamp': 100,
+          'status': 'received',
+        });
+      }
+
+      final first = await MessagesDb.getAllMediaMessages(limit: 2);
+      expect(first.map((r) => r['id']), ['m-c', 'm-b']);
+
+      final last = first.last;
+      final next = await MessagesDb.getAllMediaMessages(
+        limit: 2,
+        beforeTimestamp: last['timestamp'] as int,
+        beforeId: last['id'] as String,
+      );
+      expect(next.map((r) => r['id']), ['m-a']);
+    });
+
     test('countAllMediaMessages matches filtered rows', () async {
       await db.insert('messages', {
         'id': 'img',

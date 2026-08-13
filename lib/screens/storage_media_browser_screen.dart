@@ -80,36 +80,42 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
   }
 
   Future<void> _bootstrap() async {
-    final repo = const ConversationListRepository();
-    final userMaps = await repo.getUsers();
-    final groups = await _groupService.getGroups();
+    try {
+      final repo = const ConversationListRepository();
+      final userMaps = await repo.getUsers();
+      final groups = await _groupService.getGroups();
 
-    final contactNames = <String, String>{};
-    for (final map in userMaps) {
-      final id = map['id'] as String;
-      final customName = map['customName'] as String?;
-      final name = map['name'] as String? ?? id;
-      contactNames[id] =
-          (customName != null && customName.isNotEmpty) ? customName : name;
+      final contactNames = <String, String>{};
+      for (final map in userMaps) {
+        final id = map['id'] as String;
+        final customName = map['customName'] as String?;
+        final name = map['name'] as String? ?? id;
+        contactNames[id] =
+            (customName != null && customName.isNotEmpty) ? customName : name;
+      }
+
+      final groupNames = {for (final g in groups) g.id: g.name};
+
+      _mediaService = StorageMediaService(
+        keyManager: widget.keyManager,
+        userId: widget.userId,
+        groupService: _groupService,
+        contactNames: contactNames,
+        groupNames: groupNames,
+      );
+
+      for (final filter in ChatMediaFilter.values) {
+        _countsByFilter[filter] = await _mediaService!.countMedia(filter);
+      }
+
+      if (!mounted) return;
+      setState(() => _bootstrapping = false);
+      await _ensureLoaded(ChatMediaFilter.all);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _bootstrapping = false);
+      showPrysmToast(context, 'Could not load media: $e');
     }
-
-    final groupNames = {for (final g in groups) g.id: g.name};
-
-    _mediaService = StorageMediaService(
-      keyManager: widget.keyManager,
-      userId: widget.userId,
-      groupService: _groupService,
-      contactNames: contactNames,
-      groupNames: groupNames,
-    );
-
-    for (final filter in ChatMediaFilter.values) {
-      _countsByFilter[filter] = await _mediaService!.countMedia(filter);
-    }
-
-    if (!mounted) return;
-    setState(() => _bootstrapping = false);
-    await _ensureLoaded(ChatMediaFilter.all);
   }
 
   @override
@@ -153,10 +159,12 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
       final existing = _itemsByFilter[filter]!;
       final beforeTimestamp =
           existing.isEmpty ? null : existing.last.timestamp;
+      final beforeId = existing.isEmpty ? null : existing.last.id;
       final page = await service.loadPage(
         filter,
         limit: _pageSize,
         beforeTimestamp: beforeTimestamp,
+        beforeId: beforeId,
       );
 
       if (!mounted) return;

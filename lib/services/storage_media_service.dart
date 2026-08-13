@@ -29,11 +29,13 @@ class StorageMediaService {
     ChatMediaFilter filter, {
     int limit = 50,
     int? beforeTimestamp,
+    String? beforeId,
   }) async {
     final rows = await MessagesDb.getAllMediaMessages(
       types: globalTypesForFilter(filter),
       limit: limit,
       beforeTimestamp: beforeTimestamp,
+      beforeId: beforeId,
     );
     return rows
         .map(

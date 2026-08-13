@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import glob
 import json
 import os
 import re
@@ -661,6 +662,30 @@ def stage_repo(repo: str) -> None:
     res = run(cmd)
     if res.returncode != 0:
         die(f"staging failed: {res.stderr.strip()}")
+    seed_native_assets(repo)
+
+
+def seed_native_assets(repo: str) -> None:
+    """Hand the container the host's already-downloaded native assets.
+
+    `.dart_tool` is a staging exclude, so the build hook re-downloads
+    libsqlcipher.so inside the container every time. When that download
+    fails it leaves a 0-byte `.tmp` behind and the whole build dies on
+    "Building assets for package:sqlite3 failed" — with the lab unusable
+    until someone `docker cp`s the artifact in by hand. Seeding the host's
+    verified copy turns the hook into a cache hit instead of a network
+    call. Missing on the host is fine: the container just downloads it.
+
+    `--exclude .dart_tool` also stops rsync's `--delete` from reaping these,
+    so one seed survives every later `restart --sync`.
+    """
+    pattern = ".dart_tool/hooks_runner/shared/*/build/download-*/*.so"
+    for src in glob.glob(os.path.join(repo, pattern)):
+        dst = os.path.join(WORK, os.path.relpath(src, repo))
+        if os.path.exists(dst) or os.path.getsize(src) == 0:
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
 
 
 def cmd_build_image(args) -> int:

@@ -121,8 +121,9 @@ class MediaGalleryQueriesDao {
         where += ' AND timestamp < ?';
         whereArgs.add(beforeTimestamp);
       } else if (beforeId != null) {
-        where += ' AND id < ?';
-        whereArgs.add(beforeId);
+        throw ArgumentError(
+          'beforeId requires beforeTimestamp for a stable cursor',
+        );
       }
 
       return db.query(

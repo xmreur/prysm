@@ -309,6 +309,23 @@ void main() {
       expect(next.map((r) => r['id']), ['m-a']);
     });
 
+    test('beforeId without beforeTimestamp is rejected', () async {
+      await db.insert('messages', {
+        'id': 'm-a',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'image',
+        'timestamp': 100,
+        'status': 'received',
+      });
+
+      expect(
+        () => MessagesDb.getAllMediaMessages(beforeId: 'm-a'),
+        throwsArgumentError,
+      );
+    });
+
     test('countAllMediaMessages matches filtered rows', () async {
       await db.insert('messages', {
         'id': 'img',

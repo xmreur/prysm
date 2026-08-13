@@ -15,6 +15,14 @@ concurrency:
 env:
   PR_NUMBER: ${{ github.event.issue.number }}
 
+# The toolchain is pinned, not tracked. `channel: stable` alone put CI on
+# whatever Flutter shipped that week: 3.44.9 was green on d18d384 and 3.47.0
+# failed the identical commit hours later, on a new lint plus a dart:io
+# signature change. Both Containerfiles already pin 3.44.8 (host toolchain);
+# this is the environment that was drifting away from them. Bump deliberately.
+env:
+  FLUTTER_VERSION: "3.44.8"
+
 jobs:
   authorize:
     if: ${{ github.event.issue.pull_request && github.event.comment.body == 'build:test' }}
@@ -77,6 +85,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -112,6 +121,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -156,6 +166,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -198,6 +209,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -242,6 +254,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 

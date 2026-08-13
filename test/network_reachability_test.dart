@@ -1,76 +1,21 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/network_reachability.dart';
 
-class _FakeInterfaceAddress implements InterfaceAddress {
-  _FakeInterfaceAddress(String host) : _addr = InternetAddress(host);
-
-  final InternetAddress _addr;
-
-  @override
-  int get prefixLength => 24;
-
-  @override
-  InternetAddress? get broadcast => null;
-
-  @override
-  InternetAddressType get type => _addr.type;
-
-  @override
-  String get address => _addr.address;
-
-  @override
-  String get host => _addr.host;
-
-  @override
-  Uint8List get rawAddress => _addr.rawAddress;
-
-  @override
-  bool get isLoopback => _addr.isLoopback;
-
-  @override
-  bool get isLinkLocal => _addr.isLinkLocal;
-
-  @override
-  bool get isMulticast => _addr.isMulticast;
-
-  @override
-  Future<InternetAddress> reverse() => _addr.reverse();
-}
-
-class _FakeNetworkInterface implements NetworkInterface {
-  _FakeNetworkInterface(String host)
-      : _addresses = [_FakeInterfaceAddress(host)];
-
-  final List<InterfaceAddress> _addresses;
-
-  @override
-  List<InterfaceAddress> get addresses => _addresses;
-
-  @override
-  int get index => 1;
-
-  @override
-  String get name => 'fake0';
-}
-
-List<NetworkInterface> _ifaces(String host) => [
-      _FakeNetworkInterface(host),
-    ];
+List<InternetAddress> _addrs(String host) => [InternetAddress(host)];
 
 void main() {
   final originalProbe = NetworkReachability.probe;
   final originalCheckConnectivity = NetworkReachability.checkConnectivity;
-  final originalListNetworkInterfaces = NetworkReachability.listNetworkInterfaces;
+  final originalListNetworkAddresses = NetworkReachability.listNetworkAddresses;
   final originalIsDesktop = NetworkReachability.isDesktop;
 
   tearDown(() {
     NetworkReachability.probe = originalProbe;
     NetworkReachability.checkConnectivity = originalCheckConnectivity;
-    NetworkReachability.listNetworkInterfaces = originalListNetworkInterfaces;
+    NetworkReachability.listNetworkAddresses = originalListNetworkAddresses;
     NetworkReachability.isDesktop = originalIsDesktop;
   });
 
@@ -106,12 +51,12 @@ void main() {
 
     Future<bool> runDefaultProbe({
       required List<ConnectivityResult> connectivity,
-      required List<NetworkInterface> interfaces,
+      required List<InternetAddress> addresses,
       bool isDesktop = true,
     }) async {
       NetworkReachability.isDesktop = isDesktop;
       NetworkReachability.checkConnectivity = () async => connectivity;
-      NetworkReachability.listNetworkInterfaces = () async => interfaces;
+      NetworkReachability.listNetworkAddresses = () async => addresses;
       return NetworkReachability.hasInternet();
     }
 
@@ -119,7 +64,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.wifi],
-          interfaces: _ifaces('192.168.1.5'),
+          addresses: _addrs('192.168.1.5'),
         ),
         isTrue,
       );
@@ -129,7 +74,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.mobile],
-          interfaces: _ifaces('10.0.0.2'),
+          addresses: _addrs('10.0.0.2'),
         ),
         isTrue,
       );
@@ -139,7 +84,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.ethernet],
-          interfaces: _ifaces('192.168.0.10'),
+          addresses: _addrs('192.168.0.10'),
         ),
         isTrue,
       );
@@ -149,7 +94,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.none],
-          interfaces: _ifaces('192.168.1.5'),
+          addresses: _addrs('192.168.1.5'),
           isDesktop: false,
         ),
         isFalse,
@@ -160,7 +105,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.none],
-          interfaces: _ifaces('192.168.1.71'),
+          addresses: _addrs('192.168.1.71'),
           isDesktop: true,
         ),
         isTrue,
@@ -172,8 +117,8 @@ void main() {
       NetworkReachability.checkConnectivity = () async {
         throw Exception('NetworkManager unavailable');
       };
-      NetworkReachability.listNetworkInterfaces =
-          () async => _ifaces('192.168.1.71');
+      NetworkReachability.listNetworkAddresses =
+          () async => _addrs('192.168.1.71');
 
       expect(await NetworkReachability.hasInternet(), isTrue);
     });
@@ -182,7 +127,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.wifi],
-          interfaces: _ifaces('127.0.0.1'),
+          addresses: _addrs('127.0.0.1'),
         ),
         isFalse,
       );
@@ -192,7 +137,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.vpn],
-          interfaces: _ifaces('192.168.1.5'),
+          addresses: _addrs('192.168.1.5'),
           isDesktop: false,
         ),
         isFalse,
@@ -203,7 +148,7 @@ void main() {
       expect(
         await runDefaultProbe(
           connectivity: [ConnectivityResult.other],
-          interfaces: _ifaces('192.168.1.5'),
+          addresses: _addrs('192.168.1.5'),
           isDesktop: true,
         ),
         isTrue,

@@ -1,16 +1,54 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/util/network_reachability.dart';
 
-class _FakeNetworkInterface implements NetworkInterface {
-  _FakeNetworkInterface(this._addresses);
+class _FakeInterfaceAddress implements InterfaceAddress {
+  _FakeInterfaceAddress(String host) : _addr = InternetAddress(host);
 
-  final List<InternetAddress> _addresses;
+  final InternetAddress _addr;
 
   @override
-  List<InternetAddress> get addresses => _addresses;
+  int get prefixLength => 24;
+
+  @override
+  InternetAddress? get broadcast => null;
+
+  @override
+  InternetAddressType get type => _addr.type;
+
+  @override
+  String get address => _addr.address;
+
+  @override
+  String get host => _addr.host;
+
+  @override
+  Uint8List get rawAddress => _addr.rawAddress;
+
+  @override
+  bool get isLoopback => _addr.isLoopback;
+
+  @override
+  bool get isLinkLocal => _addr.isLinkLocal;
+
+  @override
+  bool get isMulticast => _addr.isMulticast;
+
+  @override
+  Future<InternetAddress> reverse() => _addr.reverse();
+}
+
+class _FakeNetworkInterface implements NetworkInterface {
+  _FakeNetworkInterface(String host)
+      : _addresses = [_FakeInterfaceAddress(host)];
+
+  final List<InterfaceAddress> _addresses;
+
+  @override
+  List<InterfaceAddress> get addresses => _addresses;
 
   @override
   int get index => 1;
@@ -20,8 +58,8 @@ class _FakeNetworkInterface implements NetworkInterface {
 }
 
 List<NetworkInterface> _ifaces(String host) => [
-  _FakeNetworkInterface([InternetAddress(host)]),
-];
+      _FakeNetworkInterface(host),
+    ];
 
 void main() {
   final originalProbe = NetworkReachability.probe;

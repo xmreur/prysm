@@ -11,6 +11,7 @@ import 'package:prysm/screens/widgets/file_preview_content.dart';
 import 'package:prysm/services/file_preview_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/file_download_helper.dart';
+import 'package:prysm/util/format_file_size.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
@@ -314,11 +315,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
 
   String get _fileSizeString {
     if (widget.fileSize == null) return '';
-    final sizeInKB = widget.fileSize! / 1024;
-    if (sizeInKB < 1024) {
-      return '${sizeInKB.toStringAsFixed(1)} KB';
-    }
-    return '${(sizeInKB / 1024).toStringAsFixed(1)} MB';
+    return formatFileSize(widget.fileSize!);
   }
 
   bool get _hasTappablePreview =>

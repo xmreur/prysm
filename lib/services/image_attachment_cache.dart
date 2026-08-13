@@ -213,6 +213,26 @@ class ImageAttachmentCache {
     } catch (_) {}
   }
 
+  /// Wipes in-memory and on-disk image decrypt caches.
+  static Future<void> clearAll() async {
+    _memory.clear();
+    _memoryOrder.clear();
+    _inflight.clear();
+    try {
+      final dirPath = await _cacheDir();
+      final dir = Directory(dirPath);
+      if (await dir.exists()) {
+        await for (final entity in dir.list(followLinks: false)) {
+          if (entity is File) {
+            try {
+              await entity.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   @visibleForTesting
   static void resetForTest() {
     _memory.clear();

@@ -18,6 +18,9 @@ class MediaGalleryQueriesDao {
   static const String _groupMediaTypeFilter =
       "type IN ('group_image', 'group_file', 'group_audio')";
 
+  static const String _allMediaTypeFilter =
+      "type IN ('image', 'file', 'audio', 'group_image', 'group_file', 'group_audio')";
+
   static const String _mediaContentFilter =
       "deletedAt IS NULL AND message IS NOT NULL AND message != ''";
 
@@ -88,6 +91,63 @@ class MediaGalleryQueriesDao {
         orderBy: 'timestamp DESC',
         limit: limit,
       );
+    });
+  }
+
+  /// All media messages across every chat, newest first.
+  Future<List<Map<String, dynamic>>> getAllMediaMessages({
+    List<String>? types,
+    int limit = 50,
+    int? beforeTimestamp,
+  }) async {
+    return await _protect(() async {
+      final db = await _database;
+      var where = _mediaContentFilter;
+      final whereArgs = <dynamic>[];
+
+      if (types != null && types.isNotEmpty) {
+        where +=
+            ' AND type IN (${List.filled(types.length, '?').join(', ')})';
+        whereArgs.addAll(types);
+      } else {
+        where += ' AND $_allMediaTypeFilter';
+      }
+
+      if (beforeTimestamp != null) {
+        where += ' AND timestamp < ?';
+        whereArgs.add(beforeTimestamp);
+      }
+
+      return db.query(
+        'messages',
+        where: where,
+        whereArgs: whereArgs,
+        orderBy: 'timestamp DESC',
+        limit: limit,
+      );
+    });
+  }
+
+  /// Count of all media messages with stored content.
+  Future<int> countAllMediaMessages({List<String>? types}) async {
+    return await _protect(() async {
+      final db = await _database;
+      var where = _mediaContentFilter;
+      final whereArgs = <dynamic>[];
+
+      if (types != null && types.isNotEmpty) {
+        where +=
+            ' AND type IN (${List.filled(types.length, '?').join(', ')})';
+        whereArgs.addAll(types);
+      } else {
+        where += ' AND $_allMediaTypeFilter';
+      }
+
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) AS count FROM messages WHERE $where',
+        whereArgs,
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
     });
   }
 }

@@ -25,6 +25,7 @@ import 'privacy_settings_screen.dart';
 import 'blocked_contacts_screen.dart';
 import 'invite_requests_screen.dart';
 import 'call_history_screen.dart';
+import 'data_storage_screen.dart';
 import 'package:prysm/screens/widgets/appearance_settings_section.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/theme/prysm_themes.dart';
@@ -912,6 +913,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _showDownloadLocationSheet,
                   subtitle: _downloadLocationDisplay,
                 ),
+                if (!widget.decoyMode) const PrysmDivider(),
+                if (!widget.decoyMode)
+                  _buildNavigationTile(
+                    'Storage Manager',
+                    PrysmIcons.storageOutlined,
+                    () {
+                      Navigator.push(
+                        context,
+                        PrysmPageRoute(
+                          page: DataStorageScreen(
+                            userId: widget.onionAddress,
+                            keyManager: widget.keyManager,
+                            onClose: () => Navigator.of(context).pop(),
+                          ),
+                        ),
+                      );
+                    },
+                    subtitle: 'Disk usage and media management',
+                  ),
                 const PrysmDivider(),
                 _buildNavigationTile(
                   'Create Backup',

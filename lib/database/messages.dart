@@ -314,6 +314,22 @@ class MessagesDb {
         afterTimestamp: afterTimestamp,
       );
 
+  /// All media messages across every chat, newest first.
+  static Future<List<Map<String, dynamic>>> getAllMediaMessages({
+    List<String>? types,
+    int limit = 50,
+    int? beforeTimestamp,
+  }) =>
+      _mediaDao.getAllMediaMessages(
+        types: types,
+        limit: limit,
+        beforeTimestamp: beforeTimestamp,
+      );
+
+  /// Count of all media messages with stored content.
+  static Future<int> countAllMediaMessages({List<String>? types}) =>
+      _mediaDao.countAllMediaMessages(types: types);
+
   /// Close the db
   static Future<void> close() => MessagesDatabase.close();
 

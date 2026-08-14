@@ -9,6 +9,8 @@ on:
 # unchanged main and broke it. Matches both Containerfiles. Bump deliberately.
 env:
   FLUTTER_VERSION: "3.44.8"
+  GO_VERSION: "1.22"
+  LYREBIRD_REF: "main"
 
 jobs:
 
@@ -20,6 +22,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build lyrebird (desktop obfs4)
+        shell: bash
+        run: ./tool/fetch_lyrebird.sh
+        env:
+          LYREBIRD_REF: ${{ env.LYREBIRD_REF }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -47,6 +60,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build lyrebird (desktop obfs4)
+        run: ./tool/fetch_lyrebird.sh
+        env:
+          LYREBIRD_REF: ${{ env.LYREBIRD_REF }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -88,6 +111,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build lyrebird (desktop obfs4)
+        run: ./tool/fetch_lyrebird.sh
+        env:
+          LYREBIRD_REF: ${{ env.LYREBIRD_REF }}
 
       - uses: subosito/flutter-action@v2
         with:

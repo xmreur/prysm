@@ -31,6 +31,7 @@ class TorController(private val context: Context) {
 
     companion object {
         private const val CONTROL_PORT = 9051
+        private const val OBFS4_TRANSPORT = "obfs4"
         private const val STOP_SETTLE_MS = 500L
         private const val RESTART_SETTLE_MS = 800L
         private const val PORT_POLL_MS = 100L
@@ -157,10 +158,14 @@ class TorController(private val context: Context) {
                 override fun stopped(name: String?, error: Exception?) {}
             },
         )
-        controller.start(IPtProxy.Obfs4, "")
-        val port = controller.port(IPtProxy.Obfs4)
+        try {
+            controller.start(OBFS4_TRANSPORT, "")
+        } catch (e: Exception) {
+            throw IllegalStateException("IPtProxy obfs4 failed to start", e)
+        }
+        val port = controller.port(OBFS4_TRANSPORT).toInt()
         if (port <= 0) {
-            controller.stop(IPtProxy.Obfs4)
+            controller.stop(OBFS4_TRANSPORT)
             throw IllegalStateException("IPtProxy obfs4 failed to bind a port")
         }
         iptProxyController = controller
@@ -169,7 +174,7 @@ class TorController(private val context: Context) {
     }
 
     private fun stopObfs4Transport() {
-        iptProxyController?.stop(IPtProxy.Obfs4)
+        iptProxyController?.stop(OBFS4_TRANSPORT)
         iptProxyController = null
     }
 

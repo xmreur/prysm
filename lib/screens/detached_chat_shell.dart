@@ -69,16 +69,7 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
           if (user == null) {
             throw StateError('Contact not found');
           }
-          _contact = Contact(
-            id: user['id'] as String,
-            name: user['name'] as String,
-            avatarUrl: '',
-            avatarBase64: user['avatarBase64'] as String?,
-            customName: user['customName'] as String?,
-            identityJson: (user['identityJson'] as String?) ??
-                (user['publicKeyPem'] as String?) ??
-                '',
-          );
+          _contact = Contact.fromMap(user);
         case DetachedChatKind.group:
           final groupRow = await DBHelper.getGroupById(widget.launch.conversationId);
           if (groupRow == null) {
@@ -86,20 +77,7 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
           }
           _group = Group.fromMap(groupRow);
           final users = await DBHelper.getUsers();
-          _contacts = users
-              .map(
-                (map) => Contact(
-                  id: map['id'] as String,
-                  name: map['name'] as String,
-                  avatarUrl: '',
-                  avatarBase64: map['avatarBase64'] as String?,
-                  customName: map['customName'] as String?,
-                  identityJson: (map['identityJson'] as String?) ??
-                      (map['publicKeyPem'] as String?) ??
-                      '',
-                ),
-              )
-              .toList();
+          _contacts = users.map((map) => Contact.fromMap(map)).toList();
         case DetachedChatKind.self:
           break;
       }

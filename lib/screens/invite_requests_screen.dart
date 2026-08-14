@@ -102,11 +102,11 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
     String? failTitle;
     String? failBody;
     try {
-      final added = await ContactAddService.instance.addContact(
+      final result = await ContactAddService.instance.addContact(
         onionId: senderId,
         displayName: '',
       );
-      if (!added) {
+      if (result != ContactAddResult.success) {
         failTitle = 'Could not reach this contact';
         failBody = 'The invite is still waiting. '
             'Try again when they are online.';

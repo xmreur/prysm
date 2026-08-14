@@ -52,16 +52,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
     for (final peerId in blockedIds) {
       final user = await DBHelper.getUserById(peerId);
       if (user != null) {
-        contacts[peerId] = Contact(
-          id: peerId,
-          name: (user['name'] as String?) ?? peerId,
-          avatarUrl: '',
-          avatarBase64: user['avatarBase64'] as String?,
-          customName: user['customName'] as String?,
-          identityJson: (user['identityJson'] as String?) ??
-              (user['publicKeyPem'] as String?) ??
-              '',
-        );
+        contacts[peerId] = Contact.fromMap(user);
       }
     }
 

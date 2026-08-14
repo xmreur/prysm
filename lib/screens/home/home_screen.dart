@@ -238,7 +238,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             .where((h) => !BlockService.instance.isBlocked(h.conversationId))
             .map(
               (h) => h.copyWith(
-                snippet: MessageSearchIndexService.buildSnippet(h.body, submitted),
+                snippet: MessageSearchIndexService.buildSnippet(
+                  h.body,
+                  submitted,
+                ),
               ),
             )
             .toList();
@@ -282,9 +285,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (hit.scope == 'group') {
       final group = groups.cast<Group?>().firstWhere(
-            (g) => g?.id == hit.conversationId,
-            orElse: () => null,
-          );
+        (g) => g?.id == hit.conversationId,
+        orElse: () => null,
+      );
       if (group != null) {
         _pendingScrollToMessageId = hit.messageId;
         onSelectGroup(group);
@@ -292,9 +295,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     final contact = contacts.cast<Contact?>().firstWhere(
-          (c) => c?.id == hit.conversationId,
-          orElse: () => null,
-        );
+      (c) => c?.id == hit.conversationId,
+      orElse: () => null,
+    );
     if (contact != null) {
       _pendingScrollToMessageId = hit.messageId;
       onSelectContact(contact);
@@ -580,9 +583,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         settings.groupInviteMode == GroupInviteMode.holdAsRequest) {
       unawaited(
         GroupInvitePromoter(
-          userId: widget.onionAddress,
-          keyManager: widget.keyManager,
-        )
+              userId: widget.onionAddress,
+              keyManager: widget.keyManager,
+            )
             .promoteResolvable()
             .catchError((Object e, StackTrace st) {
               Logging.error('Promoting held invites failed: $e\n$st', 'Main');
@@ -1003,7 +1006,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _conversationListRepository.getUsers(),
           _conversationListRepository.getLastMessageTimestampsForAllUsers(),
           groupService.getGroups(),
-          _conversationListRepository.getLastMessagePreviews(widget.onionAddress),
+          _conversationListRepository.getLastMessagePreviews(
+            widget.onionAddress,
+          ),
           _conversationListRepository.getUnreadCounts(widget.onionAddress),
           _conversationListRepository.getConversationPreferences(),
           _conversationListRepository.getSelfChatLastTimestamp(),
@@ -1043,7 +1048,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
 
         final deferred = await Future.wait([
-          _conversationListRepository.getLastMessagePreviews(widget.onionAddress),
+          _conversationListRepository.getLastMessagePreviews(
+            widget.onionAddress,
+          ),
           _conversationListRepository.getUnreadCounts(widget.onionAddress),
           _conversationListRepository.getSelfChatLastTimestamp(),
           _conversationListRepository.getSelfChatLastPreview(),
@@ -1092,18 +1099,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     for (var map in userMaps) {
       final id = map['id'] as String;
       newContacts.add(
-        Contact(
-          id: id,
-          name: map['name'] as String,
-          avatarUrl: '',
-          avatarBase64: map['avatarBase64'] as String?,
-          customName: map['customName'] as String?,
-          identityJson:
-              (map['identityJson'] as String?) ??
-              (map['publicKeyPem'] as String?) ??
-              '',
-          lastMessageTimestamp: timestamps[id],
-        ),
+        Contact.fromMap(map, lastMessageTimestamp: timestamps[id]),
       );
     }
 
@@ -1149,6 +1145,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               old.displayName == c.displayName &&
               formatLastMessageTime(old.lastMessageTimestamp) ==
                   formatLastMessageTime(c.lastMessageTimestamp);
+        }) ||
+        !newContacts.every((nc) {
+          final old = contacts.cast<Contact?>().firstWhere(
+            (o) => o?.id == nc.id,
+            orElse: () => null,
+          );
+          return old != null &&
+              old.verifiedFingerprint == nc.verifiedFingerprint &&
+              old.identityJson == nc.identityJson;
         });
 
     if (changed) {
@@ -1278,13 +1283,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _showCreateGroup() {
     if (widget.decoyMode) {
-      showPrysmToast(context, 
-            'Could not create group. Make sure all members are online and try again.',
-          );
+      showPrysmToast(
+        context,
+        'Could not create group. Make sure all members are online and try again.',
+      );
       return;
     }
     Navigator.of(context).push(
-      PrysmPageRoute(page: CreateGroupScreen(
+      PrysmPageRoute(
+        page: CreateGroupScreen(
           userId: widget.onionAddress,
           contacts: contacts,
           keyManager: widget.keyManager,
@@ -1371,10 +1378,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Semantics(
       label: tooltip,
       button: true,
-      child: PrysmIconButton(
-        icon: icon,
-        onPressed: onPressed,
-      ),
+      child: PrysmIconButton(icon: icon, onPressed: onPressed),
     );
   }
 
@@ -1391,13 +1395,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       prefilledId: prefilledId,
       decoyMode: widget.decoyMode,
       onAdd: (onionId, displayName, {expectedFingerprint}) async {
-        final added = await _addNewUser(
+        final result = await _addNewUser(
           onionId,
           displayName,
           expectedFingerprint: expectedFingerprint,
         );
-        if (added) unawaited(loadUsers());
-        return added;
+        if (result == ContactAddResult.success) unawaited(loadUsers());
+        return result;
       },
       onScanQr: () async {
         Navigator.of(hostContext).pop();
@@ -1412,7 +1416,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<bool> _addNewUser(
+  Future<ContactAddResult> _addNewUser(
     String id,
     String name, {
     String? expectedFingerprint,
@@ -1508,7 +1512,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       onSecondaryTapDown: isDesktopPlatform
           ? (details) =>
-              _showConversationContextMenu(details.globalPosition, conv)
+                _showConversationContextMenu(details.globalPosition, conv)
           : null,
       onLongPress: () => _showConversationActions(conv),
       child: PrysmListRow(
@@ -1523,16 +1527,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         leading: SizedBox(width: 48, height: 48, child: leading),
         title: conv.displayName,
         subtitle: subtitle,
-        trailingSubtitle:
-            timeLabel.contains(' · ') ? timeLabel.split(' · ').last : timeLabel,
+        trailingSubtitle: timeLabel.contains(' · ')
+            ? timeLabel.split(' · ').last
+            : timeLabel,
         trailing: unreadCount > 0 && !isBlockedContact
             ? PrysmUnreadBadge(count: unreadCount)
             : isBlockedContact && _viewingBlocked
-                ? Icon(PrysmIcons.block, size: 18, color: tokens.textMuted)
-                : isPinned && !_viewingArchived && !_viewingBlocked
-                    ? Icon(PrysmIcons.pushPin,
-                        size: 16, color: tokens.textMuted)
-                    : null,
+            ? Icon(PrysmIcons.block, size: 18, color: tokens.textMuted)
+            : isPinned && !_viewingArchived && !_viewingBlocked
+            ? Icon(PrysmIcons.pushPin, size: 16, color: tokens.textMuted)
+            : null,
       ),
     );
   }
@@ -1560,8 +1564,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget buildSidebar() {
-    final isMobile =
-        MediaQuery.of(context).size.width < 600;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     final tokens = context.prysmTokens;
     final safePadding = MediaQuery.paddingOf(context);
 
@@ -1573,9 +1576,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       width: 320,
       decoration: BoxDecoration(
         color: tokens.sidebar,
-        border: Border(
-          right: BorderSide(color: tokens.divider, width: 1),
-        ),
+        border: Border(right: BorderSide(color: tokens.divider, width: 1)),
       ),
       child: Column(
         children: [
@@ -1584,7 +1585,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: context.prysmStyle.tokens.divider.withValues(alpha: 0.1),
+                  color: context.prysmStyle.tokens.divider.withValues(
+                    alpha: 0.1,
+                  ),
                   width: 1,
                 ),
               ),
@@ -1715,8 +1718,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               hintText: _viewingArchived
                   ? 'Search archived...'
                   : _viewingBlocked
-                      ? 'Search blocked...'
-                      : 'Search chats and messages...',
+                  ? 'Search blocked...'
+                  : 'Search chats and messages...',
               onChanged: (value) {
                 final query = value.trim().toLowerCase();
                 setState(() => _searchQuery = query);
@@ -1840,7 +1843,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             decoration: BoxDecoration(
               border: Border(
                 top: BorderSide(
-                  color: context.prysmStyle.tokens.divider.withValues(alpha: 0.1),
+                  color: context.prysmStyle.tokens.divider.withValues(
+                    alpha: 0.1,
+                  ),
                   width: 1,
                 ),
               ),
@@ -1895,7 +1900,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _handleCallNotificationAction) {
       NotificationService.onCallNotificationTap = null;
     }
-    if (ShareIntentService.instance.onPendingShare == _handlePendingShareIntent) {
+    if (ShareIntentService.instance.onPendingShare ==
+        _handlePendingShareIntent) {
       ShareIntentService.instance.onPendingShare = null;
     }
     WidgetsBinding.instance.removeObserver(this);
@@ -1924,9 +1930,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
-
-
   Future<void> _maybeBroadcastWakeHints({bool coldStart = false}) async {
     if (widget.torConnectionController.torStopped || widget.decoyMode) return;
     if (!coldStart) {
@@ -1954,7 +1957,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
   void _showTorStatusSheet() {
     showPrysmSheet<void>(
       context: context,
@@ -1975,7 +1977,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _torStatusLabel(widget.torConnectionController.connectionState),
+                      _torStatusLabel(
+                        widget.torConnectionController.connectionState,
+                      ),
                       style: style.bodyStyle,
                     ),
                   ),
@@ -1989,7 +1993,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: style.bodyStyle.copyWith(color: tokens.danger),
                 ),
               ],
-              if (widget.torConnectionController.supervisor
+              if (widget
+                      .torConnectionController
+                      .supervisor
                       ?.lastHealthFailureReason !=
                   null) ...[
                 const SizedBox(height: 8),
@@ -2026,13 +2032,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ],
               const SizedBox(height: 8),
-              Text(
-                'Onion: ${widget.onionAddress}',
-                style: style.captionStyle,
-              ),
+              Text('Onion: ${widget.onionAddress}', style: style.captionStyle),
               if (widget.torConnectionController.supervisor != null &&
                   widget
-                      .torConnectionController.supervisor!.recentStderrLines
+                      .torConnectionController
+                      .supervisor!
+                      .recentStderrLines
                       .isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text('Recent Tor log', style: style.titleStyle),
@@ -2047,7 +2052,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   child: SingleChildScrollView(
                     child: Text(
-                      widget.torConnectionController.supervisor!
+                      widget
+                          .torConnectionController
+                          .supervisor!
                           .recentStderrLines
                           .join('\n'),
                       style: style.captionStyle.copyWith(
@@ -2124,21 +2131,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            Icon(
-              PrysmIcons.wifiOff,
-              size: 18,
-              color: tokens.danger,
-            ),
+            Icon(PrysmIcons.wifiOff, size: 18, color: tokens.danger),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 widget.torConnecting
                     ? 'Connecting to Tor…'
                     : 'Offline — messages will send when Tor connects',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: tokens.danger,
-                ),
+                style: TextStyle(fontSize: 13, color: tokens.danger),
               ),
             ),
             if (!widget.torConnecting)
@@ -2201,7 +2201,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildTorAppBarAction() {
-    final color = _torStatusColor(widget.torConnectionController.connectionState);
+    final color = _torStatusColor(
+      widget.torConnectionController.connectionState,
+    );
     final narrow = MediaQuery.sizeOf(context).width < 400;
     final shortLabel = switch (widget.torConnectionController.connectionState) {
       TorConnectionState.connected => 'Tor',
@@ -2212,7 +2214,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: Semantics(
-        label: 'Tor: ${_torStatusLabel(widget.torConnectionController.connectionState)}',
+        label:
+            'Tor: ${_torStatusLabel(widget.torConnectionController.connectionState)}',
         button: true,
         child: PrysmPressable(
           onTap: _showTorStatusSheet,
@@ -2232,7 +2235,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   Icon(PrysmIcons.shieldOutlined, size: 18, color: color),
                   const SizedBox(width: 6),
-                  _torStatusDot(widget.torConnectionController.connectionState, size: 8),
+                  _torStatusDot(
+                    widget.torConnectionController.connectionState,
+                    size: 8,
+                  ),
                   if (!narrow) ...[
                     const SizedBox(width: 6),
                     Text(
@@ -2289,7 +2295,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : null,
     );
   }
-
 
   void clearChat() {
     setState(() {
@@ -2413,58 +2418,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return ColoredBox(
       color: tokens.surface,
       child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              height: 70,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    if (showMenuButton)
-                      _tooltipIconButton(
-                        icon: PrysmIcons.menu,
-                        tooltip: 'Open menu',
-                        onPressed: () => setState(() => _sidebarOpen = true),
-                      ),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: tokens.accent.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Image.asset(
-                        'assets/logo.png',
-                        height: 40,
-                        width: 40,
-                        fit: BoxFit.contain,
-                      ),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 70,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  if (showMenuButton)
+                    _tooltipIconButton(
+                      icon: PrysmIcons.menu,
+                      tooltip: 'Open menu',
+                      onPressed: () => setState(() => _sidebarOpen = true),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '${settings.name} Chat',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: tokens.accent.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    ...actions,
-                  ],
-                ),
+                    child: Image.asset(
+                      'assets/logo.png',
+                      height: 40,
+                      width: 40,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '${settings.name} Chat',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  ...actions,
+                ],
               ),
             ),
-            Container(height: 1, color: tokens.divider),
-          ],
-        ),
+          ),
+          Container(height: 1, color: tokens.divider),
+        ],
+      ),
     );
   }
 
   Widget _buildHomeBody({required bool isMobile}) {
     final tokens = context.prysmStyle.tokens;
-    final showHomeHeader = isMobile &&
+    final showHomeHeader =
+        isMobile &&
         selectedConversation == null &&
         !showProfile &&
         !showSettings &&
@@ -2474,8 +2480,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       color: tokens.background,
       child: Column(
         children: [
-          if (isMobile)
-            SizedBox(height: MediaQuery.paddingOf(context).top),
+          if (isMobile) SizedBox(height: MediaQuery.paddingOf(context).top),
           if (showHomeHeader)
             _buildHomeHeader(
               showMenuButton: true,
@@ -2535,12 +2540,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: const ColoredBox(color: Color(0x66000000)),
           ),
         ),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          child: buildSidebar(),
-        ),
+        Positioned(left: 0, top: 0, bottom: 0, child: buildSidebar()),
       ],
     );
   }
@@ -2563,10 +2563,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ..._desktopShortcut(LogicalKeyboardKey.keyI, onShowSettings),
         ..._desktopShortcut(LogicalKeyboardKey.keyG, _showCreateGroup),
       },
-      child: Focus(
-        autofocus: true,
-        child: _buildHomeBody(isMobile: false),
-      ),
+      child: Focus(autofocus: true, child: _buildHomeBody(isMobile: false)),
     );
   }
 }

@@ -21,7 +21,8 @@ Future<Database> _openDbHelperDb() async {
       customName TEXT,
       publicKeyPem TEXT,
       identityJson TEXT,
-      ratchetScheme TEXT
+      ratchetScheme TEXT,
+      verifiedFingerprint TEXT
     )
   ''');
   return db;

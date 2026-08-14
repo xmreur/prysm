@@ -38,7 +38,8 @@ Future<Database> _openTestDb() async {
       customName TEXT,
       publicKeyPem TEXT,
       identityJson TEXT,
-      ratchetScheme TEXT
+      ratchetScheme TEXT,
+      verifiedFingerprint TEXT
     )
   ''');
   await db.execute('''
@@ -84,7 +85,7 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.failure);
       expect(await DBHelper.getUserById(onionId), isNull);
     });
 
@@ -97,7 +98,7 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.failure);
       expect(await DBHelper.getUserById(''), isNull);
     });
 
@@ -118,7 +119,7 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.failure);
       expect(await DBHelper.getUserById(onionId), isNull);
     });
   });
@@ -150,7 +151,7 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.failure);
       expect(fetchPublicCalls, isEmpty);
     });
 
@@ -172,7 +173,7 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isTrue);
+      expect(added, ContactAddResult.success);
       expect(fetchPublicCalls, [onionId]);
 
       final row = await DBHelper.getUserById(onionId);
@@ -210,7 +211,7 @@ void main() {
         displayName: '',
       );
 
-      expect(added, isTrue);
+      expect(added, ContactAddResult.success);
       final row = await DBHelper.getUserById(onionId);
       expect(row?['name'], fallback);
       expect(row?['customName'], isNull);
@@ -240,7 +241,7 @@ void main() {
 
       expect(
         await service.addContact(onionId: onionId, displayName: ''),
-        isTrue,
+        ContactAddResult.success,
       );
 
       final row = await DBHelper.getUserById(onionId);
@@ -269,7 +270,7 @@ void main() {
 
       expect(
         await service.addContact(onionId: onionId, displayName: 'Carol'),
-        isTrue,
+        ContactAddResult.success,
       );
 
       expect((await DBHelper.getUserById(onionId))?['customName'], 'Carol');
@@ -286,13 +287,13 @@ void main() {
         displayName: 'Alice',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.failure);
       expect(await DBHelper.getUserById(onionId), isNull);
     });
 
     test(
-        'returns false when the fetched identity fingerprint does not '
-        'match expectedFingerprint', () async {
+        'returns fingerprintMismatch when the fetched identity fingerprint '
+        'does not match expectedFingerprint', () async {
       final service = ContactAddService.forTesting(
         fetchPublic: (_) async => peerIdentityJson,
       );
@@ -303,8 +304,28 @@ void main() {
         expectedFingerprint: 'not-the-real-fingerprint',
       );
 
-      expect(added, isFalse);
+      expect(added, ContactAddResult.fingerprintMismatch);
       expect(await DBHelper.getUserById(onionId), isNull);
+    });
+
+    test(
+        'persists verifiedFingerprint when add succeeds via QR fingerprint',
+        () async {
+      final service = ContactAddService.forTesting(
+        fetchPublic: (_) async => peerIdentityJson,
+        fetchProfile: (_) async => '{}',
+      );
+
+      final fingerprint = peerPublicJson['fingerprint'] as String;
+      final added = await service.addContact(
+        onionId: onionId,
+        displayName: 'Alice',
+        expectedFingerprint: fingerprint,
+      );
+
+      expect(added, ContactAddResult.success);
+      final row = await DBHelper.getUserById(onionId);
+      expect(row?['verifiedFingerprint'], fingerprint);
     });
 
     test(
@@ -334,7 +355,7 @@ void main() {
         onionId: onionId,
         displayName: 'Alice',
       );
-      expect(added, isTrue);
+      expect(added, ContactAddResult.success);
 
       Map<String, dynamic>? row;
       for (var i = 0; i < 20; i++) {
@@ -379,7 +400,7 @@ void main() {
         onionId: onionId,
         displayName: 'Alice',
       );
-      expect(added, isTrue);
+      expect(added, ContactAddResult.success);
 
       Map<String, dynamic>? row;
       for (var i = 0; i < 20; i++) {
@@ -408,7 +429,7 @@ void main() {
         onionId: onionId,
         displayName: 'Alice',
       );
-      expect(added, isTrue);
+      expect(added, ContactAddResult.success);
 
       // Give the unawaited enrichment a chance to run (and fail silently).
       await Future.delayed(const Duration(milliseconds: 20));

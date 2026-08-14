@@ -124,6 +124,7 @@ class PeerIdentityResolver {
         // Warms the send-path ratchet-scheme cache; preserves a previously
         // recorded scheme when this profile advertised none.
         'ratchetScheme': ratchetScheme ?? existing?['ratchetScheme'] as String?,
+        'verifiedFingerprint': existing?['verifiedFingerprint'] as String?,
       });
     } catch (e) {
       Logging.error('Failed to persist peer public key: $e', 'PeerIdentityResolver');

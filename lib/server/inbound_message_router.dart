@@ -218,6 +218,12 @@ class InboundMessageRouter {
       );
     }
 
+    if (data['groupId'] != null && !isGroupScopedType(type)) {
+      return InboundHandleResult.badRequest(
+        'groupId not allowed for a non-group type',
+      );
+    }
+
     if (isGroupControlType(type)) {
       return _validateAddressedToLocal(data, controlMessage: true);
     }

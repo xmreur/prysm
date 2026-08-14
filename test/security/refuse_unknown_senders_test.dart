@@ -172,4 +172,34 @@ void main() {
       expect(await DBHelper.getUserById('blocked.onion'), isNull);
     },
   );
+
+  test(
+    'a forged groupId on a direct type is rejected, not treated as group traffic',
+    () async {
+      Map<String, dynamic> forged(String id) => {
+        'id': id,
+        'senderId': 'stranger.onion',
+        'receiverId': 'local.onion',
+        'message': 'cipher',
+        'type': 'text',
+        'groupId': 'grp-forged',
+        'timestamp': 1,
+      };
+
+      // With the setting on, `groupId` would otherwise skip the gate entirely.
+      await settings.setRefuseUnknownSenders(true);
+      addTearDown(() => settings.setRefuseUnknownSenders(false));
+      final refused = await router.handleMessage(forged('msg-t5-on'));
+      expect(refused.statusCode, 400);
+
+      // And with it off, the same payload would have skipped DirectMessageAuth,
+      // which only runs when `groupId == null`.
+      await settings.setRefuseUnknownSenders(false);
+      final unsigned = await router.handleMessage(forged('msg-t5-off'));
+      expect(unsigned.statusCode, 400);
+
+      expect(await messageRowCount(), 0);
+      expect(await DBHelper.getUserById('stranger.onion'), isNull);
+    },
+  );
 }

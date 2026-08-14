@@ -3,20 +3,28 @@ package com.xmreur.prysm
 import android.content.*
 import android.os.IBinder
 import android.util.Log
+import IPtProxy.Controller
 import kotlinx.coroutines.*
 import org.torproject.jni.TorService
 import java.io.File
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 
+data class TorBridgeConfig(
+    val useObfs4: Boolean,
+    val bridges: List<String>,
+)
+
 class TorController(private val context: Context) {
 
     private val dataDir: File by lazy { File(context.dataDir, "app_TorService") }
     private val hiddenServiceDir: File by lazy { File(dataDir, "hidden_service") }
+    private val iptStateDir: File by lazy { File(dataDir, "ipt_state") }
 
     private var torServiceConnection: ServiceConnection? = null
     private var torService: TorService? = null
     private var isBound = false
+    private var iptProxyController: Controller? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stopLatch = AtomicReference<CompletableDeferred<Unit>?>(null)
@@ -38,26 +46,38 @@ class TorController(private val context: Context) {
             val created = hiddenServiceDir.mkdirs()
             Log.d("TorController", "hiddenServiceDir created: $created at ${hiddenServiceDir.absolutePath}")
         }
+        if (!iptStateDir.exists()) {
+            iptStateDir.mkdirs()
+        }
     }
 
-    fun writeTorrc() {
+    fun writeTorrc(bridgeConfig: TorBridgeConfig, obfs4SocksPort: Int = 0) {
         val torrcFile = File(dataDir, "torrc")
-        val torrcContent = """
-            SocksPort 9050
-            ControlPort $CONTROL_PORT
-            DataDirectory ${dataDir.absolutePath}
-            CookieAuthentication 1
-            HiddenServiceDir ${hiddenServiceDir.absolutePath}
-            HiddenServicePort 80 127.0.0.1:12345
-            Log notice file ${dataDir.absolutePath}/tor.log
-            SafeLogging 1
-        """.trimIndent()
+        val lines = mutableListOf(
+            "SocksPort 9050",
+            "ControlPort $CONTROL_PORT",
+            "DataDirectory ${dataDir.absolutePath}",
+            "CookieAuthentication 1",
+            "HiddenServiceDir ${hiddenServiceDir.absolutePath}",
+            "HiddenServicePort 80 127.0.0.1:12345",
+            "Log notice file ${dataDir.absolutePath}/tor.log",
+            "SafeLogging 1",
+        )
 
+        if (bridgeConfig.useObfs4 && bridgeConfig.bridges.isNotEmpty() && obfs4SocksPort > 0) {
+            lines.add("UseBridges 1")
+            lines.add("ClientTransportPlugin obfs4 socks5 127.0.0.1:$obfs4SocksPort")
+            for (bridge in bridgeConfig.bridges) {
+                lines.add("Bridge $bridge")
+            }
+        }
+
+        val torrcContent = lines.joinToString("\n")
         torrcFile.writeText(torrcContent)
-        Log.d("TorController", "Wrote torrc:\n$torrcContent")
+        Log.d("TorController", "Wrote torrc with ${bridgeConfig.bridges.size} bridge(s)")
     }
 
-    suspend fun startTor() {
+    suspend fun startTor(bridgeConfig: TorBridgeConfig = TorBridgeConfig(false, emptyList())) {
         val restarting = isBound
         if (restarting) {
             stopTor()
@@ -65,13 +85,15 @@ class TorController(private val context: Context) {
             delay(RESTART_SETTLE_MS)
         }
 
-        writeTorrc()
-        val intent = Intent(context, TorService::class.java)
+        stopObfs4Transport()
+        val obfs4Port = if (bridgeConfig.useObfs4 && bridgeConfig.bridges.isNotEmpty()) {
+            startObfs4Transport()
+        } else {
+            0
+        }
 
-        // TorService from tor-android enters the foreground via bindService
-        // (BIND_AUTO_CREATE). Do NOT call startForegroundService here — on
-        // restart Android kills the app if startForeground() is not called in
-        // time, and TorService only promotes itself when bound.
+        writeTorrc(bridgeConfig, obfs4Port)
+        val intent = Intent(context, TorService::class.java)
 
         val connected = CompletableDeferred<Unit>()
 
@@ -95,6 +117,7 @@ class TorController(private val context: Context) {
         Log.d("TorController", "bindService called, result: $bound")
 
         if (!bound) {
+            stopObfs4Transport()
             clearBindingState()
             throw IllegalStateException("bindService failed")
         }
@@ -116,9 +139,38 @@ class TorController(private val context: Context) {
         unbindSafely()
         waitForControlPortClosed()
         delay(STOP_SETTLE_MS)
+        stopObfs4Transport()
 
         latch.complete(Unit)
         stopLatch.set(null)
+    }
+
+    private fun startObfs4Transport(): Int {
+        val controller = Controller(
+            iptStateDir.absolutePath,
+            true,
+            false,
+            "INFO",
+            object : IPtProxy.OnTransportEvents {
+                override fun connected(name: String?) {}
+                override fun error(name: String?, error: Exception?) {}
+                override fun stopped(name: String?, error: Exception?) {}
+            },
+        )
+        controller.start(IPtProxy.Obfs4, "")
+        val port = controller.port(IPtProxy.Obfs4)
+        if (port <= 0) {
+            controller.stop(IPtProxy.Obfs4)
+            throw IllegalStateException("IPtProxy obfs4 failed to bind a port")
+        }
+        iptProxyController = controller
+        Log.d("TorController", "IPtProxy obfs4 listening on port $port")
+        return port
+    }
+
+    private fun stopObfs4Transport() {
+        iptProxyController?.stop(IPtProxy.Obfs4)
+        iptProxyController = null
     }
 
     private fun unbindSafely() {

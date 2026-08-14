@@ -18,6 +18,9 @@ import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/log_export_helper.dart';
+import 'package:prysm/util/obfs4_bridge_parser.dart';
+import 'package:prysm/util/obfs4_desktop_preflight.dart';
+import 'package:prysm/util/tor_bridge_config_factory.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/screens/widgets/change_passcode_flow.dart';
@@ -53,6 +56,7 @@ class SettingsScreen extends StatefulWidget {
   final bool offlineMode;
   final bool torConnecting;
   final Future<void> Function()? onConnectTor;
+  final Future<void> Function()? onApplyTorBridgeSettings;
   final bool decoyMode;
 
   const SettingsScreen({
@@ -65,6 +69,7 @@ class SettingsScreen extends StatefulWidget {
     this.offlineMode = false,
     this.torConnecting = false,
     this.onConnectTor,
+    this.onApplyTorBridgeSettings,
     this.decoyMode = false,
     super.key,
   });
@@ -84,6 +89,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableRelay = false;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
+  bool _useObfs4 = false;
+  bool _applyingObfs4 = false;
+  late final TextEditingController _obfs4BridgesController;
   bool _biometricsEnabled = false;
   bool _biometricsAvailable = false;
   int _pendingInviteCount = 0;
@@ -96,6 +104,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _obfs4BridgesController = TextEditingController(
+      text: settings.obfs4Bridges,
+    );
     _loadSettings();
     _loadDownloadLocationDisplay();
     unawaited(_loadPendingInviteCount());
@@ -113,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _batterySaverSub?.cancel();
+    _obfs4BridgesController.dispose();
     super.dispose();
   }
 
@@ -125,6 +137,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableRelay = settings.enableRelay;
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
+      _useObfs4 = settings.useObfs4;
+      _obfs4BridgesController.text = settings.obfs4Bridges;
       _biometricsEnabled = settings.biometricsEnabled;
     });
   }
@@ -408,6 +422,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _onLinkUnfurlingToggle(bool value) async {
     await settings.setEnableLinkUnfurling(value);
     setState(() => _enableLinkUnfurling = value);
+  }
+
+  Future<void> _applyObfs4Settings({
+    required bool useObfs4,
+    required String bridgesText,
+  }) async {
+    if (_applyingObfs4) return;
+
+    final parsed = Obfs4BridgeParser.parse(bridgesText);
+    if (parsed.errors.isNotEmpty) {
+      if (!mounted) return;
+      showPrysmToast(context, parsed.errors.first);
+      return;
+    }
+    if (useObfs4 && parsed.bridges.isEmpty) {
+      if (!mounted) return;
+      showPrysmToast(
+        context,
+        'Paste at least one valid obfs4 bridge line before enabling.',
+      );
+      return;
+    }
+
+    final online = !widget.offlineMode && !widget.torConnecting;
+    if (online) {
+      final confirmed = await showPrysmConfirmDialog(
+        context: context,
+        title: 'Reconnect over Tor?',
+        content: const Text(
+          'Tor will restart to apply obfs4 bridge settings. Active connections will drop briefly.',
+        ),
+        cancelLabel: 'Cancel',
+        confirmLabel: 'Reconnect',
+      );
+      if (confirmed != true) {
+        _loadSettings();
+        return;
+      }
+    }
+
+    setState(() => _applyingObfs4 = true);
+    try {
+      if (useObfs4 && !Platform.isAndroid && !Platform.isIOS) {
+        final bridgeConfig = torBridgeConfigFromSettings(
+          settings.settings.copyWith(
+            useObfs4: useObfs4,
+            obfs4Bridges: bridgesText.trim(),
+          ),
+        );
+        await preflightDesktopObfs4(bridgeConfig);
+      }
+
+      await settings.setObfs4BridgeSettings(
+        useObfs4: useObfs4,
+        obfs4Bridges: bridgesText.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _useObfs4 = useObfs4;
+        _obfs4BridgesController.text = bridgesText.trim();
+      });
+
+      if (online) {
+        final apply = widget.onApplyTorBridgeSettings;
+        if (apply != null) {
+          await apply();
+        }
+      }
+
+      if (!mounted) return;
+      showPrysmToast(
+        context,
+        online
+            ? 'obfs4 settings applied — Tor is reconnecting'
+            : 'obfs4 settings saved',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showPrysmToast(
+        context,
+        obfs4FailureMessage(e, useObfs4: useObfs4),
+      );
+      _loadSettings();
+    } finally {
+      if (mounted) setState(() => _applyingObfs4 = false);
+    }
+  }
+
+  Future<void> _onUseObfs4Toggle(bool value) async {
+    await _applyObfs4Settings(
+      useObfs4: value,
+      bridgesText: _obfs4BridgesController.text,
+    );
+  }
+
+  Future<void> _saveObfs4Bridges() async {
+    await _applyObfs4Settings(
+      useObfs4: _useObfs4,
+      bridgesText: _obfs4BridgesController.text,
+    );
   }
   void _onBatterySavingToggle(bool value) async {
     await BatterySaverService.instance.setUserEnabled(value);
@@ -766,6 +880,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                     subtitle: 'Request a new circuit when connections are stuck',
+                  ),
+                ],
+                if (!widget.decoyMode) ...[
+                  const PrysmDivider(),
+                  _buildSwitchTile(
+                    'Use obfs4 bridges',
+                    'Connect through your own obfs4 bridge when Tor is censored',
+                    PrysmIcons.shieldOutlined,
+                    _useObfs4,
+                    _applyingObfs4 ? (_) {} : _onUseObfs4Toggle,
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: PrysmTextField(
+                      controller: _obfs4BridgesController,
+                      labelText: 'obfs4 bridge lines',
+                      hintText:
+                          'obfs4 host:port fingerprint cert=… iat-mode=0\n(one per line)',
+                      minLines: 3,
+                      maxLines: 8,
+                      enabled: !_applyingObfs4,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: PrysmListRow(
+                      leading: const Icon(PrysmIcons.saveOutlined),
+                      title: 'Save bridges & reconnect',
+                      subtitle: 'Apply bridge line changes to Tor',
+                      onTap: _applyingObfs4 ? null : _saveObfs4Bridges,
+                    ),
                   ),
                 ],
                 // if (_enableRelay) ...[

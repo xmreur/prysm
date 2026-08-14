@@ -54,6 +54,8 @@ class SettingsService {
   bool get enableRelay => _settings.enableRelay;
   String? get personalRelayAddress => _settings.personalRelayAddress;
   bool get aggressiveRetry => _settings.aggressiveRetry;
+  bool get useObfs4 => _settings.useObfs4;
+  String get obfs4Bridges => _settings.obfs4Bridges;
 
   // Privacy
   int get messageRetentionDays => _settings.messageRetentionDays;
@@ -206,6 +208,27 @@ class SettingsService {
 
   Future<void> setAggressiveRetry(bool value) async {
     _settings = _settings.copyWith(aggressiveRetry: value);
+    await save();
+  }
+
+  Future<void> setUseObfs4(bool value) async {
+    _settings = _settings.copyWith(useObfs4: value);
+    await save();
+  }
+
+  Future<void> setObfs4Bridges(String value) async {
+    _settings = _settings.copyWith(obfs4Bridges: value);
+    await save();
+  }
+
+  Future<void> setObfs4BridgeSettings({
+    required bool useObfs4,
+    required String obfs4Bridges,
+  }) async {
+    _settings = _settings.copyWith(
+      useObfs4: useObfs4,
+      obfs4Bridges: obfs4Bridges,
+    );
     await save();
   }
 

@@ -18,6 +18,8 @@ class Settings {
   final bool enableRelay;
   final String? personalRelayAddress;
   final bool aggressiveRetry;
+  final bool useObfs4;
+  final String obfs4Bridges;
 
   // Privacy
   final int messageRetentionDays;
@@ -55,6 +57,8 @@ class Settings {
     this.enableRelay = false,
     this.personalRelayAddress,
     this.aggressiveRetry = true,
+    this.useObfs4 = false,
+    this.obfs4Bridges = '',
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.groupInviteMode = GroupInviteMode.holdAsRequest,
@@ -82,6 +86,8 @@ class Settings {
     'enableRelay': enableRelay,
     'personalRelayAddress': personalRelayAddress,
     'aggressiveRetry': aggressiveRetry,
+    'useObfs4': useObfs4,
+    'obfs4Bridges': obfs4Bridges,
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'groupInviteMode': groupInviteMode.name,
@@ -109,6 +115,8 @@ class Settings {
     enableRelay: json['enableRelay'] ?? false,
     personalRelayAddress: json['personalRelayAddress'],
     aggressiveRetry: json['aggressiveRetry'] ?? true,
+    useObfs4: json['useObfs4'] ?? false,
+    obfs4Bridges: json['obfs4Bridges'] as String? ?? '',
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     groupInviteMode: GroupInviteMode.fromJson(
@@ -142,6 +150,8 @@ class Settings {
     bool? enableRelay,
     String? personalRelayAddress,
     bool? aggressiveRetry,
+    bool? useObfs4,
+    String? obfs4Bridges,
     int? messageRetentionDays,
     PanicAction? panicAction,
     GroupInviteMode? groupInviteMode,
@@ -169,6 +179,8 @@ class Settings {
     enableRelay: enableRelay ?? this.enableRelay,
     personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
     aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
+    useObfs4: useObfs4 ?? this.useObfs4,
+    obfs4Bridges: obfs4Bridges ?? this.obfs4Bridges,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     groupInviteMode: groupInviteMode ?? this.groupInviteMode,
@@ -212,6 +224,8 @@ class Settings {
         other.enableRelay == enableRelay &&
         other.personalRelayAddress == personalRelayAddress &&
         other.aggressiveRetry == aggressiveRetry &&
+        other.useObfs4 == useObfs4 &&
+        other.obfs4Bridges == obfs4Bridges &&
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.groupInviteMode == groupInviteMode &&
@@ -239,6 +253,8 @@ class Settings {
         enableRelay.hashCode ^
         (personalRelayAddress?.hashCode ?? 0) ^
         aggressiveRetry.hashCode ^
+        useObfs4.hashCode ^
+        obfs4Bridges.hashCode ^
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         groupInviteMode.hashCode ^

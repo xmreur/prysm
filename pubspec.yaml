@@ -182,6 +182,10 @@ flutter:
     - assets/ringtones/prysm-ringtone.ogg
     - assets/tray/icon.png
     - assets/tray/icon_template.png
+    - assets/native/pt/linux/amd64/
+    - assets/native/pt/linux/arm64/
+    - assets/native/pt/macos/
+    - assets/native/pt/windows/
 
   fonts:
     - family: Inter

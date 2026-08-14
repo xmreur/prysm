@@ -5,9 +5,13 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
+import 'package:prysm/models/tor_bridge_config.dart';
+import 'package:prysm/util/lyrebird_locator.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/obfs4_desktop_preflight.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/util/tor_health_status.dart';
+import 'package:prysm/util/torrc_builder.dart';
 
 class TorManager {
   // Desktop-only Tor process.
@@ -28,8 +32,16 @@ class TorManager {
   final int controlPort;
   int _socksPort;
   final String controlPassword;
+  TorBridgeConfig _bridgeConfig = TorBridgeConfig.disabled;
+  final LyrebirdLocator? _lyrebirdLocator;
 
   int get socksPort => _socksPort;
+
+  TorBridgeConfig get bridgeConfig => _bridgeConfig;
+
+  void updateBridgeConfig(TorBridgeConfig config) {
+    _bridgeConfig = config;
+  }
 
   void updateSocksPort(int port) {
     if (port > 0 && port <= 65535) {
@@ -57,7 +69,11 @@ class TorManager {
     this.controlPort = 9051,
     int socksPort = 9050,
     required this.controlPassword,
-  }) : _socksPort = socksPort;
+    TorBridgeConfig bridgeConfig = TorBridgeConfig.disabled,
+    LyrebirdLocator? lyrebirdLocator,
+  })  : _socksPort = socksPort,
+        _bridgeConfig = bridgeConfig,
+        _lyrebirdLocator = lyrebirdLocator;
 
   List<String> get recentStderrLines => List.unmodifiable(_recentStderrLines);
 
@@ -147,16 +163,26 @@ class TorManager {
         await _discoverSocksPort();
         return;
       }
-      await _stopTorUnlocked();
-      if (!Platform.isAndroid) {
-        await Future.delayed(restartSettleDelay);
-      }
-      if (_usesNativeTorChannel) {
-        await _startNativeTorService();
-        return;
-      }
-      await _startDesktopTorBinary();
+      await _hardRestartUnlocked();
     });
+  }
+
+  /// Stop and start Tor so torrc / bridge settings are reloaded on every platform.
+  Future<void> hardRestart() {
+    return _controlWriteMutex.protect(_hardRestartUnlocked);
+  }
+
+  Future<void> _hardRestartUnlocked() async {
+    TorBootstrapNotifier.instance.reset();
+    await _stopTorUnlocked();
+    if (!Platform.isAndroid) {
+      await Future.delayed(restartSettleDelay);
+    }
+    if (_usesNativeTorChannel) {
+      await _startNativeTorService();
+      return;
+    }
+    await _startDesktopTorBinary();
   }
 
   Future<void> _stopTorUnlocked() async {
@@ -418,7 +444,7 @@ class TorManager {
   // =========================
 
   Future<void> _startNativeTorService() async {
-    await _channel.invokeMethod("startTor");
+    await _channel.invokeMethod('startTor', _bridgeConfig.toMethodChannelArgs());
     await _connectControlPort();
     await _authenticateWithCookieFile();
     await _waitForBootstrap(timeout: const Duration(minutes: 2));
@@ -567,6 +593,7 @@ class TorManager {
   }
 
   Future<void> _startDesktopTorBinary() async {
+    await preflightDesktopObfs4(_bridgeConfig);
     final torrcPath = await _writeTorrcDesktop();
     final processGeneration = ++_processGeneration;
 
@@ -629,15 +656,20 @@ class TorManager {
     final torrcFile = File('$dataDir/torrc');
     final hashedPassword = await _hashControlPasswordDesktop();
 
-    final torrcContent = '''
-ControlPort $controlPort
-SocksPort $socksPort
-DataDirectory $dataDir
-HashedControlPassword $hashedPassword
-CookieAuthentication 1
-HiddenServiceDir $dataDir/hidden_service/
-HiddenServicePort 80 127.0.0.1:12345
-''';
+    String? lyrebirdPath;
+    if (_bridgeConfig.isActive) {
+      final locator = _lyrebirdLocator ?? LyrebirdLocator();
+      lyrebirdPath = await locator.resolveLyrebirdPath();
+    }
+
+    final torrcContent = TorrcBuilder.desktopTorrc(
+      controlPort: controlPort,
+      socksPort: socksPort,
+      dataDir: dataDir,
+      hashedControlPassword: hashedPassword,
+      bridgeConfig: _bridgeConfig,
+      lyrebirdExecPath: lyrebirdPath,
+    );
 
     await torrcFile.writeAsString(torrcContent);
     return torrcFile.path;

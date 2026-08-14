@@ -14,6 +14,9 @@ import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/network_reachability.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/obfs4_desktop_preflight.dart';
+import 'package:prysm/util/tor_bridge_config_factory.dart';
 import 'package:prysm/util/tor_downloader.dart';
 import 'package:prysm/util/tor_lifecycle_state.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -70,17 +73,21 @@ Future<TorManager> createTorManager({bool allowDownload = true}) async {
   final torPath = await _resolveTorBinaryPath(allowDownload: allowDownload);
   final dataDirPath = await _resolveTorDataDir();
   final controlPassword = await CryptoKeyStore.torControlPassword();
-  return TorManager(
+  final bridgeConfig = torBridgeConfigFromSettingsService();
+  final manager = TorManager(
     torPath: torPath,
     dataDir: dataDirPath,
     controlPassword: controlPassword,
+    bridgeConfig: bridgeConfig,
   );
+  return manager;
 }
 
 /// Starts Tor and waits for a hidden-service onion address.
 Future<TorInitResult> initializeTor() async {
   TorBootstrapNotifier.instance.reset();
   final torManager = await createTorManager();
+  torManager.updateBridgeConfig(torBridgeConfigFromSettingsService());
 
   await torManager.startTor();
 
@@ -254,7 +261,10 @@ class TorConnectionController extends ChangeNotifier {
         connecting = false;
         failed = true;
         offline = true;
-        status = 'Failed to connect to Tor. Check your network and try again.';
+        status = torConnectFailureMessageFor(
+          e,
+          useObfs4: SettingsService().useObfs4,
+        );
         notifyListeners();
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
@@ -283,7 +293,10 @@ class TorConnectionController extends ChangeNotifier {
       if (!_disposed) {
         failed = true;
         connecting = false;
-        status = 'Failed to connect to Tor. Check your network and try again.';
+        status = torConnectFailureMessageFor(
+          e,
+          useObfs4: SettingsService().useObfs4,
+        );
         notifyListeners();
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
       }
@@ -412,6 +425,63 @@ class TorConnectionController extends ChangeNotifier {
       await currentSupervisor.restartTor(userInitiated: true);
     } else {
       await performRestart(userInitiated: true);
+    }
+  }
+
+  /// Hard-restarts Tor so bridge / torrc changes take effect on every platform.
+  Future<void> performHardRestart({bool userInitiated = false}) async {
+    if (_disposed || restartInProgress) return;
+
+    restartInProgress = true;
+    _healthTimer?.cancel();
+    torStopped = true;
+    TorLifecycleNotifier.instance.update(TorLifecycleState.restarting);
+
+    if (!_decoyMode && TransportProvider.isConfigured) {
+      TransportProvider.instance.wsManager.prepareForTorReconnect();
+    }
+
+    connectionState = TorConnectionState.connecting;
+    needsAttention = false;
+    notifyListeners();
+    TorConnectionNotifier.instance.update(TorConnectionState.connecting);
+
+    try {
+      TorBootstrapNotifier.instance.reset();
+      TorLifecycleNotifier.instance.update(TorLifecycleState.bootstrapping);
+      final bridgeConfig = torBridgeConfigFromSettingsService();
+      torManager?.updateBridgeConfig(bridgeConfig);
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        await preflightDesktopObfs4(bridgeConfig);
+      }
+      await torManager!.hardRestart();
+      torStopped = false;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.ready);
+      final onion = await torManager!.getOnionAddress();
+      if (onion != null && onion.isNotEmpty) {
+        PrysmServer.instance?.localOnionAddress = onion;
+      }
+      if (_disposed) return;
+      connectionState = TorConnectionState.connected;
+      needsAttention = false;
+      notifyListeners();
+      TorConnectionNotifier.instance.update(TorConnectionState.connected);
+      await _notifyReconnected();
+      if (userInitiated) onRestartSucceeded?.call();
+    } catch (e) {
+      torStopped = true;
+      TorLifecycleNotifier.instance.update(TorLifecycleState.stopped);
+      if (_disposed) return;
+      connectionState = TorConnectionState.disconnected;
+      needsAttention = false;
+      notifyListeners();
+      TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
+      if (userInitiated) onRestartFailed?.call(e);
+    } finally {
+      restartInProgress = false;
+      if (!_disposed && !torStopped) {
+        startHealthMonitor();
+      }
     }
   }
 

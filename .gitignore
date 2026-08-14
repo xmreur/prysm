@@ -52,6 +52,8 @@ CMakeFiles/
 build/
 tor_executable/tor
 tor_executable/tor_data/
+assets/native/pt/**/lyrebird
+assets/native/pt/**/lyrebird.exe
 .dart_tool/
 
 # Private / local-only

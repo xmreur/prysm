@@ -36,6 +36,7 @@ import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/tor_bridge_config_factory.dart';
 import 'package:prysm/services/app_update_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
@@ -518,7 +519,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (mounted) showPrysmToast(context, 'Tor restarted successfully');
       }
       ..onRestartFailed = (e) {
-        if (mounted) showPrysmToast(context, 'Tor restart failed: $e');
+        if (mounted) {
+          showPrysmToast(
+            context,
+            torConnectFailureMessageFor(
+              e,
+              useObfs4: SettingsService().useObfs4,
+            ),
+          );
+        }
       }
       ..addListener(_onTorControllerChanged);
     if (widget.decoyMode) {
@@ -2327,6 +2336,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         offlineMode: widget.offlineMode,
         torConnecting: widget.torConnecting,
         onConnectTor: widget.onConnectTor,
+        onApplyTorBridgeSettings: widget.decoyMode
+            ? null
+            : () => widget.torConnectionController.performHardRestart(
+                  userInitiated: true,
+                ),
         decoyMode: widget.decoyMode,
       );
     }

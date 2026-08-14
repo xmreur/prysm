@@ -22,7 +22,8 @@ final class TorChannelHandler {
         case "startTor":
             Task {
                 do {
-                    try await torController.startTor()
+                    let bridgeConfig = Self.parseBridgeConfig(call.arguments)
+                    try await torController.startTor(bridgeConfig: bridgeConfig)
                     result(nil)
                 } catch {
                     NSLog("TOR startTor failed: \(error)")
@@ -99,5 +100,14 @@ final class TorChannelHandler {
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    private static func parseBridgeConfig(_ arguments: Any?) -> TorBridgeConfig {
+        guard let map = arguments as? [String: Any] else {
+            return TorBridgeConfig(useObfs4: false, bridges: [])
+        }
+        let useObfs4 = map["useObfs4"] as? Bool ?? false
+        let bridges = map["bridges"] as? [String] ?? []
+        return TorBridgeConfig(useObfs4: useObfs4, bridges: bridges)
     }
 }

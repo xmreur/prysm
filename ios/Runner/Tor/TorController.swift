@@ -1,6 +1,12 @@
 import Darwin
 import Foundation
+import IPtProxy
 import Tor
+
+struct TorBridgeConfig {
+    let useObfs4: Bool
+    let bridges: [String]
+}
 
 actor PrysmTorController {
     static let controlPort: UInt16 = 9051
@@ -11,6 +17,7 @@ actor PrysmTorController {
     private static let portPollMs: UInt64 = 100
 
     private var torThread: TorThread?
+    private var iptController: IPtProxyController?
     private var isRunning = false
 
     private var dataDirectory: URL {
@@ -29,6 +36,10 @@ actor PrysmTorController {
         dataDirectory.appendingPathComponent("hidden_service", isDirectory: true)
     }
 
+    private var iptStateDirectory: URL {
+        dataDirectory.appendingPathComponent("ipt_state", isDirectory: true)
+    }
+
     private var torrcFile: URL {
         dataDirectory.appendingPathComponent("torrc")
     }
@@ -41,7 +52,9 @@ actor PrysmTorController {
         hiddenServiceDirectory.appendingPathComponent("hostname")
     }
 
-    func startTor() async throws {
+    func startTor(
+        bridgeConfig: TorBridgeConfig = TorBridgeConfig(useObfs4: false, bridges: [])
+    ) async throws {
         if isRunning, Self.isTcpPortOpen(Self.controlPort) {
             NSLog("PrysmTor: Tor already running")
             return
@@ -65,7 +78,17 @@ actor PrysmTorController {
         }
 
         try prepareDirectories()
-        let torrcPath = try writeTorrc()
+        stopObfs4Transport()
+
+        var obfs4Port = 0
+        if bridgeConfig.useObfs4, !bridgeConfig.bridges.isEmpty {
+            obfs4Port = try startObfs4Transport()
+        }
+
+        let torrcPath = try writeTorrc(
+            bridgeConfig: bridgeConfig,
+            obfs4SocksPort: obfs4Port
+        )
         NSLog("PrysmTor: wrote torrc at \(torrcPath.path)")
 
         let thread = TorThread(arguments: ["-f", torrcPath.path])
@@ -131,6 +154,7 @@ actor PrysmTorController {
 
         try await waitForControlPortClosed(timeoutSeconds: 30)
         torThread = nil
+        stopObfs4Transport()
         try await waitForActiveThreadCleared(timeoutSeconds: 60)
     }
 
@@ -167,7 +191,7 @@ actor PrysmTorController {
         let fm = FileManager.default
         let attrs: [FileAttributeKey: Any] = [.posixPermissions: Self.dirPermissions]
 
-        for url in [dataDirectory, cacheDirectory, hiddenServiceDirectory] {
+        for url in [dataDirectory, cacheDirectory, hiddenServiceDirectory, iptStateDirectory] {
             if fm.fileExists(atPath: url.path) {
                 try fm.setAttributes(attrs, ofItemAtPath: url.path)
             } else {
@@ -176,7 +200,10 @@ actor PrysmTorController {
         }
     }
 
-    private func writeTorrc() throws -> URL {
+    private func writeTorrc(
+        bridgeConfig: TorBridgeConfig,
+        obfs4SocksPort: Int
+    ) throws -> URL {
         var lines = [
             "SocksPort \(Self.socksPort)",
             "ControlPort \(Self.controlPort)",
@@ -189,6 +216,16 @@ actor PrysmTorController {
             "SafeLogging 1",
         ]
 
+        if bridgeConfig.useObfs4,
+           !bridgeConfig.bridges.isEmpty,
+           obfs4SocksPort > 0 {
+            lines.append("UseBridges 1")
+            lines.append("ClientTransportPlugin obfs4 socks5 127.0.0.1:\(obfs4SocksPort)")
+            for bridge in bridgeConfig.bridges {
+                lines.append("Bridge \(bridge)")
+            }
+        }
+
         if let geoBundle = Bundle.geoIp,
            let geoip = geoBundle.geoipFile?.path,
            let geoip6 = geoBundle.geoip6File?.path {
@@ -199,6 +236,36 @@ actor PrysmTorController {
         let content = lines.joined(separator: "\n") + "\n"
         try content.write(to: torrcFile, atomically: true, encoding: .utf8)
         return torrcFile
+    }
+
+    private func startObfs4Transport() throws -> Int {
+        let controller = IPtProxyController(
+            iptStateDirectory.path,
+            enableLogging: true,
+            unsafeLogging: false,
+            logLevel: "INFO",
+            transportStopped: nil
+        )
+        try controller.start(IPtProxyObfs4, proxy: "")
+        let port = Int(controller.port(IPtProxyObfs4))
+        if port <= 0 {
+            controller.stop(IPtProxyObfs4)
+            throw NSError(
+                domain: "PrysmTor",
+                code: 5,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "IPtProxy obfs4 failed to bind a port",
+                ]
+            )
+        }
+        iptController = controller
+        NSLog("PrysmTor: IPtProxy obfs4 listening on port \(port)")
+        return port
+    }
+
+    private func stopObfs4Transport() {
+        iptController?.stop(IPtProxyObfs4)
+        iptController = nil
     }
 
     private func readOnionAddressFromFile() -> String? {

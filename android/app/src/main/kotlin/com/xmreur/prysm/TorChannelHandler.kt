@@ -29,7 +29,8 @@ class TorChannelHandler(
             "startTor" -> {
                 activity.lifecycleScope.launch {
                     try {
-                        torController.startTor()
+                        val bridgeConfig = parseBridgeConfig(call.arguments)
+                        torController.startTor(bridgeConfig)
                         result.success(null)
                     } catch (e: Exception) {
                         Log.e("TOR", "startTor failed", e)
@@ -66,5 +67,13 @@ class TorChannelHandler(
 
             else -> result.notImplemented()
         }
+    }
+
+    private fun parseBridgeConfig(arguments: Any?): TorBridgeConfig {
+        val map = arguments as? Map<*, *> ?: return TorBridgeConfig(false, emptyList())
+        val useObfs4 = map["useObfs4"] as? Boolean ?: false
+        @Suppress("UNCHECKED_CAST")
+        val bridges = map["bridges"] as? List<String> ?: emptyList()
+        return TorBridgeConfig(useObfs4, bridges)
     }
 }

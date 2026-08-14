@@ -30,6 +30,7 @@ target 'Runner' do
   use_frameworks!
 
   pod 'Tor/GeoIP', '~> 408'
+  pod 'IPtProxy', '~> 5.5'
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do

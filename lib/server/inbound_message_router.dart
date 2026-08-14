@@ -265,7 +265,7 @@ class InboundMessageRouter {
       'InboundMessageRouter',
     );
 
-    if (_isBlockedDm(data)) {
+    if (await _senderRefused(data)) {
       return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
     }
 
@@ -903,9 +903,29 @@ class InboundMessageRouter {
     return data['fileName'] is String && data['fileSize'] is int;
   }
 
-  bool _isBlockedDm(Map<String, dynamic> data) {
-    if (data['groupId'] != null) return false;
-    return BlockService.instance.isBlocked(data['senderId'] as String);
+  /// True when [data]'s sender may not reach us; the caller acks-and-drops.
+  ///
+  /// Blocked peers are refused in groups too, not only in DMs. A group
+  /// co-member is otherwise reachable whatever their contact status — group
+  /// invites stay governed by `groupInviteMode`. The refuse-unknown-senders
+  /// setting defaults off and short-circuits ahead of the DB lookup, and
+  /// "unknown" means what the sync-hint gate means by it (`getUserById`).
+  Future<bool> _senderRefused(Map<String, dynamic> data) async {
+    final senderId = data['senderId'] as String;
+
+    if (BlockService.instance.isBlocked(senderId)) {
+      return true;
+    }
+
+    if (data['groupId'] != null) {
+      return false;
+    }
+
+    if (!settings.refuseUnknownSenders) {
+      return false;
+    }
+
+    return (await DBHelper.getUserById(senderId)) == null;
   }
 
   bool _shouldRedactProfileForRequester(

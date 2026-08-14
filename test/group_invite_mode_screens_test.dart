@@ -18,8 +18,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/screens/privacy_settings_screen.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_switch.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -78,5 +80,40 @@ void main() {
             'manager',
       );
     }
+  });
+
+  testWidgets('refuse non-contacts toggle is offered and persists',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      wrapWithStyle(
+        PrivacySettingsScreen(onClose: () {}, keyManager: KeyManager()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The row must exist and state the offer in plain terms.
+    final row = find.widgetWithText(
+      PrysmSwitchRow,
+      'Refuse messages from non-contacts',
+    );
+    expect(row, findsOneWidget);
+    expect(
+      find.text(
+        'When enabled, people who are not in your contacts cannot message '
+        'you directly.',
+      ),
+      findsOneWidget,
+    );
+
+    // Toggling must commit through SettingsService, not just repaint.
+    final settings = SettingsService();
+    final before = settings.refuseUnknownSenders;
+    await tester.tap(
+      find.descendant(of: row, matching: find.byType(PrysmSwitch)),
+    );
+    await tester.pumpAndSettle();
+    expect(settings.refuseUnknownSenders, isNot(before));
   });
 }

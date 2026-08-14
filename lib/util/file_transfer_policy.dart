@@ -24,6 +24,11 @@ class FileTransferPolicy {
   /// Per-chunk send retries before failing the transfer.
   static const int maxChunkRetries = 3;
 
+  /// True when [fileSizeBytes] reaches the chunked-transfer threshold.
+  /// Shared with the call-site size gate so the threshold has one home.
+  static bool isChunkCandidate(int fileSizeBytes) =>
+      fileSizeBytes >= chunkThresholdBytes;
+
   /// Chunks in flight at once: 8 × 256 KiB buffered in the WS sink while acks travel, cutting measured stall waves from 33 to ceil(33/8).
   static const int chunkWindowSize = 8;
 
@@ -32,7 +37,7 @@ class FileTransferPolicy {
     required bool wsConnected,
     required bool peerSupportsFileTransfer,
   }) {
-    if (fileSizeBytes < chunkThresholdBytes) return false;
+    if (!isChunkCandidate(fileSizeBytes)) return false;
     if (!wsConnected) return false;
     return peerSupportsFileTransfer;
   }

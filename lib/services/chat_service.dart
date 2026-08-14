@@ -688,6 +688,18 @@ class ChatService {
     int? timestamp,
   }) async {
     if (!TransportProvider.isConfigured) return false;
+    if (!FileTransferPolicy.isChunkCandidate(fileSize)) return false;
+
+    // A cold link reads wsConnected=false and an empty capability map until
+    // the handshake runs, so bring the link up before evaluating the
+    // predicate; the monolithic fallback pays this same connect budget and
+    // discards the link. This pins the peer and clears its backoff/quarantine.
+    try {
+      await TransportProvider.instance.wsManager.prepareForFileTransfer(peerId);
+    } catch (e) {
+      Logging.error('Chunked link bring-up failed: $e', 'ChatService');
+      return false;
+    }
 
     final wsConnected = TransportProvider.instance.isRealtimeConnected(peerId);
     final peerSupports =

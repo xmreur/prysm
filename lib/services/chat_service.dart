@@ -691,9 +691,7 @@ class ChatService {
     if (!FileTransferPolicy.isChunkCandidate(fileSize)) return false;
 
     // A cold link reads wsConnected=false and an empty capability map until
-    // the handshake runs, so bring the link up before evaluating the
-    // predicate; the monolithic fallback pays this same connect budget and
-    // discards the link. This pins the peer and clears its backoff/quarantine.
+    // the handshake runs, so bring the link up before evaluating the predicate.
     try {
       await TransportProvider.instance.wsManager.prepareForFileTransfer(peerId);
     } catch (e) {

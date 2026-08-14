@@ -24,8 +24,6 @@ class FileTransferPolicy {
   /// Per-chunk send retries before failing the transfer.
   static const int maxChunkRetries = 3;
 
-  /// True when [fileSizeBytes] reaches the chunked-transfer threshold.
-  /// Shared with the call-site size gate so the threshold has one home.
   static bool isChunkCandidate(int fileSizeBytes) =>
       fileSizeBytes >= chunkThresholdBytes;
 

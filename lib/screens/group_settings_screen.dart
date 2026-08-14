@@ -69,7 +69,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _groupService = GroupService(userId: widget.userId, keyManager: widget.keyManager);
+    _groupService = GroupService(
+      userId: widget.userId,
+      keyManager: widget.keyManager,
+    );
     _avatarBase64 = widget.group.avatarBase64;
     _groupName = widget.group.name;
     _load();
@@ -175,9 +178,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   Future<String?> _resolveAvatar(String memberId) async {
     final contact = widget.contacts.cast<Contact?>().firstWhere(
-          (c) => c!.id == memberId,
-          orElse: () => null,
-        );
+      (c) => c!.id == memberId,
+      orElse: () => null,
+    );
     if (contact?.avatarBase64 != null && contact!.avatarBase64!.isNotEmpty) {
       return contact.avatarBase64;
     }
@@ -189,9 +192,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   String _displayNameFor(String memberId) {
     final contact = widget.contacts.cast<Contact?>().firstWhere(
-          (c) => c!.id == memberId,
-          orElse: () => null,
-        );
+      (c) => c!.id == memberId,
+      orElse: () => null,
+    );
     if (contact != null) return contact.displayName;
     if (memberId == widget.userId) return 'You';
     return memberId.length > 12 ? '${memberId.substring(0, 12)}...' : memberId;
@@ -199,9 +202,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   Future<Contact?> _contactForMember(String memberId) async {
     final inMemory = widget.contacts.cast<Contact?>().firstWhere(
-          (c) => c!.id == memberId,
-          orElse: () => null,
-        );
+      (c) => c!.id == memberId,
+      orElse: () => null,
+    );
     if (inMemory != null) return inMemory;
 
     final user = await DBHelper.getUserById(memberId);
@@ -226,6 +229,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         page: KeyVerificationScreen(
           peer: contact,
           keyManager: widget.keyManager,
+          onVerificationChanged: () {
+            if (mounted) _load();
+          },
         ),
       ),
     );
@@ -256,9 +262,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   Future<void> _addMember() async {
     final available = widget.contacts
-        .where((c) =>
-            c.id != widget.userId &&
-            !_members.any((m) => m.memberId == c.id))
+        .where(
+          (c) =>
+              c.id != widget.userId && !_members.any((m) => m.memberId == c.id),
+        )
         .toList();
 
     if (available.isEmpty) {
@@ -267,10 +274,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
 
     if (_members.length >= maxGroupMembers) {
-      showPrysmToast(
-        context,
-        'Group is full ($maxGroupMembers members max)',
-      );
+      showPrysmToast(context, 'Group is full ($maxGroupMembers members max)');
       return;
     }
 
@@ -282,10 +286,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(
-                'Add member',
-                style: ctx.prysmStyle.headlineStyle,
-              ),
+              child: Text('Add member', style: ctx.prysmStyle.headlineStyle),
             ),
             for (final c in available)
               PrysmListRow(
@@ -309,10 +310,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       await _load();
       widget.onChanged();
       if (mounted) {
-        showPrysmToast(context, 
-              'Added ${picked.displayName}. '
-              'They will receive an invite when online.',
-            );
+        showPrysmToast(
+          context,
+          'Added ${picked.displayName}. '
+          'They will receive an invite when online.',
+        );
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
@@ -325,7 +327,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: 'Remove member',
-      content: Text('Remove ${_displayNameFor(member.memberId)} from the group?'),
+      content: Text(
+        'Remove ${_displayNameFor(member.memberId)} from the group?',
+      ),
       cancelLabel: 'Cancel',
       confirmLabel: 'Remove',
       confirmVariant: PrysmButtonVariant.danger,
@@ -369,7 +373,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: 'Delete group',
-      content: const Text('Delete this group for everyone? This cannot be undone.'),
+      content: const Text(
+        'Delete this group for everyone? This cannot be undone.',
+      ),
       cancelLabel: 'Cancel',
       confirmLabel: 'Delete',
       confirmVariant: PrysmButtonVariant.danger,
@@ -435,10 +441,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     onTap: _renameGroup,
                   )
                 else
-                  PrysmListRow(
-                    title: _groupName,
-                    subtitle: 'Member',
-                  ),
+                  PrysmListRow(title: _groupName, subtitle: 'Member'),
                 PrysmListRow(
                   title: '${_members.length} / $maxGroupMembers members',
                   subtitle: _isAdmin ? 'You are admin' : 'Member',
@@ -471,7 +474,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                           const Icon(PrysmIcons.chevronRight, size: 18),
                       ],
                     ),
-                    onTap: isSelf ? null : () => _openMemberVerification(m.memberId),
+                    onTap: isSelf
+                        ? null
+                        : () => _openMemberVerification(m.memberId),
                   );
                 }),
                 const PrysmDivider(),
@@ -481,8 +486,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: () async {
                     final navigator = Navigator.of(context);
-                    final joinedAt = await _groupService
-                        .joinedAtForCurrentUser(widget.group.id);
+                    final joinedAt = await _groupService.joinedAtForCurrentUser(
+                      widget.group.id,
+                    );
                     if (!mounted) return;
                     final messageId = await navigator.push<String>(
                       PrysmPageRoute(
@@ -535,7 +541,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   ),
                 if (_isAdmin)
                   PrysmListRow(
-                    leading: Icon(PrysmIcons.deleteOutline, color: tokens.danger),
+                    leading: Icon(
+                      PrysmIcons.deleteOutline,
+                      color: tokens.danger,
+                    ),
                     titleWidget: Text(
                       'Delete group',
                       style: TextStyle(color: tokens.danger),

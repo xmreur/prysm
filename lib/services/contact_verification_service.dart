@@ -5,11 +5,7 @@ import 'package:prysm/models/contact.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 
-enum VerificationStatus {
-  unverified,
-  verified,
-  keyChanged,
-}
+enum VerificationStatus { unverified, verified, keyChanged }
 
 class ContactVerificationService {
   ContactVerificationService._();
@@ -31,11 +27,14 @@ class ContactVerificationService {
 
   VerificationStatus statusFor(Contact contact) {
     final current = fingerprintFor(contact);
+    if (current == null) {
+      return VerificationStatus.unverified;
+    }
     final verified = contact.verifiedFingerprint;
     if (verified == null || verified.isEmpty) {
       return VerificationStatus.unverified;
     }
-    if (current != null && current == verified) {
+    if (current == verified) {
       return VerificationStatus.verified;
     }
     return VerificationStatus.keyChanged;
@@ -70,9 +69,7 @@ class ContactVerificationService {
   }
 
   Future<void> clearVerification(String contactId) async {
-    await DBHelper.updateUserFields(contactId, {
-      'verifiedFingerprint': null,
-    });
+    await DBHelper.updateUserFields(contactId, {'verifiedFingerprint': null});
   }
 
   bool qrMatchesContact(QrPayload payload, Contact contact) {

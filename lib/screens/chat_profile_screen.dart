@@ -82,9 +82,9 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
     final row = await DBHelper.getUserById(widget.peer.id);
     if (!mounted || row == null) return;
     setState(() {
-      _peerOverride = Contact.fromMap(row).copyWith(
-        lastMessageTimestamp: widget.peer.lastMessageTimestamp,
-      );
+      _peerOverride = Contact.fromMap(
+        row,
+      ).copyWith(lastMessageTimestamp: widget.peer.lastMessageTimestamp);
     });
   }
 
@@ -95,6 +95,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
         page: KeyVerificationScreen(
           peer: _peer,
           keyManager: widget.keyManager,
+          onVerificationChanged: () => _refreshPeerFromDb(),
         ),
       ),
     );
@@ -315,137 +316,138 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
               ),
               const SizedBox(height: 20),
               if (!_isBlocked) ...[
-              // Profile details
-              Container(
-                decoration: BoxDecoration(
-                  color: context.prysmStyle.tokens.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF000000).withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    PrysmListRow(
-                      leading: const Icon(PrysmIcons.keyOutlined),
-                      title: 'User ID',
-                      subtitleWidget: Text(
-                        encodeOnionToBase58(_peer.id),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'monospace',
+                // Profile details
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.prysmStyle.tokens.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF000000).withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      PrysmListRow(
+                        leading: const Icon(PrysmIcons.keyOutlined),
+                        title: 'User ID',
+                        subtitleWidget: Text(
+                          encodeOnionToBase58(_peer.id),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                          ),
                         ),
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: _peer.id));
+                          showPrysmToast(context, 'ID copied to clipboard');
+                        },
                       ),
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: _peer.id));
-                        showPrysmToast(context, 'ID copied to clipboard');
-                      },
-                    ),
-                    PrysmListRow(
-                      leading: const Icon(PrysmIcons.fingerprint),
-                      title: 'Identity verification',
-                      subtitle: _verificationService.statusLabel(
-                        _verificationService.statusFor(_peer),
-                      ),
-                      trailing: _verificationTrailing(
-                        _verificationService.statusFor(_peer),
-                      ),
-                      onTap: _openVerification,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.prysmStyle.tokens.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF000000).withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: PrysmListRow(
-                  leading: const Icon(PrysmIcons.photoLibraryOutlined),
-                  title: 'Shared Media',
-                  trailing: const Icon(PrysmIcons.chevronRight),
-                  onTap: () async {
-                    final messageId = await Navigator.push<String>(
-                      context,
-                      PrysmPageRoute(page: ChatMediaGalleryScreen.direct(
-                          peer: widget.peer,
-                          userId: widget.userId,
-                          keyManager: widget.keyManager,
+                      PrysmListRow(
+                        leading: const Icon(PrysmIcons.fingerprint),
+                        title: 'Identity verification',
+                        subtitle: _verificationService.statusLabel(
+                          _verificationService.statusFor(_peer),
                         ),
+                        trailing: _verificationTrailing(
+                          _verificationService.statusFor(_peer),
+                        ),
+                        onTap: _openVerification,
                       ),
-                    );
-                    if (messageId != null && context.mounted) {
-                      Navigator.of(context).pop(messageId);
-                    }
-                  },
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.prysmStyle.tokens.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF000000).withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.prysmStyle.tokens.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF000000).withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: PrysmListRow(
+                    leading: const Icon(PrysmIcons.photoLibraryOutlined),
+                    title: 'Shared Media',
+                    trailing: const Icon(PrysmIcons.chevronRight),
+                    onTap: () async {
+                      final messageId = await Navigator.push<String>(
+                        context,
+                        PrysmPageRoute(
+                          page: ChatMediaGalleryScreen.direct(
+                            peer: widget.peer,
+                            userId: widget.userId,
+                            keyManager: widget.keyManager,
+                          ),
+                        ),
+                      );
+                      if (messageId != null && context.mounted) {
+                        Navigator.of(context).pop(messageId);
+                      }
+                    },
+                  ),
                 ),
-                child: ConversationPrefsTiles(
-                  conversationId: widget.peer.id,
-                  onChanged: widget.onPreferencesChanged,
-                  onArchived: widget.onArchived,
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.prysmStyle.tokens.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF000000).withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ConversationPrefsTiles(
+                    conversationId: widget.peer.id,
+                    onChanged: widget.onPreferencesChanged,
+                    onArchived: widget.onArchived,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.prysmStyle.tokens.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF000000).withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.prysmStyle.tokens.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF000000).withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ScheduledMessagesTile(
+                        userId: widget.userId,
+                        keyManager: widget.keyManager,
+                        conversationId: widget.peer.id,
+                      ),
+                      DisappearingMessagesTile(
+                        conversationId: widget.peer.id,
+                        userId: widget.userId,
+                        keyManager: widget.keyManager,
+                      ),
+                      NotificationMuteTile(
+                        target: MuteTarget.user,
+                        id: widget.peer.id,
+                        label: widget.peer.displayName,
+                      ),
+                    ],
+                  ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ScheduledMessagesTile(
-                      userId: widget.userId,
-                      keyManager: widget.keyManager,
-                      conversationId: widget.peer.id,
-                    ),
-                    DisappearingMessagesTile(
-                      conversationId: widget.peer.id,
-                      userId: widget.userId,
-                      keyManager: widget.keyManager,
-                    ),
-                    NotificationMuteTile(
-                      target: MuteTarget.user,
-                      id: widget.peer.id,
-                      label: widget.peer.displayName,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
               ],
               Container(
                 decoration: BoxDecoration(

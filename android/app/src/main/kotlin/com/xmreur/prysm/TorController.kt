@@ -158,7 +158,7 @@ class TorController(private val context: Context) {
                 override fun stopped(name: String?, error: Exception?) {}
             },
         )
-        try {
+try {
             controller.start(OBFS4_TRANSPORT, "")
         } catch (e: Exception) {
             throw IllegalStateException("IPtProxy obfs4 failed to start", e)

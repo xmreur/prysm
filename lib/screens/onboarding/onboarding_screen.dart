@@ -153,14 +153,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
 
     setState(() => _addingContact = true);
-    final added = await ContactAddService.instance.addContact(
+    final result = await ContactAddService.instance.addContact(
       onionId: onionId,
       displayName: name,
     );
     if (!mounted) return;
     setState(() => _addingContact = false);
 
-    if (!added) {
+    if (result != ContactAddResult.success) {
       await showContactAddErrorDialog(context);
       return;
     }

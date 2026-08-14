@@ -31,14 +31,7 @@ class NotificationOpenChatResolver {
     final row = await DBHelper.getUserById(senderId);
     if (row == null) return null;
 
-    return Contact(
-      id: row['id'] as String,
-      name: row['name'] as String? ?? 'Unknown contact',
-      avatarUrl: '',
-      avatarBase64: row['avatarBase64'] as String?,
-      customName: row['customName'] as String?,
-      identityJson: (row['identityJson'] as String?) ?? (row['publicKeyPem'] as String?) ?? '',
-    );
+    return Contact.fromMap(row);
   }
 
   static Future<Group?> resolveGroup({

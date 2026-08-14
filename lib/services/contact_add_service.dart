@@ -11,6 +11,12 @@ import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/logging.dart';
 
+enum ContactAddResult {
+  success,
+  failure,
+  fingerprintMismatch,
+}
+
 class ContactAddService {
   /// [fetchPublic]/[fetchProfile] default to [TransportProvider]'s Tor
   /// helpers with this service's own timeout/preference/attempt budget
@@ -62,7 +68,7 @@ class ContactAddService {
         maxAttempts: 1,
       );
 
-  Future<bool> addContact({
+  Future<ContactAddResult> addContact({
     required String onionId,
     required String displayName,
     String? expectedFingerprint,
@@ -72,7 +78,7 @@ class ContactAddService {
         'Cannot add blocked contact ${Logging.redactOnion(onionId)}',
         'ContactAddService',
       );
-      return false;
+      return ContactAddResult.failure;
     }
 
     String identityJson;
@@ -83,11 +89,11 @@ class ContactAddService {
         'Failed to fetch identity from ${Logging.redactOnion(onionId)}: $e',
         'ContactAddService',
       );
-      return false;
+      return ContactAddResult.failure;
     }
 
     if (identityJson.isEmpty) {
-      return false;
+      return ContactAddResult.failure;
     }
 
     IdentityPublicKeys keys;
@@ -100,7 +106,7 @@ class ContactAddService {
         'Invalid identity JSON from ${Logging.redactOnion(onionId)}: $e',
         'ContactAddService',
       );
-      return false;
+      return ContactAddResult.failure;
     }
 
     if (expectedFingerprint != null &&
@@ -109,7 +115,7 @@ class ContactAddService {
         'Identity fingerprint mismatch for ${Logging.redactOnion(onionId)}',
         'ContactAddService',
       );
-      return false;
+      return ContactAddResult.fingerprintMismatch;
     }
 
     // insertOrUpdateUser is INSERT OR REPLACE, i.e. a whole-row write: every
@@ -150,10 +156,13 @@ class ContactAddService {
       // INSERT OR REPLACE destroys every column not carried over: keep a
       // scheme already recorded by an earlier profile fetch.
       'ratchetScheme': existing?['ratchetScheme'] as String?,
+      'verifiedFingerprint': expectedFingerprint != null
+          ? keys.fingerprint
+          : existing?['verifiedFingerprint'] as String?,
     });
 
     unawaited(_enrichFromProfile(onionId));
-    return true;
+    return ContactAddResult.success;
   }
 
   Future<void> _enrichFromProfile(String onionId) async {

@@ -62,7 +62,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -87,7 +87,8 @@ class DBHelper {
         customName TEXT,
         publicKeyPem TEXT,
         identityJson TEXT,
-        ratchetScheme TEXT
+        ratchetScheme TEXT,
+        verifiedFingerprint TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
@@ -239,6 +240,13 @@ class DBHelper {
       final colNames = cols.map((c) => c['name'] as String).toSet();
       if (cols.isNotEmpty && !colNames.contains('ratchetScheme')) {
         await db.execute('ALTER TABLE users ADD COLUMN ratchetScheme TEXT');
+      }
+    }
+    if (oldVersion < 16) {
+      final cols = await db.rawQuery('PRAGMA table_info(users)');
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (cols.isNotEmpty && !colNames.contains('verifiedFingerprint')) {
+        await db.execute('ALTER TABLE users ADD COLUMN verifiedFingerprint TEXT');
       }
     }
   }

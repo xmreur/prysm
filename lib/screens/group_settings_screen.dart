@@ -12,8 +12,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
-import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/chat_media_gallery_screen.dart';
+import 'package:prysm/screens/key_verification_screen.dart';
+import 'package:prysm/services/contact_verification_service.dart';
+import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
@@ -55,12 +57,14 @@ class GroupSettingsScreen extends StatefulWidget {
 
 class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   late GroupService _groupService;
+  final _verificationService = ContactVerificationService.instance;
   List<GroupMember> _members = [];
   bool _isAdmin = false;
   bool _loading = true;
   String? _avatarBase64;
   late String _groupName;
   final Map<String, String?> _avatarByMemberId = {};
+  final Map<String, Contact> _contactByMemberId = {};
 
   @override
   void initState() {
@@ -142,8 +146,13 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final members = await _groupService.getMembers(widget.group.id);
     final admin = await _groupService.isAdmin(widget.group.id, widget.userId);
     final avatars = <String, String?>{};
+    final contacts = <String, Contact>{};
     for (final member in members) {
       avatars[member.memberId] = await _resolveAvatar(member.memberId);
+      final contact = await _contactForMember(member.memberId);
+      if (contact != null) {
+        contacts[member.memberId] = contact;
+      }
     }
     if (mounted) {
       setState(() {
@@ -152,6 +161,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         _avatarByMemberId
           ..clear()
           ..addAll(avatars);
+        _contactByMemberId
+          ..clear()
+          ..addAll(contacts);
         _loading = false;
       });
     }
@@ -183,6 +195,63 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     if (contact != null) return contact.displayName;
     if (memberId == widget.userId) return 'You';
     return memberId.length > 12 ? '${memberId.substring(0, 12)}...' : memberId;
+  }
+
+  Future<Contact?> _contactForMember(String memberId) async {
+    final inMemory = widget.contacts.cast<Contact?>().firstWhere(
+          (c) => c!.id == memberId,
+          orElse: () => null,
+        );
+    if (inMemory != null) return inMemory;
+
+    final user = await DBHelper.getUserById(memberId);
+    if (user == null) return null;
+    return Contact.fromMap(user);
+  }
+
+  Future<void> _openMemberVerification(String memberId) async {
+    final contact = await _contactForMember(memberId);
+    if (contact == null) {
+      if (mounted) {
+        showPrysmToast(context, 'Contact not found');
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    final result = await Navigator.push<Contact>(
+      context,
+      PrysmPageRoute(
+        page: KeyVerificationScreen(
+          peer: contact,
+          keyManager: widget.keyManager,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      await _load();
+    }
+  }
+
+  Widget? _verificationBadge(Contact? contact) {
+    if (contact == null) return null;
+    switch (_verificationService.statusFor(contact)) {
+      case VerificationStatus.verified:
+        return const Icon(
+          PrysmIcons.checkCircle,
+          color: Color(0xFF4CAF50),
+          size: 18,
+        );
+      case VerificationStatus.keyChanged:
+        return const Icon(
+          PrysmIcons.warning,
+          color: Color(0xFFFF9800),
+          size: 18,
+        );
+      case VerificationStatus.unverified:
+        return null;
+    }
   }
 
   Future<void> _addMember() async {
@@ -377,6 +446,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 const PrysmDivider(),
                 ..._members.map((m) {
                   final isSelf = m.memberId == widget.userId;
+                  final memberContact = _contactByMemberId[m.memberId];
+                  final badge = _verificationBadge(memberContact);
                   return PrysmListRow(
                     leading: ContactAvatar(
                       name: _displayNameFor(m.memberId),
@@ -386,12 +457,21 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         ? '${_displayNameFor(m.memberId)} (you)'
                         : _displayNameFor(m.memberId),
                     subtitle: m.role == GroupRole.admin ? 'Admin' : 'Member',
-                    trailing: _isAdmin && !isSelf && m.role != GroupRole.admin
-                        ? PrysmIconButton(
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!isSelf && badge != null) badge,
+                        if (!isSelf && badge != null) const SizedBox(width: 4),
+                        if (_isAdmin && !isSelf && m.role != GroupRole.admin)
+                          PrysmIconButton(
                             icon: PrysmIcons.personRemoveOutlined,
                             onPressed: () => _removeMember(m),
                           )
-                        : null,
+                        else if (!isSelf)
+                          const Icon(PrysmIcons.chevronRight, size: 18),
+                      ],
+                    ),
+                    onTap: isSelf ? null : () => _openMemberVerification(m.memberId),
                   );
                 }),
                 const PrysmDivider(),

@@ -1092,16 +1092,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     for (var map in userMaps) {
       final id = map['id'] as String;
       newContacts.add(
-        Contact(
-          id: id,
-          name: map['name'] as String,
-          avatarUrl: '',
-          avatarBase64: map['avatarBase64'] as String?,
-          customName: map['customName'] as String?,
-          identityJson:
-              (map['identityJson'] as String?) ??
-              (map['publicKeyPem'] as String?) ??
-              '',
+        Contact.fromMap(
+          map,
           lastMessageTimestamp: timestamps[id],
         ),
       );
@@ -1391,13 +1383,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       prefilledId: prefilledId,
       decoyMode: widget.decoyMode,
       onAdd: (onionId, displayName, {expectedFingerprint}) async {
-        final added = await _addNewUser(
+        final result = await _addNewUser(
           onionId,
           displayName,
           expectedFingerprint: expectedFingerprint,
         );
-        if (added) unawaited(loadUsers());
-        return added;
+        if (result == ContactAddResult.success) unawaited(loadUsers());
+        return result;
       },
       onScanQr: () async {
         Navigator.of(hostContext).pop();
@@ -1412,7 +1404,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<bool> _addNewUser(
+  Future<ContactAddResult> _addNewUser(
     String id,
     String name, {
     String? expectedFingerprint,

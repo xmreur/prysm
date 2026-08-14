@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:prysm/services/contact_add_service.dart';
 import 'package:prysm/crypto/qr_payload.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -16,7 +17,10 @@ const defaultContactAddErrorMessage =
     'Could not reach peer or fetch their public key. '
     'Make sure they are online and try again.';
 
-typedef ContactAddCallback = Future<bool> Function(
+const fingerprintMismatchErrorMessage =
+    'The identity key does not match the scanned QR code.';
+
+typedef ContactAddCallback = Future<ContactAddResult> Function(
   String onionId,
   String displayName, {
   String? expectedFingerprint,
@@ -152,7 +156,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
       return;
     }
 
-    final added = await widget.onAdd(
+    final result = await widget.onAdd(
       onionId,
       displayName,
       expectedFingerprint: widget.expectedFingerprint,
@@ -160,8 +164,13 @@ class _AddContactDialogState extends State<AddContactDialog> {
 
     if (!mounted) return;
 
-    if (!added) {
-      await showContactAddErrorDialog(context);
+    if (result != ContactAddResult.success) {
+      await showContactAddErrorDialog(
+        context,
+        message: result == ContactAddResult.fingerprintMismatch
+            ? fingerprintMismatchErrorMessage
+            : null,
+      );
       if (mounted) setState(() => _isAdding = false);
       return;
     }

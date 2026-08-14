@@ -202,4 +202,155 @@ void main() {
       expect(rows.map((r) => r['id']), ['g1']);
     });
   });
+
+  group('getAllMediaMessages', () {
+    test('returns direct and group media, newest first', () async {
+      await db.insert('messages', {
+        'id': 'dm-img',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'image',
+        'timestamp': 100,
+        'status': 'received',
+      });
+      await db.insert('messages', {
+        'id': 'grp-file',
+        'senderId': 'alice',
+        'receiverId': 'me',
+        'groupId': 'grp1',
+        'message': 'cipher',
+        'type': 'group_file',
+        'fileName': 'doc.pdf',
+        'timestamp': 200,
+        'status': 'received',
+      });
+      await db.insert('messages', {
+        'id': 'txt',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'hello',
+        'type': 'text',
+        'timestamp': 300,
+        'status': 'received',
+      });
+
+      final rows = await MessagesDb.getAllMediaMessages();
+      expect(rows.map((r) => r['id']), ['grp-file', 'dm-img']);
+    });
+
+    test('types filter narrows to matching media kinds', () async {
+      await db.insert('messages', {
+        'id': 'img',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'image',
+        'timestamp': 100,
+        'status': 'received',
+      });
+      await db.insert('messages', {
+        'id': 'aud',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'audio',
+        'timestamp': 200,
+        'status': 'received',
+      });
+
+      final rows = await MessagesDb.getAllMediaMessages(
+        types: ['audio', 'group_audio'],
+      );
+      expect(rows, hasLength(1));
+      expect(rows.first['id'], 'aud');
+    });
+
+    test('beforeTimestamp paginates older results', () async {
+      for (final ts in [100, 200, 300]) {
+        await db.insert('messages', {
+          'id': 'm$ts',
+          'senderId': 'peer',
+          'receiverId': 'me',
+          'message': 'cipher',
+          'type': 'image',
+          'timestamp': ts,
+          'status': 'received',
+        });
+      }
+
+      final page = await MessagesDb.getAllMediaMessages(beforeTimestamp: 300);
+      expect(page.map((r) => r['id']), ['m200', 'm100']);
+    });
+
+    test('beforeTimestamp with beforeId continues across equal timestamps',
+        () async {
+      for (final id in ['m-a', 'm-b', 'm-c']) {
+        await db.insert('messages', {
+          'id': id,
+          'senderId': 'peer',
+          'receiverId': 'me',
+          'message': 'cipher',
+          'type': 'image',
+          'timestamp': 100,
+          'status': 'received',
+        });
+      }
+
+      final first = await MessagesDb.getAllMediaMessages(limit: 2);
+      expect(first.map((r) => r['id']), ['m-c', 'm-b']);
+
+      final last = first.last;
+      final next = await MessagesDb.getAllMediaMessages(
+        limit: 2,
+        beforeTimestamp: last['timestamp'] as int,
+        beforeId: last['id'] as String,
+      );
+      expect(next.map((r) => r['id']), ['m-a']);
+    });
+
+    test('beforeId without beforeTimestamp is rejected', () async {
+      await db.insert('messages', {
+        'id': 'm-a',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'image',
+        'timestamp': 100,
+        'status': 'received',
+      });
+
+      expect(
+        () => MessagesDb.getAllMediaMessages(beforeId: 'm-a'),
+        throwsArgumentError,
+      );
+    });
+
+    test('countAllMediaMessages matches filtered rows', () async {
+      await db.insert('messages', {
+        'id': 'img',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'image',
+        'timestamp': 100,
+        'status': 'received',
+      });
+      await db.insert('messages', {
+        'id': 'file',
+        'senderId': 'peer',
+        'receiverId': 'me',
+        'message': 'cipher',
+        'type': 'file',
+        'timestamp': 200,
+        'status': 'received',
+      });
+
+      expect(await MessagesDb.countAllMediaMessages(), 2);
+      expect(
+        await MessagesDb.countAllMediaMessages(types: ['file', 'group_file']),
+        1,
+      );
+    });
+  });
 }

@@ -62,3 +62,5 @@ stt_models/
 # Ignore PDF
 *.pdf
 
+# Context-Saving skill
+agents/context-saving/context.md

@@ -89,7 +89,6 @@ class _PrysmTextFieldState extends State<PrysmTextField> {
 
   void _onTextChanged() {
     if (mounted) setState(() {});
-    widget.onChanged?.call(widget.controller.text);
   }
 
   void _onFocusChanged() {

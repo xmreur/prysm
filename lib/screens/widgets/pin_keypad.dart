@@ -351,6 +351,15 @@ class PinKeypad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // LayoutBuilder sees only the incoming constraint, which inside the
+    // onboarding step's SingleChildScrollView is unbounded on the main axis;
+    // MediaQuery carries the real screen height in every host instead, so
+    // derive the key from it: 80dp (gap 10) fits a 1152dp screen, below that
+    // shrink to the 52dp floor so short phones still see the whole keypad.
+    final keySize = (MediaQuery.sizeOf(context).height * 80 / 1152)
+        .clamp(52.0, 80.0)
+        .toDouble();
+    final gap = keySize / 8;
     const keys = [
       ['1', '2', '3'],
       ['4', '5', '6'],
@@ -362,32 +371,33 @@ class PinKeypad extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: keys.map((row) {
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: EdgeInsets.symmetric(vertical: gap),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: row.map((key) {
               if (key.isEmpty) {
-                return const SizedBox(width: 80);
+                return SizedBox(width: keySize);
               } else if (key == 'back') {
                 return GestureDetector(
                   onTap: () => onKeyPress('back'),
                   behavior: HitTestBehavior.opaque,
                   child: SizedBox(
-                    width: 80,
-                    height: 80,
+                    width: keySize,
+                    height: keySize,
                     child: Icon(
                       PrysmIcons.backspaceOutlined,
-                      size: 28,
+                      size: keySize * 0.35,
                       color: context.prysmStyle.tokens.textPrimary,
                     ),
                   ),
                 );
               }
               return SizedBox(
-                width: 80,
-                height: 80,
+                width: keySize,
+                height: keySize,
                 child: _KeyButton(
                   value: key,
+                  keySize: keySize,
                   onPressed: () => onKeyPress(key),
                 ),
               );
@@ -401,9 +411,14 @@ class PinKeypad extends StatelessWidget {
 
 class _KeyButton extends StatelessWidget {
   final String value;
+  final double keySize;
   final VoidCallback onPressed;
 
-  const _KeyButton({required this.value, required this.onPressed});
+  const _KeyButton({
+    required this.value,
+    required this.keySize,
+    required this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -420,7 +435,9 @@ class _KeyButton extends StatelessWidget {
           value,
           style: TextStyle(
             color: context.prysmStyle.tokens.textPrimary,
-            fontSize: 32,
+            // 32dp digit on an 80dp key (0.4x), so a shrunken key is not
+            // mostly padding.
+            fontSize: keySize * 0.4,
             fontWeight: FontWeight.w400,
           ),
         ),

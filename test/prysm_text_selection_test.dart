@@ -882,4 +882,94 @@ void main() {
           reason: 'the tap must not be stolen by the field caret placement');
     });
   });
+
+  // --- onChanged fires exactly once per keystroke --------------------------
+  //
+  // The reported defect: PrysmTextField listened to its controller AND
+  // forwarded onChanged into PrysmEditableText, so a single keystroke fired
+  // the callback twice. The listener half was unguarded: the controller is a
+  // ValueNotifier that also notifies on selection-only changes, so merely
+  // moving the caret called onChanged — and in the composer that sends the
+  // peer a typing indicator with zero text typed. EditableText's own
+  // forwarding is guarded by a real text change; the listener must not call
+  // onChanged at all. The listener's setState stays: build reads the
+  // controller's text for showHint, and no other rebuild path covers it.
+  group('onChanged fires exactly once per keystroke', () {
+    testWidgets('typing one character invokes onChanged exactly once',
+        (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var calls = 0;
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(
+          controller: controller,
+          onChanged: (_) => calls++,
+        ),
+      );
+
+      await tester.enterText(find.byType(EditableText), 'a');
+      await tester.pump();
+
+      expect(calls, 1,
+          reason: 'one keystroke must report exactly one text change');
+      expect(controller.text, 'a');
+    });
+
+    testWidgets('moving the caret invokes onChanged zero times',
+        (tester) async {
+      final controller = TextEditingController(text: 'abc');
+      addTearDown(controller.dispose);
+      var calls = 0;
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(
+          controller: controller,
+          onChanged: (_) => calls++,
+        ),
+      );
+
+      // Establish the IME connection, then move the caret with the text
+      // untouched — both via the platform and via a direct controller write.
+      // Either used to trip the unguarded listener.
+      await tester.tap(find.byType(EditableText));
+      await tester.pump();
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'abc',
+          selection: TextSelection.collapsed(offset: 0),
+        ),
+      );
+      await tester.pump();
+      controller.selection = const TextSelection.collapsed(offset: 2);
+      await tester.pump();
+
+      expect(calls, 0,
+          reason: 'a caret move must not be reported as typing');
+    });
+
+    testWidgets('the hint disappears on the first typed character',
+        (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+
+      await pumpInPrysmApp(
+        tester,
+        PrysmTextField(
+          controller: controller,
+          hintText: 'Type here',
+        ),
+      );
+
+      expect(find.text('Type here'), findsOneWidget);
+
+      await tester.enterText(find.byType(EditableText), 'a');
+      await tester.pump();
+
+      expect(find.text('Type here'), findsNothing,
+          reason: 'the retained listener setState must repaint the hint away');
+    });
+  });
 }

@@ -47,9 +47,14 @@ FileTransferParts parseFileTransferParts(String peerPayload) {
 
 /// Sends encrypted file ciphertext in WebSocket chunks with per-chunk acks.
 class FileTransferSender {
-  FileTransferSender(this._manager);
+  FileTransferSender(this._manager,
+      {this.ackTimeout = const Duration(seconds: 60)});
 
   final WsConnectionManager _manager;
+
+  /// Per-chunk ack wait before a retry. Injectable so tests can drive the
+  /// retry/abort paths without a real 60 s delay; production keeps 60 s.
+  final Duration ackTimeout;
 
   Future<bool> send({
     required String peerOnion,
@@ -64,7 +69,6 @@ class FileTransferSender {
     bool viewOnce = false,
     int? expiresAt,
     int? timestamp,
-    Duration timeout = const Duration(minutes: 5),
   }) async {
     final parts = parseFileTransferParts(peerPayload);
     final ciphertext = parts.ciphertext;
@@ -78,6 +82,12 @@ class FileTransferSender {
 
     StreamSubscription<Map<String, dynamic>>? controlSub;
     final pendingChunkAcks = <String, Completer<void>>{};
+
+    // Set once send() unwinds: a retry loop that was between attempts (its
+    // ack key already dropped) must not re-register a completer and resend
+    // frames after controlSub is cancelled. Local to send(), never a field:
+    // a field would leak one send's abandonment into a concurrent one.
+    var abandoned = false;
 
     void completeChunkAck(String key) {
       pendingChunkAcks.remove(key)?.complete();
@@ -172,58 +182,126 @@ class FileTransferSender {
       );
 
       var ackedChunks = 0;
-      for (var index = 0; index < totalChunks; index++) {
-        final offset = index * chunkSize;
-        final end = offset + chunkSize > ciphertext.length
-            ? ciphertext.length
-            : offset + chunkSize;
-        final chunkBytes = ciphertext.sublist(offset, end);
-        final frame = FileTransferChunkFrame(
-          transferId: transferId,
-          chunkIndex: index,
-          payload: chunkBytes,
-        );
+      var nextIndex = 0;
+      var inFlight = 0;
+      final allChunksAcked = Completer<void>();
+      final transferFailed = Completer<void>();
+      Completer<void>? refill;
 
-        var sent = false;
-        for (var attempt = 0;
-            attempt < FileTransferPolicy.maxChunkRetries;
-            attempt++) {
-          final ackKey = '$transferId:$index';
-          final ackCompleter = Completer<void>();
-          pendingChunkAcks[ackKey] = ackCompleter;
+      void kickRefill() {
+        final pending = refill;
+        refill = null;
+        if (pending != null && !pending.isCompleted) {
+          pending.complete();
+        }
+      }
 
-          await _manager.sendBytes(peerOnion, frame.encode());
-          Logging.debug(
-            'chunk ${index + 1}/$totalChunks sent bytes=${chunkBytes.length} '
-            'transfer=$transferId',
-            'FileTransferSender',
-          );
+      // Sends one chunk (with per-index retries) and waits for its ack. The
+      // frame is built lazily at send time so the window never holds W × 256
+      // KiB of pre-sliced copies; only the sink buffers the in-flight frames.
+      Future<void> sendChunkWithRetries(int index) async {
+        try {
+          var sent = false;
+          for (var attempt = 0;
+              attempt < FileTransferPolicy.maxChunkRetries;
+              attempt++) {
+            // send() may have finished while this chunk sat between
+            // attempts: its old ack key is already gone, so continuing
+            // would strand a fresh completer and send frames on a
+            // subscription that will never ack them.
+            if (abandoned || transferFailed.isCompleted) return;
+            final ackKey = '$transferId:$index';
+            final ackCompleter = Completer<void>();
+            pendingChunkAcks[ackKey] = ackCompleter;
 
-          try {
-            await ackCompleter.future.timeout(const Duration(seconds: 60));
-            sent = true;
-            break;
-          } on TimeoutException {
-            pendingChunkAcks.remove(ackKey);
+            final offset = index * chunkSize;
+            final end = offset + chunkSize > ciphertext.length
+                ? ciphertext.length
+                : offset + chunkSize;
+            final chunkBytes = ciphertext.sublist(offset, end);
+            final frame = FileTransferChunkFrame(
+              transferId: transferId,
+              chunkIndex: index,
+              payload: chunkBytes,
+            );
+
+            // The completer must be registered before sendBytes so an ack
+            // racing ahead of the send future can still complete it; if the
+            // send itself fails no ack will ever arrive, so drop the entry
+            // here rather than leave it for send()'s finally to completeError
+            // on a future nobody listens to (an uncaught async error).
+            try {
+              await _manager.sendBytes(peerOnion, frame.encode());
+            } catch (_) {
+              pendingChunkAcks.remove(ackKey);
+              rethrow;
+            }
             Logging.debug(
-              'chunk $index/$totalChunks ack timeout attempt=${attempt + 1} '
+              'chunk ${index + 1}/$totalChunks sent bytes=${chunkBytes.length} '
               'transfer=$transferId',
               'FileTransferSender',
             );
+
+            try {
+              await ackCompleter.future.timeout(ackTimeout);
+              sent = true;
+              break;
+            } on TimeoutException {
+              pendingChunkAcks.remove(ackKey);
+              Logging.debug(
+                'chunk $index/$totalChunks ack timeout attempt=${attempt + 1} '
+                'transfer=$transferId',
+                'FileTransferSender',
+              );
+            }
           }
-        }
 
-        if (!sent) {
-          Logging.error(
-            'chunk $index/$totalChunks ack timeout transfer=$transferId',
-            'FileTransferSender',
-          );
-          return false;
-        }
+          if (!sent) {
+            Logging.error(
+              'chunk $index/$totalChunks ack timeout transfer=$transferId',
+              'FileTransferSender',
+            );
+            if (!transferFailed.isCompleted) transferFailed.complete();
+            return;
+          }
 
-        ackedChunks++;
-        progress.value = ackedChunks / totalChunks;
+          ackedChunks++;
+          progress.value = ackedChunks / totalChunks;
+          if (ackedChunks == totalChunks && !allChunksAcked.isCompleted) {
+            allChunksAcked.complete();
+          }
+        } catch (e, stack) {
+          if (!transferFailed.isCompleted) {
+            transferFailed.completeError(e, stack);
+          }
+        } finally {
+          inFlight--;
+          kickRefill();
+        }
       }
+
+      // Keeps at most chunkWindowSize chunks in flight; refills the window as
+      // acks drain it. All indices must be acked (not just an in-order
+      // prefix) before the transfer is allowed to finish.
+      Future<void> pumpWindow() async {
+        while (nextIndex < totalChunks &&
+            !transferFailed.isCompleted &&
+            !allChunksAcked.isCompleted) {
+          while (nextIndex < totalChunks &&
+              inFlight < FileTransferPolicy.chunkWindowSize) {
+            final index = nextIndex++;
+            inFlight++;
+            unawaited(sendChunkWithRetries(index));
+          }
+          if (nextIndex >= totalChunks) break;
+          refill = Completer<void>();
+          await refill!.future;
+        }
+      }
+
+      unawaited(pumpWindow());
+      await Future.any([allChunksAcked.future, transferFailed.future]);
+      if (transferFailed.isCompleted) return false;
 
       final endResult = await _manager.request(
         peerOnion,
@@ -249,6 +327,9 @@ class FileTransferSender {
       Logging.error('file transfer failed: $e\n$stack', 'FileTransferSender');
       return false;
     } finally {
+      // Stop any chunk still looping through retries from sending more
+      // frames once the ack subscription is gone.
+      abandoned = true;
       await controlSub.cancel();
       for (final completer in pendingChunkAcks.values) {
         if (!completer.isCompleted) {

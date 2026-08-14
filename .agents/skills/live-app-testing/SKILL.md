@@ -228,11 +228,22 @@ are forwarded into the container.
     never has it. A missing "Paste" entry in the selection menu is this, not a defect. What is
     observable in-app is `Cut` — it mutates the field — and the app's own
     "Copied to clipboard" toast.
-    The **soft keyboard has the same cause and the same answer**: `show_ime_with_hard_keyboard
-    1` is accepted, the IME binds (`mHaveConnection=true`), and it still never shows
-    (`mInputShown=false`) even for an explicit `TextInput.show` — a windowless app cannot raise
-    it, so `viewInsets.bottom` is always 0 and no amount of tapping produces a keyboard-open
-    layout. To exercise what a keyboard actually does to layout, shrink the display instead:
+    The **soft keyboard is a different story, and the earlier version of this rule was wrong**:
+    it never shows for *injected* pointers (`tap`, `longpress`, `TextInput.show` from an `eval`)
+    — `mInputShown=false` no matter what — because Flutter's own pointer events never make the
+    Android view the IME's served view. It shows perfectly for **real touch**:
+    `adb shell input tap <x*dpr> <y*dpr>`, read back with
+    `adb shell dumpsys input_method | grep mInputShown`. Measured on the headless AVD, debug and
+    release builds alike: tap the field -> `mInputShown=true`, BACK -> `false`, tap again ->
+    `true`. So the whole class of "the keyboard does not come back" defects IS testable here —
+    it just needs `docker exec <container> adb shell input`, coordinates in physical pixels
+    (logical × `devicePixelRatio`, 2.75 on the `pixel_5` AVD), and widget geometry read from the
+    tree with an `eval` because a screenshot cannot tell you where a 20 dp text strip ends.
+    Two traps that cost a session: a BACK sent while the keyboard is already closed pops the
+    route and eventually tears the app's tree down (guard every BACK on `mInputShown=true`), and
+    the first real tap after an app relaunch or a system permission dialog is swallowed — check
+    `adb shell dumpsys window | grep mCurrentFocus` before trusting a negative result.
+    To exercise what a keyboard does to *layout* without the keyboard, shrink the display:
     `adb shell wm size 1080x1600` moves every bottom-anchored widget up by ~270 dp and forces
     the same relayout, `adb shell wm size reset` restores it.
 
@@ -276,6 +287,36 @@ are forwarded into the container.
     (`rejecting hello from unknown peer`; identity resolution is cache-only by design at
     lib/transport/inbound_ws_peer_link.dart:229-237), so their first group message took 134 s and later
     ones still ran 19-22 s against 0.6 s for a contact pair.
+
+18. **Articulated messages and heavy attachments are measurable too — and the numbers decide.**
+    `txlab send FROM TO --text-file <path>` sends a multi-paragraph body (the unique mark is its
+    FIRST line, because `prysmlab type` echoes the composer on ONE line as `now=…` and a body
+    with newlines is only visible up to the first one — verifying against the whole body skips
+    every rep). `txlab file FROM TO --size 2MiB [--type image]` covers attachments: the payload is
+    written INSIDE the sender's container through the eval channel (a 64 KiB pseudo-random block
+    repeated with native `writeFromSync` — generating N bytes closure-by-closure stalls the app
+    isolate), then sent through `ChatService.sendFileMessage` with
+    `--lib package:prysm/screens/chat.dart`, because the UI path needs the native picker and, for
+    images, a modal preview no harness can tap. `--lib` is STICKY: reset it with
+    `eval --lib package:flutter/src/widgets/binding.dart 1` or every later `tap`/`type` in that
+    container dies with a Dart compile error.
+    Both commands report, per message, `send=` (sender's transport completion), `recv=` (receiver's
+    arrival line) and `render=` (bubble in the receiver's tree), all against the host clock taken
+    just before the send. Two things that look like bugs and are not: `send` LARGER than `recv` by
+    ~0.3 s on the WS path is the ack being logged after delivery, and the sender's `send ok` can
+    land after the receiver's bubble — read it with a bounded poll, not a single read, or the rep
+    reports no send side at all.
+    Baseline, 1:1 Linux↔Linux, warm WS link: 997-char body recv **0.68 s** / render 0.80 s;
+    200 KiB attachment recv 2.1-3.4 s; 2 MiB monolithic 13.4 s (1255 kbps) versus **23.0 s**
+    (729 kbps) chunked; 8 MiB monolithic 45.9 s (1462 kbps) versus **112.0 s** (599 kbps) chunked,
+    33 chunks. Contact add 5.5 s each way. 0 lost in 16 messages / 11.4 MiB.
+    That comparison is the point: the chunked path waits for an ack per 256 KiB chunk, so it is
+    **1.7-2.4× slower than one POST** over Tor even though it avoids the ~33% base64 inflation.
+    Do not "optimise" an attachment path on either number alone, and do not trust a code reading
+    over a measurement — the campaign that produced these numbers is also what found that chunked
+    transfers had been failing outright since 2026-08-04 (`FormatException: Invalid file
+    envelope`), which no test caught because the test hand-built the envelope the parser expected
+    instead of the one `CryptoWire.encryptFile` produces.
 
 ## Worked example
 

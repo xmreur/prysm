@@ -29,6 +29,9 @@ class FileTransferPolicy {
   static bool isChunkCandidate(int fileSizeBytes) =>
       fileSizeBytes >= chunkThresholdBytes;
 
+  /// Chunks in flight at once: 8 × 256 KiB buffered in the WS sink while acks travel, cutting measured stall waves from 33 to ceil(33/8).
+  static const int chunkWindowSize = 8;
+
   static bool shouldUseChunkedTransfer({
     required int fileSizeBytes,
     required bool wsConnected,

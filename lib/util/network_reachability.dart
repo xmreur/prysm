@@ -27,12 +27,15 @@ class NetworkReachability {
   static Future<List<ConnectivityResult>> Function() checkConnectivity =
       () => Connectivity().checkConnectivity();
 
-  /// Injectable network interface listing for tests.
-  static Future<List<NetworkInterface>> Function() listNetworkInterfaces =
-      () => NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLinkLocal: true,
-      );
+  /// Injectable local address listing for tests.
+  static Future<List<InternetAddress>> Function() listNetworkAddresses =
+      () async {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLinkLocal: true,
+    );
+    return [for (final iface in interfaces) ...iface.addresses];
+  };
 
   /// Injectable desktop flag for tests. Defaults to [isDesktopPlatform].
   static bool isDesktop = isDesktopPlatform;
@@ -55,13 +58,13 @@ class NetworkReachability {
         isDesktop ? _desktopLinkUpTransports : _linkUpTransports;
 
     if (results.any(linkUpTransports.contains)) {
-      return _hasNonLoopbackInterface();
+      return _hasNonLoopbackAddress();
     }
 
     // connectivity_plus on Linux requires NetworkManager; fall back to
     // interface checks on desktop when NM is absent (e.g. systemd-networkd).
     if (isDesktop) {
-      return _hasNonLoopbackInterface();
+      return _hasNonLoopbackAddress();
     }
 
     return false;
@@ -75,10 +78,8 @@ class NetworkReachability {
     }
   }
 
-  static Future<bool> _hasNonLoopbackInterface() async {
-    final interfaces = await listNetworkInterfaces();
-    return interfaces.any(
-      (iface) => iface.addresses.any((addr) => !addr.isLoopback),
-    );
+  static Future<bool> _hasNonLoopbackAddress() async {
+    final addresses = await listNetworkAddresses();
+    return addresses.any((addr) => !addr.isLoopback);
   }
 }

@@ -5,12 +5,13 @@
 // v14 bump the table was only created from onCreate and from the
 // oldVersion < 7 step, so an install at version 13 would throw "no such
 // table: group_pending_invites" on the first hold. The v15 bump (the
-// users.ratchetScheme send-path cache) rides the same upgrade path.
+// users.ratchetScheme send-path cache) rides the same upgrade path, and the
+// v16 bump (users.verifiedFingerprint) adds the identity-verification column.
 //
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v13 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 15, onUpgrade) -> real GroupPendingInviteStore
+// -> openDatabase(version: 16, onUpgrade) -> real GroupPendingInviteStore
 // calls.
 import 'dart:io';
 
@@ -172,20 +173,21 @@ void main() {
     }
   }
 
-  test('v13 -> v15 adds group_pending_invites and ratchetScheme, keeping '
-      'existing rows', () async {
+  test('v13 -> v16 adds group_pending_invites, ratchetScheme and '
+      'verifiedFingerprint, keeping existing rows', () async {
     final path = '${tempDir.path}/prysm/chat_app.db';
     await buildV13Fixture(path);
     expect(File(path).existsSync(), isTrue);
 
     // The real open path: DatabaseCipher.prepare encrypts the plaintext
-    // fixture in place, then openDatabase(version: 15, onUpgrade) runs the
-    // oldVersion < 14 step that creates group_pending_invites and the
-    // oldVersion < 15 step that adds users.ratchetScheme. The handle is
-    // closed by DBHelper.closeForWipe() in tearDown.
+    // fixture in place, then openDatabase(version: 16, onUpgrade) runs the
+    // oldVersion < 14 step that creates group_pending_invites, the
+    // oldVersion < 15 step that adds users.ratchetScheme and the
+    // oldVersion < 16 step that adds users.verifiedFingerprint. The handle
+    // is closed by DBHelper.closeForWipe() in tearDown.
     final db = await DBHelper.database;
 
-    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 15);
+    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 16);
     expect(
       await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -193,21 +195,23 @@ void main() {
       ),
       hasLength(1),
     );
-    // The v15 step adds the ratchet-scheme cache column to users.
+    // The v15 step adds the ratchet-scheme cache column to users, and the
+    // v16 step adds the identity-verification column.
     final usersCols = await db.rawQuery('PRAGMA table_info(users)');
     expect(
       usersCols.map((c) => c['name']),
-      contains('ratchetScheme'),
+      containsAll(['ratchetScheme', 'verifiedFingerprint']),
     );
     // The upgrade is not allowed to lose what was already there. hasLength
     // alone would pass a migration that deleted local-user and inserted a
     // different row: assert the preserved identity, and that the fresh
-    // column stays null for pre-existing rows.
+    // columns stay null for pre-existing rows.
     final users = await db.query('users');
     expect(users, hasLength(1));
     expect(users.single['id'], 'local-user');
     expect(users.single['name'], 'Local');
     expect(users.single['ratchetScheme'], isNull);
+    expect(users.single['verifiedFingerprint'], isNull);
     expect(
       (await db.query('group_sender_index')).single['nextIndex'],
       7,

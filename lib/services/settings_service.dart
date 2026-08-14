@@ -61,6 +61,7 @@ class SettingsService {
   int get messageRetentionDays => _settings.messageRetentionDays;
   PanicAction get panicAction => _settings.panicAction;
   GroupInviteMode get groupInviteMode => _settings.groupInviteMode;
+  bool get refuseUnknownSenders => _settings.refuseUnknownSenders;
 
   // Theme
   int get themeMode => _settings.themeMode;
@@ -245,6 +246,11 @@ class SettingsService {
 
   Future<void> setGroupInviteMode(GroupInviteMode value) async {
     _settings = _settings.copyWith(groupInviteMode: value);
+    await save();
+  }
+
+  Future<void> setRefuseUnknownSenders(bool value) async {
+    _settings = _settings.copyWith(refuseUnknownSenders: value);
     await save();
   }
 

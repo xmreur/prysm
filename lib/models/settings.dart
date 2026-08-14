@@ -26,6 +26,10 @@ class Settings {
   final PanicAction panicAction;
   final GroupInviteMode groupInviteMode;
 
+  /// Refuse direct messages from senders with no `users` row. Off by default:
+  /// a published Prysm ID stays reachable unless the user opts out.
+  final bool refuseUnknownSenders;
+
   // Theme
   final int themeMode; // 0=light, 1=dark, 2=pink, 3=cyan, 4=purple, 5=orange
   final AppearanceSettings appearance;
@@ -62,6 +66,7 @@ class Settings {
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.groupInviteMode = GroupInviteMode.holdAsRequest,
+    this.refuseUnknownSenders = false,
     this.themeMode = 0,
     this.appearance = const AppearanceSettings(),
     this.avatar,
@@ -91,6 +96,7 @@ class Settings {
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'groupInviteMode': groupInviteMode.name,
+    'refuseUnknownSenders': refuseUnknownSenders,
     'themeMode': themeMode,
     'appearance': appearance.toJson(),
     'avatar': avatar,
@@ -122,6 +128,7 @@ class Settings {
     groupInviteMode: GroupInviteMode.fromJson(
       json['groupInviteMode'] as String?,
     ),
+    refuseUnknownSenders: json['refuseUnknownSenders'] ?? false,
     themeMode: json['themeMode'] ?? 0,
     appearance: AppearanceSettings.fromJson(
       json['appearance'] as Map<String, dynamic>?,
@@ -155,6 +162,7 @@ class Settings {
     int? messageRetentionDays,
     PanicAction? panicAction,
     GroupInviteMode? groupInviteMode,
+    bool? refuseUnknownSenders,
     int? themeMode,
     AppearanceSettings? appearance,
     String? avatar,
@@ -184,6 +192,7 @@ class Settings {
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     groupInviteMode: groupInviteMode ?? this.groupInviteMode,
+    refuseUnknownSenders: refuseUnknownSenders ?? this.refuseUnknownSenders,
     themeMode: themeMode ?? this.themeMode,
     appearance: appearance ?? this.appearance,
     avatar: avatar ?? this.avatar,
@@ -229,6 +238,7 @@ class Settings {
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.groupInviteMode == groupInviteMode &&
+        other.refuseUnknownSenders == refuseUnknownSenders &&
         other.themeMode == themeMode &&
         other.appearance == appearance &&
         other.avatar == avatar &&
@@ -258,6 +268,7 @@ class Settings {
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         groupInviteMode.hashCode ^
+        refuseUnknownSenders.hashCode ^
         themeMode.hashCode ^
         appearance.hashCode ^
         (avatar?.hashCode ?? 0) ^

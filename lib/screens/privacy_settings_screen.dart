@@ -40,6 +40,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _typingIndicators = true;
   bool _lastSeen = true;
   bool _profilePhoto = true;
+  bool _refuseUnknownSenders = false;
   GroupInviteMode _groupInviteMode = SettingsService().groupInviteMode;
 
   /// True while a mode change is being persisted. Blocks a second selection
@@ -60,6 +61,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       _typingIndicators = settings.enableTypingIndicators;
       _lastSeen = prefs.getBool('last_seen') ?? true;
       _profilePhoto = prefs.getBool('profile_photo') ?? true;
+      _refuseUnknownSenders = settings.refuseUnknownSenders;
     });
   }
 
@@ -125,6 +127,11 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     _savePrivacySetting('profile_photo', value);
   }
 
+  Future<void> _onRefuseUnknownSendersToggle(bool value) async {
+    setState(() => _refuseUnknownSenders = value);
+    await settings.setRefuseUnknownSenders(value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
@@ -171,6 +178,13 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                     title: 'Profile Photo',
                     value: _profilePhoto,
                     onChanged: _onProfilePhotoToggle,
+                  ),
+                  PrysmSwitchRow(
+                    title: 'Refuse messages from non-contacts',
+                    subtitle:
+                        'When enabled, people who are not in your contacts cannot message you directly.',
+                    value: _refuseUnknownSenders,
+                    onChanged: _onRefuseUnknownSendersToggle,
                   ),
                 ],
               ),

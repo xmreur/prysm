@@ -106,20 +106,8 @@ Future<Database> _openMessagesDb() async {
   return db;
 }
 
-class _FakePostmanCall {
-  _FakePostmanCall({
-    required this.peerId,
-    required this.payload,
-    required this.timeout,
-  });
-
-  final String peerId;
-  final Map<String, dynamic> payload;
-  final Duration timeout;
-}
-
 class _FakePostman implements SideChannelPostman {
-  final directCalls = <_FakePostmanCall>[];
+  final directCalls = <Map<String, dynamic>>[];
 
   @override
   Future<void> postDirect({
@@ -127,9 +115,7 @@ class _FakePostman implements SideChannelPostman {
     required Map<String, dynamic> payload,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    directCalls.add(
-      _FakePostmanCall(peerId: peerId, payload: payload, timeout: timeout),
-    );
+    directCalls.add(payload);
   }
 
   @override
@@ -388,7 +374,7 @@ void main() {
     expect(manager.retryDelayForTest(peerId), isNotNull,
         reason: 'bring-up would have pinned the peer and cleared the backoff');
     expect(postman.directCalls, hasLength(1));
-    expect(postman.directCalls.single.payload['fileSize'],
+    expect(postman.directCalls.single['fileSize'],
         FileTransferPolicy.chunkThresholdBytes - 1);
   });
 
@@ -455,6 +441,6 @@ void main() {
 
     expect(observed().nudges, 0);
     expect(postman.directCalls, hasLength(1));
-    expect(postman.directCalls.single.payload['type'], 'file');
+    expect(postman.directCalls.single['type'], 'file');
   });
 }

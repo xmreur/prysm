@@ -317,11 +317,12 @@ are forwarded into the container.
     2 MiB **chunked 9.4 s** (1778 kbps, n=3) versus **mono 10.7 s** (1570 kbps, n=3) — parity;
     8 MiB chunked 53.5 s and 122.4 s versus mono 39.2 s and 50.8 s. Pairing 5.7-7.9 s. 0 lost in
     31 messages / 32 MiB.
-    So the window closed most of the gap the older numbers show — 2.4× faster at 2 MiB, 2.1× at
-    8 MiB — and chunked is no longer the obviously wrong choice: it ties one POST at 2 MiB and
-    still loses at 8 MiB. Tor variance dominates single reps (the same 8 MiB chunked transfer ran
-    53 s and 122 s an hour apart), so never conclude from n=1, and re-measure both halves in ONE
-    session before touching either path.
+    So the window closed the 2 MiB gap outright — **2.4×** faster there (9.4 s median n=3 against
+    23.0 s) and chunked now ties one POST. At 8 MiB the two samples are 53.5 s and 122.4 s against
+    112.0 s before: **best case 2.1×, median 88 s ≈ 1.3×, n=2 — inconclusive, and the honest read
+    is that Tor variance is larger than the effect at that size.** Never conclude from n=1, quote
+    the aggregation with every headline, and re-measure both halves in ONE session before touching
+    either path.
     Group attachments are NOT in the harness: `txlab file` drives `ChatService.sendFileMessage` on
     a live `ChatScreen`, and a `GroupChatScreen` gives `NOTFOUND ChatScreen`. Driving
     `GroupChatService.sendFileMessage` by hand shows the group path never chunks (`path=mono`,
@@ -332,11 +333,13 @@ are forwarded into the container.
     envelope`), which no test caught because the test hand-built the envelope the parser expected
     instead of the one `CryptoWire.encryptFile` produces.
 
-19. **After the receiver restarts, the first send costs 20-50× the warm one — and `path=chunked`
+19. **After the receiver restarts, the first text costs 24-68× the warm one — and `path=chunked`
     can be a lie.** Measured 1:1 Linux↔Linux, sending to a peer that had just restarted: first
-    text **18.2 / 20.9 / 39.1 / 51.1 s** (n=4) against 0.75 s warm; first 200 KiB 11.4 s against
-    1.8-2.7 s. The sender first burns two 8 s `wsIfConnected` timeouts on the dead link, then
-    rebuilds the circuit. Worse, once: the sender logged `WS ready peer=…` and opened a chunked
+    text **18.2 / 20.9 / 39.1 / 51.1 s** (n=4, median 30 s) against 0.75 s warm, i.e. 24-68×
+    per sample; the first 200 KiB attachment 11.4 s against 1.8-2.7 s warm, ~4-6×, a different
+    multiplier and reported separately on purpose. The sender first burns two 8 s
+    `wsIfConnected` timeouts on the dead link, then rebuilds the circuit. Worse, once: the sender
+    logged `WS ready peer=…` and opened a chunked
     transfer while the receiver's log shows NO `handshake complete` until 3.5 minutes later — the
     begin ack could not arrive, the transfer died on its 30 s timeout, and HTTP delivered the
     2 MiB at **220 s**. `txlab` used to print `path=chunked` for that rep because it keyed off the

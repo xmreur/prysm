@@ -306,10 +306,11 @@ are forwarded into the container.
     ~0.3 s on the WS path is the ack being logged after delivery, and the sender's `send ok` can
     land after the receiver's bubble — read it with a bounded poll, not a single read, or the rep
     reports no send side at all.
-    Baseline A, before the 8-chunk window (#152), 1:1 Linux↔Linux, warm WS link: 997-char body recv
-    **0.68 s** / render 0.80 s; 200 KiB attachment recv 2.1-3.4 s; 2 MiB monolithic 13.4 s
-    (1255 kbps) versus **23.0 s** (729 kbps) chunked; 8 MiB monolithic 45.9 s (1462 kbps) versus
-    **112.0 s** (599 kbps) chunked, 33 chunks. Contact add 5.5 s each way. 0 lost in 16 messages.
+    Baseline A, before the 8-chunk window (#152), 1:1 Linux↔Linux, warm WS link — single samples,
+    n unrecorded per figure: 997-char body recv **0.68 s** / render 0.80 s; 200 KiB attachment recv
+    2.1-3.4 s; 2 MiB monolithic 13.4 s (1255 kbps) versus **23.0 s** (729 kbps) chunked; 8 MiB
+    monolithic 45.9 s (1462 kbps) versus **112.0 s** (599 kbps) chunked, 33 chunks. Contact add
+    5.5 s each way. 0 lost in 16 messages.
     Baseline B, 2026-08-14, same rig WITH the window merged, chunked-vs-mono measured in one
     session by returning `false` from `shouldUseChunkedTransfer` in the staged copy for the mono
     half: short text recv median **0.75 s** / render 1.09 s (n=6); 975-char body recv 0.63 s
@@ -326,7 +327,7 @@ are forwarded into the container.
     Group attachments are NOT in the harness: `txlab file` drives `ChatService.sendFileMessage` on
     a live `ChatScreen`, and a `GroupChatScreen` gives `NOTFOUND ChatScreen`. Driving
     `GroupChatService.sendFileMessage` by hand shows the group path never chunks (`path=mono`,
-    2 MiB in 10.2 s and 25.2 s) — it fans one monolithic POST out per member.
+    2 MiB in 10.2 s and 25.2 s, n=2) — it fans one monolithic POST out per member.
     Do not "optimise" an attachment path on either number alone, and do not trust a code reading
     over a measurement — the campaign that produced these numbers is also what found that chunked
     transfers had been failing outright since 2026-08-04 (`FormatException: Invalid file
@@ -336,7 +337,7 @@ are forwarded into the container.
 19. **After the receiver restarts, the first text costs 24-68× the warm one — and `path=chunked`
     can be a lie.** Measured 1:1 Linux↔Linux, sending to a peer that had just restarted: first
     text **18.2 / 20.9 / 39.1 / 51.1 s** (n=4, median 30 s) against 0.75 s warm, i.e. 24-68×
-    per sample; the first 200 KiB attachment 11.4 s against 1.8-2.7 s warm, ~4-6×, a different
+    per sample; the first 200 KiB attachment 11.4 s (n=1) against 1.8-2.7 s warm, ~4-6×, a different
     multiplier and reported separately on purpose. The sender first burns two 8 s
     `wsIfConnected` timeouts on the dead link, then rebuilds the circuit. Worse, once: the sender
     logged `WS ready peer=…` and opened a chunked

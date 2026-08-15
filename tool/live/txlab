@@ -680,6 +680,18 @@ def cmd_file(args) -> int:
                 chunks, ciphertext = parsed
             if done_c is not None:
                 send_ts = done_c[0]
+            # A `begin transfer=` line does NOT mean the chunked path DELIVERED:
+            # the transfer can die on an ack timeout and ChatService then falls
+            # back to one monolithic POST, which is what the receiver actually
+            # got. Labelling that rep `chunked` reports the intent instead of
+            # the transport and makes a 220 s HTTP delivery look like a slow
+            # chunked one — observed on a cold link after the peer restarted.
+            fell_back = newest_match(args.frm, r"falling back to HTTP send",
+                                     begin[0])
+            if fell_back is not None:
+                kind = "chunked->http"
+                if done_m is not None:
+                    send_ts = done_m[0]
         elif done_m is not None:
             send_ts = done_m[0]
         send = None if send_ts is None else send_ts - t0

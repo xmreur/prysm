@@ -306,17 +306,55 @@ are forwarded into the container.
     ~0.3 s on the WS path is the ack being logged after delivery, and the sender's `send ok` can
     land after the receiver's bubble — read it with a bounded poll, not a single read, or the rep
     reports no send side at all.
-    Baseline, 1:1 Linux↔Linux, warm WS link: 997-char body recv **0.68 s** / render 0.80 s;
-    200 KiB attachment recv 2.1-3.4 s; 2 MiB monolithic 13.4 s (1255 kbps) versus **23.0 s**
-    (729 kbps) chunked; 8 MiB monolithic 45.9 s (1462 kbps) versus **112.0 s** (599 kbps) chunked,
-    33 chunks. Contact add 5.5 s each way. 0 lost in 16 messages / 11.4 MiB.
-    That comparison is the point: the chunked path waits for an ack per 256 KiB chunk, so it is
-    **1.7-2.4× slower than one POST** over Tor even though it avoids the ~33% base64 inflation.
+    Baseline A, before the 8-chunk window (#152), 1:1 Linux↔Linux, warm WS link — single samples,
+    n unrecorded per figure: 997-char body recv **0.68 s** / render 0.80 s; 200 KiB attachment recv
+    2.1-3.4 s; 2 MiB monolithic 13.4 s (1255 kbps) versus **23.0 s** (729 kbps) chunked; 8 MiB
+    monolithic 45.9 s (1462 kbps) versus **112.0 s** (599 kbps) chunked, 33 chunks. Contact add
+    5.5 s each way. 0 lost in 16 messages.
+    Baseline B, 2026-08-14, same rig WITH the window merged, chunked-vs-mono measured in one
+    session by returning `false` from `shouldUseChunkedTransfer` in the staged copy for the mono
+    half: short text recv median **0.75 s** / render 1.09 s (n=6); 975-char body recv 0.63 s
+    (n=3 each way); group text recv median **0.58 s** (n=4); 200 KiB mono recv 1.8-2.7 s;
+    2 MiB **chunked 9.4 s** (1778 kbps, n=3) versus **mono 10.7 s** (1570 kbps, n=3) — parity;
+    8 MiB chunked 53.5 s and 122.4 s versus mono 39.2 s and 50.8 s. Pairing 5.7-7.9 s. 0 lost in
+    31 messages / 32 MiB.
+    So the window closed the 2 MiB gap outright — **2.4×** faster there (9.4 s median n=3 against
+    23.0 s) and chunked now ties one POST. At 8 MiB the two samples are 53.5 s and 122.4 s against
+    112.0 s before: **best case 2.1×, median 88 s ≈ 1.3×, n=2 — inconclusive, and the honest read
+    is that Tor variance is larger than the effect at that size.** Never conclude from n=1, quote
+    the aggregation with every headline, and re-measure both halves in ONE session before touching
+    either path.
+    Group attachments are NOT in the harness: `txlab file` drives `ChatService.sendFileMessage` on
+    a live `ChatScreen`, and a `GroupChatScreen` gives `NOTFOUND ChatScreen`. Driving
+    `GroupChatService.sendFileMessage` by hand shows the group path never chunks (`path=mono`,
+    2 MiB in 10.2 s and 25.2 s, n=2) — it fans one monolithic POST out per member.
     Do not "optimise" an attachment path on either number alone, and do not trust a code reading
     over a measurement — the campaign that produced these numbers is also what found that chunked
     transfers had been failing outright since 2026-08-04 (`FormatException: Invalid file
     envelope`), which no test caught because the test hand-built the envelope the parser expected
     instead of the one `CryptoWire.encryptFile` produces.
+
+19. **After the receiver restarts, the first text costs 24-68× the warm one — and `path=chunked`
+    can be a lie.** Measured 1:1 Linux↔Linux, sending to a peer that had just restarted: first
+    text **18.2 / 20.9 / 39.1 / 51.1 s** (n=4, median 30 s) against 0.75 s warm, i.e. 24-68×
+    per sample; the first 200 KiB attachment 11.4 s (n=1) against 1.8-2.7 s warm, ~4-6×, a different
+    multiplier and reported separately on purpose. The sender first burns two 8 s
+    `wsIfConnected` timeouts on the dead link, then rebuilds the circuit. Worse, once: the sender
+    logged `WS ready peer=…` and opened a chunked
+    transfer while the receiver's log shows NO `handshake complete` until 3.5 minutes later — the
+    begin ack could not arrive, the transfer died on its 30 s timeout, and HTTP delivered the
+    2 MiB at **220 s**. `txlab` used to print `path=chunked` for that rep because it keyed off the
+    `begin transfer=` line alone; it now prints **`chunked->http`** when the sender logs
+    `falling back to HTTP send` after the begin (verified by patching `ackTimeout` to 1 ms in the
+    staged copy and reproducing the label). Read that label before believing any attachment number.
+    Two lab hazards from the same campaign: `prysmlab restart --sync` twice left peer `a` wedged on
+    `UnlockScreen` with `Zone error: Build scheduled during frame` — every PIN tap ignored, and a
+    plain `prysmlab restart` recovered it; and once, over ~18 minutes, a receiver's open chat pane
+    showed nothing newer than the moment it opened while 7 messages arrived, all of them stored
+    with `status=received` and returned by the pane's own `getMessagesBetweenBatchWithId` query
+    (an app restart made them appear). NOT reproduced in three deliberate attempts afterwards, so
+    treat it as an open sighting, not a known bug — and check the tree, not the log, before
+    trusting a render number.
 
 ## Worked example
 

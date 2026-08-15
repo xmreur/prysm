@@ -63,6 +63,20 @@ const Set<String> disappearingTimerTypes = {
   disappearingTimerType,
 };
 
+/// Every type whose payload legitimately carries a `groupId`. Inbound traffic
+/// that pairs a `groupId` with any other type is forging group scope, which
+/// would otherwise skip the direct-message authentication and the
+/// unknown-sender gate — both of which key off `groupId == null`.
+const Set<String> groupScopedTypes = {
+  ...groupControlTypes,
+  ...groupMessageTypes,
+  groupHistoryRelayType,
+  groupReactionType,
+  groupMessageModifyType,
+  groupReadReceiptType,
+  groupReadWaterlineType,
+};
+
 bool isGroupControlType(String type) => groupControlTypes.contains(type);
 bool isGroupMessageType(String type) => groupMessageTypes.contains(type);
 bool isReactionType(String type) => reactionTypes.contains(type);
@@ -70,6 +84,7 @@ bool isMessageModifyType(String type) => messageModifyTypes.contains(type);
 bool isReadReceiptType(String type) => readReceiptTypes.contains(type);
 bool isDisappearingTimerType(String type) =>
     disappearingTimerTypes.contains(type);
+bool isGroupScopedType(String type) => groupScopedTypes.contains(type);
 
 const Set<String> directMessageTypes = {
   'text',

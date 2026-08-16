@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -155,6 +156,39 @@ class _GatedAckLink extends _AckLinkBase {
         return;
       }
     }
+  }
+}
+
+/// A link that reports connected but never acks the begin: the sender's
+/// readiness gate is satisfied while the receiver never accepts the transfer,
+/// exactly the cold-restart case from the field report. The begin request
+/// times out; the sender must tear the link down and re-dial.
+class _StaleBeginLink extends _AckLinkBase {
+  _StaleBeginLink(super.peerOnion);
+
+  var closed = false;
+
+  @override
+  Future<Map<String, dynamic>> request(
+    String op, {
+    Map<String, dynamic>? payload,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    sentOps.add(op);
+    sentPayloads.add(payload);
+    if (op == 'file_transfer_begin') {
+      await Completer<Map<String, dynamic>>().future.timeout(timeout);
+    }
+    return {'ok': true};
+  }
+
+  @override
+  Future<void> sendBytes(List<int> bytes) async {}
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await super.close();
   }
 }
 
@@ -843,5 +877,105 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
     started.manager.dispose();
+  });
+
+  test('begin timeout on an allegedly-ready link rebuilds and retries',
+      () async {
+    FileTransferProgress.resetForTest();
+
+    final torDataDir = Directory.systemTemp.createTempSync('fts_rebuild');
+    addTearDown(() => torDataDir.deleteSync(recursive: true));
+    Directory('${torDataDir.path}/hidden_service').createSync(recursive: true);
+    File('${torDataDir.path}/hidden_service/hostname')
+        .writeAsStringSync('${'z' * 56}.onion');
+
+    final manager = WsConnectionManager(
+      TorManager(
+        torPath: '/bin/false',
+        dataDir: torDataDir.path,
+        controlPassword: 'test-password',
+      ),
+    );
+    // Lexically smaller than the fake local onion, so the manager waits for
+    // an inbound link instead of dialing out over SOCKS.
+    const peer =
+        '0000000000000000000000000000000000000000000000000000000000000000.onion';
+
+    final stale = _StaleBeginLink(peer);
+    manager.registerLinkForTest(peer, stale);
+
+    _ChunkAckLink? fresh;
+    manager.nudgePeerForInbound = (peerOnion) async {
+      await Future<void>.delayed(Duration.zero);
+      fresh = _ChunkAckLink(peerOnion);
+      manager.registerLinkForTest(peerOnion, fresh!, outbound: true);
+    };
+
+    final ciphertext =
+        Uint8List.fromList(List<int>.generate(300000, (i) => i % 251));
+    final sender = FileTransferSender(
+      manager,
+      beginAckTimeout: const Duration(milliseconds: 50),
+    );
+    final ok = await sender.send(
+      peerOnion: peer,
+      messageId: 'msg-rebuild-1',
+      senderId: 'me.onion',
+      receiverId: peer,
+      type: 'file',
+      fileName: 'rebuild.bin',
+      fileSize: ciphertext.length,
+      peerPayload: _envelopePayload(ciphertext),
+    );
+
+    expect(ok, isTrue);
+    expect(stale.closed, isTrue, reason: 'stale link must be torn down');
+    expect(fresh, isNotNull);
+    expect(fresh!.sentOps, contains('file_transfer_begin'),
+        reason: 'fresh link must carry the retried begin');
+    expect(fresh!.sentOps, contains('file_transfer_end'));
+
+    manager.dispose();
+  });
+
+  test('begin timeout with no fresh link fails fast, not after 30 s', () async {
+    FileTransferProgress.resetForTest();
+
+    final manager = WsConnectionManager(
+      TorManager(
+        torPath: '/bin/false',
+        dataDir: '/tmp/file-transfer-sender',
+        controlPassword: 'test-password',
+      ),
+    );
+    const peer = 'peer.onion';
+    final stale = _StaleBeginLink(peer);
+    manager.registerLinkForTest(peer, stale);
+
+    final ciphertext =
+        Uint8List.fromList(List<int>.generate(300000, (i) => i % 251));
+    final sender = FileTransferSender(
+      manager,
+      beginAckTimeout: const Duration(milliseconds: 50),
+    );
+    final stopwatch = Stopwatch()..start();
+    final ok = await sender.send(
+      peerOnion: peer,
+      messageId: 'msg-rebuild-fail',
+      senderId: 'me.onion',
+      receiverId: peer,
+      type: 'file',
+      fileName: 'rebuild-fail.bin',
+      fileSize: ciphertext.length,
+      peerPayload: _envelopePayload(ciphertext),
+    );
+    stopwatch.stop();
+
+    expect(ok, isFalse);
+    expect(stale.closed, isTrue, reason: 'stale link must be torn down');
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 10)),
+        reason: 'must not wait out the old 30 s begin timeout');
+
+    manager.dispose();
   });
 }

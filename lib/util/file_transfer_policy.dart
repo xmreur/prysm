@@ -24,6 +24,16 @@ class FileTransferPolicy {
   /// Per-chunk send retries before failing the transfer.
   static const int maxChunkRetries = 3;
 
+  /// How long the sender waits for the file_transfer_begin ack on an
+  /// allegedly-ready link before treating the link as stale. Healthy ack
+  /// times are well under a second, so this never bites a live link.
+  static const Duration beginAckTimeout = Duration(seconds: 2);
+
+  /// Fresh-link rebuilds after a begin ack timeout: each rebuild tears the
+  /// stale link down and re-dials before the transfer gives up to the HTTP
+  /// fallback. Bounded so a genuinely dead receiver costs seconds, not 30.
+  static const int beginRetries = 2;
+
   static bool isChunkCandidate(int fileSizeBytes) =>
       fileSizeBytes >= chunkThresholdBytes;
 

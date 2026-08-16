@@ -129,4 +129,140 @@ void main() {
     );
     expect(endResult['error'], 'Incomplete transfer');
   });
+
+  test('duplicate begin with matching metadata returns the existing ack',
+      () async {
+    final handler = FileTransferHandler.instance;
+    const transferId = '550e8400-e29b-41d4-a716-446655440002';
+    final ciphertext =
+        Uint8List.fromList(List<int>.generate(300, (i) => i % 251));
+    final chunkSize = FileTransferPolicy.chunkSizeBytes;
+    final totalChunks = FileTransferPolicy.chunkCountForSize(ciphertext.length);
+
+    Map<String, dynamic> beginPayload() => {
+          'transferId': transferId,
+          'messageId': 'msg-dupe',
+          'senderId': 'peer.onion',
+          'receiverId': 'local.onion',
+          'type': 'file',
+          'fileName': 'test.bin',
+          'fileSize': 300,
+          'timestamp': 1,
+          'wrappedKey': {'ephemeralPub': 'abc'},
+          'nonce': base64Encode(Uint8List(12)),
+          'ciphertextSize': ciphertext.length,
+          'totalChunks': totalChunks,
+          'chunkSize': chunkSize,
+        };
+
+    final first = await handler.handleBegin(
+      beginPayload(),
+      peerOnion: 'peer.onion',
+      localOnion: 'local.onion',
+    );
+    expect(first['ok'], isTrue);
+
+    // A sender retries the begin on a rebuilt link after its ack timed out;
+    // the receiver already holds this transfer and must answer idempotently.
+    final dupe = await handler.handleBegin(
+      beginPayload(),
+      peerOnion: 'peer.onion',
+      localOnion: 'local.onion',
+    );
+    expect(dupe['ok'], isTrue, reason: 'matching duplicate must be idempotent');
+    expect(dupe['transferId'], transferId);
+
+    // The retried begin must not have clobbered the session: chunks still
+    // reassemble into the original message.
+    for (var i = 0; i < totalChunks; i++) {
+      final offset = i * chunkSize;
+      final end = offset + chunkSize > ciphertext.length
+          ? ciphertext.length
+          : offset + chunkSize;
+      await handler.handleChunk(
+        FileTransferChunkFrame(
+          transferId: transferId,
+          chunkIndex: i,
+          payload: ciphertext.sublist(offset, end),
+        ),
+        peerOnion: 'peer.onion',
+        sendAck: (_, {payload}) async {},
+      );
+    }
+
+    final testRouter = _TestRouter();
+    handler.routerOverride = testRouter;
+    final endResult = await handler.handleEnd(
+      {'transferId': transferId},
+      peerOnion: 'peer.onion',
+    );
+    expect(endResult['ok'], isTrue);
+    expect(testRouter.lastProcessed?['id'], 'msg-dupe');
+  });
+
+  test('conflicting duplicate begin is rejected without overwriting',
+      () async {
+    final handler = FileTransferHandler.instance;
+    const transferId = '550e8400-e29b-41d4-a716-446655440003';
+    final ciphertext =
+        Uint8List.fromList(List<int>.generate(300, (i) => i % 251));
+    final chunkSize = FileTransferPolicy.chunkSizeBytes;
+    final totalChunks = FileTransferPolicy.chunkCountForSize(ciphertext.length);
+
+    Map<String, dynamic> beginPayload(String messageId) => {
+          'transferId': transferId,
+          'messageId': messageId,
+          'senderId': 'peer.onion',
+          'receiverId': 'local.onion',
+          'type': 'file',
+          'fileName': 'test.bin',
+          'fileSize': 300,
+          'timestamp': 1,
+          'wrappedKey': {'ephemeralPub': 'abc'},
+          'nonce': base64Encode(Uint8List(12)),
+          'ciphertextSize': ciphertext.length,
+          'totalChunks': totalChunks,
+          'chunkSize': chunkSize,
+        };
+
+    final first = await handler.handleBegin(
+      beginPayload('msg-orig'),
+      peerOnion: 'peer.onion',
+      localOnion: 'local.onion',
+    );
+    expect(first['ok'], isTrue);
+
+    final conflict = await handler.handleBegin(
+      beginPayload('msg-other'),
+      peerOnion: 'peer.onion',
+      localOnion: 'local.onion',
+    );
+    expect(conflict['error'], 'Transfer already exists');
+
+    // The original session must survive the rejected duplicate.
+    for (var i = 0; i < totalChunks; i++) {
+      final offset = i * chunkSize;
+      final end = offset + chunkSize > ciphertext.length
+          ? ciphertext.length
+          : offset + chunkSize;
+      await handler.handleChunk(
+        FileTransferChunkFrame(
+          transferId: transferId,
+          chunkIndex: i,
+          payload: ciphertext.sublist(offset, end),
+        ),
+        peerOnion: 'peer.onion',
+        sendAck: (_, {payload}) async {},
+      );
+    }
+
+    final testRouter = _TestRouter();
+    handler.routerOverride = testRouter;
+    final endResult = await handler.handleEnd(
+      {'transferId': transferId},
+      peerOnion: 'peer.onion',
+    );
+    expect(endResult['ok'], isTrue);
+    expect(testRouter.lastProcessed?['id'], 'msg-orig');
+  });
 }

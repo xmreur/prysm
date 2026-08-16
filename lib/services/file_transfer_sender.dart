@@ -106,15 +106,20 @@ class FileTransferSender {
       // so tear it down and re-dial before giving up to the HTTP fallback.
       // Begin/end acks are request responses, so the push subscription only
       // needs to be live for chunk acks and is attached after begin succeeds.
+      final wireTimestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
       for (var attempt = 0; ; attempt++) {
         if (attempt > 0) {
           Logging.debug(
             'begin not acked, rebuilding link peer=$peerOnion',
             'FileTransferSender',
           );
-          await _manager.disconnectPeer(peerOnion);
+          await _manager
+              .disconnectPeer(peerOnion)
+              .then((_) => _manager.prepareForFileTransfer(peerOnion))
+              .timeout(beginAckTimeout);
+        } else {
+          await _manager.prepareForFileTransfer(peerOnion);
         }
-        await _manager.prepareForFileTransfer(peerOnion);
         Logging.debug('WS ready peer=$peerOnion', 'FileTransferSender');
 
         Logging.debug(
@@ -136,7 +141,7 @@ class FileTransferSender {
               'type': type,
               'fileName': fileName,
               'fileSize': fileSize,
-              'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
+              'timestamp': wireTimestamp,
               'wrappedKey': parts.wrappedKey,
               'nonce': base64Encode(parts.nonce),
               'scheme': parts.scheme,

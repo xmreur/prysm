@@ -215,11 +215,30 @@ class FileTransferHandler {
     // conflicting reuse of the same transferId is rejected outright.
     final existing = _active[transferId];
     if (existing != null) {
+      // An idempotent ack is only granted when the retried begin is an exact
+      // match for every immutable begin field as stored (nonce/wrapped key
+      // canonicalized, scheme resolved the same way the session stores it).
+      // A retry that differs in any of them is a conflicting reuse and must
+      // not be acknowledged or allowed to overwrite the session.
+      final resolvedScheme =
+          payload['scheme'] == CryptoConstants.schemeFileSigned1
+              ? CryptoConstants.schemeFileSigned1
+              : CryptoConstants.schemeFileAead1;
       final sameTransfer = existing.messageId == payload['messageId'] &&
           existing.senderId == payload['senderId'] &&
           existing.receiverId == payload['receiverId'] &&
+          existing.type == payload['type'] &&
+          existing.fileName == payload['fileName'] &&
           existing.fileSize == payload['fileSize'] &&
-          existing.totalChunks == payload['totalChunks'];
+          existing.timestamp == payload['timestamp'] &&
+          existing.ciphertextSize == payload['ciphertextSize'] &&
+          existing.totalChunks == payload['totalChunks'] &&
+          existing.chunkSize == payload['chunkSize'] &&
+          existing.scheme == resolvedScheme &&
+          base64Encode(existing.nonce) == payload['nonce'] &&
+          mapEquals(existing.wrappedKey, payload['wrappedKey']) &&
+          existing.replyTo == payload['replyTo'] &&
+          existing.viewOnce == (payload['viewOnce'] == true);
       if (sameTransfer) {
         Logging.debug(
           'begin duplicate transfer=$transferId message=${payload['messageId']} '

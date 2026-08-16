@@ -206,6 +206,55 @@ class FileTransferHandler {
       return error;
     }
 
+    final transferId = payload['transferId'] as String;
+
+    // A sender retries the begin on a rebuilt link after its first ack timed
+    // out; the receiver may already hold this transfer. A retried begin for
+    // the same transfer must be answered with the existing acknowledgement
+    // (idempotent) and must never clobber the in-progress session, while a
+    // conflicting reuse of the same transferId is rejected outright.
+    final existing = _active[transferId];
+    if (existing != null) {
+      // An idempotent ack is only granted when the retried begin is an exact
+      // match for every immutable begin field as stored (nonce/wrapped key
+      // canonicalized, scheme resolved the same way the session stores it).
+      // A retry that differs in any of them is a conflicting reuse and must
+      // not be acknowledged or allowed to overwrite the session.
+      final resolvedScheme =
+          payload['scheme'] == CryptoConstants.schemeFileSigned1
+              ? CryptoConstants.schemeFileSigned1
+              : CryptoConstants.schemeFileAead1;
+      final sameTransfer = existing.messageId == payload['messageId'] &&
+          existing.senderId == payload['senderId'] &&
+          existing.receiverId == payload['receiverId'] &&
+          existing.type == payload['type'] &&
+          existing.fileName == payload['fileName'] &&
+          existing.fileSize == payload['fileSize'] &&
+          existing.timestamp == payload['timestamp'] &&
+          existing.ciphertextSize == payload['ciphertextSize'] &&
+          existing.totalChunks == payload['totalChunks'] &&
+          existing.chunkSize == payload['chunkSize'] &&
+          existing.scheme == resolvedScheme &&
+          base64Encode(existing.nonce) == payload['nonce'] &&
+          mapEquals(existing.wrappedKey, payload['wrappedKey']) &&
+          existing.replyTo == payload['replyTo'] &&
+          existing.viewOnce == (payload['viewOnce'] == true);
+      if (sameTransfer) {
+        Logging.debug(
+          'begin duplicate transfer=$transferId message=${payload['messageId']} '
+          'from $peerOnion returning existing ack',
+          'FileTransferHandler',
+        );
+        return {'ok': true, 'transferId': transferId};
+      }
+      Logging.error(
+        'begin conflicting duplicate transfer=$transferId from '
+        '${Logging.redactOnion(peerOnion)} rejected',
+        'FileTransferHandler',
+      );
+      return {'error': 'Transfer already exists'};
+    }
+
     if (_active.length >= InboundLimits.maxConcurrentInboundTransfers) {
       Logging.error(
         'begin rejected from ${Logging.redactOnion(peerOnion)}: '
@@ -215,7 +264,6 @@ class FileTransferHandler {
       return {'error': 'Too many transfers'};
     }
 
-    final transferId = payload['transferId'] as String;
     final nonce = base64Decode(payload['nonce'] as String);
 
     // Peers predating the scheme field send no scheme; anything that is not a

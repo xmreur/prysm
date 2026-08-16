@@ -47,14 +47,21 @@ FileTransferParts parseFileTransferParts(String peerPayload) {
 
 /// Sends encrypted file ciphertext in WebSocket chunks with per-chunk acks.
 class FileTransferSender {
-  FileTransferSender(this._manager,
-      {this.ackTimeout = const Duration(seconds: 60)});
+  FileTransferSender(
+    this._manager, {
+    this.ackTimeout = const Duration(seconds: 60),
+    this.beginAckTimeout = FileTransferPolicy.beginAckTimeout,
+  });
 
   final WsConnectionManager _manager;
 
   /// Per-chunk ack wait before a retry. Injectable so tests can drive the
   /// retry/abort paths without a real 60 s delay; production keeps 60 s.
   final Duration ackTimeout;
+
+  /// Wait for the begin ack on an allegedly-ready link before rebuilding it.
+  /// Injectable so tests can drive the stale-link path without the real 2 s.
+  final Duration beginAckTimeout;
 
   Future<bool> send({
     required String peerOnion,
@@ -93,93 +100,116 @@ class FileTransferSender {
       pendingChunkAcks.remove(key)?.complete();
     }
 
-    controlSub = _manager.pushFramesFor(peerOnion).listen((frame) {
-      final op = frame['op'];
-      if (!WsFrame.isFileTransferOp(op is String ? op : '')) return;
+    try {
+      // The begin ack is the proof that the receiver actually accepted the
+      // link: a timeout on an allegedly-ready link means the link is stale,
+      // so tear it down and re-dial before giving up to the HTTP fallback.
+      // Begin/end acks are request responses, so the push subscription only
+      // needs to be live for chunk acks and is attached after begin succeeds.
+      final wireTimestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
+      for (var attempt = 0; ; attempt++) {
+        if (attempt > 0) {
+          Logging.debug(
+            'begin not acked, rebuilding link peer=$peerOnion',
+            'FileTransferSender',
+          );
+          await _manager
+              .disconnectPeer(peerOnion)
+              .then((_) => _manager.prepareForFileTransfer(peerOnion))
+              .timeout(beginAckTimeout);
+        } else {
+          await _manager.prepareForFileTransfer(peerOnion);
+        }
+        Logging.debug('WS ready peer=$peerOnion', 'FileTransferSender');
 
-      final payload = frame['payload'];
-      if (payload is! Map<String, dynamic>) {
         Logging.debug(
-          'ignoring file-transfer frame op=$op without map payload',
+          'begin transfer=$transferId message=$messageId chunks=$totalChunks '
+          'ciphertext=${ciphertext.length} peer=$peerOnion',
           'FileTransferSender',
         );
-        return;
+
+        final Map<String, dynamic> beginResult;
+        try {
+          beginResult = await _manager.request(
+            peerOnion,
+            'file_transfer_begin',
+            payload: {
+              'transferId': transferId,
+              'messageId': messageId,
+              'senderId': senderId,
+              'receiverId': receiverId,
+              'type': type,
+              'fileName': fileName,
+              'fileSize': fileSize,
+              'timestamp': wireTimestamp,
+              'wrappedKey': parts.wrappedKey,
+              'nonce': base64Encode(parts.nonce),
+              'scheme': parts.scheme,
+              'ciphertextSize': ciphertext.length,
+              'totalChunks': totalChunks,
+              'chunkSize': chunkSize,
+              'replyTo': ?replyToId,
+              'viewOnce': viewOnce,
+              'expiresAt': ?expiresAt,
+            },
+            bypassQueue: true,
+            timeout: beginAckTimeout,
+          );
+        } on TimeoutException {
+          if (attempt >= FileTransferPolicy.beginRetries) rethrow;
+          continue;
+        }
+
+        if (beginResult.containsKey('error')) {
+          throw StateError(
+            beginResult['error']?.toString() ?? 'begin rejected',
+          );
+        }
+
+        Logging.debug(
+          'begin ack transfer=$transferId result=$beginResult',
+          'FileTransferSender',
+        );
+        break;
       }
 
-      if (op == 'file_transfer_chunk_ack') {
-        final tid = payload['transferId'];
-        final index = payload['chunkIndex'];
-        if (tid is! String || index is! int) {
+      controlSub = _manager.pushFramesFor(peerOnion).listen((frame) {
+        final op = frame['op'];
+        if (!WsFrame.isFileTransferOp(op is String ? op : '')) return;
+
+        final payload = frame['payload'];
+        if (payload is! Map<String, dynamic>) {
           Logging.debug(
-            'ignoring chunk_ack with bad fields tid=$tid index=$index',
+            'ignoring file-transfer frame op=$op without map payload',
             'FileTransferSender',
           );
           return;
         }
-        if (tid != transferId) return;
-        Logging.debug(
-          'chunk_ack ${index + 1}/$totalChunks transfer=$transferId',
-          'FileTransferSender',
-        );
-        completeChunkAck('$tid:$index');
-      } else if (op == 'file_transfer_begin_ack' || op == 'file_transfer_end_ack') {
-        Logging.debug(
-          'push $op transfer=${payload['transferId']} payload=$payload',
-          'FileTransferSender',
-        );
-      }
-    });
 
-    try {
-      if (!_manager.isConnected(peerOnion)) {
-        await _manager.prepareForFileTransfer(peerOnion);
-      } else {
-        _manager.pinPeer(peerOnion);
-      }
-      Logging.debug('WS ready peer=$peerOnion', 'FileTransferSender');
-
-      Logging.debug(
-        'begin transfer=$transferId message=$messageId chunks=$totalChunks '
-        'ciphertext=${ciphertext.length} peer=$peerOnion',
-        'FileTransferSender',
-      );
-
-      final beginResult = await _manager.request(
-        peerOnion,
-        'file_transfer_begin',
-        payload: {
-          'transferId': transferId,
-          'messageId': messageId,
-          'senderId': senderId,
-          'receiverId': receiverId,
-          'type': type,
-          'fileName': fileName,
-          'fileSize': fileSize,
-          'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
-          'wrappedKey': parts.wrappedKey,
-          'nonce': base64Encode(parts.nonce),
-          'scheme': parts.scheme,
-          'ciphertextSize': ciphertext.length,
-          'totalChunks': totalChunks,
-          'chunkSize': chunkSize,
-          'replyTo': ?replyToId,
-          'viewOnce': viewOnce,
-          'expiresAt': ?expiresAt,
-        },
-        bypassQueue: true,
-        timeout: const Duration(seconds: 30),
-      );
-
-      if (beginResult.containsKey('error')) {
-        throw StateError(
-          beginResult['error']?.toString() ?? 'begin rejected',
-        );
-      }
-
-      Logging.debug(
-        'begin ack transfer=$transferId result=$beginResult',
-        'FileTransferSender',
-      );
+        if (op == 'file_transfer_chunk_ack') {
+          final tid = payload['transferId'];
+          final index = payload['chunkIndex'];
+          if (tid is! String || index is! int) {
+            Logging.debug(
+              'ignoring chunk_ack with bad fields tid=$tid index=$index',
+              'FileTransferSender',
+            );
+            return;
+          }
+          if (tid != transferId) return;
+          Logging.debug(
+            'chunk_ack ${index + 1}/$totalChunks transfer=$transferId',
+            'FileTransferSender',
+          );
+          completeChunkAck('$tid:$index');
+        } else if (op == 'file_transfer_begin_ack' ||
+            op == 'file_transfer_end_ack') {
+          Logging.debug(
+            'push $op transfer=${payload['transferId']} payload=$payload',
+            'FileTransferSender',
+          );
+        }
+      });
 
       var ackedChunks = 0;
       var nextIndex = 0;
@@ -330,7 +360,7 @@ class FileTransferSender {
       // Stop any chunk still looping through retries from sending more
       // frames once the ack subscription is gone.
       abandoned = true;
-      await controlSub.cancel();
+      await controlSub?.cancel();
       for (final completer in pendingChunkAcks.values) {
         if (!completer.isCompleted) {
           completer.completeError(StateError('transfer cancelled'));

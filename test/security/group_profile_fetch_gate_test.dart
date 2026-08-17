@@ -346,6 +346,15 @@ void main() {
       'publicKeyPem': aliceJson,
     });
 
+    // The membership gate only admits group traffic from members of the
+    // addressed group, so the good-path sender must be a member of g1.
+    await dbHelperDb.insert('group_members', {
+      'groupId': 'g1',
+      'memberId': 'alice.onion',
+      'role': 'member',
+      'joinedAt': 0,
+    });
+
     fetched = [];
     router = InboundMessageRouter(
       keyManager: KeyManager.fromIdentity(localIdentity),
@@ -370,9 +379,9 @@ void main() {
 
   group('M2: group-chat profile fetch is gated', () {
     test(
-      'RED: a legacy group-aead envelope from an unknown sender is rejected '
-      'with 400 and never fetches the sender profile (pre-fix: fetch fires '
-      'before the legacy gate)', () async {
+      'RED: a legacy group-aead envelope from a non-member is acked-but-'
+      'dropped and never fetches the sender profile (pre-fix: the fetch '
+      'fired before the legacy gate)', () async {
         final result = await router.handleMessage(
           await _legacyGroupMessage(
             id: 'm1',
@@ -381,8 +390,12 @@ void main() {
           ),
         );
 
-        expect(result.statusCode, 400);
+        // The membership gate drops non-member group traffic first; the
+        // fetch must not fire.
+        expect(result.statusCode, 200);
+        expect(result.jsonBody?['status'], 'received');
         expect(fetched, isEmpty);
+        expect(await messagesDb.query('messages'), isEmpty);
       },
     );
 
@@ -420,6 +433,12 @@ void main() {
           'memberId': 'local.onion',
           'role': 'member',
           'joinedAt': 2000,
+        });
+        await dbHelperDb.insert('group_members', {
+          'groupId': 'g1',
+          'memberId': 'attacker.onion',
+          'role': 'member',
+          'joinedAt': 0,
         });
 
         final result = await router.handleMessage(
@@ -459,10 +478,9 @@ void main() {
     );
 
     test(
-      'RED: a non-parseable (garbage) group envelope from an unknown sender '
-      'is stored but never fetches the sender profile (pre-fix: the '
-      'fail-open gates pass it through and the fetch fires anyway)',
-      () async {
+      'RED: a non-parseable (garbage) group envelope from a non-member is '
+      'acked-but-dropped and never fetches the sender profile (pre-fix: the '
+      'fail-open gates passed it through and stored it)', () async {
         final result = await router.handleMessage({
           'id': 'm1',
           'senderId': 'attacker.onion',
@@ -473,25 +491,22 @@ void main() {
           'timestamp': 1000,
         });
 
-        // Accepted and stored exactly like today: the fetch is the only
-        // thing suppressed for senders whose identity is not in the local
-        // user store.
+        // The membership gate drops non-member group traffic entirely:
+        // nothing is stored, and the fetch must not fire.
         expect(result.statusCode, 200);
         expect(result.jsonBody?['status'], 'received');
         expect(fetched, isEmpty);
 
         final rows = await messagesDb.query('messages');
-        expect(rows, hasLength(1));
-        expect(rows.single['senderId'], 'attacker.onion');
-        expect(rows.single['groupId'], 'g1');
+        expect(rows, isEmpty);
       },
     );
 
     test(
-      'RED: a self-signed sender-key envelope from an unknown sender is '
-      'stored but never fetches the sender profile (pre-fix: the fail-open '
-      'anti-replay gate passes an unresolvable sender through and the fetch '
-      'fires)',
+      'RED: a self-signed sender-key envelope from a non-member is '
+      'acked-but-dropped and never fetches the sender profile (pre-fix: the '
+      'fail-open anti-replay gate passed an unresolvable sender through and '
+      'the fetch fired)',
       () async {
         final attacker = await IdentityKeyPair.generate();
         final result = await router.handleMessage(
@@ -505,14 +520,14 @@ void main() {
           ),
         );
 
+        // The membership gate drops non-member group traffic entirely:
+        // nothing is stored, and the fetch must not fire.
         expect(result.statusCode, 200);
         expect(result.jsonBody?['status'], 'received');
         expect(fetched, isEmpty);
 
         final rows = await messagesDb.query('messages');
-        expect(rows, hasLength(1));
-        expect(rows.single['senderId'], 'attacker.onion');
-        expect(rows.single['groupId'], 'g1');
+        expect(rows, isEmpty);
       },
     );
 

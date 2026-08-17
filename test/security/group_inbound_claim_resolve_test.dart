@@ -380,6 +380,19 @@ void main() {
       'publicKeyPem': jsonEncode(await alice.toPublicJson()),
     });
 
+    // The membership gate only admits group traffic from members of the
+    // addressed group, so the sender under test must be in group_members.
+    await dbHelperDb.insert(
+      'group_members',
+      {
+        'groupId': 'g1',
+        'memberId': 'alice.onion',
+        'role': 'member',
+        'joinedAt': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
     router = InboundMessageRouter(
       keyManager: KeyManager(),
       settings: SettingsService(),

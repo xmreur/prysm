@@ -201,6 +201,20 @@ void main() {
     dbHelperDb = await _openDbHelperDb();
     DBHelper.setDatabaseForTest(dbHelperDb);
 
+    // The membership gate only admits group traffic from members of the
+    // addressed group, so the sender under test must be a member for the
+    // legacy-scheme gate (not the membership gate) to fire.
+    await dbHelperDb.insert(
+      'group_members',
+      {
+        'groupId': 'g1',
+        'memberId': 'alice.onion',
+        'role': 'member',
+        'joinedAt': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
     router = InboundMessageRouter(
       keyManager: KeyManager(),
       settings: SettingsService(),

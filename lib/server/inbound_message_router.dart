@@ -533,6 +533,17 @@ class InboundMessageRouter {
     final receiverId = data['receiverId'] as String;
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
+    final inboundGroupId = data['groupId'] as String?;
+
+    if (inboundGroupId != null &&
+        !await DBHelper.isGroupMember(inboundGroupId, senderId)) {
+      // Group traffic is only accepted from members of the addressed group.
+      // A stranger who guesses a groupId must not be able to plant rows or
+      // trigger notifications (or a users row via ensureUserExist below).
+      // Ack-and-drop — indistinguishable from delivery — so the sender
+      // cannot tell this gate from a real delivery, matching _senderRefused.
+      return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+    }
 
     await DBHelper.ensureUserExist(senderId);
 
@@ -542,7 +553,6 @@ class InboundMessageRouter {
         ? incomingTimestamp
         : timeReceived;
 
-    final inboundGroupId = data['groupId'] as String?;
     final localUserId = local;
     var messageStatus = (data['status'] as String?) ?? 'received';
     if (inboundGroupId != null && localUserId != null) {

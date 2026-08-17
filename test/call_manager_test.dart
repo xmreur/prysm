@@ -34,6 +34,7 @@ void main() {
   late CallSignalingNotifier notifier;
   late CallManager manager;
   late _RecordingForegroundSession foreground;
+  late _RefusingSenderRefused senderRefused;
 
   late IdentityPublicKeys peerKeys;
   late IdentityPublicKeys localKeys;
@@ -78,12 +79,14 @@ void main() {
     CallManager.resetForTest();
     foreground = _RecordingForegroundSession();
     CallForegroundSession.testOverride = foreground;
+    senderRefused = _RefusingSenderRefused();
     manager = CallManager(
       keyManager: keyManager,
       transport: transport,
       keyResolver: keyResolver,
       audioFactory: ({required session, required onSendFrame}) =>
           _FakeCallAudio(onSendFrame: onSendFrame),
+      senderRefused: (peerOnion) => senderRefused.call(peerOnion),
     );
     manager.start();
   });
@@ -351,6 +354,54 @@ void main() {
     },
   );
 
+  test(
+    'incoming offer from a refused unknown sender neither rings nor logs',
+    () async {
+      // Stands in for `refuseUnknownSenders && no users row` so the test DB
+      // stays hermetic (no users table in this suite).
+      senderRefused.value = true;
+
+      final caller = CallSession.createOutbound(
+        callId: 'refused-offer',
+        sessionId: 13,
+        peerOnion: 'local.onion',
+      );
+      notifier.applyInbound('stranger.onion', 'call_offer', {
+        'callId': caller.callId,
+        'sessionId': caller.sessionId,
+        'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
+      });
+
+      await Future<void>.delayed(Duration.zero);
+      expect(senderRefused.callers, ['stranger.onion']);
+      // No ring.
+      expect(manager.snapshot.state, CallState.idle);
+      // No reply that could leak liveness.
+      expect(transport.sentFrames.where((f) => f.op == 'call_end'), isEmpty);
+      // No missed-call log.
+      expect(await CallLogsDb.getLogs(), isEmpty);
+    },
+  );
+
+  test(
+    'offer from a non-refused sender still rings',
+    () async {
+      final caller = CallSession.createOutbound(
+        callId: 'accepted-offer',
+        sessionId: 14,
+        peerOnion: 'local.onion',
+      );
+      notifier.applyInbound('known.onion', 'call_offer', {
+        'callId': caller.callId,
+        'sessionId': caller.sessionId,
+        'wrappedKey': await caller.wrapKeyForPeer(localKeys, peerKeyManager),
+      });
+
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.snapshot.state, CallState.incoming);
+    },
+  );
+
   test('inbound call_offer flood from one sender is rate-limited', () async {
     var incomingTransitions = 0;
     manager.addListener(() {
@@ -535,6 +586,16 @@ class _FakeKeyResolver implements CallKeyResolver {
 
   @override
   Future<IdentityPublicKeys?> resolve(String peerOnion) async => key;
+}
+
+class _RefusingSenderRefused {
+  bool value = false;
+  final callers = <String>[];
+
+  Future<bool> call(String peerOnion) async {
+    callers.add(peerOnion);
+    return value;
+  }
 }
 
 class _FakeCallAudio implements CallAudio {

@@ -2,6 +2,46 @@
 
 ---
 
+## 0.7.0
+
+### Features
+
+- Full-text message search: search your message history via an FTS index, with results kept in sync as messages are deleted, view-once and unresolved blob payloads excluded, and index writes kept off the delivery path
+- Group invite mode: pick how first-contact group invites are handled — hold them in a bounded pending-request store or apply them immediately; held invites can be reviewed, promoted, or rejected from a dedicated requests screen, and a strict mode refuses to auto-apply held invites
+- Refuse unknown senders: opt-in privacy setting to block messages and calls from unknown senders, enforced for group traffic too; forged `groupId` values on non-group types are rejected and group membership is checked for message traffic
+- Media storage manager: disk-usage overview and management of stored media in Settings, with stable media pagination
+- Identity verification: contacts carry a verified fingerprint and verification screens refresh contacts on changes
+- obfs4 support on desktop: compiled Lyrebird executables bundled for the major desktop platforms
+- File transfer: a `beginAckTimeout` recovers stale links, duplicate begin frames are handled robustly, and duplicate begins with differing immutable metadata are rejected
+
+### Performance
+
+- File transfers keep eight chunks in flight instead of one; an abandoned chunk stops sending after the transfer ends
+- FTS upsert cost is independent of history size, and the peer ratchet scheme is read from cache (one shared in-flight fetch per peer)
+- Tor: offline peers no longer degrade healthy ones, and unreachable peers are filtered out before capping the wake-hint list
+
+### Fixes
+
+- Deletes propagate: a peer's delete is never dropped silently, unparseable inbound payloads are rejected instead of answering 500, and delete failures show one toast per selection
+- Group chat: the conversation list refreshes on inbound control messages and timer changes; held invite counters refresh when the strict mode clears them; accept failures are surfaced instead of wedging the requests screen
+- Composer no longer overflows with the keyboard open; PIN keypad is sized to the screen and `onChanged` no longer fires twice
+- Material-free text inputs gain selection handles, a context menu, and a full-input tap target; desktop shortcuts no longer fire while the caret is in a field; the field border repaints on focus change
+- Transport: the WebSocket ack wait is capped, an undialable peer's identity is learned so the link can form, and a peer's response body stays out of the retry classifier
+- Chunked transfers: peers agree on the file envelope scheme so chunked sends can start, and a chunk's ack entry is dropped when its send throws
+- Contacts: `addContact` no longer erases an existing name, and updates merge the existing row instead of nulling nickname and avatar
+
+### Tests
+
+- `prysmlab`: a containerized environment that runs the real app headless, plus a CLI to drive and inspect it; live-app-testing skill and method documented
+- `txlab`: a two-peer transmission measurement harness measuring attachments and both ends of a send
+- Coverage for the WebSocket ack cap, identity recovery, delete outcomes, and UI handle/toolbar geometry
+
+### Platform
+
+- CI pins the Flutter toolchain instead of tracking whatever stable ships
+
+---
+
 ## 0.6.4
 
 ### Features

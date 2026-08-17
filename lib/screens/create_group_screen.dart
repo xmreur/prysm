@@ -18,6 +18,7 @@ import 'package:prysm/ui/core/prysm_checkbox.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class CreateGroupScreen extends StatefulWidget {
   final String userId;
@@ -51,11 +52,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   Future<void> _create() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      showPrysmToast(context, 'Enter a group name');
+      showPrysmToast(context, context.l10n.enterAGroupName);
       return;
     }
     if (_selectedIds.isEmpty) {
-      showPrysmToast(context, 'Select at least one member');
+      showPrysmToast(context, context.l10n.selectAtLeastOneMember);
       return;
     }
 
@@ -116,7 +117,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmPage(
-      title: 'Create Group',
+      title: context.l10n.createGroup,
       leading: PrysmIconButton(
         icon: PrysmIcons.close,
         onPressed: () => Navigator.of(context).pop(),
@@ -129,7 +130,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 child: Center(child: PrysmProgressIndicator(size: 20)),
               )
             : PrysmTextButton(
-                label: 'Create',
+                label: context.l10n.create,
                 onPressed: _create,
               ),
       ],
@@ -164,8 +165,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             padding: const EdgeInsets.all(16),
             child: PrysmTextField(
               controller: _nameController,
-              labelText: 'Group name',
-              hintText: 'Group name',
+              labelText: context.l10n.groupName,
+              hintText: context.l10n.groupName,
             ),
           ),
           Padding(
@@ -187,7 +188,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           const SizedBox(height: 8),
           Expanded(
             child: _availableContacts.isEmpty
-                ? const Center(child: Text('Add contacts before creating a group'))
+                ? Center(child: Text(context.l10n.addContactsBeforeCreatingAGroup))
                 : ListView.builder(
                     itemCount: _availableContacts.length,
                     itemBuilder: (_, i) {

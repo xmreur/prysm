@@ -3,6 +3,7 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/screens/widgets/notification_mute_sheet.dart';
 import 'package:prysm/services/notification_mute_service.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class NotificationMuteTile extends StatefulWidget {
   final MuteTarget target;
@@ -32,8 +33,10 @@ class _NotificationMuteTileState extends State<NotificationMuteTile> {
       leading: Icon(
         isMuted ? PrysmIcons.notificationsOffOutlined : PrysmIcons.notificationsOutlined,
       ),
-      title: isMuted ? 'Notifications muted' : 'Mute notifications',
-      subtitle: formatMuteSubtitle(info),
+      title: isMuted
+          ? context.l10n.notificationsMuted
+          : context.l10n.muteNotifications,
+      subtitle: formatMuteSubtitle(info, context.l10n),
       trailing: const Icon(PrysmIcons.chevronRight),
       onTap: () => showNotificationMuteSheet(
         context: context,

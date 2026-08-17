@@ -1,6 +1,10 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/appearance_settings.dart';
+import 'package:prysm/models/locale_override.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/util/locale_resolution.dart';
 
 /// Root app shell — [WidgetsApp] with no Material dependency.
 class PrysmApp extends StatelessWidget {
@@ -9,6 +13,7 @@ class PrysmApp extends StatelessWidget {
     required this.appearance,
     required this.home,
     this.title,
+    this.localeOverride = LocaleOverride.system,
     super.key,
   });
 
@@ -16,6 +21,7 @@ class PrysmApp extends StatelessWidget {
   final AppearanceSettings appearance;
   final Widget home;
   final String? title;
+  final LocaleOverride localeOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +35,20 @@ class PrysmApp extends StatelessWidget {
             title: title ?? 'Prysm',
             color: style.tokens.accent,
             debugShowCheckedModeBanner: false,
+            locale: usesSystemLocale(localeOverride)
+                ? null
+                : resolveLocale(localeOverride),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+            ],
+            localeResolutionCallback: (locale, supported) {
+              if (locale == null) {
+                return const Locale('en');
+              }
+              return resolveLocaleFromLanguageCode(locale.languageCode);
+            },
             pageRouteBuilder: <T>(
               RouteSettings settings,
               WidgetBuilder builder,

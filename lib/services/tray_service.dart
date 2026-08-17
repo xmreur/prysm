@@ -10,6 +10,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
@@ -35,19 +36,32 @@ class TrayStatus {
   });
 
   String formatTooltip() {
-    final parts = <String>['Prysm', 'Tor $torLabel'];
+    final l10n = SettingsService().localizations;
+    final tor = _formatTorMenuLabel(torLabel, l10n);
+    final parts = <String>[l10n.trayTooltipBase(tor)];
     if (inCall) {
-      parts.add('In call');
+      parts.add(l10n.inCall);
     }
     if (pendingCount > 0) {
-      parts.add('$pendingCount pending');
+      parts.add(l10n.trayPendingShort(pendingCount));
     }
     if (unreadTotal > 0) {
-      parts.add('$unreadTotal unread');
+      parts.add(l10n.trayUnreadShort(unreadTotal));
     }
     return parts.join(' · ');
   }
 }
+
+String _formatTorMenuLabel(String torLabel, AppLocalizations l10n) => switch (torLabel) {
+      'connected' => l10n.torStatusConnected,
+      'connecting' => l10n.torStatusConnecting,
+      'off' => l10n.torStatusOff,
+      _ when torLabel.startsWith('connecting (') =>
+        l10n.torStatusConnectingPercent(
+          torLabel.substring('connecting ('.length, torLabel.length - 1),
+        ),
+      _ => torLabel,
+    };
 
 /// Desktop system tray: hide-to-tray, status tooltip/menu, unread badge.
 class TrayService with TrayListener {
@@ -181,6 +195,9 @@ class TrayService with TrayListener {
     await _rebuildMenu(status);
   }
 
+  /// Rebuild tray tooltip/menu after locale or status changes.
+  Future<void> refreshMenu() => refreshStatus();
+
   /// Linux AppIndicator has no native tooltip; setTitle maps to SNI Title (hover).
   Future<void> _applyTooltip(String text) async {
     if (Platform.isLinux) {
@@ -311,10 +328,11 @@ class TrayService with TrayListener {
   }
 
   Future<void> _rebuildMenu(TrayStatus status) async {
+    final l10n = SettingsService().localizations;
     final items = <MenuItem>[
       MenuItem(
         key: 'show',
-        label: 'Show Prysm',
+        label: l10n.showPrysm,
         onClick: (_) => unawaited(_showWindow()),
       ),
       MenuItem.separator(),
@@ -332,15 +350,15 @@ class TrayService with TrayListener {
 
     if (incoming && incomingCallId != null && incomingPeer != null) {
       items.addAll([
-        MenuItem(label: 'Incoming call', disabled: true),
+        MenuItem(label: l10n.incomingCall, disabled: true),
         MenuItem(
           key: 'call_accept',
-          label: 'Accept call',
+          label: l10n.acceptCall,
           onClick: (_) => unawaited(_acceptCallFromTray()),
         ),
         MenuItem(
           key: 'call_decline',
-          label: 'Decline call',
+          label: l10n.declineCall,
           onClick: (_) => unawaited(
             CallManager.instance.declineFromNotification(
               callId: incomingCallId,
@@ -354,7 +372,7 @@ class TrayService with TrayListener {
       items.add(
         MenuItem(
           key: 'call_hangup',
-          label: 'Hang up',
+          label: l10n.hangUp,
           onClick: (_) => unawaited(CallManager.instance.endCall()),
         ),
       );
@@ -363,31 +381,28 @@ class TrayService with TrayListener {
 
     if (!Platform.isLinux) {
       final pendingLine = status.pendingCount == 1
-          ? 'Pending: 1 message'
-          : 'Pending: ${status.pendingCount} messages';
-      final unreadLine = status.unreadTotal == 1
-          ? 'Unread: 1'
-          : 'Unread: ${status.unreadTotal}';
+          ? l10n.trayPendingMessage(status.pendingCount)
+          : l10n.trayPendingMessages(status.pendingCount);
+      final unreadLine = l10n.trayUnreadCount(status.unreadTotal);
       items.addAll([
         MenuItem(
-          label: 'Tor: ${_formatTorMenu(status.torLabel)}',
+          label: 'Tor: ${_formatTorMenu(status.torLabel, l10n)}',
           disabled: true,
         ),
-        if (status.inCall)
-          MenuItem(label: 'In call', disabled: true),
+        if (status.inCall) MenuItem(label: l10n.inCall, disabled: true),
         MenuItem(label: pendingLine, disabled: true),
         MenuItem(label: unreadLine, disabled: true),
         MenuItem.separator(),
       ]);
     } else if (status.inCall) {
-      items.add(MenuItem(label: 'In call', disabled: true));
+      items.add(MenuItem(label: l10n.inCall, disabled: true));
       items.add(MenuItem.separator());
     }
 
     items.add(
       MenuItem(
         key: 'quit',
-        label: 'Quit',
+        label: l10n.quit,
         onClick: (_) => unawaited(onQuitRequested()),
       ),
     );
@@ -395,14 +410,8 @@ class TrayService with TrayListener {
     await trayManager.setContextMenu(Menu(items: items));
   }
 
-  String _formatTorMenu(String torLabel) => switch (torLabel) {
-        'connected' => 'Connected',
-        'connecting' => 'Connecting',
-        'off' => 'Off',
-        _ when torLabel.startsWith('connecting (') =>
-          'Connecting ${torLabel.substring('connecting '.length)}',
-        _ => torLabel,
-      };
+  String _formatTorMenu(String torLabel, AppLocalizations l10n) =>
+      _formatTorMenuLabel(torLabel, l10n);
 
   Future<void> _showWindow() async {
     await windowManager.show();

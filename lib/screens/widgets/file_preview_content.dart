@@ -12,6 +12,7 @@ import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/util/pdf_system_open.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class FilePreviewContent extends StatefulWidget {
   final FilePreviewData preview;
@@ -113,7 +114,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
   Widget _textBody(TextPreviewData? data) {
     final text = data?.fullText ?? '';
     if (text.isEmpty) {
-      return const Center(child: Text('Empty file'));
+      return Center(child: Text(context.l10n.emptyFile));
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -127,7 +128,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
   Widget _spreadsheetBody(SpreadsheetPreviewData? data) {
     final rows = data?.rows ?? [];
     if (rows.isEmpty) {
-      return const Center(child: Text('Could not read spreadsheet'));
+      return Center(child: Text(context.l10n.couldNotReadSpreadsheet));
     }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -177,8 +178,8 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
     return _inAppDownloadFallback(
       context,
       icon: PrysmIcons.pictureAsPdf,
-      title: 'PDF document',
-      subtitle: 'In-app PDF preview is not available on this platform.',
+      title: context.l10n.pdfDocument,
+      subtitle: context.l10n.inAppPdfPreviewIsNotAvailableOn,
       allowExternalOpen: true,
     );
   }
@@ -191,9 +192,8 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
       return _inAppDownloadFallback(
         context,
         icon: PrysmIcons.slideshow,
-        title: 'Presentation',
-        subtitle:
-            'Slide preview is not supported for this format in Prysm.',
+        title: context.l10n.presentation,
+        subtitle: context.l10n.slidePreviewIsNotSupportedForThisFormat,
         allowExternalOpen: true,
       );
     }
@@ -250,8 +250,8 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
       return _inAppDownloadFallback(
         context,
         icon: PrysmIcons.slideshow,
-        title: 'Presentation',
-        subtitle: 'Could not read presentation content in Prysm.',
+        title: context.l10n.presentation,
+        subtitle: context.l10n.couldNotReadPresentationContentInPrysm,
         allowExternalOpen: true,
       );
     }
@@ -267,7 +267,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
   Widget _videoBody() {
     final bytes = widget.bytes ?? widget.preview.media?.mediaBytes;
     if (bytes == null || bytes.isEmpty) {
-      return const Center(child: Text('Video not ready'));
+      return Center(child: Text(context.l10n.videoNotReady));
     }
     return FullScreenVideoPlayer(bytes: bytes, fileName: widget.fileName);
   }
@@ -275,7 +275,7 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
   Widget _audioBody() {
     final bytes = widget.bytes ?? widget.preview.media?.mediaBytes;
     if (bytes == null || bytes.isEmpty) {
-      return const Center(child: Text('Audio not ready'));
+      return Center(child: Text(context.l10n.audioNotReady));
     }
     return FullScreenAudioPlayer(
       bytes: bytes,

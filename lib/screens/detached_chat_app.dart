@@ -18,6 +18,7 @@ class DetachedChatApp extends StatelessWidget {
     return PrysmApp(
       themePalette: launch.themeIndex,
       appearance: settings.appearance,
+      localeOverride: settings.localeOverride,
       title: launch.title,
       home: DetachedChatShell(
         launch: launch,

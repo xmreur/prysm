@@ -92,6 +92,7 @@ import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class HomeScreen extends StatefulWidget {
   final TorManager torManager;
@@ -261,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _conversationNameForHit(MessageSearchHit hit) {
-    if (hit.scope == 'self') return 'Chat with myself';
+    if (hit.scope == 'self') return context.l10n.chatWithMyself;
     for (final conv in conversations) {
       if (conv.id == hit.conversationId) return conv.displayName;
     }
@@ -331,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       cursor++;
     }
     if (_filteredConversations.isNotEmpty) {
-      if (index == cursor) return _buildSearchSectionHeader('Chats');
+      if (index == cursor) return _buildSearchSectionHeader(context.l10n.chats);
       cursor++;
       final chatIndex = index - cursor;
       if (chatIndex < _filteredConversations.length) {
@@ -340,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       cursor += _filteredConversations.length;
     }
     if (_messageSearchResults.isNotEmpty) {
-      if (index == cursor) return _buildSearchSectionHeader('Messages');
+      if (index == cursor) return _buildSearchSectionHeader(context.l10n.messages);
       cursor++;
       final messageIndex = index - cursor;
       if (messageIndex < _messageSearchResults.length) {
@@ -516,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.torConnectionController
       ..onReconnected = _onTorReconnected
       ..onRestartSucceeded = () {
-        if (mounted) showPrysmToast(context, 'Tor restarted successfully');
+        if (mounted) showPrysmToast(context, context.l10n.torRestartedSuccessfully);
       }
       ..onRestartFailed = (e) {
         if (mounted) {
@@ -716,7 +717,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final launch = DetachedChatLaunch.detached(
       chatKind: DetachedChatKind.self,
       conversationId: DetachedChatLaunch.selfConversationId,
-      title: 'Chat with myself',
+      title: context.l10n.chatWithMyself,
       userId: appUser.id,
       userName: appUser.name,
       avatarBase64: appUser.avatarBase64,
@@ -1393,7 +1394,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _showAddUserDialog({String? prefilledId}) async {
     if (widget.offlineMode) {
-      showPrysmToast(context, 'Connect to Tor before adding contacts');
+      showPrysmToast(context, context.l10n.connectToTorBeforeAddingContacts);
       return;
     }
 
@@ -1440,7 +1441,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _showSelfChatInSidebar {
     if (widget.decoyMode || _viewingArchived || _viewingBlocked) return false;
     if (_searchQuery.isEmpty) return true;
-    return 'chat with myself'.contains(_searchQuery);
+    return context.l10n.chatWithMyself6.contains(_searchQuery);
   }
 
   Widget _buildSelfChatSidebarTile() {
@@ -1469,7 +1470,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             name: appUser.name,
             avatarBase64: appUser.avatarBase64,
           ),
-          title: 'Chat with myself',
+          title: context.l10n.chatWithMyself,
           subtitle: subtitle,
           onTap: onSelectSelfChat,
         ),
@@ -1633,7 +1634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 _tooltipIconButton(
                   icon: PrysmIcons.qrCode,
-                  tooltip: 'Show my QR code',
+                  tooltip: context.l10n.showMyQrCode,
                   onPressed: () {
                     String? fingerprint;
                     try {
@@ -1673,7 +1674,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   _tooltipIconButton(
                     icon: PrysmIcons.arrowBack,
-                    tooltip: 'Back to chats',
+                    tooltip: context.l10n.backToChats,
                     onPressed: () => setState(() {
                       _viewingArchived = false;
                       _searchQuery = '';
@@ -1699,7 +1700,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   _tooltipIconButton(
                     icon: PrysmIcons.arrowBack,
-                    tooltip: 'Back to chats',
+                    tooltip: context.l10n.backToChats,
                     onPressed: () => setState(() {
                       _viewingBlocked = false;
                       _searchQuery = '';
@@ -1769,7 +1770,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           PrysmIcons.group,
                           color: context.prysmStyle.tokens.accent,
                         ),
-                        title: 'Invite requests',
+                        title: context.l10n.inviteRequests,
                         subtitle:
                             '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
                         onTap: () {
@@ -1801,7 +1802,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           PrysmIcons.archive,
                           color: context.prysmStyle.tokens.accent,
                         ),
-                        title: 'Archived',
+                        title: context.l10n.archived,
                         subtitle: '$_archivedCount',
                         trailing: _archivedUnreadCount > 0
                             ? Container(
@@ -1830,7 +1831,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         PrysmIcons.blockOutlined,
                         color: context.prysmStyle.tokens.accent,
                       ),
-                      title: 'Blocked',
+                      title: context.l10n.blocked,
                       subtitle:
                           '$_blockedCount contact${_blockedCount == 1 ? '' : 's'}',
                       onTap: () => setState(() {
@@ -1869,7 +1870,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 _tooltipIconButton(
                   icon: PrysmIcons.personOutline,
-                  tooltip: 'Profile',
+                  tooltip: context.l10n.profile,
                   onPressed: onShowProfile,
                 ),
                 _tooltipIconButton(
@@ -2087,7 +2088,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ] else ...[
                 PrysmButton(
-                  label: 'Restart Tor',
+                  label: context.l10n.restartTor,
                   onPressed:
                       widget.torConnectionController.connectionState ==
                               TorConnectionState.connecting ||
@@ -2100,7 +2101,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 8),
                 PrysmButton(
-                  label: 'New circuit',
+                  label: context.l10n.newCircuit,
                   variant: PrysmButtonVariant.secondary,
                   onPressed: widget.torConnectionController.restartInProgress
                       ? null
@@ -2125,7 +2126,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _onionPreview(String onion) {
-    if (onion.isEmpty) return 'Connect Tor for Prysm ID';
+    if (onion.isEmpty) return context.l10n.connectTorForPrysmId;
     final short = onion.replaceAll('.onion', '');
     if (short.length <= 10) return short;
     return '${short.substring(0, 8)}…';
@@ -2199,9 +2200,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _torStatusLabel(TorConnectionState state) {
-    if (widget.torConnecting) return 'Connecting…';
-    if (widget.offlineMode) return 'Offline';
-    if (widget.torConnectionController.needsAttention) return 'Needs attention';
+    if (widget.torConnecting) return context.l10n.connecting2;
+    if (widget.offlineMode) return context.l10n.offline;
+    if (widget.torConnectionController.needsAttention) return context.l10n.needsAttention;
     return switch (state) {
       TorConnectionState.connected => 'Connected',
       TorConnectionState.connecting => 'Connecting…',
@@ -2271,7 +2272,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _copyPrysmId() {
     final id = encodeOnionToBase58(appUser.id);
     Clipboard.setData(ClipboardData(text: id));
-    showPrysmToast(context, 'Prysm ID copied to clipboard');
+    showPrysmToast(context, context.l10n.prysmIdCopiedToClipboard);
   }
 
   Widget _buildEmptyHomeState() {
@@ -2280,7 +2281,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .where((c) => c.id != widget.onionAddress)
         .length;
     final groupCount = groups.length;
-    final displayName = appUser.name.isNotEmpty ? appUser.name : 'there';
+    final displayName = appUser.name;
 
     return EmptyHomeState(
       displayName: displayName,
@@ -2443,7 +2444,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   if (showMenuButton)
                     _tooltipIconButton(
                       icon: PrysmIcons.menu,
-                      tooltip: 'Open menu',
+                      tooltip: context.l10n.openMenu,
                       onPressed: () => setState(() => _sidebarOpen = true),
                     ),
                   Container(
@@ -2502,7 +2503,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _buildTorAppBarAction(),
                 _tooltipIconButton(
                   icon: PrysmIcons.settingsOutlined,
-                  tooltip: 'Settings',
+                  tooltip: context.l10n.settings,
                   onPressed: () => setState(() {
                     showSettings = true;
                     showSelfChat = false;

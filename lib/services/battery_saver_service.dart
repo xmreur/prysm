@@ -42,16 +42,17 @@ class BatterySaverService {
   int? get batteryLevel => _batteryLevel;
 
   String get statusSubtitle {
+    final l10n = SettingsService().localizations;
     if (_lowBatteryAuto && _batteryLevel != null) {
-      return 'Auto-enabled — battery at $_batteryLevel%';
+      return l10n.batterySaverAutoEnabledBatteryAt(_batteryLevel!);
     }
     if (_osBatterySaveMode) {
-      return 'Auto-enabled — device power saver on';
+      return l10n.batterySaverAutoEnabledPowerSaverOn;
     }
     if (SettingsService().enableBatterySaving) {
-      return 'Reduces polling and background activity';
+      return l10n.batterySaverReducesPolling;
     }
-    return 'Auto-enables at $autoEnableThresholdPercent% battery or below';
+    return l10n.batterySaverAutoEnablesAt(autoEnableThresholdPercent);
   }
 
   Future<void> init() async {

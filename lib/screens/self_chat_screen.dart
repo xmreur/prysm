@@ -41,6 +41,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class SelfChatScreen extends StatefulWidget {
   final String userId;
@@ -369,7 +370,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           if (text.isNotEmpty) copyMessageTile(context: context, text: text),
           PrysmListRow(
             leading: const Icon(PrysmIcons.deleteOutline),
-            title: 'Delete',
+            title: context.l10n.delete,
             onTap: () {
               Navigator.pop(ctx);
               _deleteMessage(message);
@@ -627,8 +628,8 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         icon: PrysmIcons.arrowBack,
         onPressed: widget.onCloseChat,
       ),
-      title: 'Chat with myself',
-      subtitle: 'Notes to yourself',
+      title: context.l10n.chatWithMyself,
+      subtitle: context.l10n.notesToYourself,
       actions: [
         PrysmIconButton(
           icon: PrysmIcons.search,

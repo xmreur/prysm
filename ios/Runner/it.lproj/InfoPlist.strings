@@ -1,0 +1,6 @@
+/* Italian permission strings for iOS */
+"NSCameraUsageDescription" = "Prysm ha bisogno della fotocamera per scansionare codici QR e aggiungere contatti.";
+"NSMicrophoneUsageDescription" = "Prysm ha bisogno del microfono per messaggi vocali e chiamate.";
+"NSPhotoLibraryAddUsageDescription" = "Prysm ha bisogno dell'accesso per salvare immagini nella libreria foto.";
+"NSPhotoLibraryUsageDescription" = "Prysm ha bisogno dell'accesso alla libreria foto quando condividi immagini nell'app.";
+"CFBundleDisplayName" = "Prysm";

@@ -5,6 +5,8 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_radio.dart';
 import 'package:prysm/ui/core/prysm_switch.dart';
 import 'package:prysm/models/group_invite_mode.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/screens/panic_pin_settings_screen.dart';
@@ -136,7 +138,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Widget build(BuildContext context) {
     final style = context.prysmStyle;
     return PrysmPage(
-      title: 'Privacy Settings',
+      title: context.l10n.privacySettings,
       headerHeight: 70,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
@@ -151,38 +153,36 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
               PrysmSection(
                 children: [
                   PrysmSwitchRow(
-                    title: 'Show Online Status',
-                    subtitle:
-                        'When enabled, recent contacts are notified when you come online so they can deliver pending messages faster.',
+                    title: context.l10n.showOnlineStatus,
+                    subtitle: context.l10n.whenEnabledRecentContactsAreNotifiedWhenYou,
                     value: _showOnlineStatus,
                     onChanged: _onOnlineStatusToggle,
                   ),
                   PrysmSwitchRow(
-                    title: 'Read Receipts',
+                    title: context.l10n.readReceipts,
                     value: _readReceipts,
                     onChanged: _onReadReceiptsToggle,
                   ),
                   PrysmSwitchRow(
-                    title: 'Typing Indicators',
+                    title: context.l10n.typingIndicators,
                     subtitle:
-                        "When disabled, you won't send or see typing activity in chats.",
+                        context.l10n.whenDisabledYouWontSendOrSeeTypingActivity,
                     value: _typingIndicators,
                     onChanged: _onTypingIndicatorsToggle,
                   ),
                   PrysmSwitchRow(
-                    title: 'Last Seen',
+                    title: context.l10n.lastSeen,
                     value: _lastSeen,
                     onChanged: _onLastSeenToggle,
                   ),
                   PrysmSwitchRow(
-                    title: 'Profile Photo',
+                    title: context.l10n.profilePhoto,
                     value: _profilePhoto,
                     onChanged: _onProfilePhotoToggle,
                   ),
                   PrysmSwitchRow(
-                    title: 'Refuse messages from non-contacts',
-                    subtitle:
-                        'When enabled, people who are not in your contacts cannot message or call you directly.',
+                    title: context.l10n.refuseMessagesFromNonContacts,
+                    subtitle: context.l10n.whenEnabledPeopleWhoAreNotInYour,
                     value: _refuseUnknownSenders,
                     onChanged: _onRefuseUnknownSendersToggle,
                   ),
@@ -190,7 +190,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
               ),
               if (widget.keyManager != null) ...[
                 const SizedBox(height: 30),
-                Text('Group invites', style: style.headlineStyle),
+                Text(context.l10n.groupInvites, style: style.headlineStyle),
                 const SizedBox(height: 12),
                 PrysmSection(
                   children: [
@@ -198,8 +198,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                       PrysmRadioRow<GroupInviteMode>(
                         value: mode,
                         groupValue: _groupInviteMode,
-                        title: mode.label,
-                        subtitle: mode.description,
+                        title: mode.localizedLabel(context.l10n),
+                        subtitle: mode.localizedDescription(context.l10n),
                         onChanged: _applyingInviteMode
                             ? null
                             : _onGroupInviteModeChanged,
@@ -207,21 +207,21 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: 30),
-                Text('Emergency', style: style.headlineStyle),
+                Text(context.l10n.emergency, style: style.headlineStyle),
                 const SizedBox(height: 12),
                 PrysmSection(
                   children: [
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.emergencyOutlined),
-                      title: 'Panic mode',
+                      title: context.l10n.panicMode,
                       subtitleWidget: FutureBuilder<bool>(
                         future: PanicPinService.instance.isConfigured(),
                         builder: (context, snapshot) {
                           final configured = snapshot.data == true;
                           return Text(
                             configured
-                                ? 'Panic PIN configured'
-                                : 'Set a secondary panic PIN',
+                                ? context.l10n.panicPinConfigured
+                                : context.l10n.setSecondaryPanicPin,
                             style: style.captionStyle,
                           );
                         },
@@ -243,7 +243,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                 ),
               ],
               const SizedBox(height: 30),
-              Text('Privacy Information', style: style.headlineStyle),
+              Text(context.l10n.privacyInformation, style: style.headlineStyle),
               const SizedBox(height: 20),
               Container(
                 padding: const EdgeInsets.all(PrysmTokens.spacing16),
@@ -253,8 +253,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                       BorderRadius.circular(PrysmTokens.radiusCard),
                 ),
                 child: Text(
-                  'These settings help you control your privacy on ${settings.name}. '
-                  'Your choices will be applied across all your conversations.',
+                  context.l10n.privacySettingsBody(settings.name),
                   style: style.bodyStyle,
                 ),
               ),

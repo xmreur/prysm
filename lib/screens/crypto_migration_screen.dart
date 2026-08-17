@@ -3,6 +3,7 @@ import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Shown once when upgrading from legacy crypto to v2.
 class CryptoMigrationScreen extends StatelessWidget {
@@ -44,7 +45,7 @@ class CryptoMigrationScreen extends StatelessWidget {
               ),
               const Spacer(),
               PrysmButton(
-                label: 'Wipe local data and continue',
+                label: context.l10n.wipeLocalDataAndContinue,
                 onPressed: () => _wipe(context),
               ),
             ],

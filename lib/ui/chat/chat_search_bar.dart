@@ -7,6 +7,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_search_field.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatSearchBar extends StatefulWidget {
   const ChatSearchBar({
@@ -95,7 +96,7 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
           Expanded(
             child: PrysmSearchField(
               controller: _controller,
-              hintText: 'Search in chat...',
+              hintText: context.l10n.searchInChat,
               onChanged: _onQueryChanged,
               onClear: () {
                 _controller.clear();
@@ -108,18 +109,18 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
             Text(counter, style: TextStyle(color: tokens.textMuted, fontSize: 13)),
             PrysmIconButton(
               icon: CupertinoIcons.chevron_up,
-              tooltip: 'Previous match',
+              tooltip: context.l10n.previousMatch,
               onPressed: _results.isEmpty ? null : () => _step(-1),
             ),
             PrysmIconButton(
               icon: PrysmIcons.chevronDown,
-              tooltip: 'Next match',
+              tooltip: context.l10n.nextMatch,
               onPressed: _results.isEmpty ? null : () => _step(1),
             ),
           ],
           PrysmIconButton(
             icon: PrysmIcons.close,
-            tooltip: 'Close search',
+            tooltip: context.l10n.closeSearch,
             onPressed: widget.onClose,
           ),
         ],

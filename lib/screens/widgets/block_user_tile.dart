@@ -5,6 +5,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class BlockUserTile extends StatefulWidget {
   final String peerId;
@@ -28,11 +29,11 @@ class _BlockUserTileState extends State<BlockUserTile> {
   Future<void> _confirmBlock() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Block contact',
+      title: context.l10n.blockContact,
       content: const Text(
         'You will no longer receive messages, calls, or profile updates from this contact.',
       ),
-      cancelLabel: 'Cancel',
+      cancelLabel: context.l10n.cancel,
       confirmLabel: 'Block',
       confirmVariant: PrysmButtonVariant.danger,
     );
@@ -46,11 +47,11 @@ class _BlockUserTileState extends State<BlockUserTile> {
   Future<void> _confirmUnblock() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Unblock contact',
+      title: context.l10n.unblockContact,
       content: const Text(
         'This contact will be able to message and call you again.',
       ),
-      cancelLabel: 'Cancel',
+      cancelLabel: context.l10n.cancel,
       confirmLabel: 'Unblock',
     );
     if (confirmed != true || !mounted) return;

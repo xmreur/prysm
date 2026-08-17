@@ -22,6 +22,7 @@ import 'package:prysm/ui/core/prysm_chip.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final String onionAddress;
@@ -135,7 +136,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _addContact() async {
     if (widget.offlineMode) {
-      _showSnack('Connect to Tor before adding contacts');
+      _showSnack(context.l10n.connectToTorBeforeAddingContacts);
       return;
     }
 
@@ -143,12 +144,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     try {
       onionId = decodeBase58ToOnion(_contactIdController.text.trim());
     } catch (_) {
-      _showSnack('Enter a valid Base58 Prysm ID');
+      _showSnack(context.l10n.enterAValidBase58PrysmId);
       return;
     }
     final name = _contactNameController.text.trim();
     if (onionId.isEmpty || onionId == '.onion' || name.isEmpty) {
-      _showSnack('Enter both ID and display name');
+      _showSnack(context.l10n.enterBothIdAndDisplayName);
       return;
     }
 
@@ -165,7 +166,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
     setState(() => _contactAdded = true);
-    _showSnack('Contact added');
+    _showSnack(context.l10n.contactAdded);
   }
 
   void _showSnack(String message) {
@@ -175,7 +176,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _copyPrysmId() {
     if (_prysmId.isEmpty) return;
     Clipboard.setData(ClipboardData(text: _prysmId));
-    _showSnack('Prysm ID copied');
+    _showSnack(context.l10n.prysmIdCopied);
   }
 
   String _truncateId(String id) {
@@ -199,8 +200,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() {
         _setupLoading = false;
         _setupError = _selectedUnlockType == UnlockType.pin
-            ? 'Could not set up PIN. Try again.'
-            : 'Could not set up passphrase. Use at least 12 characters.';
+            ? context.l10n.couldNotSetUpPinTryAgain
+            : context.l10n.couldNotSetUpPassphraseMin12;
         _setupPin = '';
         _setupPendingPin = null;
       });
@@ -212,7 +213,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _unlockSetupComplete = true;
       _setupError = null;
     });
-    _showSnack('Unlock method saved');
+    _showSnack(context.l10n.unlockMethodSaved);
   }
 
   void _onSetupPinKey(String key) {
@@ -241,7 +242,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
       if (_setupPin != _setupPendingPin) {
         setState(() {
-          _setupError = "PINs don't match";
+          _setupError = context.l10n.pinsDoNotMatch;
           _setupPin = '';
           _setupPendingPin = null;
         });
@@ -254,11 +255,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _submitPassphraseSetup() async {
     final value = _passphraseController.text;
     if (value.length < 12) {
-      setState(() => _setupError = 'Passphrase must be at least 12 characters');
+      setState(
+        () => _setupError = context.l10n.passphraseMustBeAtLeast12Characters,
+      );
       return;
     }
     if (value != _passphraseConfirmController.text) {
-      setState(() => _setupError = 'Passphrases do not match');
+      setState(() => _setupError = context.l10n.passphrasesDoNotMatch);
       return;
     }
     await _completeUnlockSetup(value);
@@ -271,10 +274,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     return PrysmPage(
       title: widget.isInitialSetup
-          ? 'Set up Prysm'
+          ? context.l10n.setUpPrysm
           : widget.isReplay
-              ? 'Getting started'
-              : 'Welcome to Prysm',
+              ? context.l10n.gettingStarted
+              : context.l10n.welcomeToPrysm,
       leading: widget.isReplay
           ? PrysmIconButton(
               icon: PrysmIcons.close,
@@ -283,7 +286,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           : null,
       actions: [
         if (!widget.isReplay && !widget.isInitialSetup)
-          PrysmTextButton(label: 'Skip tour', onPressed: _skipTour),
+          PrysmTextButton(label: context.l10n.skipTour, onPressed: _skipTour),
       ],
       body: Column(
         children: [
@@ -292,7 +295,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             child: Row(
               children: [
                 Text(
-                  'Step ${_currentPage + 1} of $_stepCount',
+                  context.l10n.onboardingStepOf(
+                    (_currentPage + 1).toString(),
+                    _stepCount.toString(),
+                  ),
                   style: style.captionStyle.copyWith(
                     color: tokens.textMuted,
                   ),
@@ -368,14 +374,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Row(
           children: [
             if (!isFirst)
-              PrysmTextButton(label: 'Back', onPressed: _previousPage)
+              PrysmTextButton(label: context.l10n.back, onPressed: _previousPage)
             else
               const SizedBox(width: 64),
             const Spacer(),
             if (isLast)
-              PrysmButton(label: 'Get started', onPressed: () => _finish())
+              PrysmButton(label: context.l10n.getStarted, onPressed: () => _finish())
             else
-              PrysmButton(label: 'Next', onPressed: _canAdvance ? _nextPage : null),
+              PrysmButton(label: context.l10n.next, onPressed: _canAdvance ? _nextPage : null),
           ],
         ),
       ),
@@ -449,7 +455,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Image.asset('assets/logo.png', height: 80, width: 80),
           const SizedBox(height: 32),
           Text(
-            widget.isInitialSetup ? 'Welcome to Prysm' : 'Welcome to Prysm',
+            context.l10n.welcomeToPrysm,
             style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -458,10 +464,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 12),
           Text(
             widget.isInitialSetup
-                ? 'Choose how you unlock Prysm and protect your keys. '
-                    'This setup is required before you can use the app.'
-                : 'Private messaging over Tor. This short tour covers the '
-                    'essentials so you can start chatting confidently.',
+                ? context.l10n.onboardingWelcomeSetupRequired
+                : context.l10n.onboardingWelcomeTour,
             style: style.bodyStyle.copyWith(
               color: style.tokens.textMuted,
               height: 1.5,
@@ -470,7 +474,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 32),
           if (!widget.isReplay && !widget.isInitialSetup)
-            PrysmButton(label: 'Skip tour', onPressed: _skipTour),
+            PrysmButton(label: context.l10n.skipTour, onPressed: _skipTour),
         ],
       ),
     );
@@ -485,14 +489,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Choose your unlock method',
+            context.l10n.chooseYourUnlockMethod,
             style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Pick one method. You can change it later in Settings.',
+            context.l10n.pickOneMethodYouCanChangeItLater,
             style: style.bodyStyle.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: 16),
@@ -500,7 +504,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               Expanded(
                 child: PrysmChip(
-                  label: '6-digit PIN',
+                  label: context.l10n.str6digitpin,
                   selected: _selectedUnlockType == UnlockType.pin,
                   onSelected: (_) {
                     if (_unlockSetupComplete) return;
@@ -516,7 +520,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: PrysmChip(
-                  label: 'Passphrase',
+                  label: context.l10n.passphrase,
                   selected: _selectedUnlockType == UnlockType.passphrase,
                   onSelected: (_) {
                     if (_unlockSetupComplete) return;
@@ -538,20 +542,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: tokens.surfaceElevated,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Unlock method configured')),
+                    const Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(context.l10n.unlockMethodConfigured)),
                   ],
                 ),
               ),
             )
           else if (_selectedUnlockType == UnlockType.pin) ...[
             Text(
-              pinConfirm ? 'Confirm your PIN' : 'Create your PIN',
+              pinConfirm
+                  ? context.l10n.confirmYourPin
+                  : context.l10n.createYourPin,
               style: style.titleStyle,
               textAlign: TextAlign.center,
             ),
@@ -573,7 +579,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ] else ...[
             PrysmTextField(
               controller: _passphraseController,
-              labelText: 'Passphrase',
+              labelText: context.l10n.passphrase,
               obscureText: _passphraseObscure,
               enabled: !_setupLoading,
               suffixIcon: PrysmIconButton(
@@ -587,7 +593,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const SizedBox(height: 12),
             PrysmTextField(
               controller: _passphraseConfirmController,
-              labelText: 'Confirm passphrase',
+              labelText: context.l10n.confirmPassphrase,
               obscureText: _passphraseObscure,
               enabled: !_setupLoading,
             ),
@@ -600,14 +606,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
             const SizedBox(height: 16),
             PrysmButton(
-              label: 'Save passphrase',
+              label: context.l10n.savePassphrase,
               onPressed: _setupLoading ? null : _submitPassphraseSetup,
             ),
           ],
           if (widget.torBootstrapProgress != null) ...[
             const SizedBox(height: 16),
             Text(
-              'Tor: ${widget.torBootstrapProgress}%',
+              context.l10n.torBootstrapPercent(
+                widget.torBootstrapProgress!.toString(),
+              ),
               textAlign: TextAlign.center,
               style: style.captionStyle,
             ),
@@ -623,14 +631,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return _stepScaffold(
       style: style,
       icon: PrysmIcons.shieldOutlined,
-      title: 'Built on Tor',
-      body:
-          'Prysm routes all traffic through the Tor network. Your messages '
-          'reach contacts directly — no central server stores your chats.',
-      bullets: const [
-        'Your onion address is your identity on the network',
-        'The Tor status in the app bar shows your connection',
-        'Tor must be connected before you can message anyone',
+      title: context.l10n.builtOnTor,
+      body: context.l10n.onboardingTorBody,
+      bullets: [
+        context.l10n.onboardingTorBulletOnionAddress,
+        context.l10n.onboardingTorBulletStatusBar,
+        context.l10n.onboardingTorBulletMustConnect,
       ],
       extra: DecoratedBox(
         decoration: BoxDecoration(
@@ -657,10 +663,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Expanded(
                 child: Text(
                   connected
-                      ? 'Tor is connected'
+                      ? context.l10n.torIsConnected
                       : offline
-                          ? 'Offline — connect later to get your Prysm ID'
-                          : 'Tor is connecting…',
+                          ? context.l10n.offlineConnectLaterForPrysmId
+                          : context.l10n.torIsConnecting,
                   style: style.titleStyle,
                 ),
               ),
@@ -677,20 +683,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       style: style,
       icon: PrysmIcons.lock,
       title: isPin
-          ? 'Your PIN protects your keys'
-          : 'Your passphrase protects your keys',
+          ? context.l10n.yourPinProtectsYourKeys
+          : context.l10n.yourPassphraseProtectsYourKeys,
       body: isPin
-          ? 'Your 6-digit PIN encrypts your private keys on this device — '
-              'Prysm never sees or stores it in the cloud.'
-          : 'Your passphrase encrypts your private keys on this device — '
-              'Prysm never sees or stores it in the cloud.',
+          ? context.l10n.pinEncryptsKeysBody
+          : context.l10n.passphraseEncryptsKeysBody,
       bullets: [
-        'There is no "forgot ${isPin ? 'PIN' : 'passphrase'}" recovery',
-        'If you lose your ${isPin ? 'PIN' : 'passphrase'}, only a backup can restore your account',
-        'Never share your ${isPin ? 'PIN' : 'passphrase'} with anyone',
-        'After 5 failed unlock attempts, Prysm locks for 2 hours',
+        isPin
+            ? context.l10n.noForgotPinRecovery
+            : context.l10n.noForgotPassphraseRecovery,
+        isPin
+            ? context.l10n.losePinOnlyBackupRestores
+            : context.l10n.losePassphraseOnlyBackupRestores,
+        isPin
+            ? context.l10n.neverSharePin
+            : context.l10n.neverSharePassphrase,
+        context.l10n.after5FailedUnlockAttemptsLock2Hours,
         if (!widget.isReplay)
-          'Change unlock method anytime in Settings → Privacy',
+          context.l10n.changeUnlockMethodInSettingsPrivacy,
       ],
     );
   }
@@ -699,15 +709,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return _stepScaffold(
       style: style,
       icon: PrysmIcons.backupOutlined,
-      title: 'Back up your account',
-      body:
-          'A backup saves your chats, contacts, and encrypted keys. Without '
-          'one, losing this device or forgetting your unlock code means losing '
-          'everything.',
-      bullets: const [
-        'Backups are password-encrypted files (.prysmbackup)',
-        'Store the file somewhere safe outside this device',
-        'You can create more backups anytime in Settings → Data',
+      title: context.l10n.backUpYourAccount,
+      body: context.l10n.backupOnboardingBody,
+      bullets: [
+        context.l10n.backupEncryptedFileBullet,
+        context.l10n.backupStoreOutsideDevice,
+        context.l10n.backupCreateAnytimeInSettings,
       ],
       extra: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -718,25 +725,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: style.tokens.surfaceElevated,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Backup created')),
+                    const Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(context.l10n.backupCreated)),
                   ],
                 ),
               ),
             ),
           if (_backupCreated) const SizedBox(height: 12),
           PrysmButton(
-            label: _backupCreated ? 'Create another backup' : 'Create backup now',
+            label: _backupCreated
+                ? context.l10n.createAnotherBackup
+                : context.l10n.createBackupNow,
             onPressed: _createBackup,
           ),
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),
-            PrysmTextButton(label: 'Skip for now', onPressed: _nextPage),
+            PrysmTextButton(label: context.l10n.skipForNow, onPressed: _nextPage),
           ],
         ],
       ),
@@ -764,7 +773,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 24),
           Text(
-            'Add your first contact',
+            context.l10n.addYourFirstContact,
             style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -772,10 +781,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 12),
           Text(
             widget.offlineMode
-                ? 'Connect to Tor to add contacts. You can skip this step and '
-                    'add friends later from the main app.'
-                : 'Ask a friend for their Prysm ID (a Base58 code or QR). '
-                    'They must be online on Tor for the first connection.',
+                ? context.l10n.addContactOfflineHint
+                : context.l10n.addContactOnlineHint,
             style: style.bodyStyle.copyWith(height: 1.5),
           ),
           const SizedBox(height: 24),
@@ -785,13 +792,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: tokens.surfaceElevated,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Contact added successfully')),
+                    const Icon(PrysmIcons.checkCircleOutline, color: Color(0xFF4CAF50)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(context.l10n.contactAddedSuccessfully)),
                   ],
                 ),
               ),
@@ -803,15 +810,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Expanded(
                 child: PrysmTextField(
                   controller: _contactIdController,
-                  labelText: 'Prysm ID (Base58)',
-                  hintText: 'eg. 51EsbujFRDJLHJ',
+                  labelText: context.l10n.prysmIdBase58Label,
+                  hintText: context.l10n.prysmIdHintExample,
                   enabled: !_addingContact,
                 ),
               ),
               if (QrPlatform.isScanSupported)
                 PrysmIconButton(
                   icon: PrysmIcons.qrCodeScanner,
-                  tooltip: 'Scan QR code',
+                  tooltip: context.l10n.scanQrCode,
                   onPressed: _addingContact
                       ? null
                       : () async {
@@ -829,12 +836,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 16),
           PrysmTextField(
             controller: _contactNameController,
-            labelText: 'Display name',
+            labelText: context.l10n.displayName2,
             enabled: !_addingContact,
           ),
           const SizedBox(height: 16),
           PrysmButton(
-            label: 'Add contact',
+            label: context.l10n.addContact,
             onPressed: widget.offlineMode || _addingContact ? null : _addContact,
           ),
           if (_addingContact) ...[
@@ -843,7 +850,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ],
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),
-            PrysmTextButton(label: 'Skip for now', onPressed: _nextPage),
+            PrysmTextButton(label: context.l10n.skipForNow, onPressed: _nextPage),
           ],
         ],
       ),
@@ -872,15 +879,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 24),
           Text(
-            'Your Prysm ID',
+            context.l10n.yourPrysmId,
             style: style.headlineStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 12),
           Text(
-            'This is your unique address on Tor. Friends use it to add you. '
-            'It is a Base58 encoding of your .onion hidden service address.',
+            context.l10n.onboardingIdBody,
             style: style.bodyStyle.copyWith(height: 1.5),
           ),
           const SizedBox(height: 24),
@@ -909,12 +915,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     PrysmIconButton(
                       icon: PrysmIcons.copyRounded,
-                      tooltip: 'Copy ID',
+                      tooltip: context.l10n.copyId,
                       onPressed: _copyPrysmId,
                     ),
                     PrysmIconButton(
                       icon: PrysmIcons.qrCode,
-                      tooltip: 'Show full QR',
+                      tooltip: context.l10n.showFullQr,
                       onPressed: () => showPrysmIdQrDialog(context, _prysmId),
                     ),
                   ],
@@ -930,15 +936,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'Your Prysm ID will appear once Tor finishes connecting.',
+                  context.l10n.yourPrysmIdWillAppearOnceTorFinishes,
                   style: style.bodyStyle,
                 ),
               ),
             ),
           const SizedBox(height: 12),
           Text(
-            'Share this ID or QR so others can message you. You can always '
-            'find it in your profile or the sidebar.',
+            context.l10n.onboardingIdShareHint,
             style: style.captionStyle.copyWith(color: tokens.textMuted),
           ),
         ],

@@ -9,6 +9,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Full-screen pinch-zoom image viewer.
 class ImageViewerScreen extends StatefulWidget {
@@ -136,7 +137,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         if (canSave)
           PrysmIconButton(
             icon: PrysmIcons.downloadOutlined,
-            tooltip: 'Save image',
+            tooltip: context.l10n.saveImage,
             color: isDark ? const Color(0xFFFFFFFF) : const Color(0x87000000),
             onPressed: _saving ? null : _saveImage,
           ),
@@ -165,7 +166,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           ),
           if (widget.decryptFromDb != null) ...[
             const SizedBox(height: 12),
-            PrysmTextButton(label: 'Retry', onPressed: _loadDeferred),
+            PrysmTextButton(label: context.l10n.retry, onPressed: _loadDeferred),
           ],
         ],
       );

@@ -11,6 +11,7 @@ import 'package:prysm/util/file_download_helper.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class FilePreviewScreen extends StatefulWidget {
   final String fileName;
@@ -66,7 +67,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       if (bytes.isEmpty) {
         setState(() {
           _loading = false;
-          _error = 'File is still decrypting or empty';
+          _error = context.l10n.fileIsStillDecryptingOrEmpty;
           _preview = FilePreviewData.binary();
         });
         return;
@@ -132,7 +133,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       actions: [
         PrysmIconButton(
           icon: PrysmIcons.downloadOutlined,
-          tooltip: 'Download',
+          tooltip: context.l10n.download,
           onPressed: _loading ? null : _download,
         ),
       ],

@@ -20,6 +20,7 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 typedef ValueChanged<T> = void Function(T value);
 
@@ -97,12 +98,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmScaffold(
-      title: 'Profile',
+      title: context.l10n.profile,
       leading: PrysmIconButton(icon: PrysmIcons.arrowBack, onPressed: widget.onClose),
       actions: [
         PrysmIconButton(
           icon: PrysmIcons.saveOutlined,
-          tooltip: 'Save',
+          tooltip: context.l10n.save,
           onPressed: _saveProfile,
         ),
       ],
@@ -205,7 +206,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.personOutline),
-                      title: 'Display Name',
+                      title: context.l10n.displayName,
                       subtitle: name,
                       trailing: const Icon(PrysmIcons.arrowForwardIos, size: 16),
                       onTap: _showEditNameDialog,
@@ -213,7 +214,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const PrysmDivider(),
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.keyOutlined),
-                      title: 'Your ID',
+                      title: context.l10n.yourId,
                       subtitleWidget: Text(
                         encodeOnionToBase58(widget.user.id),
                         style: const TextStyle(
@@ -235,7 +236,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             text: encodeOnionToBase58(widget.user.id),
                           ),
                         );
-                        showPrysmToast(context, 'ID copied to clipboard');
+                        showPrysmToast(context, context.l10n.idCopiedToClipboard);
                       },
                     ),
                   ],
@@ -259,7 +260,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.lock),
-                      title: 'Privacy Settings',
+                      title: context.l10n.privacySettings,
                       trailing: const Icon(PrysmIcons.arrowForwardIos, size: 16),
                       onTap: () {
                         Navigator.push(
@@ -275,14 +276,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const PrysmDivider(),
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.helpOutline),
-                      title: 'Help & Support',
+                      title: context.l10n.helpSupport,
                       trailing: const Icon(PrysmIcons.arrowForwardIos, size: 16),
                       onTap: () {},
                     ),
                     const PrysmDivider(),
                     PrysmListRow(
                       leading: const Icon(PrysmIcons.infoOutline),
-                      title: 'About',
+                      title: context.l10n.about,
                       trailing: const Icon(PrysmIcons.arrowForwardIos, size: 16),
                       onTap: () {
                         Navigator.push(
@@ -308,13 +309,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final nameController = TextEditingController(text: name);
     showPrysmDialog(
       context: context,
-      title: 'Edit Name',
+      title: context.l10n.editName,
       content: PrysmTextField(
         controller: nameController,
-        labelText: 'Display Name',
+        labelText: context.l10n.displayName,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Save',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.save,
       onConfirm: () {
         setState(() {
           name = nameController.text;

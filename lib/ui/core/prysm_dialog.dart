@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 Future<bool?> showPrysmConfirmDialog({
   required BuildContext context,
@@ -14,7 +15,7 @@ Future<bool?> showPrysmConfirmDialog({
   return showGeneralDialog<bool>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    barrierLabel: context.l10n.dismiss,
     barrierColor: const Color(0x80000000),
     pageBuilder: (context, animation, secondaryAnimation) {
       return Center(
@@ -46,7 +47,7 @@ Future<T?> showPrysmDialog<T>({
   return showGeneralDialog<T>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    barrierLabel: context.l10n.dismiss,
     barrierColor: const Color(0x80000000),
     pageBuilder: (context, animation, secondaryAnimation) {
       return Center(

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:gal/gal.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/services/settings_service.dart';
 
 class ImageDownloadHelper {
   ImageDownloadHelper._();
@@ -37,7 +38,7 @@ class ImageDownloadHelper {
   }) async {
     if (bytes.isEmpty) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'Image not ready to save');
+      showPrysmToast(context, SettingsService().localizations.imageNotReadyToSave);
       return;
     }
 
@@ -52,7 +53,7 @@ class ImageDownloadHelper {
         final granted = await Gal.requestAccess();
         if (!granted) {
           if (!context.mounted) return;
-          showPrysmToast(context, 'Gallery access denied');
+          showPrysmToast(context, SettingsService().localizations.galleryAccessDenied);
           return;
         }
         await Gal.putImageBytes(bytes, name: galleryName);

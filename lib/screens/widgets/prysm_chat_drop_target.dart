@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Desktop-only drop target for sending files into an open chat.
 class PrysmChatDropTarget extends StatefulWidget {
@@ -42,7 +43,7 @@ class _PrysmChatDropTargetState extends State<PrysmChatDropTarget> {
         if (detail.files.isEmpty) return;
 
         if (detail.files.length > 1 && mounted) {
-          showPrysmToast(context, 'Only one file at a time');
+          showPrysmToast(context, context.l10n.onlyOneFileAtATime);
         }
 
         final file = detail.files.first;

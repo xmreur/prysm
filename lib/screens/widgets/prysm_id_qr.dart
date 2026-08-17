@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prysm/crypto/qr_payload.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// A [CustomPainter] that paints a pre-generated [QrImage] once.
 /// No mask search or data encoding — pure rendering.
@@ -89,7 +90,7 @@ class _PrysmIdQrCodeState extends State<PrysmIdQrCode> {
       return SizedBox(
         width: widget.size,
         height: widget.size,
-        child: const Center(child: Text('ID not available')),
+        child: Center(child: Text(context.l10n.idNotAvailable)),
       );
     }
 
@@ -118,7 +119,7 @@ void showPrysmIdQrDialog(
       : encodedId;
   showPrysmDialog<void>(
     context: context,
-    title: 'My QR Code',
+    title: context.l10n.myQrCode,
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -131,10 +132,10 @@ void showPrysmIdQrDialog(
           const SizedBox(height: 16),
           PrysmIdQrCode(data: qrData, size: 200),
           PrysmTextButton(
-            label: 'Copy ID',
+            label: context.l10n.copyId,
             onPressed: () {
               Clipboard.setData(ClipboardData(text: qrData));
-              showPrysmToast(context, 'ID copied to clipboard');
+              showPrysmToast(context, context.l10n.idCopiedToClipboard);
             },
           ),
           const SizedBox(height: 8),
@@ -149,6 +150,6 @@ void showPrysmIdQrDialog(
         ],
       ),
     ),
-    cancelLabel: 'Close',
+    cancelLabel: context.l10n.close,
   );
 }

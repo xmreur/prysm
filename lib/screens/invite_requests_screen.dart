@@ -16,6 +16,7 @@ import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/onion_id_codec.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Group invites received from senders who are not in the local contacts.
 ///
@@ -150,9 +151,9 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
   Future<void> _discard(String senderId) async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Discard invite',
-      content: const Text('This request will be removed.'),
-      cancelLabel: 'Cancel',
+      title: context.l10n.discardInvite,
+      content: Text(context.l10n.thisRequestWillBeRemoved),
+      cancelLabel: context.l10n.cancel,
       confirmLabel: 'Discard',
     );
     if (confirmed != true) return;
@@ -163,7 +164,7 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmPage(
-      title: 'Invite requests',
+      title: context.l10n.inviteRequests,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
         onPressed: widget.onClose,
@@ -216,12 +217,12 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 PrysmTextButton(
-                                  label: 'Discard',
+                                  label: context.l10n.discard,
                                   onPressed:
                                       locked ? null : () => _discard(senderId),
                                 ),
                                 PrysmTextButton(
-                                  label: 'Add contact and join',
+                                  label: context.l10n.addContactAndJoin,
                                   onPressed:
                                       locked ? null : () => _accept(senderId),
                                 ),

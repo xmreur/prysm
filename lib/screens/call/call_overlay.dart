@@ -14,6 +14,7 @@ import 'package:prysm/ui/core/prysm_linear_progress.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_tabs.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class CallOverlay extends StatefulWidget {
   const CallOverlay({super.key, required this.child, this.decoyMode = false});
@@ -211,13 +212,13 @@ class _IncomingCallView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             PrysmButton(
-              label: 'Decline',
+              label: context.l10n.decline,
               variant: PrysmButtonVariant.danger,
               onPressed: onDecline,
             ),
             const SizedBox(width: 24),
             PrysmButton(
-              label: 'Accept',
+              label: context.l10n.accept,
               onPressed: onAccept,
             ),
           ],
@@ -306,9 +307,9 @@ class _ActiveCallViewState extends State<_ActiveCallView> {
   String _statusLabel(CallState state) {
     switch (state) {
       case CallState.connecting:
-        return 'Connecting...';
+        return context.l10n.connecting;
       case CallState.ringing:
-        return 'Ringing...';
+        return context.l10n.ringing;
       case CallState.active:
         return _formatElapsed(_elapsed);
       default:

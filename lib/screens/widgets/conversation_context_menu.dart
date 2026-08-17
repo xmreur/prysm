@@ -5,6 +5,7 @@ import 'package:prysm/models/conversation_preferences.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 Future<void> showConversationContextMenu({
   required BuildContext context,
@@ -36,7 +37,7 @@ Future<void> showConversationContextMenu({
           if (canOpenDetached)
             PrysmListRow(
               leading: const Icon(PrysmIcons.openInNew),
-              title: 'Open in a separate window',
+              title: context.l10n.openInASeparateWindow,
               onTap: () => Navigator.pop(ctx, 'open_detached'),
             ),
           if (canOpenDetached) const PrysmDivider(),

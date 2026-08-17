@@ -1,6 +1,7 @@
 // lib/models/app_settings.dart
 import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/group_invite_mode.dart';
+import 'package:prysm/models/locale_override.dart';
 import 'package:prysm/models/panic_action.dart';
 import 'package:prysm/models/unlock_type.dart';
 
@@ -33,6 +34,7 @@ class Settings {
   // Theme
   final int themeMode; // 0=light, 1=dark, 2=pink, 3=cyan, 4=purple, 5=orange
   final AppearanceSettings appearance;
+  final LocaleOverride localeOverride;
 
   // Profile
   final String? avatar; // base64 encoded avatar image
@@ -69,6 +71,7 @@ class Settings {
     this.refuseUnknownSenders = false,
     this.themeMode = 0,
     this.appearance = const AppearanceSettings(),
+    this.localeOverride = LocaleOverride.system,
     this.avatar,
     this.username,
     this.enableFilePreview = false,
@@ -99,6 +102,7 @@ class Settings {
     'refuseUnknownSenders': refuseUnknownSenders,
     'themeMode': themeMode,
     'appearance': appearance.toJson(),
+    'localeOverride': localeOverride.storageKey,
     'avatar': avatar,
     'username': username,
     'enableFilePreview': enableFilePreview,
@@ -133,6 +137,9 @@ class Settings {
     appearance: AppearanceSettings.fromJson(
       json['appearance'] as Map<String, dynamic>?,
     ),
+    localeOverride: LocaleOverride.fromJson(
+      json['localeOverride'] as String?,
+    ),
     avatar: json['avatar'],
     username: json['username'],
     enableFilePreview: json['enableFilePreview'] ?? false,
@@ -165,6 +172,7 @@ class Settings {
     bool? refuseUnknownSenders,
     int? themeMode,
     AppearanceSettings? appearance,
+    LocaleOverride? localeOverride,
     String? avatar,
     String? username,
     bool? enableFilePreview,
@@ -195,6 +203,7 @@ class Settings {
     refuseUnknownSenders: refuseUnknownSenders ?? this.refuseUnknownSenders,
     themeMode: themeMode ?? this.themeMode,
     appearance: appearance ?? this.appearance,
+    localeOverride: localeOverride ?? this.localeOverride,
     avatar: avatar ?? this.avatar,
     username: username ?? this.username,
     enableFilePreview: enableFilePreview ?? this.enableFilePreview,
@@ -241,6 +250,7 @@ class Settings {
         other.refuseUnknownSenders == refuseUnknownSenders &&
         other.themeMode == themeMode &&
         other.appearance == appearance &&
+        other.localeOverride == localeOverride &&
         other.avatar == avatar &&
         other.username == username &&
         other.enableFilePreview == enableFilePreview &&
@@ -271,6 +281,7 @@ class Settings {
         refuseUnknownSenders.hashCode ^
         themeMode.hashCode ^
         appearance.hashCode ^
+        localeOverride.hashCode ^
         (avatar?.hashCode ?? 0) ^
         (username?.hashCode ?? 0) ^
         enableFilePreview.hashCode ^

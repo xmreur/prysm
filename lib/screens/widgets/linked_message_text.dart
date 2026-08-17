@@ -4,6 +4,7 @@ import 'package:prysm/screens/widgets/link_unfurl_preview.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/util/url_detector.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class LinkedMessageText extends StatelessWidget {
   final String text;
@@ -63,7 +64,7 @@ class LinkedMessageText extends StatelessWidget {
           onTap: () => onOpenUrl(url),
           onLongPress: () {
             Clipboard.setData(ClipboardData(text: url));
-            showPrysmToast(context, 'Link copied');
+            showPrysmToast(context, context.l10n.linkCopied);
           },
           child: Text(
             url,

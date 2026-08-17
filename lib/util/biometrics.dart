@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:prysm/services/settings_service.dart';
 
 class Biometrics {
   Biometrics._();
@@ -13,7 +14,7 @@ class Biometrics {
       return {
         'available': false,
         'code': 'UNSUPPORTED',
-        'message': 'Biometrics not supported on this platform',
+        'message': SettingsService().localizations.biometricsNotSupportedOnThisPlatform,
       };
     }
     final result = await _channel.invokeMethod<dynamic>('canAuthenticate');
@@ -34,7 +35,7 @@ class Biometrics {
       return {
         'success': false,
         'code': 'UNSUPPORTED',
-        'message': 'Biometrics not supported on this platform',
+        'message': SettingsService().localizations.biometricsNotSupportedOnThisPlatform,
       };
     }
     final result = await _channel.invokeMethod<dynamic>(
@@ -50,9 +51,9 @@ class Biometrics {
 
   static Future<bool> authenticateForUnlock() async {
     final result = await authenticate(
-      title: 'Unlock Prysm',
-      subtitle: 'Use your fingerprint or face',
-      cancelText: 'Use passcode',
+      title: SettingsService().localizations.unlockPrysm,
+      subtitle: SettingsService().localizations.useFingerprintOrFace,
+      cancelText: SettingsService().localizations.usePasscode,
     );
     return result['success'] == true;
   }

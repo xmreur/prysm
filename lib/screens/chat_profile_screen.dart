@@ -25,6 +25,7 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatProfileScreen extends StatefulWidget {
   final Contact peer;
@@ -163,12 +164,12 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   void _confirmDeleteChat() {
     showPrysmConfirmDialog(
       context: context,
-      title: 'Delete Chat',
+      title: context.l10n.deleteChat,
       content: const Text(
         'Are you sure you want to delete all messages in this chat? This cannot be undone.',
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Delete',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
     ).then((confirmed) {
       if (confirmed != true) return;
@@ -180,12 +181,12 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   void _confirmDeleteContact() {
     showPrysmConfirmDialog(
       context: context,
-      title: 'Delete Contact',
+      title: context.l10n.deleteContact,
       content: const Text(
         'Are you sure you want to delete this contact? This cannot be undone.',
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Delete',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
     ).then((confirmed) {
       if (confirmed != true) return;
@@ -198,7 +199,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
   Widget build(BuildContext context) {
     final tokens = context.prysmStyle.tokens;
     return PrysmPage(
-      title: 'Contact Info',
+      title: context.l10n.contactInfo,
       headerHeight: 70,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
@@ -208,7 +209,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
         if (!_isBlocked)
           PrysmIconButton(
             icon: PrysmIcons.saveOutlined,
-            tooltip: 'Save',
+            tooltip: context.l10n.save,
             onPressed: _saveName,
           ),
       ],
@@ -271,7 +272,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                     ] else ...[
                       PrysmTextField(
                         controller: _nameController,
-                        labelText: 'Display Name',
+                        labelText: context.l10n.displayName,
                       ),
                       const SizedBox(height: 8),
                       if (widget.isOnline == null)
@@ -333,7 +334,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                     children: [
                       PrysmListRow(
                         leading: const Icon(PrysmIcons.keyOutlined),
-                        title: 'User ID',
+                        title: context.l10n.userId,
                         subtitleWidget: Text(
                           encodeOnionToBase58(_peer.id),
                           style: const TextStyle(
@@ -343,12 +344,12 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         ),
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: _peer.id));
-                          showPrysmToast(context, 'ID copied to clipboard');
+                          showPrysmToast(context, context.l10n.idCopiedToClipboard);
                         },
                       ),
                       PrysmListRow(
                         leading: const Icon(PrysmIcons.fingerprint),
-                        title: 'Identity verification',
+                        title: context.l10n.identityVerification,
                         subtitle: _verificationService.statusLabel(
                           _verificationService.statusFor(_peer),
                         ),
@@ -375,7 +376,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                   ),
                   child: PrysmListRow(
                     leading: const Icon(PrysmIcons.photoLibraryOutlined),
-                    title: 'Shared Media',
+                    title: context.l10n.sharedMedia,
                     trailing: const Icon(PrysmIcons.chevronRight),
                     onTap: () async {
                       final messageId = await Navigator.push<String>(
@@ -497,7 +498,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         'Delete Chat',
                         style: TextStyle(color: tokens.danger),
                       ),
-                      subtitle: 'Delete all messages in this chat',
+                      subtitle: context.l10n.deleteAllMessagesInThisChat,
                       onTap: _confirmDeleteChat,
                     ),
                   ],
@@ -528,8 +529,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                         'Delete Contact',
                         style: TextStyle(color: tokens.danger),
                       ),
-                      subtitle:
-                          'Delete this contact from your list. Cannot be undone.',
+                      subtitle: context.l10n.deleteThisContactFromYourListCannotBe,
                       onTap: _confirmDeleteContact,
                     ),
                   ],

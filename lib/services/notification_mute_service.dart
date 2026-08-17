@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:prysm/util/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prysm/services/settings_service.dart';
 
 enum MuteTarget { user, group }
 
@@ -33,15 +34,15 @@ extension MuteDurationX on MuteDuration {
   String get label {
     switch (this) {
       case MuteDuration.oneHour:
-        return '1 hour';
+        return SettingsService().localizations.str1hour;
       case MuteDuration.twoHours:
-        return '2 hours';
+        return SettingsService().localizations.str2hours;
       case MuteDuration.fourHours:
-        return '4 hours';
+        return SettingsService().localizations.str4hours;
       case MuteDuration.eightHours:
-        return '8 hours';
+        return SettingsService().localizations.str8hours;
       case MuteDuration.forever:
-        return 'Until I turn it back on';
+        return SettingsService().localizations.untilITurnItBackOn;
     }
   }
 }

@@ -16,6 +16,7 @@ import 'package:prysm/util/waveform_extractor.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Shared voice message bubble with waveform scrubbing (1:1 and group chats).
 class VoiceMessageBubble extends StatefulWidget {
@@ -214,7 +215,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     final playPath = await _resolvePath();
     if (playPath == null) {
       if (mounted) {
-        showPrysmToast(context, 'Voice message cache expired');
+        showPrysmToast(context, context.l10n.voiceMessageCacheExpired);
       }
       return;
     }
@@ -256,7 +257,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     } catch (err) {
       Logging.error('Voice playback error: $err', 'VoiceMessageBubble');
       if (mounted) {
-        showPrysmToast(context, 'Failed to play voice message');
+        showPrysmToast(context, context.l10n.failedToPlayVoiceMessage);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

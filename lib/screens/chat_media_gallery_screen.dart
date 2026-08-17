@@ -19,6 +19,7 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatMediaGalleryScreen extends StatefulWidget {
   final String title;
@@ -279,7 +280,7 @@ class _ChatMediaGalleryScreenState extends State<ChatMediaGalleryScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmPage(
-      title: 'Shared Media',
+      title: context.l10n.sharedMedia,
       subtitle: widget.title,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,

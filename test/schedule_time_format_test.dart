@@ -1,8 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/models/locale_override.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/schedule_time_format.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final now = DateTime(2026, 8, 3, 10, 0); // Monday
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    resetScheduleDateFormattingForTests();
+    final service = SettingsService();
+    await service.init();
+    await service.setLocaleOverride(LocaleOverride.en);
+    await ensureScheduleDateFormatting();
+  });
 
   test('midnight and noon use 12-hour clock, not 0', () {
     expect(formatScheduleClock(DateTime(2026, 8, 3, 0, 5)), '12:05 AM');

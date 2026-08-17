@@ -18,6 +18,7 @@ import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ShareTargetPickerScreen extends StatefulWidget {
   const ShareTargetPickerScreen({
@@ -69,8 +70,8 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
             conversationId: DetachedChatLaunch.selfConversationId,
             displayName: 'Chat with myself',
           ),
-          title: 'Chat with myself',
-          subtitle: 'Notes to self',
+          title: context.l10n.chatWithMyself,
+          subtitle: context.l10n.notesToSelf,
           avatarName: widget.userName,
           avatarBase64: widget.userAvatarBase64,
         ),
@@ -112,7 +113,7 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
               displayName: group.name,
             ),
             title: group.name,
-            subtitle: 'Group',
+            subtitle: context.l10n.group,
             avatarName: group.name,
             avatarBase64: group.avatarBase64,
           ),
@@ -172,7 +173,7 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
     final tokens = context.prysmTokens;
 
     return PrysmPage(
-      title: 'Share to Prysm',
+      title: context.l10n.shareToPrysm,
       leading: PrysmIconButton(
         icon: PrysmIcons.close,
         onPressed: _sending ? null : _cancel,

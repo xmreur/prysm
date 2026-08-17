@@ -7,6 +7,7 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -72,7 +73,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   Widget build(BuildContext context) {
     if (!QrPlatform.isScanSupported) {
       return PrysmPage(
-        title: 'QR Scanner',
+        title: context.l10n.qrScanner,
         leading: PrysmIconButton(
           icon: PrysmIcons.arrowBack,
           onPressed: () => Navigator.pop(context),
@@ -143,7 +144,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       ),
                       const SizedBox(height: 32),
                       PrysmButton(
-                        label: 'Open Settings',
+                        label: context.l10n.openSettings,
                         onPressed: openAppSettings,
                       ),
                     ],

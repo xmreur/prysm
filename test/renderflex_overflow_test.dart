@@ -29,19 +29,25 @@
 // testWidgets/pumpWidget with a hand-resolved PrysmStyleScope.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/appearance_settings.dart';
+import 'package:prysm/models/locale_override.dart';
 import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/screens/pin_entry.dart';
 import 'package:prysm/screens/widgets/pin_keypad.dart';
 import 'package:prysm/screens/widgets/quoted_reply_preview.dart';
+import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
 import 'package:prysm/ui/chat/prysm_constrained_composer.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'pump_prysm_l10n.dart';
 
 Widget wrapWithStyle(Widget child) {
   final style = PrysmStyleResolver.resolve(
@@ -94,6 +100,12 @@ Future<void> pumpChatBody(
 
   await tester.pumpWidget(
     MaterialApp(
+      locale: const Locale('en'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ],
       home: Builder(
         builder: (context) {
           final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
@@ -200,20 +212,17 @@ void main() {
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: wrapWithStyle(
-            PinScreen(
-              onVerifyPin: (_) async => true,
-              isPinSet: Future.value(true),
-              showBiometricButton: true,
-              onTryBiometric: () {},
-              torBootstrapProgress: 45,
-            ),
-          ),
+      await pumpWithPrysmL10n(
+        tester,
+        PinScreen(
+          onVerifyPin: (_) async => true,
+          isPinSet: Future.value(true),
+          showBiometricButton: true,
+          onTryBiometric: () {},
+          torBootstrapProgress: 45,
         ),
+        width: 360,
       );
-      await tester.pump();
 
       expect(tester.takeException(), isNull,
           reason: 'PIN screen column must fit on a small phone screen');
@@ -231,8 +240,20 @@ void main() {
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
 
+      SharedPreferences.setMockInitialValues({});
+      final settings = SettingsService();
+      await settings.init();
+      await settings.setLocaleOverride(LocaleOverride.en);
+      final l10n = lookupAppLocalizations(const Locale('en'));
+
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+          ],
           home: wrapWithStyle(
             OnboardingScreen(
               onionAddress: 'abc',
@@ -244,7 +265,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Next'));
+      await tester.tap(find.text(l10n.next));
       await tester.pumpAndSettle();
 
       final scrollView = find.ancestor(

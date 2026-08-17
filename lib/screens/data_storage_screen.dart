@@ -16,6 +16,7 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/prysm_section.dart';
 import 'package:prysm/util/format_file_size.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class DataStorageScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -65,12 +66,12 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
   Future<void> _clearCaches() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Clear caches',
+      title: context.l10n.clearCaches,
       content: const Text(
         'Delete temporary image and voice caches? '
         'Media will be re-decrypted when opened again.',
       ),
-      cancelLabel: 'Cancel',
+      cancelLabel: context.l10n.cancel,
       confirmLabel: 'Clear',
       confirmVariant: PrysmButtonVariant.danger,
     );
@@ -78,7 +79,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
 
     await StorageUsageService.clearEphemeralCaches();
     if (!mounted) return;
-    showPrysmToast(context, 'Caches cleared');
+    showPrysmToast(context, context.l10n.cachesCleared);
     await _refresh();
   }
 
@@ -86,7 +87,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
     final userId = widget.userId;
     final keyManager = widget.keyManager;
     if (userId == null || keyManager == null) {
-      showPrysmToast(context, 'Storage manager unavailable');
+      showPrysmToast(context, context.l10n.storageManagerUnavailable);
       return;
     }
 
@@ -128,7 +129,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
     final breakdown = _breakdown;
 
     return PrysmPage(
-      title: 'Storage Manager',
+      title: context.l10n.storageManager,
       headerHeight: 70,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
@@ -148,7 +149,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                       children: [
                         PrysmListRow(
                           leading: const Icon(PrysmIcons.storageOutlined),
-                          title: 'Total',
+                          title: context.l10n.total,
                           subtitle: breakdown != null
                               ? formatFileSize(breakdown.totalBytes)
                               : 'Calculating…',
@@ -156,7 +157,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                         if (breakdown != null) ...[
                           PrysmListRow(
                             leading: const Icon(PrysmIcons.chatBubbleOutline),
-                            title: 'Chat media',
+                            title: context.l10n.chatMedia2,
                             subtitle: formatFileSize(breakdown.chatMediaBytes),
                             trailing: const Icon(
                               PrysmIcons.arrowForwardIos,
@@ -166,7 +167,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                           ),
                           PrysmListRow(
                             leading: const Icon(PrysmIcons.downloadOutlined),
-                            title: 'Downloads',
+                            title: context.l10n.downloads,
                             subtitle: formatFileSize(breakdown.downloadsBytes),
                             trailing: const Icon(
                               PrysmIcons.arrowForwardIos,
@@ -176,17 +177,17 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                           ),
                           PrysmListRow(
                             leading: const Icon(PrysmIcons.refreshOutlined),
-                            title: 'Caches',
+                            title: context.l10n.caches,
                             subtitle: formatFileSize(breakdown.cacheBytes),
                             trailing: PrysmButton(
-                              label: 'Clear',
+                              label: context.l10n.clear,
                               variant: PrysmButtonVariant.danger,
                               onPressed: _clearCaches,
                             ),
                           ),
                           PrysmListRow(
                             leading: const Icon(PrysmIcons.folderOpenOutlined),
-                            title: 'Other app data',
+                            title: context.l10n.otherAppData,
                             subtitle:
                                 formatFileSize(breakdown.otherAppDataBytes),
                           ),

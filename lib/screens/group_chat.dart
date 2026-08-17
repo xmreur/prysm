@@ -79,6 +79,7 @@ import 'package:prysm/util/group_membership_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/peer_identity_loader.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class GroupChatScreen extends StatefulWidget {
   final String userId;
@@ -347,7 +348,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (!mounted) return;
     widget.onCloseChat?.call();
     widget.reloadConversations();
-    showPrysmToast(context, 'You are no longer in this group');
+    showPrysmToast(context, context.l10n.youAreNoLongerInThisGroup);
   }
 
   Future<void> _init() async {
@@ -387,7 +388,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final ok = await _chatService.initialize();
     if (!ok && mounted) {
-      showPrysmToast(context, 'Waiting for group key…');
+      showPrysmToast(context, context.l10n.waitingForGroupKey);
       _waitForGroupKey();
     }
 
@@ -487,7 +488,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         if (canEditMessage(message, widget.userId))
           PrysmListRow(
             leading: const Icon(PrysmIcons.editOutlined),
-            title: 'Edit',
+            title: context.l10n.edit,
             onTap: () {
               Navigator.pop(context);
               _editMessage(message);
@@ -496,7 +497,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         if (isSentByMe)
           PrysmListRow(
             leading: const Icon(PrysmIcons.infoOutline),
-            title: 'Info',
+            title: context.l10n.info,
             onTap: () {
               Navigator.pop(context);
               _openMessageInfo(message);
@@ -504,7 +505,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ),
         PrysmListRow(
           leading: const Icon(PrysmIcons.reply),
-          title: 'Reply',
+          title: context.l10n.reply,
           onTap: () {
             Navigator.pop(context);
             _controller.setReplyToMessage(message);
@@ -512,7 +513,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
         PrysmListRow(
           leading: const Icon(PrysmIcons.selectAll),
-          title: 'Select',
+          title: context.l10n.select,
           onTap: () {
             Navigator.pop(context);
             _controller.selectMessage(message.id);
@@ -562,7 +563,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     });
     if (showFailureToast &&
         outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
-      showPrysmToast(context, 'Could not delete for everyone');
+      showPrysmToast(context, context.l10n.couldNotDeleteForEveryone);
     }
     return outcome;
   }
@@ -573,16 +574,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     String? newText;
     await showPrysmDialog(
       context: context,
-      title: 'Edit message',
+      title: context.l10n.editMessage,
       content: PrysmTextField(
         controller: controller,
         autofocus: true,
         maxLines: 4,
         minLines: 1,
-        hintText: 'Message',
+        hintText: context.l10n.messageHint,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Save',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.save,
       onConfirm: () => newText = controller.text.trim(),
     );
     if (newText == null || newText!.isEmpty || newText == message.text) return;
@@ -595,7 +596,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _messages.updateMessage(message, updated);
       });
     } else {
-      showPrysmToast(context, 'Could not edit message');
+      showPrysmToast(context, context.l10n.couldNotEditMessage);
     }
   }
 
@@ -1033,7 +1034,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         messageId: messageId,
       );
       if (sentId == null && mounted) {
-        showPrysmToast(context, 'Could not send message — group key unavailable');
+        showPrysmToast(context, context.l10n.couldNotSendMessageGroupKeyUnavailable);
       }
       return;
     }
@@ -1043,7 +1044,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       replyToId: replyToId,
     );
     if (sentId == null && mounted) {
-      showPrysmToast(context, 'Could not send message — group key unavailable');
+      showPrysmToast(context, context.l10n.couldNotSendMessageGroupKeyUnavailable);
     }
     widget.reloadConversations();
   }
@@ -1088,7 +1089,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       if (!mounted) return;
       if (sentId == null) {
         _controller.removeOptimisticFileMessage(messageId);
-        showPrysmToast(context, 'Could not send file — group key unavailable');
+        showPrysmToast(context, context.l10n.couldNotSendFileGroupKeyUnavailable);
       }
       return;
     }
@@ -1117,7 +1118,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
 
     if (!mounted) return;
-    showPrysmToast(context, 'Message queued. Will send when members are reachable.');
+    showPrysmToast(context, context.l10n.messageQueuedWillSendWhenMembersAreReachable);
     widget.reloadConversations();
   }
 
@@ -1269,7 +1270,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         }
       });
     } else {
-      showPrysmToast(context, 'Message not found in loaded history');
+      showPrysmToast(context, context.l10n.messageNotFoundInLoadedHistory);
     }
   }
 
@@ -1285,11 +1286,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   String _deliveryStatusLabel(Message message) {
-    if (message.metadata?['failed'] == true) return 'Failed';
-    if (isOutboundPending(message)) return 'Pending';
-    if (_settings.sendReadReceipts && message.seenAt != null) return 'Read';
-    if (message.sentAt != null) return 'Delivered';
-    return 'Pending';
+    if (message.metadata?['failed'] == true) return context.l10n.failed;
+    if (isOutboundPending(message)) return context.l10n.pending;
+    if (_settings.sendReadReceipts && message.seenAt != null) return context.l10n.read;
+    if (message.sentAt != null) return context.l10n.delivered;
+    return context.l10n.pending;
   }
 
   void _openMessageInfo(Message message) {

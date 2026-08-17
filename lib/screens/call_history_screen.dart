@@ -14,6 +14,7 @@ import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/onion_id_codec.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class CallHistoryScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -150,9 +151,9 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   Future<void> _confirmClear() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Clear call history',
-      content: const Text('This will permanently delete all call logs.'),
-      cancelLabel: 'Cancel',
+      title: context.l10n.clearCallHistory,
+      content: Text(context.l10n.thisWillPermanentlyDeleteAllCallLogs),
+      cancelLabel: context.l10n.cancel,
       confirmLabel: 'Clear',
       confirmVariant: PrysmButtonVariant.danger,
     );
@@ -163,7 +164,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmPage(
-      title: 'Call History',
+      title: context.l10n.callHistory,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
         onPressed: widget.onClose,
@@ -172,7 +173,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         if (_logs.isNotEmpty)
           PrysmIconButton(
             icon: PrysmIcons.deleteOutline,
-            tooltip: 'Clear history',
+            tooltip: context.l10n.clearHistory,
             onPressed: _confirmClear,
           ),
       ],

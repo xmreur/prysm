@@ -90,6 +90,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userId;
@@ -776,16 +777,16 @@ class _ChatScreenState extends State<ChatScreen> {
     String? newText;
     await showPrysmDialog(
       context: context,
-      title: 'Edit message',
+      title: context.l10n.editMessage,
       content: PrysmTextField(
         controller: controller,
         autofocus: true,
         maxLines: 4,
         minLines: 1,
-        hintText: 'Message',
+        hintText: context.l10n.messageHint,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Save',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.save,
       onConfirm: () => newText = controller.text.trim(),
     );
     if (newText == null || newText!.isEmpty || newText == message.text) return;
@@ -799,7 +800,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messageCache[message.id] = updated;
       });
     } else {
-      showPrysmToast(context, 'Could not edit message');
+      showPrysmToast(context, context.l10n.couldNotEditMessage);
     }
   }
 
@@ -1075,7 +1076,7 @@ class _ChatScreenState extends State<ChatScreen> {
           )
           .then((sentId) {
             if (sentId == null && mounted) {
-              showPrysmToast(context, 'Voice message queued. Will send when peer is available.');
+              showPrysmToast(context, context.l10n.voiceMessageQueuedWillSendWhenPeerIs);
             }
           });
       return;
@@ -1091,7 +1092,7 @@ class _ChatScreenState extends State<ChatScreen> {
         )
         .then((sentId) {
           if (sentId == null && mounted) {
-            showPrysmToast(context, 'Voice message queued. Will send when peer is available.');
+            showPrysmToast(context, context.l10n.voiceMessageQueuedWillSendWhenPeerIs);
           }
         });
   }
@@ -1188,7 +1189,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       });
     } else {
-      showPrysmToast(context, 'Message not found in loaded history');
+      showPrysmToast(context, context.l10n.messageNotFoundInLoadedHistory);
     }
   }
 
@@ -1340,13 +1341,13 @@ class _ChatScreenState extends State<ChatScreen> {
   String _prettyCallStatus(String status) {
     switch (status) {
       case 'completed':
-        return 'Completed';
+        return context.l10n.completed;
       case 'missed':
-        return 'Missed';
+        return context.l10n.missed;
       case 'declined':
-        return 'Declined';
+        return context.l10n.declined;
       case 'failed':
-        return 'Failed';
+        return context.l10n.failed;
       default:
         return status;
     }
@@ -1429,7 +1430,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (canEditMessage(message, widget.userId))
         PrysmListRow(
           leading: const Icon(PrysmIcons.editOutlined),
-          title: 'Edit',
+          title: context.l10n.edit,
           onTap: () {
             Navigator.pop(context);
             _editMessage(message);
@@ -1438,7 +1439,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (isSentByMe)
         PrysmListRow(
           leading: const Icon(PrysmIcons.infoOutline),
-          title: 'Info',
+          title: context.l10n.info,
           onTap: () {
             Navigator.pop(context);
             _openMessageInfo(message);
@@ -1446,7 +1447,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       PrysmListRow(
         leading: const Icon(PrysmIcons.reply),
-        title: 'Reply',
+        title: context.l10n.reply,
         onTap: () {
           Navigator.pop(context);
           _controller.setReplyToMessage(message);
@@ -1454,7 +1455,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       PrysmListRow(
         leading: const Icon(PrysmIcons.selectAll),
-        title: 'Select',
+        title: context.l10n.select,
         onTap: () {
           Navigator.pop(context);
           setState(() => selectedMessageIds.add(message.id));
@@ -1511,7 +1512,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     if (showFailureToast &&
         outcome == MessageDeleteOutcome.markedDeletedForEveryoneFailed) {
-      showPrysmToast(context, 'Could not delete for everyone');
+      showPrysmToast(context, context.l10n.couldNotDeleteForEveryone);
     }
     return outcome;
   }
@@ -1521,11 +1522,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _deliveryStatusLabel(Message message) {
-    if (message.metadata?['failed'] == true) return 'Failed';
-    if (isOutboundPending(message)) return 'Pending';
-    if (_settings.sendReadReceipts && message.seenAt != null) return 'Read';
-    if (message.sentAt != null) return 'Delivered';
-    return 'Pending';
+    if (message.metadata?['failed'] == true) return context.l10n.failed;
+    if (isOutboundPending(message)) return context.l10n.pending;
+    if (_settings.sendReadReceipts && message.seenAt != null) return context.l10n.read;
+    if (message.sentAt != null) return context.l10n.delivered;
+    return context.l10n.pending;
   }
 
   void _openMessageInfo(Message message) {
@@ -2048,7 +2049,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   context,
                   PrysmPageRoute(page: ViewOnceImageScreen(
                     imageBytes: decryptedBytes,
-                    title: 'View Once',
+                    title: context.l10n.viewOnce,
                     closeColor: const Color(0xB3FFFFFF),
                   ),
                   ),

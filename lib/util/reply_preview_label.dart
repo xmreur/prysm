@@ -3,13 +3,14 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/reply_preview_data.dart';
 import 'package:prysm/util/message_modify_policy.dart';
+import 'package:prysm/services/settings_service.dart';
 
 ReplyPreviewData replyPreviewFromMessage(Message message) {
   if (isMessageDeleted(message)) {
     return ReplyPreviewData(
       messageId: message.id,
       authorId: message.authorId,
-      label: 'Deleted',
+      label: SettingsService().localizations.deleted,
       kind: ReplyPreviewKind.deleted,
     );
   }
@@ -27,7 +28,7 @@ ReplyPreviewData replyPreviewFromMessage(Message message) {
     return ReplyPreviewData(
       messageId: message.id,
       authorId: message.authorId,
-      label: 'Photo',
+      label: SettingsService().localizations.photo,
       kind: ReplyPreviewKind.image,
     );
   }
@@ -37,7 +38,7 @@ ReplyPreviewData replyPreviewFromMessage(Message message) {
       return ReplyPreviewData(
         messageId: message.id,
         authorId: message.authorId,
-        label: 'Voice message',
+        label: SettingsService().localizations.voiceMessage,
         kind: ReplyPreviewKind.voice,
       );
     }
@@ -52,7 +53,7 @@ ReplyPreviewData replyPreviewFromMessage(Message message) {
   return ReplyPreviewData(
     messageId: message.id,
     authorId: message.authorId,
-    label: 'Message',
+    label: SettingsService().localizations.messageHint,
     kind: ReplyPreviewKind.text,
   );
 }
@@ -64,7 +65,7 @@ ReplyPreviewData replyPreviewFromDbRow(Map<String, dynamic> row) {
     return ReplyPreviewData(
       messageId: id,
       authorId: authorId,
-      label: 'Deleted',
+      label: SettingsService().localizations.deleted,
       kind: ReplyPreviewKind.deleted,
     );
   }
@@ -76,7 +77,7 @@ ReplyPreviewData replyPreviewFromDbRow(Map<String, dynamic> row) {
     return ReplyPreviewData(
       messageId: id,
       authorId: authorId,
-      label: 'Photo',
+      label: SettingsService().localizations.photo,
       kind: ReplyPreviewKind.image,
     );
   }
@@ -85,7 +86,7 @@ ReplyPreviewData replyPreviewFromDbRow(Map<String, dynamic> row) {
     return ReplyPreviewData(
       messageId: id,
       authorId: authorId,
-      label: 'Voice message',
+      label: SettingsService().localizations.voiceMessage,
       kind: ReplyPreviewKind.voice,
     );
   }
@@ -94,7 +95,7 @@ ReplyPreviewData replyPreviewFromDbRow(Map<String, dynamic> row) {
     return ReplyPreviewData(
       messageId: id,
       authorId: authorId,
-      label: fileName ?? 'File',
+      label: fileName ?? SettingsService().localizations.file,
       kind: ReplyPreviewKind.file,
     );
   }
@@ -103,7 +104,7 @@ ReplyPreviewData replyPreviewFromDbRow(Map<String, dynamic> row) {
     return ReplyPreviewData(
       messageId: id,
       authorId: authorId,
-      label: 'Message',
+      label: SettingsService().localizations.messageHint,
       kind: ReplyPreviewKind.text,
     );
   }

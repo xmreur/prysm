@@ -1,6 +1,11 @@
 // lib/services/settings_service.dart
 import 'dart:convert';
+import 'dart:ui';
+
 import 'package:flutter/foundation.dart';
+import 'package:prysm/l10n/app_localizations.dart';
+import 'package:prysm/models/locale_override.dart';
+import 'package:prysm/util/locale_resolution.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prysm/crypto/key_store.dart';
@@ -34,8 +39,15 @@ class SettingsService {
   /// Bumped when theme palette or appearance prefs change (live UI refresh).
   final ValueNotifier<int> styleRevision = ValueNotifier<int>(0);
 
+  /// Bumped when the language override changes (live UI refresh).
+  final ValueNotifier<int> localeRevision = ValueNotifier<int>(0);
+
   void _notifyStyleChanged() {
     styleRevision.value++;
+  }
+
+  void _notifyLocaleChanged() {
+    localeRevision.value++;
   }
 
   // Getters for easy access
@@ -64,6 +76,13 @@ class SettingsService {
   // Theme
   int get themeMode => _settings.themeMode;
   AppearanceSettings get appearance => _settings.appearance;
+  LocaleOverride get localeOverride => _settings.localeOverride;
+
+  /// Effective locale after applying override and supported-language fallback.
+  Locale get resolvedLocale => resolveLocale(_settings.localeOverride);
+
+  AppLocalizations get localizations =>
+      lookupAppLocalizations(resolvedLocale);
 
   // Profile
   String? get avatar => _settings.avatar;
@@ -242,6 +261,12 @@ class SettingsService {
     _settings = _settings.copyWith(appearance: value.clamped());
     await save();
     _notifyStyleChanged();
+  }
+
+  Future<void> setLocaleOverride(LocaleOverride value) async {
+    _settings = _settings.copyWith(localeOverride: value);
+    await save();
+    _notifyLocaleChanged();
   }
 
   Future<void> updateAppearance(

@@ -10,15 +10,20 @@
 // ChatService/sqflite; see HANDOFF.md and group_invite_mode_screens_test.dart),
 // so the seam under test is the shared tile they now all build. That the three
 // screens actually call it was verified on the running app, not here.
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
+
+import 'pump_prysm_l10n.dart';
 
 Widget wrapWithStyle(Widget child) {
   final style = PrysmStyleResolver.resolve(
@@ -99,32 +104,20 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null),
     );
 
-    await tester.pumpWidget(
-      wrapWithStyle(
-        WidgetsApp(
-          color: const Color(0xFF000000),
-          pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
-              PageRouteBuilder<T>(
-            settings: settings,
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                builder(context),
-          ),
-          home: Builder(
-            builder: (context) =>
-                copyMessageTile(context: context, text: 'axolotl dossier'),
-          ),
-        ),
+    await pumpWithPrysmL10n(
+      tester,
+      Builder(
+        builder: (context) =>
+            copyMessageTile(context: context, text: 'axolotl dossier'),
       ),
     );
 
-    expect(find.text('Copy'), findsOneWidget);
-    await tester.tap(find.text('Copy'));
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(find.text(l10n.copy), findsOneWidget);
+    await tester.tap(find.text(l10n.copy));
     await tester.pumpAndSettle();
 
-    // The row also confirms the copy, and showPrysmToast holds a 3s
-    // Future.delayed to pull its overlay entry: the binding fails the test on
-    // any timer that outlives the tree, so it has to be drained here.
-    expect(find.text('Copied to clipboard'), findsOneWidget);
+    expect(find.text(l10n.copiedToClipboard), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
 
     final setData =
@@ -142,28 +135,18 @@ void main() {
     );
 
     late BuildContext screenContext;
-    await tester.pumpWidget(
-      wrapWithStyle(
-        WidgetsApp(
-          color: const Color(0xFF000000),
-          pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
-              PageRouteBuilder<T>(
-            settings: settings,
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                builder(context),
-          ),
-          home: Builder(
-            builder: (context) {
-              screenContext = context;
-              return const SizedBox.shrink();
-            },
-          ),
-        ),
+    await pumpWithPrysmL10n(
+      tester,
+      Builder(
+        builder: (context) {
+          screenContext = context;
+          return const SizedBox.shrink();
+        },
       ),
     );
 
-    // The real sheet helper, opened with the SCREEN's context — the trap the
-    // tile's dartdoc warns about is passing the sheet builder's instead.
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
     showPrysmSheet<void>(
       context: screenContext,
       builder: (_) => copyMessageTile(
@@ -172,13 +155,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text(l10n.copy), findsOneWidget);
 
-    await tester.tap(find.text('Copy'));
+    await tester.tap(find.text(l10n.copy));
     await tester.pumpAndSettle();
 
-    expect(find.text('Copy'), findsNothing, reason: 'the sheet must close');
-    expect(find.text('Copied to clipboard'), findsOneWidget);
+    expect(find.text(l10n.copy), findsNothing, reason: 'the sheet must close');
+    expect(find.text(l10n.copiedToClipboard), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
   });
 }

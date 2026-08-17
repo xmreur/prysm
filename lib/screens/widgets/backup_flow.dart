@@ -5,6 +5,7 @@ import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Shows the create-backup password dialog and writes an encrypted backup file.
 /// Returns true when a backup file was written successfully.
@@ -13,7 +14,7 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
   var created = false;
   await showPrysmDialog<void>(
     context: context,
-    title: 'Create Backup',
+    title: context.l10n.createBackup,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -26,18 +27,18 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
         const SizedBox(height: 16),
         PrysmTextField(
           controller: passwordController,
-          labelText: 'Backup Password',
+          labelText: context.l10n.backupPassword,
           obscureText: true,
           prefixIcon: const Icon(PrysmIcons.lock),
         ),
       ],
     ),
-    cancelLabel: 'Cancel',
-    confirmLabel: 'Create Backup',
+    cancelLabel: context.l10n.cancel,
+    confirmLabel: context.l10n.createBackup,
     onConfirm: () async {
       final password = passwordController.text;
       if (password.length < 4) {
-        showPrysmToast(context, 'Password must be at least 4 characters');
+        showPrysmToast(context, context.l10n.passwordMustBeAtLeast4Characters);
         return;
       }
       Navigator.pop(context);

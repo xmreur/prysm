@@ -16,6 +16,7 @@ import 'package:prysm/util/readable_file_policy.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_linear_progress.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class FileAttachmentBubble extends StatefulWidget {
   final String fileName;
@@ -422,7 +423,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
                     PrysmIconButton(
                       icon: PrysmIcons.downloadOutlined,
                       color: onPrimary,
-                      tooltip: 'Download',
+                      tooltip: context.l10n.download,
                       onPressed: (_loading && _bytes == null) ? null : _download,
                     ),
                     Expanded(

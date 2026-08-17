@@ -12,6 +12,8 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/util/disappearing_timer_refresh_notifier.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Settings row to enable or change per-conversation disappearing messages.
 class DisappearingMessagesTile extends StatefulWidget {
@@ -99,10 +101,10 @@ class _DisappearingMessagesTileState extends State<DisappearingMessagesTile> {
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox.shrink();
 
-    final subtitle = DisappearingTimerPresets.labelForSeconds(_timerSeconds);
+    final subtitle = disappearingTimerLabelForSeconds(context.l10n, _timerSeconds);
     return PrysmListRow(
       leading: const Icon(PrysmIcons.timer),
-      title: 'Disappearing messages',
+      title: context.l10n.disappearingMessages,
       subtitle: subtitle,
       onTap: _pickTimer,
     );
@@ -123,16 +125,16 @@ class _TimerPickerSheet extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('Disappearing messages', style: style.titleStyle),
+            child: Text(context.l10n.disappearingMessages, style: style.titleStyle),
           ),
           PrysmListRow(
-            title: 'Off',
+            title: context.l10n.disappearingOff,
             trailing: currentSeconds == null ? const Icon(PrysmIcons.check) : null,
             onTap: () => Navigator.pop(context, null),
           ),
           for (final preset in DisappearingTimerPresets.all)
             PrysmListRow(
-              title: preset.label,
+              title: preset.localizedLabel(context.l10n),
               trailing: currentSeconds == preset.seconds
                   ? const Icon(PrysmIcons.check)
                   : null,

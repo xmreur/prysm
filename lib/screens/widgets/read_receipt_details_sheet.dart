@@ -6,6 +6,8 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
+import 'package:prysm/l10n/app_localizations.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ReadReceiptMember {
   final String memberId;
@@ -134,8 +136,8 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
     return members;
   }
 
-  String _formatTime(int? millis) {
-    if (millis == null) return 'Pending';
+  String _formatTime(int? millis, AppLocalizations l10n) {
+    if (millis == null) return l10n.pending;
     final dt = DateTime.fromMillisecondsSinceEpoch(millis);
     final hour = dt.hour.toString().padLeft(2, '0');
     final minute = dt.minute.toString().padLeft(2, '0');
@@ -158,7 +160,7 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
             const SizedBox(height: 12),
             PrysmListRow(
               leading: const Icon(PrysmIcons.localShippingOutlined, size: 20),
-              title: 'Delivery',
+              title: context.l10n.delivery,
               trailingSubtitle: deliveryStatusLabel,
             ),
             if (showReadSection) ...[
@@ -183,9 +185,9 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
                 }
                 final members = snapshot.data ?? [];
                 if (members.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No read information available.'),
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(context.l10n.noReadInformationAvailable),
                   );
                 }
                 return Flexible(
@@ -197,7 +199,7 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
                       final member = members[index];
                       return PrysmListRow(
                         title: member.displayName,
-                        trailingSubtitle: _formatTime(member.readAt),
+                        trailingSubtitle: _formatTime(member.readAt, context.l10n),
                       );
                     },
                   ),

@@ -5,6 +5,7 @@ import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
 import 'package:prysm/ui/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Empty home pane when no conversation is selected.
 class EmptyHomeState extends StatelessWidget {
@@ -57,13 +58,15 @@ class EmptyHomeState extends StatelessWidget {
                 ),
                 const SizedBox(height: PrysmTokens.spacing24),
                 Text(
-                  'Welcome back, $displayName',
+                  displayName.isEmpty
+                      ? context.l10n.welcomeBack
+                      : context.l10n.welcomeBackDisplayname(displayName),
                   style: style.headline,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: PrysmTokens.spacing8),
                 Text(
-                  'Pick a conversation from the sidebar or start a new one.',
+                  context.l10n.pickConversationFromSidebar,
                   style: style.body.copyWith(color: tokens.textMuted),
                   textAlign: TextAlign.center,
                 ),
@@ -84,7 +87,7 @@ class EmptyHomeState extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Your Prysm ID', style: style.caption),
+                            Text(context.l10n.yourPrysmId, style: style.caption),
                             const SizedBox(height: 4),
                             Text(
                               _truncateId(prysmId),
@@ -95,18 +98,18 @@ class EmptyHomeState extends StatelessWidget {
                       ),
                       PrysmIconButton(
                         icon: PrysmIcons.copyRounded,
-                        tooltip: 'Copy ID',
+                        tooltip: context.l10n.copyId,
                         onPressed: onCopyId,
                       ),
                       PrysmIconButton(
                         icon: PrysmIcons.qrCode,
-                        tooltip: 'Show QR',
+                        tooltip: context.l10n.showQr,
                         onPressed: onShowQr,
                       ),
                       if (onScanQr != null)
                         PrysmIconButton(
                           icon: PrysmIcons.qrCodeScanner,
-                          tooltip: 'Scan QR',
+                          tooltip: context.l10n.scanQr,
                           onPressed: onScanQr,
                         ),
                     ],
@@ -118,8 +121,8 @@ class EmptyHomeState extends StatelessWidget {
                     Expanded(
                       child: _ActionCard(
                         icon: PrysmIcons.personAddAlt1Rounded,
-                        title: 'Add contact',
-                        subtitle: 'Connect via onion ID',
+                        title: context.l10n.addContact,
+                        subtitle: context.l10n.connectViaOnionId,
                         onTap: onAddContact,
                       ),
                     ),
@@ -127,8 +130,8 @@ class EmptyHomeState extends StatelessWidget {
                     Expanded(
                       child: _ActionCard(
                         icon: PrysmIcons.groupsRounded,
-                        title: 'Create group',
-                        subtitle: 'Up to 5 members',
+                        title: context.l10n.createGroup2,
+                        subtitle: context.l10n.upTo5Members,
                         onTap: onCreateGroup,
                       ),
                     ),
@@ -136,8 +139,7 @@ class EmptyHomeState extends StatelessWidget {
                 ),
                 const SizedBox(height: PrysmTokens.spacing24),
                 Text(
-                  '$contactCount ${contactCount == 1 ? 'contact' : 'contacts'} · '
-                  '$groupCount ${groupCount == 1 ? 'group' : 'groups'}',
+                  context.l10n.contactCountSummary(contactCount, groupCount),
                   style: style.caption,
                 ),
               ],

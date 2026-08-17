@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -44,6 +45,7 @@ import 'package:prysm/ui/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/util/notification_service.dart';
+import 'package:prysm/util/schedule_time_format.dart';
 import 'package:prysm/services/share_intent_service.dart';
 import 'package:prysm/util/decoy_session_data.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
@@ -130,6 +132,7 @@ void main(List<String> args) {
 
 Future<void> _runDetachedApp(DetachedChatLaunch launch) async {
   await SettingsService().init();
+  await ensureScheduleDateFormatting();
   runApp(DetachedChatApp(launch: launch));
 }
 
@@ -321,13 +324,6 @@ class _MyAppState extends State<MyApp> {
     if (mounted) setState(() {});
   }
 
-  @override
-  void dispose() {
-    torConnectionController.removeListener(_onTorControllerChanged);
-    torConnectionController.dispose();
-    super.dispose();
-  }
-
   Future<bool> onVerifyUnlock(String secret) async {
     final result = await _unlockController.verifyUnlock(secret);
     if (result.unlocked && mounted) {
@@ -355,7 +351,23 @@ class _MyAppState extends State<MyApp> {
     _checkKeysExist();
     unawaited(Logging.init());
     torConnectionController.addListener(_onTorControllerChanged);
+    settings.localeRevision.addListener(_onLocaleRevision);
     unawaited(torConnectionController.checkStartupConnectivity());
+  }
+
+  void _onLocaleRevision() {
+    if (mounted) setState(() {});
+    unawaited(ensureScheduleDateFormatting());
+    unawaited(TrayService.instance.refreshMenu());
+    unawaited(NotificationService().refreshLocalizedChannels());
+  }
+
+  @override
+  void dispose() {
+    settings.localeRevision.removeListener(_onLocaleRevision);
+    torConnectionController.removeListener(_onTorControllerChanged);
+    torConnectionController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkKeysExist() async {
@@ -397,9 +409,10 @@ class _MyAppState extends State<MyApp> {
 
   Widget _prysmApp({required Widget home, String? title}) {
     return PrysmApp(
-      key: const ValueKey('prysm_app_root'),
+      key: ValueKey('prysm_app_root_${settings.localeRevision.value}'),
       themePalette: _currentTheme,
       appearance: settings.appearance,
+      localeOverride: settings.localeOverride,
       title: title,
       home: home,
     );
@@ -558,7 +571,7 @@ class _MyAppState extends State<MyApp> {
                       ),
                       const SizedBox(height: 12),
                       PrysmButton(
-                        label: 'Continue offline',
+                        label: context.l10n.continueOffline,
                         variant: PrysmButtonVariant.secondary,
                         onPressed: torConnectionController.enterOfflineMode,
                       ),

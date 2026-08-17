@@ -24,6 +24,7 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/format_file_size.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class StorageMediaBrowserScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -288,13 +289,13 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
     final label = item.fileName ?? (item.isImage ? 'Photo' : 'Media');
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Delete media',
+      title: context.l10n.deleteMedia,
       content: Text(
         'Delete "$label" from ${item.conversationLabel}? '
         'This removes it from your device only.',
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Delete',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
@@ -303,7 +304,7 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
       await service.deleteLocally(item);
       if (!mounted) return;
       _removeItem(item);
-      showPrysmToast(context, 'Media deleted');
+      showPrysmToast(context, context.l10n.mediaDeleted);
     } catch (e) {
       if (!mounted) return;
       showPrysmToast(context, 'Could not delete media: $e');
@@ -432,7 +433,7 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
     final subtitle = count != null ? '$count items' : null;
 
     return PrysmPage(
-      title: 'Chat Media',
+      title: context.l10n.chatMedia,
       subtitle: subtitle,
       headerHeight: 70,
       leading: PrysmIconButton(

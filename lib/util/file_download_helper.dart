@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class FileDownloadHelper {
   FileDownloadHelper._();
@@ -18,20 +19,20 @@ class FileDownloadHelper {
   }) async {
     if (bytes.isEmpty) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'File not ready to download');
+      showPrysmToast(context, context.l10n.fileNotReadyToDownload);
       return;
     }
 
     if (ReadableFilePolicy.requiresDownloadWarning(category)) {
       final confirmed = await showPrysmConfirmDialog(
         context: context,
-        title: 'Download risky file?',
+        title: context.l10n.downloadRiskyFile,
         content: Text(
           '$fileName may be harmful to your device. '
           'Only download if you trust the sender.',
         ),
         confirmLabel: 'Download anyway',
-        cancelLabel: 'Cancel',
+        cancelLabel: context.l10n.cancel,
       );
       if (confirmed != true || !context.mounted) return;
     }

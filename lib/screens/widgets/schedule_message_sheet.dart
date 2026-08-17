@@ -5,6 +5,7 @@ import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/util/schedule_time_format.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// How far ahead a message can be scheduled.
 const scheduleHorizonDays = 60;
@@ -115,7 +116,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
   String _dayLabel(DateTime day) {
     final daysAway = day.difference(_firstDay).inDays;
     if (daysAway == 0) return 'Today';
-    if (daysAway == 1) return 'Tomorrow';
+    if (daysAway == 1) return context.l10n.tomorrow;
     return '${formatScheduleWeekday(day)} ${formatScheduleDate(day)}';
   }
 
@@ -229,7 +230,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
             children: [
               Expanded(
                 child: PrysmButton(
-                  label: 'Cancel',
+                  label: context.l10n.cancel,
                   variant: PrysmButtonVariant.secondary,
                   onPressed: () => Navigator.pop(context),
                 ),
@@ -237,7 +238,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
               const SizedBox(width: PrysmTokens.spacing12),
               Expanded(
                 child: PrysmButton(
-                  label: 'Schedule',
+                  label: context.l10n.schedule,
                   onPressed:
                       _isValid ? () => Navigator.pop(context, _selected) : null,
                 ),

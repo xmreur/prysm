@@ -64,5 +64,15 @@ void main() {
     );
     expect(row, findsOneWidget);
     expect(SettingsService().refuseUnknownSenders, isFalse);
+
+    // Toggling must commit through SettingsService, not just repaint.
+    final settings = SettingsService();
+    final before = settings.refuseUnknownSenders;
+    addTearDown(() => settings.setRefuseUnknownSenders(before));
+    await tester.tap(
+      find.descendant(of: row, matching: find.byType(PrysmSwitch)),
+    );
+    await tester.pumpAndSettle();
+    expect(settings.refuseUnknownSenders, isNot(before));
   });
 }

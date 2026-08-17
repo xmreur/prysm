@@ -174,6 +174,55 @@ void main() {
   );
 
   test(
+    'group message from a sender who is not a member is acked and dropped: '
+    'no users row, no message row (membership gate is independent of '
+    'refuseUnknownSenders)',
+    () async {
+      final result = await router.processMessage({
+        'id': 'msg-t6',
+        'senderId': 'stranger.onion',
+        'receiverId': 'local.onion',
+        'message': 'cipher',
+        'type': groupTextType,
+        'groupId': 'grp-forged',
+        'timestamp': 1,
+      });
+
+      expect(result.statusCode, 200);
+      expect(result.jsonBody?['status'], 'received');
+      expect(result.jsonBody?['id'], 'msg-t6');
+      expect(await messageRowCount(), 0);
+      expect(await DBHelper.getUserById('stranger.onion'), isNull);
+    },
+  );
+
+  test(
+    'group message from a member of the group is stored',
+    () async {
+      await dbHelperDb.insert('group_members', {
+        'groupId': 'grp-1',
+        'memberId': 'alice.onion',
+        'role': 'member',
+        'joinedAt': 0,
+      });
+
+      final result = await router.processMessage({
+        'id': 'msg-t7',
+        'senderId': 'alice.onion',
+        'receiverId': 'local.onion',
+        'message': 'cipher',
+        'type': groupTextType,
+        'groupId': 'grp-1',
+        'timestamp': 1,
+      });
+
+      expect(result.statusCode, 200);
+      expect(result.jsonBody?['status'], 'received');
+      expect(await messageRowCount(), 1);
+    },
+  );
+
+  test(
     'a forged groupId on a direct type is rejected, not treated as group traffic',
     () async {
       Map<String, dynamic> forged(String id) => {

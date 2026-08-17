@@ -182,7 +182,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   PrysmSwitchRow(
                     title: 'Refuse messages from non-contacts',
                     subtitle:
-                        'When enabled, people who are not in your contacts cannot message you directly.',
+                        'When enabled, people who are not in your contacts cannot message or call you directly.',
                     value: _refuseUnknownSenders,
                     onChanged: _onRefuseUnknownSendersToggle,
                   ),

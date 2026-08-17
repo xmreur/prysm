@@ -102,7 +102,7 @@ void main() {
     expect(
       find.text(
         'When enabled, people who are not in your contacts cannot message '
-        'you directly.',
+        'or call you directly.',
       ),
       findsOneWidget,
     );

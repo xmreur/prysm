@@ -281,6 +281,19 @@ class InboundMessageRouter {
       return _handleGroupControl(data, type);
     }
 
+    // Group traffic is only accepted from members of the addressed group. A
+    // stranger who guesses a groupId must not be able to plant rows or
+    // trigger notifications (or a users row via ensureUserExist below) — not
+    // just via chat messages, but via group modifies, read receipts, and
+    // reactions too. Ack-and-drop — indistinguishable from delivery — so the
+    // sender cannot tell this gate from a real delivery, matching
+    // _senderRefused. Control and invite messages are excluded: they are
+    // authenticated by their own signed-envelope flow in _handleGroupControl.
+    final groupId = data['groupId'] as String?;
+    if (groupId != null && !await DBHelper.isGroupMember(groupId, senderId)) {
+      return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+    }
+
     if (isMessageModifyType(type)) {
       return _handleMessageModify(data, type);
     }
@@ -533,6 +546,7 @@ class InboundMessageRouter {
     final receiverId = data['receiverId'] as String;
     final senderId = data['senderId'] as String;
     final local = localOnionAddress();
+    final inboundGroupId = data['groupId'] as String?;
 
     await DBHelper.ensureUserExist(senderId);
 
@@ -542,7 +556,6 @@ class InboundMessageRouter {
         ? incomingTimestamp
         : timeReceived;
 
-    final inboundGroupId = data['groupId'] as String?;
     final localUserId = local;
     var messageStatus = (data['status'] as String?) ?? 'received';
     if (inboundGroupId != null && localUserId != null) {

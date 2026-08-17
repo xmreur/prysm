@@ -7,6 +7,8 @@ import 'package:prysm/database/call_logs_db.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/server/inbound_rate_limiter.dart';
 import 'package:prysm/services/block_service.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/services/call/audio_engine.dart';
 import 'package:prysm/services/call/call_session.dart';
 import 'package:prysm/services/call/opus_codec.dart';
@@ -53,16 +55,28 @@ typedef CallAudioFactory =
       required CallAudioSendCallback onSendFrame,
     });
 
+/// Returns true when an inbound caller should be silently refused (no ring,
+/// no reply, no log). Mirrors [InboundMessageRouter._senderRefused] on the
+/// call signaling surface.
+typedef SenderRefusedCallback = Future<bool> Function(String peerOnion);
+
+Future<bool> _defaultSenderRefused(String peerOnion) async {
+  if (!SettingsService().refuseUnknownSenders) return false;
+  return (await DBHelper.getUserById(peerOnion)) == null;
+}
+
 class CallManager extends ChangeNotifier {
   CallManager({
     required KeyManager keyManager,
     CallTransport? transport,
     CallKeyResolver? keyResolver,
     CallAudioFactory? audioFactory,
+    SenderRefusedCallback? senderRefused,
   }) : _keyManager = keyManager,
        _transport = transport,
        _keyResolver = keyResolver,
-       _audioFactory = audioFactory ?? createCallAudio;
+       _audioFactory = audioFactory ?? createCallAudio,
+       _senderRefused = senderRefused ?? _defaultSenderRefused;
 
   static CallManager? _instance;
 
@@ -79,6 +93,7 @@ class CallManager extends ChangeNotifier {
     CallTransport? transport,
     CallKeyResolver? keyResolver,
     CallAudioFactory? audioFactory,
+    SenderRefusedCallback? senderRefused,
   }) {
     final existing = _instance;
     if (existing != null && identical(existing._keyManager, keyManager)) {
@@ -90,6 +105,7 @@ class CallManager extends ChangeNotifier {
       transport: transport,
       keyResolver: keyResolver,
       audioFactory: audioFactory,
+      senderRefused: senderRefused,
     );
   }
 
@@ -133,6 +149,7 @@ class CallManager extends ChangeNotifier {
   CallTransport? _transport;
   CallKeyResolver? _keyResolver;
   final CallAudioFactory _audioFactory;
+  final SenderRefusedCallback _senderRefused;
   final InboundRateLimiter _offerLimiter = InboundRateLimiter(
     window: inboundOfferWindow,
     maxPerKey: maxInboundOffersPerWindow,
@@ -395,6 +412,13 @@ class CallManager extends ChangeNotifier {
       if (callId != null) {
         await _sendEnd(event.peerOnion, callId, reason: 'declined');
       }
+      return;
+    }
+
+    // Privacy gate: when the user refuses unknown senders, a caller who is
+    // not a known contact is dropped silently — no ring, no `call_end`
+    // reply, no missed-call log — so the caller cannot probe liveness.
+    if (await _senderRefused(event.peerOnion)) {
       return;
     }
 

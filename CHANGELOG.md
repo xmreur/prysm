@@ -11,7 +11,6 @@
 - Refuse unknown senders: opt-in privacy setting to block messages and calls from unknown senders, enforced for group traffic too; forged `groupId` values on non-group types are rejected and group membership is checked for message traffic
 - Media storage manager: disk-usage overview and management of stored media in Settings, with stable media pagination
 - Identity verification: contacts carry a verified fingerprint and verification screens refresh contacts on changes
-- obfs4 support on desktop: compiled Lyrebird executables bundled for the major desktop platforms
 - File transfer: a `beginAckTimeout` recovers stale links, duplicate begin frames are handled robustly, and duplicate begins with differing immutable metadata are rejected
 
 ### Performance

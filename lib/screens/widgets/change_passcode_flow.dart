@@ -23,7 +23,7 @@ Future<String?> promptCurrentUnlockSecret(
       subtitle: context.l10n.enterYourCurrentUnlockPin,
       validatePin: (pin) async {
         if (!await keyManager.passphraseUnlocksStoredKeys(pin)) {
-          return context.l10n.incorrectPin;
+          return SettingsService().localizations.incorrectPin;
         }
         return null;
       },
@@ -36,7 +36,7 @@ Future<String?> promptCurrentUnlockSecret(
     minLength: CryptoConstants.minPassphraseLength,
     validate: (value) async {
       if (!await keyManager.passphraseUnlocksStoredKeys(value)) {
-        return context.l10n.incorrectPassphrase;
+        return SettingsService().localizations.incorrectPassphrase;
       }
       return null;
     },
@@ -55,13 +55,14 @@ Future<String?> _promptNewSecret(
       confirmTitle: context.l10n.confirmNewPin,
       subtitle: context.l10n.chooseANew6DigitPin,
       validatePin: (pin) async {
-        if (pin == currentSecret) return context.l10n.newPinMustBeDifferent;
+        final l10n = SettingsService().localizations;
+        if (pin == currentSecret) return l10n.newPinMustBeDifferent;
         if (!CryptoKeyStore.isValidUnlockSecret(pin, UnlockType.pin)) {
-          return context.l10n.pinMustBe6Digits;
+          return l10n.pinMustBe6Digits;
         }
         if (await PanicPinService.instance.isConfigured() &&
             await PanicPinService.instance.verify(pin)) {
-          return context.l10n.pinCannotMatchYourPanicPin;
+          return l10n.pinCannotMatchYourPanicPin;
         }
         return null;
       },
@@ -74,13 +75,14 @@ Future<String?> _promptNewSecret(
     confirm: true,
     minLength: CryptoConstants.minPassphraseLength,
     validate: (value) async {
-      if (value == currentSecret) return context.l10n.newPassphraseMustBeDifferent;
+      final l10n = SettingsService().localizations;
+      if (value == currentSecret) return l10n.newPassphraseMustBeDifferent;
       if (!CryptoKeyStore.isValidUnlockSecret(value, UnlockType.passphrase)) {
-        return context.l10n.passphraseMustBeAtLeast12Characters;
+        return l10n.passphraseMustBeAtLeast12Characters;
       }
       if (await PanicPinService.instance.isConfigured() &&
           await PanicPinService.instance.verify(value)) {
-        return context.l10n.passphraseCannotMatchYourPanicPin;
+        return l10n.passphraseCannotMatchYourPanicPin;
       }
       return null;
     },

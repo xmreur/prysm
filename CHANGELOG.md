@@ -4,7 +4,22 @@
 ## 0.7.1
 
 ### Features
-- Multi-Language support: Prysm now supports different languages, currently English and Italian, with many more to come!
+
+- Multi-language support: the entire app UI is now localized — English and Italian are in from day one, with more languages to come
+- Language picker in **Settings → Appearance**: follow the system locale or force English or Italian, switching live with no restart
+- Localized scheduled-send formatting: date/time labels for scheduled messages follow the active language (including Italian date symbols)
+- Localized app surface on every platform: Android and iOS app names, iOS permission prompts, the desktop tray tooltip/menu, and notification channels all switch with the language
+
+### Platform
+
+- Localization is wired through `flutter_localizations` + `intl` with ARB templates (`app_en.arb` / `app_it.arb`) and generated `AppLocalizations`
+- New `tool/migrate_l10n.py` migration helper for keeping ARB templates in sync
+
+### Tests
+
+- Locale resolution: override precedence, unsupported-OS-language fallback to English, settings persistence and revision bumping
+- Scheduled-time formatting across locales and DST transitions
+- Existing widget tests now pump the generated localizations (`pump_prysm_l10n`)
 
 ---
 ## 0.7.0

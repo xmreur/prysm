@@ -4,6 +4,18 @@ import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/models/disappearing_timer.dart';
 import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/models/panic_action.dart';
+import 'package:prysm/util/obfs4_bridge_parser.dart';
+
+extension Obfs4ParseErrorL10n on Obfs4ParseError {
+  String localized(AppLocalizations l10n) => switch (kind) {
+        Obfs4ParseErrorKind.unsupportedTransport =>
+          l10n.obfs4UnsupportedTransport(line, transport ?? ''),
+        Obfs4ParseErrorKind.invalidLine => l10n.obfs4InvalidLine(line),
+        Obfs4ParseErrorKind.fingerprintInvalid =>
+          l10n.obfs4FingerprintInvalid(line),
+        Obfs4ParseErrorKind.missingCert => l10n.obfs4MissingCert(line),
+      };
+}
 
 extension GroupInviteModeL10n on GroupInviteMode {
   String localizedLabel(AppLocalizations l10n) => switch (this) {

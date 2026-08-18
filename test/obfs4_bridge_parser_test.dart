@@ -4,9 +4,9 @@ import 'package:prysm/util/obfs4_bridge_parser.dart';
 
 void main() {
   const sampleBridge =
-      'obfs4 192.0.2.1:443 ABCDEF0123456789ABCDEF0123456789ABCDEF cert=abc iat-mode=0';
+      'obfs4 192.0.2.1:443 ABCDEF0123456789ABCDEF0123456789ABCDEF01 cert=abc iat-mode=0';
   const sampleBridgeWithPrefix =
-      'Bridge obfs4 192.0.2.3:443 ABCDEF0123456789ABCDEF0123456789ABCDEF cert=xyz iat-mode=0';
+      'Bridge obfs4 192.0.2.3:443 ABCDEF0123456789ABCDEF0123456789ABCDEF01 cert=xyz iat-mode=0';
 
   group('Obfs4BridgeParser', () {
     test('parses a valid line', () {
@@ -38,7 +38,7 @@ $sampleBridgeWithPrefix
 
     test('accepts IPv6 host', () {
       final line =
-          'obfs4 [2001:db8::1]:443 ABCDEF0123456789ABCDEF0123456789ABCDEF cert=abc iat-mode=0';
+          'obfs4 [2001:db8::1]:443 ABCDEF0123456789ABCDEF0123456789ABCDEF01 cert=abc iat-mode=0';
       final result = Obfs4BridgeParser.parse(line);
       expect(result.errors, isEmpty);
       expect(result.bridges, [line]);
@@ -46,17 +46,24 @@ $sampleBridgeWithPrefix
 
     test('rejects missing cert=', () {
       final line =
-          'obfs4 192.0.2.1:443 ABCDEF0123456789ABCDEF0123456789ABCDEF iat-mode=0';
+          'obfs4 192.0.2.1:443 ABCDEF0123456789ABCDEF0123456789ABCDEF01 iat-mode=0';
       final result = Obfs4BridgeParser.parse(line);
       expect(result.bridges, isEmpty);
-      expect(result.errors.first, contains('cert='));
+      expect(result.errors.single.kind, Obfs4ParseErrorKind.missingCert);
     });
 
     test('rejects snowflake transport', () {
       final line = 'snowflake 192.0.2.1:443 fingerprint';
       final result = Obfs4BridgeParser.parse(line);
       expect(result.bridges, isEmpty);
-      expect(result.errors.first, contains('only obfs4'));
+      expect(
+        result.errors.single,
+        const Obfs4ParseError(
+          line: 1,
+          kind: Obfs4ParseErrorKind.unsupportedTransport,
+          transport: 'snowflake',
+        ),
+      );
     });
 
     test('empty input yields no bridges', () {
@@ -74,7 +81,7 @@ $sampleBridgeWithPrefix
     });
 
     test('round-trips obfs4 fields', () {
-      const original = Settings(
+      final original = Settings(
         useObfs4: true,
         obfs4Bridges: sampleBridge,
       );

@@ -912,6 +912,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get failedToConnectToTor =>
+      'Failed to connect to Tor. Check your network and try again.';
+
+  @override
   String get failedToPlayVoiceMessage => 'Failed to play voice message';
 
   @override
@@ -1532,6 +1536,60 @@ class AppLocalizationsEn extends AppLocalizations {
       'Offline — connect later to get your Prysm ID';
 
   @override
+  String get obfs4BridgeLines => 'obfs4 bridge lines';
+
+  @override
+  String get obfs4BridgeLinesHint =>
+      'obfs4 host:port fingerprint cert=… iat-mode=0\n(one per line)';
+
+  @override
+  String get obfs4BridgesFailed =>
+      'obfs4 bridges failed — check your bridge lines or turn obfs4 off.';
+
+  @override
+  String obfs4FingerprintInvalid(int line) {
+    return 'Line $line: fingerprint must be 40 hex characters';
+  }
+
+  @override
+  String obfs4InvalidLine(int line) {
+    return 'Line $line: invalid obfs4 line (expected obfs4 host:port fingerprint cert=…)';
+  }
+
+  @override
+  String get obfs4LyrebirdMissingRebuild =>
+      'lyrebird is not bundled for this platform — build with tool/fetch_lyrebird.sh. Then rebuild the app.';
+
+  @override
+  String obfs4MissingCert(int line) {
+    return 'Line $line: missing cert= parameter';
+  }
+
+  @override
+  String get obfs4NoBridgeLinesSaved =>
+      'obfs4 is on but no valid bridge lines are saved — paste a bridge line or turn obfs4 off.';
+
+  @override
+  String get obfs4PasteBeforeEnabling =>
+      'Paste at least one valid obfs4 bridge line before enabling.';
+
+  @override
+  String get obfs4RestartConfirmBody =>
+      'Tor will restart to apply obfs4 bridge settings. Active connections will drop briefly.';
+
+  @override
+  String get obfs4SettingsApplied =>
+      'obfs4 settings applied — Tor is reconnecting';
+
+  @override
+  String get obfs4SettingsSaved => 'obfs4 settings saved';
+
+  @override
+  String obfs4UnsupportedTransport(int line, String transport) {
+    return 'Line $line: unsupported transport \"$transport\" (only obfs4 is supported)';
+  }
+
+  @override
   String get offlinePrysmOrRetry =>
       'You can use Prysm offline or retry when you have a connection.';
 
@@ -1883,6 +1941,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recording => 'Recording...';
 
   @override
+  String get reconnect => 'Reconnect';
+
+  @override
+  String get reconnectOverTor => 'Reconnect over Tor?';
+
+  @override
   String get refreshTorCircuit => 'Refresh Tor Circuit';
 
   @override
@@ -1975,6 +2039,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get save => 'Save';
+
+  @override
+  String get saveObfs4Bridges => 'Save bridges & reconnect';
+
+  @override
+  String get saveObfs4BridgesSubtitle => 'Apply bridge line changes to Tor';
 
   @override
   String get saveDebugLogToDownloads => 'Save debug log to download folder';
@@ -2548,6 +2618,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get useFingerprintOrFace => 'Use your fingerprint or face';
+
+  @override
+  String get useObfs4Bridges => 'Use obfs4 bridges';
+
+  @override
+  String get useObfs4BridgesSubtitle =>
+      'Connect through your own obfs4 bridge when Tor is censored';
 
   @override
   String get usePasscode => 'Use passcode';

@@ -6,9 +6,39 @@ class Obfs4BridgeParseResult {
   });
 
   final List<String> bridges;
-  final List<String> errors;
+  final List<Obfs4ParseError> errors;
 
   bool get hasValidBridges => bridges.isNotEmpty && errors.isEmpty;
+}
+
+enum Obfs4ParseErrorKind {
+  unsupportedTransport,
+  invalidLine,
+  fingerprintInvalid,
+  missingCert,
+}
+
+class Obfs4ParseError {
+  const Obfs4ParseError({
+    required this.line,
+    required this.kind,
+    this.transport,
+  });
+
+  final int line;
+  final Obfs4ParseErrorKind kind;
+  final String? transport;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Obfs4ParseError &&
+          line == other.line &&
+          kind == other.kind &&
+          transport == other.transport;
+
+  @override
+  int get hashCode => Object.hash(line, kind, transport);
 }
 
 class Obfs4BridgeParser {
@@ -20,7 +50,7 @@ class Obfs4BridgeParser {
   /// Returns normalized bridge lines without the `Bridge ` prefix.
   static Obfs4BridgeParseResult parse(String raw) {
     final bridges = <String>[];
-    final errors = <String>[];
+    final errors = <Obfs4ParseError>[];
 
     for (final (index, line) in _iterLines(raw).indexed) {
       final trimmed = line.trim();
@@ -34,7 +64,11 @@ class Obfs4BridgeParser {
       if (!body.toLowerCase().startsWith('obfs4 ')) {
         final transport = body.split(RegExp(r'\s+')).firstOrNull ?? body;
         errors.add(
-          'Line ${index + 1}: unsupported transport "$transport" (only obfs4 is supported)',
+          Obfs4ParseError(
+            line: index + 1,
+            kind: Obfs4ParseErrorKind.unsupportedTransport,
+            transport: transport,
+          ),
         );
         continue;
       }
@@ -42,20 +76,33 @@ class Obfs4BridgeParser {
       final match = _obfs4LinePattern.firstMatch(body);
       if (match == null) {
         errors.add(
-          'Line ${index + 1}: invalid obfs4 line (expected obfs4 host:port fingerprint cert=…)',
+          Obfs4ParseError(
+            line: index + 1,
+            kind: Obfs4ParseErrorKind.invalidLine,
+          ),
         );
         continue;
       }
 
       final fingerprint = match.group(2)!;
       if (!_fingerprintPattern.hasMatch(fingerprint)) {
-        errors.add('Line ${index + 1}: fingerprint must be 40 hex characters');
+        errors.add(
+          Obfs4ParseError(
+            line: index + 1,
+            kind: Obfs4ParseErrorKind.fingerprintInvalid,
+          ),
+        );
         continue;
       }
 
       final options = match.group(3)!;
       if (!options.contains('cert=')) {
-        errors.add('Line ${index + 1}: missing cert= parameter');
+        errors.add(
+          Obfs4ParseError(
+            line: index + 1,
+            kind: Obfs4ParseErrorKind.missingCert,
+          ),
+        );
         continue;
       }
 

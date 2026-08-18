@@ -526,6 +526,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             torConnectFailureMessageFor(
               e,
               useObfs4: SettingsService().useObfs4,
+              l10n: context.l10n,
             ),
           );
         }

@@ -920,6 +920,10 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get failedToConnectToTor =>
+      'Connessione a Tor fallita. Controlla la rete e riprova.';
+
+  @override
   String get failedToPlayVoiceMessage =>
       'Impossibile riprodurre il messaggio vocale';
 
@@ -1552,6 +1556,60 @@ class AppLocalizationsIt extends AppLocalizations {
       'Offline — connetti più tardi per ottenere il Prysm ID';
 
   @override
+  String get obfs4BridgeLines => 'Righe bridge obfs4';
+
+  @override
+  String get obfs4BridgeLinesHint =>
+      'obfs4 host:port fingerprint cert=… iat-mode=0\n(una per riga)';
+
+  @override
+  String get obfs4BridgesFailed =>
+      'Bridge obfs4 falliti — controlla le righe bridge o disattiva obfs4.';
+
+  @override
+  String obfs4FingerprintInvalid(int line) {
+    return 'Riga $line: l\'impronta deve essere di 40 caratteri esadecimali';
+  }
+
+  @override
+  String obfs4InvalidLine(int line) {
+    return 'Riga $line: riga obfs4 non valida (atteso obfs4 host:port fingerprint cert=…)';
+  }
+
+  @override
+  String get obfs4LyrebirdMissingRebuild =>
+      'lyrebird non è incluso per questa piattaforma — compila con tool/fetch_lyrebird.sh. Poi ricompila l\'app.';
+
+  @override
+  String obfs4MissingCert(int line) {
+    return 'Riga $line: parametro cert= mancante';
+  }
+
+  @override
+  String get obfs4NoBridgeLinesSaved =>
+      'obfs4 è attivo ma non ci sono bridge validi — incolla una riga bridge o disattiva obfs4.';
+
+  @override
+  String get obfs4PasteBeforeEnabling =>
+      'Incolla almeno una riga bridge obfs4 valida prima di attivare.';
+
+  @override
+  String get obfs4RestartConfirmBody =>
+      'Tor si riavvierà per applicare i bridge obfs4. Le connessioni attive cadranno brevemente.';
+
+  @override
+  String get obfs4SettingsApplied =>
+      'Impostazioni obfs4 applicate — Tor si sta riconnettendo';
+
+  @override
+  String get obfs4SettingsSaved => 'Impostazioni obfs4 salvate';
+
+  @override
+  String obfs4UnsupportedTransport(int line, String transport) {
+    return 'Riga $line: trasporto non supportato \"$transport\" (solo obfs4 è supportato)';
+  }
+
+  @override
   String get offlinePrysmOrRetry =>
       'Puoi usare Prysm offline o riprovare quando hai una connessione.';
 
@@ -1905,6 +1963,12 @@ class AppLocalizationsIt extends AppLocalizations {
   String get recording => 'Registrando...';
 
   @override
+  String get reconnect => 'Riconnetti';
+
+  @override
+  String get reconnectOverTor => 'Riconnettersi tramite Tor?';
+
+  @override
   String get refreshTorCircuit => 'Aggiorna circuito Tor';
 
   @override
@@ -1997,6 +2061,12 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get save => 'Salva';
+
+  @override
+  String get saveObfs4Bridges => 'Salva bridge e riconnetti';
+
+  @override
+  String get saveObfs4BridgesSubtitle => 'Applica le modifiche ai bridge a Tor';
 
   @override
   String get saveDebugLogToDownloads =>
@@ -2576,6 +2646,13 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get useFingerprintOrFace => 'Usa impronta o volto';
+
+  @override
+  String get useObfs4Bridges => 'Usa bridge obfs4';
+
+  @override
+  String get useObfs4BridgesSubtitle =>
+      'Connettiti tramite un bridge obfs4 quando Tor è censurato';
 
   @override
   String get usePasscode => 'Usa codice';

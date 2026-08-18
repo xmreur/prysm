@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/tor_bridge_config.dart';
 import 'package:prysm/util/lyrebird_locator.dart';
 
@@ -18,16 +19,20 @@ Future<void> preflightDesktopObfs4(TorBridgeConfig bridgeConfig) async {
   await locator.resolveLyrebirdPath();
 }
 
-String obfs4FailureMessage(Object error, {required bool useObfs4}) {
+String obfs4FailureMessage(
+  Object error, {
+  required bool useObfs4,
+  required AppLocalizations l10n,
+}) {
   if (!useObfs4) {
-    return 'Failed to connect to Tor. Check your network and try again.';
+    return l10n.failedToConnectToTor;
   }
   final text = error.toString();
   if (text.contains(LyrebirdLocator.bundledMissingMessage)) {
-    return '${LyrebirdLocator.bundledMissingMessage} Then rebuild the app.';
+    return l10n.obfs4LyrebirdMissingRebuild;
   }
   if (text.contains('no valid bridge lines')) {
-    return 'obfs4 is on but no valid bridge lines are saved — paste a bridge line or turn obfs4 off.';
+    return l10n.obfs4NoBridgeLinesSaved;
   }
-  return 'obfs4 bridges failed — check your bridge lines or turn obfs4 off.';
+  return l10n.obfs4BridgesFailed;
 }

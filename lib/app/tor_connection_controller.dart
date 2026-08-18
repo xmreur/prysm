@@ -264,6 +264,7 @@ class TorConnectionController extends ChangeNotifier {
         status = torConnectFailureMessageFor(
           e,
           useObfs4: SettingsService().useObfs4,
+          l10n: SettingsService().localizations,
         );
         notifyListeners();
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);
@@ -296,6 +297,7 @@ class TorConnectionController extends ChangeNotifier {
         status = torConnectFailureMessageFor(
           e,
           useObfs4: SettingsService().useObfs4,
+          l10n: SettingsService().localizations,
         );
         notifyListeners();
         TorConnectionNotifier.instance.update(TorConnectionState.disconnected);

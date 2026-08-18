@@ -1,3 +1,4 @@
+import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/settings.dart';
 import 'package:prysm/models/tor_bridge_config.dart';
 import 'package:prysm/services/settings_service.dart';
@@ -20,13 +21,20 @@ TorBridgeConfig torBridgeConfigFromSettingsService([SettingsService? service]) {
   return torBridgeConfigFromSettings(settings);
 }
 
-String torConnectFailureMessage({required bool useObfs4}) {
+String torConnectFailureMessage({
+  required bool useObfs4,
+  required AppLocalizations l10n,
+}) {
   if (useObfs4) {
-    return 'obfs4 bridges failed — check your bridge lines or turn obfs4 off.';
+    return l10n.obfs4BridgesFailed;
   }
-  return 'Failed to connect to Tor. Check your network and try again.';
+  return l10n.failedToConnectToTor;
 }
 
 /// Like [torConnectFailureMessage] but inspects the thrown error.
-String torConnectFailureMessageFor(Object error, {required bool useObfs4}) =>
-    obfs4FailureMessage(error, useObfs4: useObfs4);
+String torConnectFailureMessageFor(
+  Object error, {
+  required bool useObfs4,
+  required AppLocalizations l10n,
+}) =>
+    obfs4FailureMessage(error, useObfs4: useObfs4, l10n: l10n);

@@ -20,6 +20,7 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/log_export_helper.dart';
 import 'package:prysm/util/obfs4_bridge_parser.dart';
 import 'package:prysm/util/obfs4_desktop_preflight.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
 import 'package:prysm/util/tor_bridge_config_factory.dart';
 import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
@@ -443,14 +444,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final parsed = Obfs4BridgeParser.parse(bridgesText);
     if (parsed.errors.isNotEmpty) {
       if (!mounted) return;
-      showPrysmToast(context, parsed.errors.first);
+      showPrysmToast(context, parsed.errors.first.localized(context.l10n));
       return;
     }
     if (useObfs4 && parsed.bridges.isEmpty) {
       if (!mounted) return;
       showPrysmToast(
         context,
-        'Paste at least one valid obfs4 bridge line before enabling.',
+        context.l10n.obfs4PasteBeforeEnabling,
       );
       return;
     }
@@ -459,12 +460,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (online) {
       final confirmed = await showPrysmConfirmDialog(
         context: context,
-        title: 'Reconnect over Tor?',
-        content: const Text(
-          'Tor will restart to apply obfs4 bridge settings. Active connections will drop briefly.',
-        ),
-        cancelLabel: 'Cancel',
-        confirmLabel: 'Reconnect',
+        title: context.l10n.reconnectOverTor,
+        content: Text(context.l10n.obfs4RestartConfirmBody),
+        cancelLabel: context.l10n.cancel,
+        confirmLabel: context.l10n.reconnect,
       );
       if (confirmed != true) {
         _loadSettings();
@@ -505,14 +504,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       showPrysmToast(
         context,
         online
-            ? 'obfs4 settings applied — Tor is reconnecting'
-            : 'obfs4 settings saved',
+            ? context.l10n.obfs4SettingsApplied
+            : context.l10n.obfs4SettingsSaved,
       );
     } catch (e) {
       if (!mounted) return;
       showPrysmToast(
         context,
-        obfs4FailureMessage(e, useObfs4: useObfs4),
+        obfs4FailureMessage(e, useObfs4: useObfs4, l10n: context.l10n),
       );
       _loadSettings();
     } finally {
@@ -923,8 +922,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (!widget.decoyMode) ...[
                   const PrysmDivider(),
                   _buildSwitchTile(
-                    'Use obfs4 bridges',
-                    'Connect through your own obfs4 bridge when Tor is censored',
+                    context.l10n.useObfs4Bridges,
+                    context.l10n.useObfs4BridgesSubtitle,
                     PrysmIcons.shieldOutlined,
                     _useObfs4,
                     _applyingObfs4 ? (_) {} : _onUseObfs4Toggle,
@@ -934,9 +933,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: PrysmTextField(
                       controller: _obfs4BridgesController,
-                      labelText: 'obfs4 bridge lines',
-                      hintText:
-                          'obfs4 host:port fingerprint cert=… iat-mode=0\n(one per line)',
+                      labelText: context.l10n.obfs4BridgeLines,
+                      hintText: context.l10n.obfs4BridgeLinesHint,
                       minLines: 3,
                       maxLines: 8,
                       enabled: !_applyingObfs4,
@@ -947,8 +945,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: PrysmListRow(
                       leading: const Icon(PrysmIcons.saveOutlined),
-                      title: 'Save bridges & reconnect',
-                      subtitle: 'Apply bridge line changes to Tor',
+                      title: context.l10n.saveObfs4Bridges,
+                      subtitle: context.l10n.saveObfs4BridgesSubtitle,
                       onTap: _applyingObfs4 ? null : _saveObfs4Bridges,
                     ),
                   ),

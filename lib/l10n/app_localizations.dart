@@ -1652,6 +1652,12 @@ abstract class AppLocalizations {
   /// **'Failed to export log: {e}'**
   String failedToExportLogE(String e);
 
+  /// No description provided for @failedToConnectToTor.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to connect to Tor. Check your network and try again.'**
+  String get failedToConnectToTor;
+
   /// No description provided for @failedToPlayVoiceMessage.
   ///
   /// In en, this message translates to:
@@ -2750,6 +2756,84 @@ abstract class AppLocalizations {
   /// **'Offline — connect later to get your Prysm ID'**
   String get offlineConnectLaterForPrysmId;
 
+  /// No description provided for @obfs4BridgeLines.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 bridge lines'**
+  String get obfs4BridgeLines;
+
+  /// No description provided for @obfs4BridgeLinesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 host:port fingerprint cert=… iat-mode=0\n(one per line)'**
+  String get obfs4BridgeLinesHint;
+
+  /// No description provided for @obfs4BridgesFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 bridges failed — check your bridge lines or turn obfs4 off.'**
+  String get obfs4BridgesFailed;
+
+  /// No description provided for @obfs4FingerprintInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Line {line}: fingerprint must be 40 hex characters'**
+  String obfs4FingerprintInvalid(int line);
+
+  /// No description provided for @obfs4InvalidLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Line {line}: invalid obfs4 line (expected obfs4 host:port fingerprint cert=…)'**
+  String obfs4InvalidLine(int line);
+
+  /// No description provided for @obfs4LyrebirdMissingRebuild.
+  ///
+  /// In en, this message translates to:
+  /// **'lyrebird is not bundled for this platform — build with tool/fetch_lyrebird.sh. Then rebuild the app.'**
+  String get obfs4LyrebirdMissingRebuild;
+
+  /// No description provided for @obfs4MissingCert.
+  ///
+  /// In en, this message translates to:
+  /// **'Line {line}: missing cert= parameter'**
+  String obfs4MissingCert(int line);
+
+  /// No description provided for @obfs4NoBridgeLinesSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 is on but no valid bridge lines are saved — paste a bridge line or turn obfs4 off.'**
+  String get obfs4NoBridgeLinesSaved;
+
+  /// No description provided for @obfs4PasteBeforeEnabling.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste at least one valid obfs4 bridge line before enabling.'**
+  String get obfs4PasteBeforeEnabling;
+
+  /// No description provided for @obfs4RestartConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tor will restart to apply obfs4 bridge settings. Active connections will drop briefly.'**
+  String get obfs4RestartConfirmBody;
+
+  /// No description provided for @obfs4SettingsApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 settings applied — Tor is reconnecting'**
+  String get obfs4SettingsApplied;
+
+  /// No description provided for @obfs4SettingsSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'obfs4 settings saved'**
+  String get obfs4SettingsSaved;
+
+  /// No description provided for @obfs4UnsupportedTransport.
+  ///
+  /// In en, this message translates to:
+  /// **'Line {line}: unsupported transport \"{transport}\" (only obfs4 is supported)'**
+  String obfs4UnsupportedTransport(int line, String transport);
+
   /// No description provided for @offlinePrysmOrRetry.
   ///
   /// In en, this message translates to:
@@ -3368,6 +3452,18 @@ abstract class AppLocalizations {
   /// **'Recording...'**
   String get recording;
 
+  /// No description provided for @reconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnect'**
+  String get reconnect;
+
+  /// No description provided for @reconnectOverTor.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnect over Tor?'**
+  String get reconnectOverTor;
+
   /// No description provided for @refreshTorCircuit.
   ///
   /// In en, this message translates to:
@@ -3523,6 +3619,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save'**
   String get save;
+
+  /// No description provided for @saveObfs4Bridges.
+  ///
+  /// In en, this message translates to:
+  /// **'Save bridges & reconnect'**
+  String get saveObfs4Bridges;
+
+  /// No description provided for @saveObfs4BridgesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply bridge line changes to Tor'**
+  String get saveObfs4BridgesSubtitle;
 
   /// No description provided for @saveDebugLogToDownloads.
   ///
@@ -4531,6 +4639,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Use your fingerprint or face'**
   String get useFingerprintOrFace;
+
+  /// No description provided for @useObfs4Bridges.
+  ///
+  /// In en, this message translates to:
+  /// **'Use obfs4 bridges'**
+  String get useObfs4Bridges;
+
+  /// No description provided for @useObfs4BridgesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect through your own obfs4 bridge when Tor is censored'**
+  String get useObfs4BridgesSubtitle;
 
   /// No description provided for @usePasscode.
   ///

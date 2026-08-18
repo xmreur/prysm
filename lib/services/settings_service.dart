@@ -353,14 +353,22 @@ class SettingsService {
 
   // Update multiple settings at once
   Future<void> updateSettings(Settings newSettings) async {
+    final previousLocale = _settings.localeOverride;
     _settings = newSettings;
     await save();
+    if (previousLocale != newSettings.localeOverride) {
+      _notifyLocaleChanged();
+    }
   }
 
   // Reset all settings to defaults
   Future<void> reset() async {
+    final previousLocale = _settings.localeOverride;
     _settings = Settings();
     await save();
+    if (previousLocale != _settings.localeOverride) {
+      _notifyLocaleChanged();
+    }
   }
 
   // ==================== UTILITY METHODS ====================
@@ -387,8 +395,12 @@ class SettingsService {
 
   // Clear all settings (for debugging)
   Future<void> clear() async {
+    final previousLocale = _settings.localeOverride;
     await _prefs?.remove(_settingsKey);
     _settings = Settings();
+    if (previousLocale != _settings.localeOverride) {
+      _notifyLocaleChanged();
+    }
   }
 
   // Print current settings (for debugging)

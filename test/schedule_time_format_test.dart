@@ -50,4 +50,47 @@ void main() {
       'Today at 11:59 PM',
     );
   });
+
+  test('today and tomorrow stay correct across a DST transition', () {
+    final beforeDst = DateTime(2026, 10, 31, 23, 0);
+    final afterDst = DateTime(2026, 11, 1, 1, 0);
+    expect(
+      formatScheduleLabel(afterDst, now: beforeDst),
+      'Tomorrow at 1:00 AM',
+    );
+    expect(
+      formatScheduleLabel(beforeDst, now: beforeDst),
+      'Today at 11:00 PM',
+    );
+  });
+
+  test('Italian locale uses localized today and tomorrow labels', () async {
+    final service = SettingsService();
+    await service.setLocaleOverride(LocaleOverride.it);
+    resetScheduleDateFormattingForTests();
+    await ensureScheduleDateFormatting();
+
+    expect(
+      formatScheduleLabel(DateTime(2026, 8, 3, 16, 30), now: now),
+      'Oggi alle ${formatScheduleClock(DateTime(2026, 8, 3, 16, 30))}',
+    );
+    expect(
+      formatScheduleLabel(DateTime(2026, 8, 4, 9, 0), now: now),
+      'Domani alle ${formatScheduleClock(DateTime(2026, 8, 4, 9, 0))}',
+    );
+  });
+
+  test('Italian labels stay correct across a DST transition', () async {
+    final service = SettingsService();
+    await service.setLocaleOverride(LocaleOverride.it);
+    resetScheduleDateFormattingForTests();
+    await ensureScheduleDateFormatting();
+
+    final beforeDst = DateTime(2026, 10, 31, 23, 0);
+    final afterDst = DateTime(2026, 11, 1, 1, 0);
+    expect(
+      formatScheduleLabel(afterDst, now: beforeDst),
+      'Domani alle ${formatScheduleClock(afterDst)}',
+    );
+  });
 }

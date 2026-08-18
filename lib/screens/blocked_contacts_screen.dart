@@ -82,11 +82,9 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: context.l10n.unblockContact,
-      content: const Text(
-        'This contact will be able to message and call you again.',
-      ),
+      content: Text(context.l10n.unblockContactBody),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Unblock',
+      confirmLabel: context.l10n.unblock,
     );
     if (confirmed != true || !mounted) return;
 
@@ -107,7 +105,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
           : _blockedIds.isEmpty
               ? Center(
                   child: Text(
-                    'No blocked contacts',
+                    context.l10n.noBlockedContacts,
                     style: TextStyle(
                       color: context.prysmStyle.tokens.textMuted,
                     ),

@@ -329,10 +329,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       context: context,
       title: context.l10n.removeMember,
       content: Text(
-        'Remove ${_displayNameFor(member.memberId)} from the group?',
+        context.l10n.removeMemberFromGroupQuestion(
+          _displayNameFor(member.memberId),
+        ),
       ),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Remove',
+      confirmLabel: context.l10n.remove,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
@@ -354,7 +356,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       title: context.l10n.leaveGroup,
       content: Text(context.l10n.leaveThisGroup),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Leave',
+      confirmLabel: context.l10n.leaveAction,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
@@ -374,9 +376,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: context.l10n.deleteGroup,
-      content: const Text(
-        'Delete this group for everyone? This cannot be undone.',
-      ),
+      content: Text(context.l10n.deleteThisGroupForEveryoneThisCannotBe),
       cancelLabel: context.l10n.cancel,
       confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
@@ -445,7 +445,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   PrysmListRow(title: _groupName, subtitle: context.l10n.member),
                 PrysmListRow(
                   title: '${_members.length} / $maxGroupMembers members',
-                  subtitle: _isAdmin ? 'You are admin' : 'Member',
+                  subtitle: _isAdmin
+                      ? context.l10n.youAreAdmin
+                      : context.l10n.member,
                 ),
                 const PrysmDivider(),
                 ..._members.map((m) {
@@ -458,9 +460,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       avatarBase64: _avatarByMemberId[m.memberId],
                     ),
                     title: isSelf
-                        ? '${_displayNameFor(m.memberId)} (you)'
+                        ? context.l10n.memberDisplayNameWithYou(
+                            _displayNameFor(m.memberId),
+                            context.l10n.you,
+                          )
                         : _displayNameFor(m.memberId),
-                    subtitle: m.role == GroupRole.admin ? 'Admin' : 'Member',
+                    subtitle: m.role == GroupRole.admin
+                        ? context.l10n.admin
+                        : context.l10n.member,
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

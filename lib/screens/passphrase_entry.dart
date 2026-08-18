@@ -336,7 +336,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
             const SizedBox(height: 8),
             PrysmTextField(
               controller: _confirmController,
-              labelText: 'Confirm passphrase',
+              labelText: context.l10n.confirmPassphrase,
               obscureText: _obscure,
               onSubmitted: (_) => _submit(),
             ),

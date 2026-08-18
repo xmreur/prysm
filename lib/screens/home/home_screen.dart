@@ -1441,7 +1441,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _showSelfChatInSidebar {
     if (widget.decoyMode || _viewingArchived || _viewingBlocked) return false;
     if (_searchQuery.isEmpty) return true;
-    return context.l10n.chatWithMyself6.contains(_searchQuery);
+    return context.l10n.chatWithMyself6.toLowerCase().contains(_searchQuery);
   }
 
   Widget _buildSelfChatSidebarTile() {
@@ -1771,8 +1771,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           color: context.prysmStyle.tokens.accent,
                         ),
                         title: context.l10n.inviteRequests,
-                        subtitle:
-                            '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
+                        subtitle: context.l10n.requestCount(_pendingInviteCount),
                         onTap: () {
                           Navigator.push(
                             context,
@@ -2204,9 +2203,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (widget.offlineMode) return context.l10n.offline;
     if (widget.torConnectionController.needsAttention) return context.l10n.needsAttention;
     return switch (state) {
-      TorConnectionState.connected => 'Connected',
-      TorConnectionState.connecting => 'Connecting…',
-      TorConnectionState.disconnected => 'Disconnected',
+      TorConnectionState.connected => context.l10n.connected,
+      TorConnectionState.connecting => context.l10n.connecting2,
+      TorConnectionState.disconnected => context.l10n.disconnected,
     };
   }
 

@@ -89,7 +89,9 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
                     ),
                     const SizedBox(height: 8),
                     PrysmButton(
-                      label: _viewOnce ? 'Send view once' : 'Send photo',
+                      label: _viewOnce
+                          ? context.l10n.sendViewOnce
+                          : context.l10n.sendPhoto,
                       onPressed: _send,
                     ),
                   ],

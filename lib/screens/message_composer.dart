@@ -139,7 +139,7 @@ class MessageComposerState extends State<MessageComposer> {
     if (!await schedule(text, sendAt) || !mounted) return;
 
     _clearComposer();
-    showPrysmToast(context, 'Will send ${formatScheduleLabel(sendAt)}');
+    showPrysmToast(context, context.l10n.willSendAt(formatScheduleLabel(sendAt)));
   }
 
   void _clearComposer() {
@@ -360,7 +360,7 @@ class MessageComposerState extends State<MessageComposer> {
         ),
         const Spacer(),
         Text(
-          'Recording...',
+          context.l10n.recording,
           style: TextStyle(color: tokens.textMuted, fontSize: 14),
         ),
         const SizedBox(width: 12),
@@ -423,7 +423,7 @@ class MessageComposerState extends State<MessageComposer> {
                   onPressed: () {
                     showPrysmToast(
                       context,
-                      'Hold to record a voice message',
+                      context.l10n.holdToRecordAVoiceMessage,
                     );
                   },
                   onLongPressStart: (_) => _startRecording(),
@@ -434,7 +434,7 @@ class MessageComposerState extends State<MessageComposer> {
                   color: tokens.accent,
                   tooltip: widget.onScheduleText == null
                       ? null
-                      : 'Send. Hold to schedule',
+                      : context.l10n.sendHoldToSchedule,
                   onPressed: _handleSend,
                   onLongPress:
                       widget.onScheduleText == null ? null : _handleSchedule,

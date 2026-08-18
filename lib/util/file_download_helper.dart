@@ -28,10 +28,9 @@ class FileDownloadHelper {
         context: context,
         title: context.l10n.downloadRiskyFile,
         content: Text(
-          '$fileName may be harmful to your device. '
-          'Only download if you trust the sender.',
+          context.l10n.fileMayBeHarmfulOnlyDownloadIfTrusted(fileName),
         ),
-        confirmLabel: 'Download anyway',
+        confirmLabel: context.l10n.downloadAnyway,
         cancelLabel: context.l10n.cancel,
       );
       if (confirmed != true || !context.mounted) return;
@@ -42,11 +41,13 @@ class FileDownloadHelper {
       if (!context.mounted) return;
       showPrysmToast(
         context,
-        'Saved ${file.path.split(Platform.pathSeparator).last}',
+        context.l10n.savedFileName(
+          file.path.split(Platform.pathSeparator).last,
+        ),
       );
     } catch (e) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'Download failed: $e');
+      showPrysmToast(context, context.l10n.downloadFailedE(e.toString()));
     }
   }
 }

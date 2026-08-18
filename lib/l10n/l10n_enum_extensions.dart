@@ -1,5 +1,6 @@
 import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/models/appearance_settings.dart';
+import 'package:prysm/models/chat_media_item.dart';
 import 'package:prysm/models/disappearing_timer.dart';
 import 'package:prysm/models/group_invite_mode.dart';
 import 'package:prysm/models/panic_action.dart';
@@ -60,5 +61,18 @@ String disappearingTimerLabelForSeconds(AppLocalizations l10n, int? seconds) {
       return preset.localizedLabel(l10n);
     }
   }
-  return DisappearingTimerPresets.labelForSeconds(seconds);
+  if (seconds < 60) return l10n.disappearingDurationSeconds(seconds);
+  if (seconds < 3600) return l10n.disappearingDurationMinutes(seconds ~/ 60);
+  if (seconds < 86400) return l10n.disappearingDurationHours(seconds ~/ 3600);
+  if (seconds < 604800) return l10n.disappearingDurationDays(seconds ~/ 86400);
+  return l10n.disappearingDurationWeeks(seconds ~/ 604800);
+}
+
+extension ChatMediaFilterL10n on ChatMediaFilter {
+  String localizedLabel(AppLocalizations l10n) => switch (this) {
+        ChatMediaFilter.all => l10n.chatMediaFilterAll,
+        ChatMediaFilter.photos => l10n.chatMediaFilterPhotos,
+        ChatMediaFilter.files => l10n.chatMediaFilterFiles,
+        ChatMediaFilter.voice => l10n.chatMediaFilterVoice,
+      };
 }

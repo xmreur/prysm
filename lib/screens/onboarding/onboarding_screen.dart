@@ -847,7 +847,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           if (_addingContact) ...[
             const SizedBox(height: 16),
-            buildContactAddLoadingRow(style),
+            buildContactAddLoadingRow(style, context.l10n),
           ],
           if (!widget.isInitialSetup) ...[
             const SizedBox(height: 8),

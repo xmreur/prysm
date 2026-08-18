@@ -7,21 +7,7 @@ import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
-
-String _formatClock(DateTime dt) {
-  final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final minute = dt.minute.toString().padLeft(2, '0');
-  final period = dt.hour >= 12 ? 'PM' : 'AM';
-  return '$hour:$minute $period';
-}
-
-String _formatDate(DateTime dt) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[dt.month - 1]} ${dt.day}';
-}
+import 'package:prysm/util/schedule_time_format.dart';
 
 String formatMuteSubtitle(MuteInfo? info, AppLocalizations l10n) {
   if (info == null) {
@@ -31,7 +17,7 @@ String formatMuteSubtitle(MuteInfo? info, AppLocalizations l10n) {
     return l10n.mutedUntilYouTurnNotificationsBackOn;
   }
   final expiresAt = info.expiresAt!;
-  final time = _formatClock(expiresAt);
+  final time = formatScheduleClock(expiresAt);
   final today = DateTime.now();
   final isToday = expiresAt.year == today.year &&
       expiresAt.month == today.month &&
@@ -39,7 +25,7 @@ String formatMuteSubtitle(MuteInfo? info, AppLocalizations l10n) {
   if (isToday) {
     return l10n.mutedUntilTime(time);
   }
-  return l10n.mutedUntilDateAndTime(_formatDate(expiresAt), time);
+  return l10n.mutedUntilDateAndTime(formatScheduleDate(expiresAt), time);
 }
 
 Future<void> showNotificationMuteSheet({

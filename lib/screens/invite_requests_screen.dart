@@ -154,7 +154,7 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
       title: context.l10n.discardInvite,
       content: Text(context.l10n.thisRequestWillBeRemoved),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Discard',
+      confirmLabel: context.l10n.discard,
     );
     if (confirmed != true) return;
     await GroupPendingInviteStore.discard(senderId);
@@ -183,7 +183,7 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
               : _rows.isEmpty
               ? Center(
                   child: Text(
-                    'No invite requests',
+                    context.l10n.noInviteRequests,
                     style: TextStyle(
                       color: context.prysmStyle.tokens.textMuted,
                     ),
@@ -208,7 +208,9 @@ class _InviteRequestsScreenState extends State<InviteRequestsScreen> {
                       leading: ContactAvatar(name: short, avatarBase64: null),
                       title: short,
                       subtitleWidget: Text(
-                        'Group invite · ${_receivedLabel(row['receivedAt'] as int)}',
+                        context.l10n.groupInviteReceivedAt(
+                          _receivedLabel(row['receivedAt'] as int),
+                        ),
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: busy

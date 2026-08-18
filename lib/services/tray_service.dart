@@ -55,6 +55,7 @@ class TrayStatus {
 String _formatTorMenuLabel(String torLabel, AppLocalizations l10n) => switch (torLabel) {
       'connected' => l10n.torStatusConnected,
       'connecting' => l10n.torStatusConnecting,
+      'starting' => l10n.torStatusConnecting,
       'off' => l10n.torStatusOff,
       _ when torLabel.startsWith('connecting (') =>
         l10n.torStatusConnectingPercent(

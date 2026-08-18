@@ -43,10 +43,10 @@ class TypingIndicatorBar extends StatelessWidget {
 
   String _labelFor(List<String> names, AppLocalizations l10n) {
     if (names.length == 1) {
-      return '${names.first} is typing…';
+      return l10n.personIsTyping(names.first);
     }
     if (names.length == 2) {
-      return '${names[0]} and ${names[1]} are typing…';
+      return l10n.twoPeopleAreTyping(names[0], names[1]);
     }
     return l10n.severalPeopleAreTyping;
   }

@@ -115,7 +115,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
 
   String _dayLabel(DateTime day) {
     final daysAway = day.difference(_firstDay).inDays;
-    if (daysAway == 0) return 'Today';
+    if (daysAway == 0) return context.l10n.today;
     if (daysAway == 1) return context.l10n.tomorrow;
     return '${formatScheduleWeekday(day)} ${formatScheduleDate(day)}';
   }
@@ -136,7 +136,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
             PrysmTokens.spacing20,
             PrysmTokens.spacing4,
           ),
-          child: Text('Schedule message', style: style.titleStyle),
+          child: Text(context.l10n.scheduleMessage, style: style.titleStyle),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -147,8 +147,8 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
           ),
           child: Text(
             _isValid
-                ? 'Sends ${formatScheduleLabel(_selected)}'
-                : 'Choose a time in the future',
+                ? context.l10n.scheduleSendsAt(formatScheduleLabel(_selected))
+                : context.l10n.chooseATimeInTheFuture,
             style: style.captionStyle.copyWith(
               color: _isValid ? tokens.textSecondary : tokens.danger,
             ),

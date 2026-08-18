@@ -74,11 +74,8 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
       await showPrysmDialog<void>(
         context: context,
         title: context.l10n.scanNotAvailable,
-        content: const Text(
-          'QR scanning is only supported on mobile devices. '
-          'Compare the fingerprint manually and use "Mark as verified".',
-        ),
-        confirmLabel: 'OK',
+        content: Text(context.l10n.qrScanCompareFingerprintManually),
+        confirmLabel: context.l10n.ok,
         onConfirm: () => Navigator.of(context).pop(),
       );
       return;
@@ -96,7 +93,7 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
         context: context,
         title: context.l10n.invalidQrCode,
         content: Text(context.l10n.thisQrCodeIsNotAValidPrysm),
-        confirmLabel: 'OK',
+        confirmLabel: context.l10n.ok,
         onConfirm: () => Navigator.of(context).pop(),
       );
       return;
@@ -110,11 +107,8 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     await showPrysmDialog<void>(
       context: context,
       title: context.l10n.verificationFailed,
-      content: const Text(
-        'The scanned QR code does not match this contact\'s identity. '
-        'This may indicate impersonation.',
-      ),
-      confirmLabel: 'OK',
+      content: Text(context.l10n.scannedQrDoesNotMatchContact),
+      confirmLabel: context.l10n.ok,
       onConfirm: () => Navigator.of(context).pop(),
     );
   }
@@ -126,11 +120,8 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: context.l10n.markAsVerified,
-      content: const Text(
-        'Only mark this contact as verified if you compared their '
-        'fingerprint in person or over a trusted channel.',
-      ),
-      confirmLabel: 'Mark verified',
+      content: Text(context.l10n.onlyMarkContactVerifiedIfComparedFull),
+      confirmLabel: context.l10n.markVerified,
     );
     if (confirmed != true || !mounted) return;
     await _markVerified(fingerprint);

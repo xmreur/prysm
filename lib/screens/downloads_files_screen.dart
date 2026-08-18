@@ -79,7 +79,7 @@ class _DownloadsFilesScreenState extends State<DownloadsFilesScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: context.l10n.deleteFile,
-      content: Text('Delete "${entry.name}" from downloads?'),
+      content: Text(context.l10n.deleteFileFromDownloads(entry.name)),
       cancelLabel: context.l10n.cancel,
       confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,

@@ -8,6 +8,7 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
+import 'package:prysm/util/schedule_time_format.dart';
 
 class ReadReceiptMember {
   final String memberId;
@@ -138,10 +139,9 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
 
   String _formatTime(int? millis, AppLocalizations l10n) {
     if (millis == null) return l10n.pending;
-    final dt = DateTime.fromMillisecondsSinceEpoch(millis);
-    final hour = dt.hour.toString().padLeft(2, '0');
-    final minute = dt.minute.toString().padLeft(2, '0');
-    return '${dt.month}/${dt.day} $hour:$minute';
+    return formatLocalizedShortDateTime(
+      DateTime.fromMillisecondsSinceEpoch(millis),
+    );
   }
 
   @override
@@ -154,7 +154,7 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Message info',
+              context.l10n.messageInfo,
               style: context.prysmStyle.titleStyle,
             ),
             const SizedBox(height: 12),
@@ -168,7 +168,7 @@ class ReadReceiptDetailsSheet extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 4),
                 child: Text(
-                  'Read by',
+                  context.l10n.readBy,
                   style: context.prysmStyle.titleStyle,
                 ),
               ),

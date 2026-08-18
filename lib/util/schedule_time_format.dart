@@ -41,13 +41,21 @@ String formatScheduleWeekday(DateTime dt) {
   return DateFormat.E(_dateLocale()).format(dt);
 }
 
+String formatLocalizedShortDateTime(DateTime dt) {
+  return DateFormat.Md(_dateLocale()).add_Hm().format(dt);
+}
+
+int _calendarDayDelta(DateTime from, DateTime to) {
+  final fromDay = DateTime.utc(from.year, from.month, from.day);
+  final toDay = DateTime.utc(to.year, to.month, to.day);
+  return toDay.difference(fromDay).inDays;
+}
+
 /// "Today at 4:30 PM" / "Tomorrow at 9:00 AM" / "Thu, Aug 6 at 9:00 AM".
 String formatScheduleLabel(DateTime sendAt, {DateTime? now}) {
   final l10n = SettingsService().localizations;
   final reference = now ?? DateTime.now();
-  final today = DateTime(reference.year, reference.month, reference.day);
-  final target = DateTime(sendAt.year, sendAt.month, sendAt.day);
-  final daysAway = target.difference(today).inDays;
+  final daysAway = _calendarDayDelta(reference, sendAt);
   final time = formatScheduleClock(sendAt);
 
   if (daysAway == 0) return l10n.scheduleTodayAt(time);

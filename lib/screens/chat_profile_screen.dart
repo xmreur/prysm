@@ -165,9 +165,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
     showPrysmConfirmDialog(
       context: context,
       title: context.l10n.deleteChat,
-      content: const Text(
-        'Are you sure you want to delete all messages in this chat? This cannot be undone.',
-      ),
+      content: Text(context.l10n.areYouSureYouWantToDeleteAll),
       cancelLabel: context.l10n.cancel,
       confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
@@ -182,9 +180,7 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
     showPrysmConfirmDialog(
       context: context,
       title: context.l10n.deleteContact,
-      content: const Text(
-        'Are you sure you want to delete this contact? This cannot be undone.',
-      ),
+      content: Text(context.l10n.areYouSureYouWantToDeleteThis),
       cancelLabel: context.l10n.cancel,
       confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,

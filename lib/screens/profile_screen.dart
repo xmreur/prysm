@@ -224,7 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       trailing: PrysmIconButton(
                         icon: PrysmIcons.qrCode,
-                        tooltip: 'Show QR Code',
+                        tooltip: context.l10n.showQrCode,
                         onPressed: () => showPrysmIdQrDialog(
                           context,
                           encodeOnionToBase58(widget.user.id),

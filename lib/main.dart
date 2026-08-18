@@ -571,7 +571,7 @@ class _MyAppState extends State<MyApp> {
                       ),
                       const SizedBox(height: 12),
                       PrysmButton(
-                        label: context.l10n.continueOffline,
+                        label: ctx.l10n.continueOffline,
                         variant: PrysmButtonVariant.secondary,
                         onPressed: torConnectionController.enterOfflineMode,
                       ),

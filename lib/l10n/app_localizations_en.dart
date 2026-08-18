@@ -226,6 +226,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cachesCleared => 'Caches cleared';
 
   @override
+  String get calculating => 'Calculating…';
+
+  @override
   String get callHistory => 'Call History';
 
   @override
@@ -265,6 +268,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get chatMediaIsStoredEncryptedOnThisDevice =>
       'Chat media is stored encrypted on this device. ';
+
+  @override
+  String get chatMediaStoredEncryptedDisclaimer =>
+      'Chat media is stored encrypted on this device. Deleting media here removes it locally only — it may still exist for other participants.';
 
   @override
   String get chatWithMyself => 'Chat with myself';
@@ -727,6 +734,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get disappearing8h => '8 hours';
 
   @override
+  String disappearingDurationDays(int count) {
+    return '${count}d';
+  }
+
+  @override
+  String disappearingDurationHours(int count) {
+    return '${count}h';
+  }
+
+  @override
+  String disappearingDurationMinutes(int count) {
+    return '${count}m';
+  }
+
+  @override
+  String disappearingDurationSeconds(int count) {
+    return '${count}s';
+  }
+
+  @override
+  String disappearingDurationWeeks(int count) {
+    return '${count}w';
+  }
+
+  @override
   String get disappearingMessages => 'Disappearing messages';
 
   @override
@@ -899,6 +931,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'File is still decrypting or empty';
 
   @override
+  String fileMayBeHarmfulOnlyDownloadIfTrusted(String fileName) {
+    return '$fileName may be harmful to your device. Only download if you trust the sender.';
+  }
+
+  @override
   String get fileNotReadyToDownload => 'File not ready to download';
 
   @override
@@ -1057,6 +1094,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get imageNotReadyToSave => 'Image not ready to save';
 
   @override
+  String imageSavedFileName(String fileName) {
+    return 'Image saved ($fileName)';
+  }
+
+  @override
   String get importFromBackupFile => 'Import from backup file';
 
   @override
@@ -1165,6 +1207,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get leadDeveloper => 'Lead Developer';
 
   @override
+  String get leaveAction => 'Leave';
+
+  @override
   String get leaveGroup => 'Leave group';
 
   @override
@@ -1218,6 +1263,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get markAsVerified => 'Mark as verified';
 
   @override
+  String get markVerified => 'Mark verified';
+
+  @override
   String maxMaxgroupmembersMembersTotal(String maxGroupMembers) {
     return 'Max $maxGroupMembers members total';
   }
@@ -1227,6 +1275,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get member => 'Member';
+
+  @override
+  String memberDisplayNameWithYou(String name, String youLabel) {
+    return '$name ($youLabel)';
+  }
 
   @override
   String membersCount(String count, String max) {
@@ -1539,6 +1592,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Only download if you trust the sender.';
 
   @override
+  String get onlyMarkContactVerifiedIfComparedFull =>
+      'Only mark this contact as verified if you compared their fingerprint in person or over a trusted channel.';
+
+  @override
   String get onlyMarkThisContactAsVerifiedIfYou =>
       'Only mark this contact as verified if you compared their ';
 
@@ -1678,6 +1735,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pending => 'Pending';
 
   @override
+  String personIsTyping(String name) {
+    return '$name is typing…';
+  }
+
+  @override
   String get photo => 'Photo';
 
   @override
@@ -1785,6 +1847,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get purpleMode => 'Purple Mode';
 
   @override
+  String get qrScanCompareFingerprintManually =>
+      'QR scanning is only supported on mobile devices. Compare the fingerprint manually and use \"Mark as verified\".';
+
+  @override
   String get qrScanner => 'QR Scanner';
 
   @override
@@ -1832,6 +1898,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get removeMember => 'Remove member';
+
+  @override
+  String removeMemberFromGroupQuestion(String name) {
+    return 'Remove $name from the group?';
+  }
 
   @override
   String get removePanicPin => 'Remove panic PIN';
@@ -1915,6 +1986,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get savePassphrase => 'Save passphrase';
 
   @override
+  String savedFileName(String fileName) {
+    return 'Saved $fileName';
+  }
+
+  @override
   String get savedToGallery => 'Saved to gallery';
 
   @override
@@ -1934,6 +2010,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get scanText => 'Scan text';
+
+  @override
+  String get scannedQrDoesNotMatchContact =>
+      'The scanned QR code does not match this contact\'s identity. This may indicate impersonation.';
 
   @override
   String get schedule => 'Schedule';
@@ -2011,6 +2091,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sendPhoto => 'Send photo';
+
+  @override
+  String get sendViewOnce => 'Send view once';
 
   @override
   String senderNameNewMessage(String senderName) {
@@ -2134,6 +2217,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get startMinimizedSubtitle => 'Launch Prysm hidden in the system tray';
 
   @override
+  String get stopMessagesCallsAndProfileUpdates =>
+      'Stop messages, calls, and profile updates';
+
+  @override
   String get storageManager => 'Storage Manager';
 
   @override
@@ -2178,6 +2265,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get systemDefault => 'System default';
+
+  @override
+  String get tapToAllowMessagesAndCallsAgain =>
+      'Tap to allow messages and calls again';
 
   @override
   String get tapToChangeGroupPhoto => 'Tap to change group photo';
@@ -2343,6 +2434,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get turnNotificationsBackOn => 'Turn notifications back on';
+
+  @override
+  String twoPeopleAreTyping(String first, String second) {
+    return '$first and $second are typing…';
+  }
 
   @override
   String get typingIndicators => 'Typing Indicators';
@@ -2601,4 +2697,53 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get yourPrysmIdWillAppearOnceTorFinishes =>
       'Your Prysm ID will appear once Tor finishes connecting.';
+
+  @override
+  String get chatMediaFilterAll => 'All';
+
+  @override
+  String get chatMediaFilterFiles => 'Files';
+
+  @override
+  String get chatMediaFilterPhotos => 'Photos';
+
+  @override
+  String get chatMediaFilterVoice => 'Voice';
+
+  @override
+  String get chooseATimeInTheFuture => 'Choose a time in the future';
+
+  @override
+  String deleteMediaFromConversation(String label, String conversation) {
+    return 'Delete \"$label\" from $conversation? This removes it from your device only.';
+  }
+
+  @override
+  String groupInviteReceivedAt(String receivedAt) {
+    return 'Group invite · $receivedAt';
+  }
+
+  @override
+  String scheduleSendsAt(String label) {
+    return 'Sends $label';
+  }
+
+  @override
+  String get sendHoldToSchedule => 'Send. Hold to schedule';
+
+  @override
+  String get today => 'Today';
+
+  @override
+  String get youWillNeedThisPasswordToRestore =>
+      'You will need this password to restore.';
+
+  @override
+  String get openWithSystemApp => 'Open with system app';
+
+  @override
+  String get displayNameHintExample => 'eg. Alice';
+
+  @override
+  String get showQrCode => 'Show QR Code';
 }

@@ -17,7 +17,7 @@ class DetachedChatApp extends StatelessWidget {
     final settings = SettingsService();
     return ValueListenableBuilder<int>(
       valueListenable: settings.localeRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         return PrysmApp(
           themePalette: launch.themeIndex,
           appearance: settings.appearance,

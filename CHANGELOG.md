@@ -1,7 +1,12 @@
 # Changelog
 
 ---
+## 0.7.1
 
+### Features
+- Multi-Language support: Prysm now supports different languages, currently English and Italian, with many more to come!
+
+---
 ## 0.7.0
 
 ### Features

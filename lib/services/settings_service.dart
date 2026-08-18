@@ -17,7 +17,7 @@ import 'package:prysm/models/unlock_type.dart';
 import 'package:prysm/services/link_unfurl_service.dart';
 
 class SettingsService {
-  static const String appVersion = 'v0.7.0';
+  static const String appVersion = 'v0.7.1';
   static const String appName = 'Prysm';
   static const String appDescription = 'Privacy-focused P2P messaging';
 

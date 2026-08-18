@@ -10,8 +10,6 @@
 // ChatService/sqflite; see HANDOFF.md and group_invite_mode_screens_test.dart),
 // so the seam under test is the shared tile they now all build. That the three
 // screens actually call it was verified on the running app, not here.
-import 'dart:ui';
-
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';

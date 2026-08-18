@@ -208,6 +208,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
     await _settings.setUnlockType(_selectedUnlockType);
+    if (!mounted) return;
     setState(() {
       _setupLoading = false;
       _unlockSetupComplete = true;

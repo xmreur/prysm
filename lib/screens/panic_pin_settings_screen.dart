@@ -55,7 +55,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
 
   Future<String?> _validateNewPanicPin(String pin) async {
     if (await widget.keyManager.pinUnlocksStoredKeys(pin)) {
-      return context.l10n.panicPinCannotMatchYourMainPasscode;
+      return SettingsService().localizations.panicPinCannotMatchYourMainPasscode;
     }
     return null;
   }
@@ -82,7 +82,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
       title: context.l10n.currentPanicPin,
       validatePin: (pin) async {
         if (!await PanicPinService.instance.verify(pin)) {
-          return context.l10n.incorrectPanicPin;
+          return SettingsService().localizations.incorrectPanicPin;
         }
         return null;
       },
@@ -109,7 +109,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
       title: context.l10n.enterPanicPinToRemove,
       validatePin: (pin) async {
         if (!await PanicPinService.instance.verify(pin)) {
-          return context.l10n.incorrectPanicPin;
+          return SettingsService().localizations.incorrectPanicPin;
         }
         return null;
       },

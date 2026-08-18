@@ -128,7 +128,7 @@ class AppLocalizationsIt extends AppLocalizations {
   String get backToChats => 'Torna alle chat';
 
   @override
-  String get backUpYourAccount => 'Back up il tuo account';
+  String get backUpYourAccount => 'Esegui il backup del tuo account';
 
   @override
   String get backupCreateAnytimeInSettings =>
@@ -450,27 +450,27 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String couldNotDeleteFileE(String e) {
-    return 'Errore nel cancellare il file: $e';
+    return 'Impossibile cancellare il file: $e';
   }
 
   @override
-  String get couldNotDeleteForEveryone => 'Errore nel cancellare per tutti';
+  String get couldNotDeleteForEveryone => 'Impossibile cancellare per tutti';
 
   @override
   String couldNotDeleteMediaE(String e) {
-    return 'Errore nel cancellare media: $e';
+    return 'Impossibile cancellare media: $e';
   }
 
   @override
-  String get couldNotEditMessage => 'Errore nel modificare il messaggio';
+  String get couldNotEditMessage => 'Impossibile modificare il messaggio';
 
   @override
   String couldNotLoadDownloadsE(String e) {
-    return 'Errore nel caricare i downloads: $e';
+    return 'Impossibile caricare i downloads: $e';
   }
 
   @override
-  String get couldNotLoadImage => 'Errore nel copiare l\'immagine';
+  String get couldNotLoadImage => 'Impossibile copiare l\'immagine';
 
   @override
   String couldNotLoadMediaE(String e) {
@@ -482,7 +482,7 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String couldNotLoadStorageUsageE(String e) {
-    return 'Errore nel caricare l\'utilizzo del disco: $e';
+    return 'Impossibile caricare l\'utilizzo del disco: $e';
   }
 
   @override
@@ -497,27 +497,27 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String couldNotOpenSeparateWindowE(String e) {
-    return 'Errore nell\'aprire una finestra dedicata: $e';
+    return 'Impossibile aprire una finestra dedicata: $e';
   }
 
   @override
   String couldNotOpenVideoE(String e) {
-    return 'Errore nel caricare il video: $e';
+    return 'Impossibile caricare il video: $e';
   }
 
   @override
   String couldNotPlayVoiceMessageE(String e) {
-    return 'Errore nel riprodurre il messaggio vocale: $e';
+    return 'Impossibile riprodurre il messaggio vocale: $e';
   }
 
   @override
   String couldNotReadDroppedFileE(String e) {
-    return 'Errore nel leggere il file: $e';
+    return 'Impossibile leggere il file: $e';
   }
 
   @override
   String couldNotReadFileE(String e) {
-    return 'Errore nel leggere il file: $e';
+    return 'Impossibile leggere il file: $e';
   }
 
   @override
@@ -534,16 +534,16 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String couldNotScheduleMessageE(String e) {
-    return 'Errore nel programmare il messaggio: $e';
+    return 'Impossibile programmare il messaggio: $e';
   }
 
   @override
   String get couldNotSendFileGroupKeyUnavailable =>
-      'Errore nell\'invio del file — chiave del gruppo non disponibile';
+      'Impossibile inviare il file — chiave del gruppo non disponibile';
 
   @override
   String get couldNotSendMessageGroupKeyUnavailable =>
-      'Errore nell\'invio del messaggio — chiave del gruppo non disponibile';
+      'Impossibile inviare il messaggio — chiave del gruppo non disponibile';
 
   @override
   String get couldNotSetUpPasscodeTryAgain =>
@@ -694,7 +694,7 @@ class AppLocalizationsIt extends AppLocalizations {
   String get delivered => 'Consegnato';
 
   @override
-  String get delivery => 'Delivery';
+  String get delivery => 'Consegna';
 
   @override
   String get destroyKeysAndLocalDatabasesThenShowAn =>
@@ -863,7 +863,8 @@ class AppLocalizationsIt extends AppLocalizations {
   String get export => 'Esporta';
 
   @override
-  String get exportEncryptedBackupFile => 'Esporta backup crittografato';
+  String get exportEncryptedBackupFile =>
+      'Esporta il file di backup crittografato';
 
   @override
   String get exportLog => 'Esporta i log';
@@ -873,7 +874,7 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String failedToCreateGroupE(String e) {
-    return 'Errore nella creazione del gruppo: $e';
+    return 'Impossibile creare del gruppo: $e';
   }
 
   @override
@@ -888,7 +889,7 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get failedToPlayVoiceMessage =>
-      'Errore nel riprodurre il messaggio vocale';
+      'Impossibile riprodurre il messaggio vocale';
 
   @override
   String get failedToRefreshCircuit => 'Impossibile aggiornare il circuito';
@@ -1431,10 +1432,11 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get noForgotPassphraseRecovery =>
-      'Non esiste recupero \"passphrase dimenticata\"';
+      'La passphrase non può essere recuperata se dimenticata.';
 
   @override
-  String get noForgotPinRecovery => 'Non esiste recupero \"PIN dimenticato\"';
+  String get noForgotPinRecovery =>
+      'Il PIN non può essere recuperato se dimenticato.';
 
   @override
   String get noIdentityKeyIsStoredForThisContact =>

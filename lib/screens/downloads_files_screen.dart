@@ -14,6 +14,7 @@ import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/prysm_section.dart';
 import 'package:prysm/util/format_file_size.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class DownloadsFilesScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -77,10 +78,10 @@ class _DownloadsFilesScreenState extends State<DownloadsFilesScreen> {
   Future<void> _deleteFile(DownloadedFileEntry entry) async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Delete file',
-      content: Text('Delete "${entry.name}" from downloads?'),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Delete',
+      title: context.l10n.deleteFile,
+      content: Text(context.l10n.deleteFileFromDownloads(entry.name)),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
@@ -89,7 +90,7 @@ class _DownloadsFilesScreenState extends State<DownloadsFilesScreen> {
       await File(entry.path).delete();
       if (!mounted) return;
       setState(() => _files.removeWhere((f) => f.path == entry.path));
-      showPrysmToast(context, 'File deleted');
+      showPrysmToast(context, context.l10n.fileDeleted);
     } catch (e) {
       if (!mounted) return;
       showPrysmToast(context, 'Could not delete file: $e');
@@ -108,7 +109,7 @@ class _DownloadsFilesScreenState extends State<DownloadsFilesScreen> {
     final style = context.prysmStyle;
 
     return PrysmPage(
-      title: 'Downloads',
+      title: context.l10n.downloads,
       headerHeight: 70,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,

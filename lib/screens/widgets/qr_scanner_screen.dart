@@ -7,6 +7,7 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -72,18 +73,18 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   Widget build(BuildContext context) {
     if (!QrPlatform.isScanSupported) {
       return PrysmPage(
-        title: 'QR Scanner',
+        title: context.l10n.qrScanner,
         leading: PrysmIconButton(
           icon: PrysmIcons.arrowBack,
           onPressed: () => Navigator.pop(context),
         ),
-        body: const Center(
+        body: Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Text(
-              'QR Scanner is only supported on mobile devices (Android/iOS).',
+              context.l10n.qrScannerIsOnlySupportedOnMobileDevices,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16),
+              style: const TextStyle(fontSize: 16),
             ),
           ),
         ),
@@ -123,9 +124,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                         size: 64,
                       ),
                       const SizedBox(height: 24),
-                      const Text(
-                        'Camera Permission Required',
-                        style: TextStyle(
+                      Text(
+                        context.l10n.cameraPermissionRequired,
+                        style: const TextStyle(
                           color: Color(0xFFFFFFFF),
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -133,9 +134,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
-                      const Text(
-                        'Prysm needs camera access to scan QR codes for adding contacts.',
-                        style: TextStyle(
+                      Text(
+                        context.l10n.prysmNeedsCameraAccessToScanQrCodes,
+                        style: const TextStyle(
                           color: Color(0xB3FFFFFF),
                           fontSize: 15,
                         ),
@@ -143,7 +144,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       ),
                       const SizedBox(height: 32),
                       PrysmButton(
-                        label: 'Open Settings',
+                        label: context.l10n.openSettings,
                         onPressed: openAppSettings,
                       ),
                     ],
@@ -200,9 +201,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   color: const Color(0xFFFFFFFF),
                   onPressed: () => Navigator.pop(context),
                 ),
-                const Text(
-                  'Scan Contact QR',
-                  style: TextStyle(
+                Text(
+                  context.l10n.scanContactQr,
+                  style: const TextStyle(
                     color: Color(0xFFFFFFFF),
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -229,13 +230,13 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
               ],
             ),
           ),
-          const Positioned(
+          Positioned(
             bottom: 60,
             left: 24,
             right: 24,
             child: Text(
-              'Align the QR code inside the frame to scan.',
-              style: TextStyle(
+              context.l10n.alignTheQrCodeInsideTheFrameTo,
+              style: const TextStyle(
                 color: Color(0xB3FFFFFF),
                 fontSize: 14,
                 letterSpacing: 0.5,

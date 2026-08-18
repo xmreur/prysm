@@ -6,6 +6,7 @@ import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_switch.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Preview picked image before sending, with optional view-once toggle.
 class ImageSendPreviewScreen extends StatefulWidget {
@@ -40,7 +41,7 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
     final tokens = context.prysmStyle.tokens;
 
     return PrysmPage(
-      title: 'Send photo',
+      title: context.l10n.sendPhoto,
       leading: PrysmIconButton(
         icon: PrysmIcons.close,
         onPressed: () => Navigator.pop(context),
@@ -81,15 +82,16 @@ class _ImageSendPreviewScreenState extends State<ImageSendPreviewScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     PrysmSwitchRow(
-                      title: 'View once',
-                      subtitle:
-                          'Photo disappears after the recipient opens it',
+                      title: context.l10n.viewOnce2,
+                      subtitle: context.l10n.photoDisappearsAfterTheRecipientOpensIt,
                       value: _viewOnce,
                       onChanged: (value) => setState(() => _viewOnce = value),
                     ),
                     const SizedBox(height: 8),
                     PrysmButton(
-                      label: _viewOnce ? 'Send view once' : 'Send photo',
+                      label: _viewOnce
+                          ? context.l10n.sendViewOnce
+                          : context.l10n.sendPhoto,
                       onPressed: _send,
                     ),
                   ],

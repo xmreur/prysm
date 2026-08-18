@@ -1,0 +1,1521 @@
+{
+  "@@locale": "en",
+  "@aboutApp": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "@addedMemberWillReceiveInviteWhenOnline": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@backupFailedE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@backupSavedTo": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@batterySaverAutoEnabledBatteryAt": {
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "@batterySaverAutoEnablesAt": {
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "@connectingBootstrap": {
+    "placeholders": {
+      "bootstrap": {
+        "type": "String"
+      }
+    }
+  },
+  "@contactCountSummary": {
+    "placeholders": {
+      "contactCount": {
+        "type": "int"
+      },
+      "groupCount": {
+        "type": "int"
+      }
+    }
+  },
+  "@couldNotDeleteFileE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotDeleteMediaE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotLoadDownloadsE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotLoadMediaE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotLoadStorageUsageE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotOpenFileE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotOpenImageE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotOpenSeparateWindowE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotOpenVideoE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotPlayVoiceMessageE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotReadDroppedFileE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotReadFileE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotSaveImage": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotScheduleMessageE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@couldNotStartCallE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@count": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@dMoYHMin": {
+    "placeholders": {
+      "d": {
+        "type": "String"
+      },
+      "mo": {
+        "type": "String"
+      },
+      "y": {
+        "type": "String"
+      },
+      "h": {
+        "type": "String"
+      },
+      "min": {
+        "type": "String"
+      }
+    }
+  },
+  "@deleteFileFromDownloads": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
+  "@directionCallDuration": {
+    "placeholders": {
+      "direction": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "@directionCallStatus": {
+    "placeholders": {
+      "direction": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "@disappearingDurationDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationWeeks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@downloadFailedE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@downloadsWillBeSavedToPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@failedToCreateGroupE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@failedToExportLog": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@failedToExportLogE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@fileMayBeHarmfulOnlyDownloadIfTrusted": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
+  "@filenameMayBeHarmfulToYourDevice": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
+  "@groupIsFullMax": {
+    "placeholders": {
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "@groupIsFullMaxgroupmembersMembersMax": {
+    "placeholders": {
+      "maxGroupMembers": {
+        "type": "String"
+      }
+    }
+  },
+  "@hourMinutePeriod": {
+    "placeholders": {
+      "hour": {
+        "type": "String"
+      },
+      "minute": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "@imageSavedFileName": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
+  "@labelModKey": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "mod": {
+        "type": "String"
+      },
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "@logSavedTo": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@maxMaxgroupmembersMembersTotal": {
+    "placeholders": {
+      "maxGroupMembers": {
+        "type": "String"
+      }
+    }
+  },
+  "@memberDisplayNameWithYou": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "youLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "@membersCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "@minutesSeconds": {
+    "placeholders": {
+      "minutes": {
+        "type": "String"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "@mustBeAtLeastNCharacters": {
+    "placeholders": {
+      "minLength": {
+        "type": "int"
+      }
+    }
+  },
+  "@mutedForDuration": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "@mutedUntilDateAndTime": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@mutedUntilTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@nextScheduleLabel": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "@noBackupFilesFoundInLocation": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "@notificationsEnabledForLabel": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "@notificationsMutedMuteduntilForLabel": {
+    "placeholders": {
+      "mutedUntil": {
+        "type": "String"
+      },
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "@onboardingStepOf": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@onionAddress": {
+    "placeholders": {
+      "address": {
+        "type": "String"
+      }
+    }
+  },
+  "@personIsTyping": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@privacySettingsBody": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "@removeMemberFromGroupQuestion": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@restoreFailedE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@savedFileName": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleDateAt": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleTodayAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleTomorrowAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleWeekdayAt": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@senderNameNewMessage": {
+    "placeholders": {
+      "senderName": {
+        "type": "String"
+      }
+    }
+  },
+  "@sentTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@todayAtTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@tomorrowAtTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@torBootstrapPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "@torRestartFailedE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@torStatusConnectingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "@trayPendingMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@trayPendingMessages": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@trayPendingShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@trayTooltipBase": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "@trayUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@trayUnreadShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@twoPeopleAreTyping": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "second": {
+        "type": "String"
+      }
+    }
+  },
+  "@updateAvailable": {
+    "placeholders": {
+      "tagName": {
+        "type": "String"
+      }
+    }
+  },
+  "@updateAvailableTagname": {
+    "placeholders": {
+      "tagName": {
+        "type": "String"
+      }
+    }
+  },
+  "@versionLabel": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@welcomeBackDisplayname": {
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "@whoSetMessagesToDisappearIn": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      }
+    }
+  },
+  "@whoTurnedOffDisappearingMessages": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      }
+    }
+  },
+  "@willSendAt": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "aNewVersionIsAvailable": "A new version is available.",
+  "aPanicPinIsASecondPasscodeEntering": "A panic PIN is a second passcode. Entering it at unlock ",
+  "about": "About",
+  "aboutApp": "About {appName}",
+  "aboutThisApp": "About This App",
+  "accept": "Accept",
+  "acceptCall": "Accept call",
+  "activeCallsChannel": "Active Calls",
+  "activeCallsChannelDescription": "Ongoing voice calls",
+  "add": "Add",
+  "addContact": "Add contact",
+  "addContactAndJoin": "Add contact and join",
+  "addContactOfflineHint": "Connect to Tor to add contacts. You can skip this step and add friends later from the main app.",
+  "addContactOnlineHint": "Ask a friend for their Prysm ID (a Base58 code or QR). They must be online on Tor for the first connection.",
+  "addContactsBeforeCreatingAGroup": "Add contacts before creating a group",
+  "addMember": "Add member",
+  "addYourFirstContact": "Add your first contact",
+  "addedMemberWillReceiveInviteWhenOnline": "Added {name}. They will receive an invite when online.",
+  "admin": "Admin",
+  "advancedPrivacy": "Advanced Privacy",
+  "after5FailedUnlockAttemptsLock2Hours": "After 5 failed unlock attempts, Prysm locks for 2 hours",
+  "alignTheQrCodeInsideTheFrameTo": "Align the QR code inside the frame to scan.",
+  "anInviteFromSomeoneWhoIsNotIn": "An invite from someone who is not in your contacts is kept as a ",
+  "appTitle": "Prysm",
+  "appearance": "Appearance",
+  "archiveChat": "Archive chat",
+  "archived": "Archived",
+  "areYouSureYouWantToDeleteAll": "Are you sure you want to delete all messages in this chat? This cannot be undone.",
+  "areYouSureYouWantToDeleteThis": "Are you sure you want to delete this contact? This cannot be undone.",
+  "askYourContactToShowThisCodeOr": "Ask your contact to show this code, or scan theirs to verify.",
+  "audioNotReady": "Audio not ready",
+  "autoRestarts": "Auto-restarts: ",
+  "autoRestartsLabel": "Auto-restarts:",
+  "back": "Back",
+  "backToChats": "Back to chats",
+  "backUpYourAccount": "Back up your account",
+  "backupCreateAnytimeInSettings": "You can create more backups anytime in Settings → Data",
+  "backupCreated": "Backup created",
+  "backupEncryptedFileBullet": "Backups are password-encrypted files (.prysmbackup)",
+  "backupFailedE": "Backup failed: {e}",
+  "backupOnboardingBody": "A backup saves your chats, contacts, and encrypted keys. Without one, losing this device or forgetting your unlock code means losing everything.",
+  "backupPassword": "Backup Password",
+  "backupRestoredPleaseRestartTheApp": "Backup restored! Please restart the app.",
+  "backupSavedTo": "Backup saved to {path}",
+  "backupStoreOutsideDevice": "Store the file somewhere safe outside this device",
+  "batterySaverAutoEnabledBatteryAt": "Auto-enabled — battery at {level}%",
+  "batterySaverAutoEnabledPowerSaverOn": "Auto-enabled — device power saver on",
+  "batterySaverAutoEnablesAt": "Auto-enables at {threshold}% battery or below",
+  "batterySaverReducesPolling": "Reduces polling and background activity",
+  "batterySaving": "Battery saving",
+  "biometricsNotSupportedOnThisPlatform": "Biometrics not supported on this platform",
+  "block": "Block",
+  "blockContact": "Block contact",
+  "blockContactBody": "They won't be able to message you.",
+  "blockContactQuestion": "Block contact?",
+  "blocked": "Blocked",
+  "blockedContacts": "Blocked contacts",
+  "blockedViewProfile": "Blocked · View profile",
+  "bugFindingFeatureSuggestions": "Bug finding & Feature suggestions",
+  "builtOnTor": "Built on Tor",
+  "caches": "Caches",
+  "cachesCleared": "Caches cleared",
+  "calculating": "Calculating…",
+  "callHistory": "Call History",
+  "callMicrophone": "Call microphone",
+  "callPreview": "📞 Call",
+  "cameraPermissionRequired": "Camera Permission Required",
+  "cancel": "Cancel",
+  "cancelMessage": "Cancel message",
+  "cancelScheduledMessage": "Cancel scheduled message?",
+  "changePanicPin": "Change panic PIN",
+  "changePasscode": "Change passcode",
+  "changeUnlockMethodInSettingsPrivacy": "Change unlock method anytime in Settings → Privacy",
+  "chatMedia": "Chat Media",
+  "chatMedia2": "Chat media",
+  "chatMediaIsStoredEncryptedOnThisDevice": "Chat media is stored encrypted on this device. ",
+  "chatMediaStoredEncryptedDisclaimer": "Chat media is stored encrypted on this device. Deleting media here removes it locally only — it may still exist for other participants.",
+  "chatWithMyself": "Chat with myself",
+  "chatWithMyself6": "chat with myself",
+  "chats": "Chats",
+  "checkForUpdates": "Check for updates",
+  "checking": "Checking...",
+  "chooseANew6DigitPin": "Choose a new 6-digit PIN.",
+  "chooseANewPassphraseAtLeast12Characters": "Choose a new passphrase (at least 12 characters).",
+  "chooseAStrongPasswordToEncryptYourBackup": "Choose a strong password to encrypt your backup. ",
+  "chooseDownloadFolder": "Choose download folder",
+  "chooseFolder": "Choose folder",
+  "chooseYourUnlockMethod": "Choose your unlock method",
+  "clear": "Clear",
+  "clearCaches": "Clear caches",
+  "clearCallHistory": "Clear call history",
+  "clearHistory": "Clear history",
+  "close": "Close",
+  "closeSearch": "Close search",
+  "comingSoonNotWorking": "COMING SOON, NOT WORKING",
+  "completed": "Completed",
+  "composerRounding": "Composer rounding",
+  "confirm": "Confirm",
+  "confirmNewPanicPin": "Confirm new panic PIN",
+  "confirmNewPin": "Confirm new PIN",
+  "confirmPanicPin": "Confirm panic PIN",
+  "confirmPasscode": "Confirm Passcode",
+  "confirmPassphrase": "Confirm Passphrase",
+  "confirmYourPin": "Confirm your PIN",
+  "connectToTorBeforeAddingContacts": "Connect to Tor before adding contacts",
+  "connectTor": "Connect Tor",
+  "connectTorForPrysmId": "Connect Tor for Prysm ID",
+  "connectViaOnionId": "Connect via onion ID",
+  "connected": "Connected",
+  "connecting": "Connecting...",
+  "connecting2": "Connecting…",
+  "connecting3": "Connecting…",
+  "connecting4": "Connecting",
+  "connectingBootstrap": "connecting ({bootstrap}%)",
+  "connectingToTor": "Connecting to Tor…",
+  "contactAdded": "Contact added",
+  "contactAddedSuccessfully": "Contact added successfully",
+  "contactCountSummary": "{contactCount, plural, =1{1 contact} other{{contactCount} contacts}} · {groupCount, plural, =1{1 group} other{{groupCount} groups}}",
+  "contactInfo": "Contact Info",
+  "contactNotFound": "Contact not found",
+  "continueLabel": "Continue",
+  "continueOffline": "Continue offline",
+  "copiedToClipboard": "Copied to clipboard",
+  "copy": "Copy",
+  "copyId": "Copy ID",
+  "couldNotAddContact": "Could not add contact",
+  "couldNotChangeUnlockMethod": "Could not change unlock method",
+  "couldNotConnectToPeerMessagesWillBe": "Could not connect to peer. Messages will be queued.",
+  "couldNotCopy": "Could not copy",
+  "couldNotCreateGroupMakeSureAllMembers": "Could not create group. Make sure all members are online and try again.",
+  "couldNotDeleteFileE": "Could not delete file: {e}",
+  "couldNotDeleteForEveryone": "Could not delete for everyone",
+  "couldNotDeleteMediaE": "Could not delete media: {e}",
+  "couldNotEditMessage": "Could not edit message",
+  "couldNotLoadDownloadsE": "Could not load downloads: {e}",
+  "couldNotLoadImage": "Could not load image",
+  "couldNotLoadMediaE": "Could not load media: {e}",
+  "couldNotLoadPreview": "Could not load preview",
+  "couldNotLoadStorageUsageE": "Could not load storage usage: {e}",
+  "couldNotOpenFileE": "Could not open file: {e}",
+  "couldNotOpenImageE": "Could not open image: {e}",
+  "couldNotOpenSeparateWindowE": "Could not open separate window: {e}",
+  "couldNotOpenVideoE": "Could not open video: {e}",
+  "couldNotPlayVoiceMessageE": "Could not play voice message: {e}",
+  "couldNotReadDroppedFileE": "Could not read dropped file: {e}",
+  "couldNotReadFileE": "Could not read file: {e}",
+  "couldNotReadPresentationContentInPrysm": "Could not read presentation content in Prysm.",
+  "couldNotReadSpreadsheet": "Could not read spreadsheet",
+  "couldNotSaveImage": "Could not save image: {e}",
+  "couldNotScheduleMessageE": "Could not schedule message: {e}",
+  "couldNotSendFileGroupKeyUnavailable": "Could not send file — group key unavailable",
+  "couldNotSendMessageGroupKeyUnavailable": "Could not send message — group key unavailable",
+  "couldNotSetUpPasscodeTryAgain": "Could not set up passcode. Try again.",
+  "couldNotSetUpPassphraseMin12": "Could not set up passphrase. Use at least 12 characters.",
+  "couldNotSetUpPinTryAgain": "Could not set up PIN. Try again.",
+  "couldNotStartCallE": "Could not start call: {e}",
+  "couldNotUpdateUnlockCode": "Could not update unlock code",
+  "count": "{count}",
+  "create": "Create",
+  "createAnotherBackup": "Create another backup",
+  "createBackup": "Create Backup",
+  "createBackupNow": "Create backup now",
+  "createGroup": "Create Group",
+  "createGroup2": "Create group",
+  "createPassphrase": "Create Passphrase",
+  "createYourPin": "Create your PIN",
+  "cryptoUpgradeRequired": "Crypto upgrade required",
+  "currentPanicPin": "Current panic PIN",
+  "currentPassphrase": "Current passphrase",
+  "currentPin": "Current PIN",
+  "cut": "Cut",
+  "cyanMode": "Cyan Mode",
+  "dMoYHMin": "{d}/{mo}/{y} - {h}:{min}",
+  "dangerZone": "Danger Zone",
+  "darkMode": "Dark Mode",
+  "data": "Data",
+  "debugOptions": "Debug options",
+  "decline": "Decline",
+  "declineCall": "Decline call",
+  "declined": "Declined",
+  "decoyProfile": "Decoy profile",
+  "defaultInput": "Default input",
+  "delete": "Delete",
+  "deleteAllMessagesInThisChat": "Delete all messages in this chat",
+  "deleteChat": "Delete Chat",
+  "deleteContact": "Delete Contact",
+  "deleteFile": "Delete file",
+  "deleteFileFromDownloads": "Delete \"{fileName}\" from downloads?",
+  "deleteForEveryone": "Delete for everyone",
+  "deleteGroup": "Delete group",
+  "deleteMedia": "Delete media",
+  "deleteTemporaryImageAndVoiceCaches": "Delete temporary image and voice caches? ",
+  "deleteThisContactFromYourListCannotBe": "Delete this contact from your list. Cannot be undone.",
+  "deleteThisGroupForEveryoneThisCannotBe": "Delete this group for everyone? This cannot be undone.",
+  "deleted": "Deleted",
+  "delivered": "Delivered",
+  "delivery": "Delivery",
+  "destroyKeysAndLocalDatabasesThenShowAn": "Destroy keys and local databases, then show an empty app",
+  "directionCallDuration": "{direction} call · {duration}",
+  "directionCallStatus": "{direction} call · {status}",
+  "disappearing1d": "1 day",
+  "disappearing1h": "1 hour",
+  "disappearing1w": "1 week",
+  "disappearing30s": "30 seconds",
+  "disappearing4w": "4 weeks",
+  "disappearing5m": "5 minutes",
+  "disappearing8h": "8 hours",
+  "disappearingDurationDays": "{count}d",
+  "disappearingDurationHours": "{count}h",
+  "disappearingDurationMinutes": "{count}m",
+  "disappearingDurationSeconds": "{count}s",
+  "disappearingDurationWeeks": "{count}w",
+  "disappearingMessages": "Disappearing messages",
+  "disappearingOff": "Off",
+  "disappearsAfterViewing": "🔒 Disappears after viewing",
+  "discard": "Discard",
+  "discardInvite": "Discard invite",
+  "disconnected": "Disconnected",
+  "diskUsageAndMediaManagement": "Disk usage and media management",
+  "dismiss": "Dismiss",
+  "displayName": "Display Name",
+  "displayName2": "Display name",
+  "done": "Done",
+  "download": "Download",
+  "downloadAnyway": "Download anyway",
+  "downloadFailedE": "Download failed: {e}",
+  "downloadFromGithubReleases": "Download from GitHub releases",
+  "downloadLocation": "Download Location",
+  "downloadLocationResetToDefault": "Download location reset to default",
+  "downloadRiskyFile": "Download risky file?",
+  "downloading": "Downloading…",
+  "downloads": "Downloads",
+  "downloadsFolderNotAvailable": "Downloads folder not available",
+  "downloadsWillBeSavedToPath": "Downloads will be saved to {path}",
+  "dropToSend": "Drop to send",
+  "edit": "Edit",
+  "editMessage": "Edit message",
+  "editName": "Edit Name",
+  "emergency": "Emergency",
+  "emptyFile": "Empty file",
+  "enableRelayServer": "Enable Relay Server",
+  "encryptionPrivacy": "Encryption & Privacy",
+  "endToEndEncryption": "• End-to-end encryption",
+  "enterAGroupName": "Enter a group name",
+  "enterAValidBase58PrysmId": "Enter a valid Base58 Prysm ID",
+  "enterBothIdAndDisplayName": "Enter both ID and display name",
+  "enterPanicPinToRemove": "Enter panic PIN to remove",
+  "enterPasscode": "Enter Passcode",
+  "enterPassphrase": "Enter Passphrase",
+  "enterPassphraseOrPanicPin": "Enter passphrase or panic PIN",
+  "enterYourCurrentUnlockPassphrase": "Enter your current unlock passphrase.",
+  "enterYourCurrentUnlockPin": "Enter your current unlock PIN.",
+  "export": "Export",
+  "exportEncryptedBackupFile": "Export encrypted backup file",
+  "exportLog": "Export Log",
+  "failed": "Failed",
+  "failedToCreateGroupE": "Failed to create group: {e}",
+  "failedToExportLog": "Failed to export log: {e}",
+  "failedToExportLogE": "Failed to export log: {e}",
+  "failedToPlayVoiceMessage": "Failed to play voice message",
+  "failedToRefreshCircuit": "Failed to refresh circuit",
+  "features": "Features:",
+  "file": "File",
+  "fileDeleted": "File deleted",
+  "fileIsStillDecryptingOrEmpty": "File is still decrypting or empty",
+  "fileMayBeHarmfulOnlyDownloadIfTrusted": "{fileName} may be harmful to your device. Only download if you trust the sender.",
+  "fileNotReadyToDownload": "File not ready to download",
+  "filePreview": "📎 File",
+  "filePreviews": "File previews",
+  "filePreviewsInChatSubtitle": "Show inline previews for documents, images, and media in chat",
+  "filePreviewsSubtitle": "Show inline previews for images and documents",
+  "fileQueuedWillSendWhenPeerIsAvailable": "File queued. Will send when peer is available.",
+  "fileTooLargeToPreview": "File too large to preview",
+  "filenameMayBeHarmfulToYourDevice": "{fileName} may be harmful to your device. ",
+  "fingerprint": "Fingerprint",
+  "fingerprintCopied": "Fingerprint copied",
+  "font": "Font",
+  "fontIbmPlexSans": "IBM Plex Sans",
+  "fontInter": "Inter",
+  "fontJetBrainsMono": "JetBrains Mono",
+  "fontSystem": "System",
+  "galleryAccessDenied": "Gallery access denied",
+  "general": "General",
+  "getStarted": "Get started",
+  "gettingStarted": "Getting started",
+  "goOnlineToSendAndReceiveMessages": "Go online to send and receive messages",
+  "group": "Group",
+  "groupChat": "Group chat",
+  "groupInviteContactsOnlyDescription": "Invites from anyone else are discarded the moment they arrive: nothing is stored, nothing is shown.",
+  "groupInviteContactsOnlyTitle": "Only accept invites from contacts",
+  "groupInviteHoldDescription": "An invite from someone who is not in your contacts is kept as a request. Your device never contacts them, and adding them as a contact is what applies the invite.",
+  "groupInviteHoldTitle": "Hold invites from unknown senders",
+  "groupInvites": "Group invites",
+  "groupIsFullMax": "Group is full ({max} members max)",
+  "groupIsFullMaxgroupmembersMembersMax": "Group is full ({maxGroupMembers} members max)",
+  "groupName": "Group name",
+  "groupPhotoUpdated": "Group photo updated",
+  "groupRenamed": "Group renamed",
+  "hangUp": "Hang up",
+  "healthCheck": "Health check: ",
+  "healthCheckLabel": "Health check:",
+  "helpSupport": "Help & Support",
+  "hideEmojiPicker": "Hide emoji picker",
+  "hideToTrayWhenClickingMinimize": "Hide to tray when clicking the minimize button",
+  "holdInvitesFromUnknownSenders": "Hold invites from unknown senders",
+  "holdToRecordAVoiceMessage": "Hold to record a voice message",
+  "hourMinutePeriod": "{hour}:{minute} {period}",
+  "idCopiedToClipboard": "ID copied to clipboard",
+  "idNotAvailable": "ID not available",
+  "identityVerification": "Identity verification",
+  "identityVerified": "Identity verified",
+  "image": "📷 Image",
+  "imageNotReadyToSave": "Image not ready to save",
+  "imageSavedFileName": "Image saved ({fileName})",
+  "importFromBackupFile": "Import from backup file",
+  "inAppPdfPreviewIsNotAvailableOn": "In-app PDF preview is not available on this platform.",
+  "inCall": "In call",
+  "incoming": "Incoming",
+  "incomingCall": "Incoming call",
+  "incomingCalls": "Incoming Calls",
+  "incomingCallsChannel": "Incoming Calls",
+  "incomingCallsChannelDescription": "Ringing incoming voice calls",
+  "incorrectPanicPin": "Incorrect panic PIN",
+  "incorrectPassphrase": "Incorrect passphrase",
+  "incorrectPin": "Incorrect PIN",
+  "info": "Info",
+  "installPermissionRequired": "Install permission required",
+  "invalidQrCode": "Invalid QR code",
+  "inviteRequests": "Invite requests",
+  "invitesFromAnyoneElseAreDiscardedTheMoment": "Invites from anyone else are discarded the moment they arrive: ",
+  "iosCameraUsage": "Prysm needs camera access to scan QR codes and add contacts.",
+  "iosMicrophoneUsage": "Prysm needs microphone access for voice messages and calls.",
+  "iosPhotoLibraryAddUsage": "Prysm needs access to save images to your photo library.",
+  "iosPhotoLibraryUsage": "Prysm needs access to your photo library when you share images into the app.",
+  "itWillNotBeSent": "It will not be sent.",
+  "keep": "Keep",
+  "keepPrysmRunningInTrayWhenClosing": "Keep Prysm running in the tray when closing the window",
+  "keyChangedReVerify": "Key changed — re-verify",
+  "labelModKey": "{label} ({mod}+{key})",
+  "language": "Language",
+  "languageEnglish": "English",
+  "languageItalian": "Italiano",
+  "languageSystem": "System",
+  "lastIssue": "Last issue: ",
+  "lastSeen": "Last Seen",
+  "later": "Later",
+  "leadDeveloper": "Lead Developer",
+  "leaveAction": "Leave",
+  "leaveGroup": "Leave group",
+  "leaveThisGroup": "Leave this group?",
+  "legal": "Legal",
+  "lightMode": "Light Mode",
+  "linkCopied": "Link copied",
+  "linkPreviews": "Link previews",
+  "linkPreviewsSubtitle": "Fetch link metadata when you send URLs",
+  "linkPreviewsViaTorSubtitle": "Fetch titles and images for URLs in messages via Tor",
+  "loading": "Loading...",
+  "localDataError": "Local data error",
+  "logSavedTo": "Log saved to {path}",
+  "lookUp": "Look up",
+  "lookingUpContactOnTor": "Looking up contact on Tor...",
+  "losePassphraseOnlyBackupRestores": "If you lose your passphrase, only a backup can restore your account",
+  "losePinOnlyBackupRestores": "If you lose your PIN, only a backup can restore your account",
+  "markAsVerified": "Mark as verified",
+  "markVerified": "Mark verified",
+  "maxMaxgroupmembersMembersTotal": "Max {maxGroupMembers} members total",
+  "mediaDeleted": "Media deleted",
+  "member": "Member",
+  "memberDisplayNameWithYou": "{name} ({youLabel})",
+  "membersCount": "{count} / {max} members",
+  "messageBubbleRounding": "Message bubble rounding",
+  "messageHint": "Message",
+  "messageInfo": "Message info",
+  "messageNotFoundInLoadedHistory": "Message not found in loaded history",
+  "messageQueuedWillSendWhenMembersAreReachable": "Message queued. Will send when members are reachable.",
+  "messageQueuedWillSendWhenPeerIsAvailable": "Message queued. Will send when peer is available.",
+  "messageShadows": "Message shadows",
+  "messages": "Messages",
+  "microphoneLevel": "Microphone level",
+  "microphonePermissionDenied": "Microphone permission denied",
+  "minimizeToSystemTrayOnClose": "Minimize to system tray on close",
+  "minimizeToTrayOnClose": "Minimize to tray on close",
+  "minimizeToTrayOnCloseSubtitle": "Keep Prysm running in the background when you close the window",
+  "minimizeToTrayWhenMinimizingWindow": "Minimize to tray when minimizing window",
+  "minimum12Characters": "Minimum 12 characters",
+  "minutesSeconds": "{minutes}:{seconds}",
+  "missed": "Missed",
+  "mockUpdateUiNoDownload": "Mock update UI (no download)",
+  "moreReactions": "More reactions…",
+  "mustBeAtLeastNCharacters": "Must be at least {minLength} characters",
+  "muteNotifications": "Mute notifications",
+  "muted": "Muted",
+  "mutedForDuration": "for {duration}",
+  "mutedUntilDateAndTime": "Muted until {date}, {time}",
+  "mutedUntilTime": "Muted until {time}",
+  "mutedUntilYouTurnNotificationsBackOn": "Muted until you turn notifications back on",
+  "myQrCode": "My QR Code",
+  "needsAttention": "Needs attention",
+  "network": "Network",
+  "neverSharePassphrase": "Never share your passphrase with anyone",
+  "neverSharePin": "Never share your PIN with anyone",
+  "newCircuit": "New circuit",
+  "newMessage": "New message",
+  "newMessagesChannel": "New Messages",
+  "newMessagesChannelDescription": "Notification channel for new messages",
+  "newPanicPin": "New panic PIN",
+  "newPassphrase": "New passphrase",
+  "newPassphraseMustBeDifferent": "New passphrase must be different",
+  "newPin": "New PIN",
+  "newPinMustBeDifferent": "New PIN must be different",
+  "newTorCircuitRequested": "New Tor circuit requested",
+  "next": "Next",
+  "nextMatch": "Next match",
+  "nextScheduleLabel": "Next: {label}",
+  "no": "No",
+  "noBackupFilesFoundInLocation": "No backup files found in {location}",
+  "noBlockedContacts": "No blocked contacts",
+  "noCallsYet": "No calls yet",
+  "noCentralServers": "• No central servers",
+  "noContactsAvailableToAdd": "No contacts available to add",
+  "noConversationsFound": "No conversations found",
+  "noDownloadedFiles": "No downloaded files",
+  "noEmojiFound": "No emoji found",
+  "noForgotPassphraseRecovery": "There is no \"forgot passphrase\" recovery",
+  "noForgotPinRecovery": "There is no \"forgot PIN\" recovery",
+  "noIdentityKeyIsStoredForThisContact": "No identity key is stored for this contact yet.",
+  "noInviteRequests": "No invite requests",
+  "noLogFileFound": "No log file found",
+  "noMediaInThisConversationYet": "No media in this conversation yet",
+  "noMediaStored": "No media stored",
+  "noPreviewAvailable": "No preview available",
+  "noReadInformationAvailable": "No read information available.",
+  "notVerified": "Not verified",
+  "notesToSelf": "Notes to self",
+  "notesToYourself": "Notes to yourself",
+  "notifications": "Notifications",
+  "notificationsEnabledForLabel": "Notifications enabled for {label}",
+  "notificationsMuted": "Notifications muted",
+  "notificationsMutedMuteduntilForLabel": "Notifications muted {mutedUntil} for {label}",
+  "notificationsSubtitle": "Show alerts for new messages and calls",
+  "offline": "Offline",
+  "offlineConnectLaterForPrysmId": "Offline — connect later to get your Prysm ID",
+  "offlinePrysmOrRetry": "You can use Prysm offline or retry when you have a connection.",
+  "ok": "OK",
+  "onboardingIdBody": "This is your unique address on Tor. Friends use it to add you. It is a Base58 encoding of your .onion hidden service address.",
+  "onboardingIdShareHint": "Share this ID or QR so others can message you. You can always find it in your profile or the sidebar.",
+  "onboardingStepOf": "Step {current} of {total}",
+  "onboardingTorBody": "Prysm routes all traffic through the Tor network. Your messages reach contacts directly — no central server stores your chats.",
+  "onboardingTorBulletMustConnect": "Tor must be connected before you can message anyone",
+  "onboardingTorBulletOnionAddress": "Your onion address is your identity on the network",
+  "onboardingTorBulletStatusBar": "The Tor status in the app bar shows your connection",
+  "onboardingWelcomeSetupRequired": "Choose how you unlock Prysm and protect your keys. This setup is required before you can use the app.",
+  "onboardingWelcomeTour": "Private messaging over Tor. This short tour covers the essentials so you can start chatting confidently.",
+  "onionAddress": "Onion: {address}",
+  "online": "Online",
+  "onlyAcceptInvitesFromContacts": "Only accept invites from contacts",
+  "onlyDownloadIfYouTrustTheSender": "Only download if you trust the sender.",
+  "onlyMarkContactVerifiedIfComparedFull": "Only mark this contact as verified if you compared their fingerprint in person or over a trusted channel.",
+  "onlyMarkThisContactAsVerifiedIfYou": "Only mark this contact as verified if you compared their ",
+  "onlyOneFileAtATime": "Only one file at a time",
+  "openInASeparateWindow": "Open in a separate window",
+  "openMenu": "Open menu",
+  "openNotification": "Open notification",
+  "openSettings": "Open Settings",
+  "openSettingsToAllowInstalls": "Open Settings to allow Prysm to install updates.",
+  "openSource": "• Open source",
+  "openToViewTheMessage": "Open to view the message",
+  "openWithSystemPlayer": "Open with system player",
+  "opened": "Opened",
+  "opening": "Opening…",
+  "orangeMode": "Orange Mode",
+  "originalMessageUnavailable": "Original message unavailable",
+  "otherAppData": "Other app data",
+  "outboundQueueDepth": "Outbound queue depth: ",
+  "outboundQueueDepthLabel": "Outbound queue depth:",
+  "outgoing": "Outgoing",
+  "panicDecoyDescription": "Show an empty app while your real data stays encrypted on disk",
+  "panicDecoyTitle": "Decoy profile",
+  "panicMode": "Panic mode",
+  "panicPinCannotMatchYourMainPasscode": "Panic PIN cannot match your main passcode",
+  "panicPinConfigured": "Panic PIN configured",
+  "panicPinExplanationBody": "A panic PIN is a second passcode. Entering it at unlock never reveals your real chats. Configure what happens when it is used.",
+  "panicPinIsSet": "Panic PIN is set",
+  "panicPinNotSet": "Panic PIN not set",
+  "panicPinRemoved": "Panic PIN removed",
+  "panicPinSaved": "Panic PIN saved",
+  "panicPinUpdated": "Panic PIN updated",
+  "panicWipeDescription": "Destroy keys and local databases, then show an empty app",
+  "panicWipeTitle": "Wipe local keys",
+  "passphrase": "Passphrase",
+  "passphrase12Characters": "Passphrase (12+ characters)",
+  "passphraseCannotMatchYourPanicPin": "Passphrase cannot match your panic PIN",
+  "passphraseEncryptsKeysBody": "Your passphrase encrypts your private keys on this device — Prysm never sees or stores it in the cloud.",
+  "passphraseMustBeAtLeast12Characters": "Passphrase must be at least 12 characters",
+  "passphraseUpdated": "Passphrase updated",
+  "passphrasesDoNotMatch": "Passphrases do not match",
+  "passwordMustBeAtLeast4Characters": "Password must be at least 4 characters",
+  "paste": "Paste",
+  "pdfDocument": "PDF document",
+  "peerIsMuted": "Peer is muted",
+  "pending": "Pending",
+  "personIsTyping": "{name} is typing…",
+  "photo": "Photo",
+  "photoDisappearsAfterTheRecipientOpensIt": "Photo disappears after the recipient opens it",
+  "photoPreview": "📷 Photo",
+  "pickAConversationFromTheSidebarOrStart": "Pick a conversation from the sidebar or start a new one.",
+  "pickConversationFromSidebar": "Pick a conversation from the sidebar or start a new one.",
+  "pickOneMethodYouCanChangeItLater": "Pick one method. You can change it later in Settings.",
+  "pinCannotMatchYourPanicPin": "PIN cannot match your panic PIN",
+  "pinChat": "Pin chat",
+  "pinEncryptsKeysBody": "Your 6-digit PIN encrypts your private keys on this device — Prysm never sees or stores it in the cloud.",
+  "pinMustBe6Digits": "PIN must be 6 digits",
+  "pinUpdated": "PIN updated",
+  "pinkMode": "Pink Mode",
+  "pinsDoNotMatch": "PINs don't match",
+  "presentation": "Presentation",
+  "previewUnavailable": "Preview unavailable",
+  "previewUnavailableFileTooLarge": "Preview unavailable (file too large)",
+  "previewUpdateDialog": "Preview update dialog",
+  "previousMatch": "Previous match",
+  "privacy": "Privacy",
+  "privacyInformation": "Privacy Information",
+  "privacySettings": "Privacy Settings",
+  "privacySettingsBody": "These settings help you control your privacy on {appName}. Your choices will be applied across all your conversations.",
+  "profile": "Profile",
+  "profilePhoto": "Profile Photo",
+  "prysm03UsesNewEndToEnd": "Prysm 0.3 uses new end-to-end encryption (Curve25519 + AEAD). ",
+  "prysmCouldNotOpenItsLocalDatabaseThis": "Prysm could not open its local database. This can happen after ",
+  "prysmIdBase58Label": "Prysm ID (Base58)",
+  "prysmIdCopied": "Prysm ID copied",
+  "prysmIdCopiedToClipboard": "Prysm ID copied to clipboard",
+  "prysmIdHintExample": "eg. 51EsbujFRDJLHJ",
+  "prysmNeedsCameraAccessToScanQrCodes": "Prysm needs camera access to scan QR codes for adding contacts.",
+  "purpleMode": "Purple Mode",
+  "qrScanCompareFingerprintManually": "QR scanning is only supported on mobile devices. Compare the fingerprint manually and use \"Mark as verified\".",
+  "qrScanner": "QR Scanner",
+  "qrScannerIsOnlySupportedOnMobileDevices": "QR Scanner is only supported on mobile devices (Android/iOS).",
+  "qrScanningIsOnlySupportedOnMobileDevices": "QR scanning is only supported on mobile devices. ",
+  "quit": "Quit",
+  "read": "Read",
+  "readBy": "Read by",
+  "readReceipts": "Read Receipts",
+  "receivedPreview": "Received preview",
+  "recentTorLog": "Recent Tor log",
+  "recording": "Recording...",
+  "refreshTorCircuit": "Refresh Tor Circuit",
+  "refuseMessagesFromNonContacts": "Refuse messages from non-contacts",
+  "refuseNonContactsSubtitle": "When enabled, people who are not in your contacts cannot message you directly.",
+  "remove": "Remove",
+  "removeMember": "Remove member",
+  "removeMemberFromGroupQuestion": "Remove {name} from the group?",
+  "removePanicPin": "Remove panic PIN",
+  "removeVerification": "Remove verification",
+  "renameGroup": "Rename group",
+  "replayTheSetupTour": "Replay the setup tour",
+  "reply": "Reply",
+  "requestANewCircuitWhenConnectionsAreStuck": "Request a new circuit when connections are stuck",
+  "requestCount": "{count, plural, =1{1 request} other{{count} requests}}",
+  "reset": "Reset",
+  "resetAllSettings": "Reset All Settings?",
+  "resetLocalDataAndContinue": "Reset local data and continue",
+  "resetSettings": "Reset Settings",
+  "restartTor": "Restart Tor",
+  "restore": "Restore",
+  "restoreBackup": "Restore Backup",
+  "restoreDefaultSettings": "Restore default settings",
+  "restoreFailedE": "Restore failed: {e}",
+  "restoreFailedWrongPasswordOrCorruptFile": "Restore failed — wrong password or corrupt file",
+  "retry": "Retry",
+  "ringing": "Ringing...",
+  "save": "Save",
+  "saveDebugLogToDownloads": "Save debug log to download folder",
+  "saveImage": "Save image",
+  "savePassphrase": "Save passphrase",
+  "savedFileName": "Saved {fileName}",
+  "savedToGallery": "Saved to gallery",
+  "savedToPhotos": "Saved to Photos",
+  "scanContactQr": "Scan Contact QR",
+  "scanNotAvailable": "Scan not available",
+  "scanQr": "Scan QR",
+  "scanQrCode": "Scan QR code",
+  "scanText": "Scan text",
+  "scannedQrDoesNotMatchContact": "The scanned QR code does not match this contact's identity. This may indicate impersonation.",
+  "schedule": "Schedule",
+  "scheduleDateAt": "{date} at {time}",
+  "scheduleMessage": "Schedule message",
+  "scheduleTodayAt": "Today at {time}",
+  "scheduleTomorrowAt": "Tomorrow at {time}",
+  "scheduleWeekdayAt": "{weekday} at {time}",
+  "scheduledMessageCancelled": "Scheduled message cancelled",
+  "scheduledMessages": "Scheduled messages",
+  "search": "Search",
+  "searchArchived": "Search archived...",
+  "searchBlocked": "Search blocked...",
+  "searchEmoji": "Search emoji",
+  "searchInChat": "Search in chat...",
+  "searchWeb": "Search web",
+  "secondaryPinIsActive": "Secondary PIN is active",
+  "securityTeam": "Security Team",
+  "select": "Select",
+  "selectAll": "Select all",
+  "selectAtLeastOneMember": "Select at least one member",
+  "selectBackup": "Select Backup",
+  "selectBackupFile": "Select Backup File",
+  "selectedFolderDoesNotExist": "Selected folder does not exist",
+  "sendPhoto": "Send photo",
+  "sendViewOnce": "Send view once",
+  "senderNameNewMessage": "{senderName}: New message",
+  "sentPreview": "Sent preview",
+  "sentTo": "Sent to {name}",
+  "setAPanicPin": "Set a panic PIN to quickly wipe or show a decoy profile.",
+  "setPanicPin": "Set panic PIN",
+  "setPanicPinToEnablePanicMode": "Set a panic PIN to enable panic mode",
+  "setSecondaryPanicPin": "Set a secondary panic PIN",
+  "setUpPrysm": "Set up Prysm",
+  "settings": "Settings",
+  "settingsResetToDefaults": "Settings reset to defaults",
+  "settingsTitle": "Settings",
+  "setupPasscode": "Setup Passcode",
+  "severalPeopleAreTyping": "Several people are typing…",
+  "shadowStrength": "Shadow strength",
+  "shareThisIdOrQrSoOthersCan": "Share this ID or QR so others can message you. You can always ",
+  "shareThisQrCodeWithOthersSoThey": "Share this QR code with others so they can add you as a contact.",
+  "shareToPrysm": "Share to Prysm",
+  "sharedMedia": "Shared Media",
+  "showAnEmptyAppWhileYourRealData": "Show an empty app while your real data stays encrypted on disk",
+  "showFullQr": "Show full QR",
+  "showInChat": "Show in chat",
+  "showMyQrCode": "Show my QR code",
+  "showNotificationsForNewMessages": "Show notifications for new messages",
+  "showOnlineStatus": "Show Online Status",
+  "showPrysm": "Show Prysm",
+  "showQr": "Show QR",
+  "silenceMessageAlerts": "Silence message alerts",
+  "skipForNow": "Skip for now",
+  "skipPinOrPassphraseUsingBiometrics": "Skip PIN or passphrase using fingerprint or face",
+  "skipTour": "Skip tour",
+  "skipVersionCheckDesktopDryRun": "Skip version check (desktop dry-run)",
+  "slidePreviewIsNotSupportedForThisFormat": "Slide preview is not supported for this format in Prysm.",
+  "sourceCode": "Source Code",
+  "spreadsheet": "Spreadsheet",
+  "startMinimized": "Start minimized",
+  "startMinimizedSubtitle": "Launch Prysm hidden in the system tray",
+  "stopMessagesCallsAndProfileUpdates": "Stop messages, calls, and profile updates",
+  "storageManager": "Storage Manager",
+  "storageManagerUnavailable": "Storage manager unavailable",
+  "storageUsage": "Storage Usage",
+  "str1day": "1 day",
+  "str1hour": "1 hour",
+  "str1week": "1 week",
+  "str2hours": "2 hours",
+  "str30seconds": "30 seconds",
+  "str4hours": "4 hours",
+  "str4weeks": "4 weeks",
+  "str5minutes": "5 minutes",
+  "str6digitpin": "6-digit PIN",
+  "str8hours": "8 hours",
+  "switchingMethodsRequiresSettingANewUnlockCode": "Switching methods requires setting a new unlock code.",
+  "systemDefault": "System default",
+  "tapToAllowMessagesAndCallsAgain": "Tap to allow messages and calls again",
+  "tapToChangeGroupPhoto": "Tap to change group photo",
+  "tapToCopy": "Tap to copy",
+  "tapToRename": "Tap to rename",
+  "tapToRetry": "Tap to retry",
+  "tapToSetGroupPhoto": "Tap to set group photo",
+  "tapToView": "Tap to View",
+  "testUpdateFlow": "Test update flow",
+  "testersTeam": "Testers Team",
+  "textSize": "Text size",
+  "theLogFileMayContainSensitiveInformationOnly": "The log file may contain sensitive information. Only share it with trusted parties.",
+  "theScannedQrCodeDoesNotMatchThis": "The scanned QR code does not match this contact's identity. ",
+  "theirQrCode": "Their QR code",
+  "thisContactWillBeAbleToMessageAnd": "This contact will be able to message and call you again.",
+  "thisContactWillNoLongerBeMarkedAs": "This contact will no longer be marked as verified.",
+  "thisIsYourSecondaryPinForEmergencyUse": "This is your secondary PIN for emergency use.",
+  "thisIsYourUniqueAddressOnTorFriends": "This is your unique address on Tor. Friends use it to add you. ",
+  "thisQrCodeIsNotAValidPrysm": "This QR code is not a valid Prysm identity code.",
+  "thisRequestWillBeRemoved": "This request will be removed.",
+  "thisWillPermanentlyDeleteAllCallLogs": "This will permanently delete all call logs.",
+  "thisWillReplaceAllCurrentDataWithThe": "This will replace all current data with the backup. The app will restart after restore.",
+  "thisWillRestoreAllSettingsToTheirDefault": "This will restore all settings to their default values. This action cannot be undone.",
+  "todayAtTime": "Today at {time}",
+  "tomorrow": "Tomorrow",
+  "tomorrowAtTime": "Tomorrow at {time}",
+  "torBootstrapPercent": "Tor: {percent}%",
+  "torConnection": "Tor connection",
+  "torIsConnected": "Tor is connected",
+  "torIsConnecting": "Tor is connecting…",
+  "torNeedsAttentionAutomaticRecoveryPaused": "Tor needs attention — automatic recovery paused. ",
+  "torNetworkRouting": "• Tor network routing",
+  "torRestartFailedE": "Tor restart failed: {e}",
+  "torRestartedSuccessfully": "Tor restarted successfully",
+  "torStatusConnected": "Connected",
+  "torStatusConnecting": "Connecting",
+  "torStatusConnectingPercent": "Connecting ({percent})",
+  "torStatusOff": "Off",
+  "total": "Total",
+  "trayPendingMessage": "Pending: {count} message",
+  "trayPendingMessages": "Pending: {count} messages",
+  "trayPendingShort": "{count} pending",
+  "trayTooltipBase": "Prysm · Tor {status}",
+  "trayUnreadCount": "Unread: {count}",
+  "trayUnreadShort": "{count} unread",
+  "turnNotificationsBackOn": "Turn notifications back on",
+  "twoPeopleAreTyping": "{first} and {second} are typing…",
+  "typingIndicators": "Typing Indicators",
+  "uiUxTeam": "UI/UX Team",
+  "unableToDecryptMessage": "Unable to decrypt message",
+  "unarchiveChat": "Unarchive chat",
+  "unblock": "Unblock",
+  "unblockContact": "Unblock contact",
+  "unblockContactBody": "They will be able to message you again.",
+  "unblockContactQuestion": "Unblock contact?",
+  "unblockToSendMessages": "Unblock to send messages",
+  "unknown": "Unknown",
+  "unlock": "Unlock",
+  "unlockMethod": "Unlock method",
+  "unlockMethodConfigured": "Unlock method configured",
+  "unlockMethodSaved": "Unlock method saved",
+  "unlockMethodSetTo6DigitPin": "Unlock method set to 6-digit PIN",
+  "unlockMethodSetToPassphrase": "Unlock method set to passphrase",
+  "unlockPrysm": "Unlock Prysm",
+  "unlockWithBiometrics": "Unlock with biometrics",
+  "unlockWithBiometricsSubtitle": "Use fingerprint or face to unlock",
+  "unlocking": "Unlocking…",
+  "unpinChat": "Unpin chat",
+  "untilITurnItBackOn": "Until I turn it back on",
+  "untilYouTurnThemBackOn": "until you turn them back on",
+  "upTo5Members": "Up to 5 members",
+  "updateAvailable": "Update available ({tagName})",
+  "updateAvailableTagname": "Update available ({tagName})",
+  "updateNow": "Update now",
+  "updateUnlockPassphraseSubtitle": "Update your unlock passphrase without changing your identity",
+  "updateUnlockPinSubtitle": "Update your unlock PIN without changing your identity",
+  "updatesAreNotAvailableOnIos": "Updates are not available on iOS.",
+  "updatingPrysm": "Updating Prysm",
+  "uploadFile": "Upload File",
+  "uploadImage": "Upload Image",
+  "useFingerprintOrFace": "Use your fingerprint or face",
+  "usePasscode": "Use passcode",
+  "useSystemDefault": "Use system default",
+  "userId": "User ID",
+  "userIdBase58OnionUrl": "User ID (Base58 Onion URL)",
+  "userInterfaceDesign": "User Interface Design",
+  "verificationFailed": "Verification failed",
+  "verificationRemoved": "Verification removed",
+  "verified": "Verified",
+  "versionLabel": "Version {version}",
+  "video": "Video",
+  "videoNotReady": "Video not ready",
+  "viewOnGithub": "View on GitHub",
+  "viewOnce": "View Once",
+  "viewOnce2": "View once",
+  "viewOnce3": "View once",
+  "viewOncePhoto": "View Once Photo",
+  "viewProfile": "View profile",
+  "voiceMessage": "Voice message",
+  "voiceMessageCacheExpired": "Voice message cache expired",
+  "voiceMessageQueuedWillSendWhenPeerIs": "Voice message queued. Will send when peer is available.",
+  "voicePreview": "🎤 Voice",
+  "waitingForGroupKey": "Waiting for group key…",
+  "welcomeBack": "Welcome back",
+  "welcomeBackDisplayname": "Welcome back, {displayName}",
+  "welcomeToPrysm": "Welcome to Prysm",
+  "whenDisabledYouWontSendOrSeeTypingActivity": "When disabled, you won't send or see typing activity in chats.",
+  "whenEnabledPeopleWhoAreNotInYour": "When enabled, people who are not in your contacts cannot message or call you directly.",
+  "whenEnabledRecentContactsAreNotifiedWhenYou": "When enabled, recent contacts are notified when you come online so they can deliver pending messages faster.",
+  "whenPanicPinIsUsed": "When panic PIN is used",
+  "whoSetMessagesToDisappearIn": "{who} set messages to disappear in ",
+  "whoTurnedOffDisappearingMessages": "{who} turned off disappearing messages",
+  "willSendAt": "Will send {label}",
+  "wipeLocalDataAndContinue": "Wipe local data and continue",
+  "wipeLocalKeys": "Wipe local keys",
+  "yes": "Yes",
+  "you": "You",
+  "youAreAdmin": "You are admin",
+  "youAreNoLongerInThisGroup": "You are no longer in this group",
+  "youWillNoLongerReceiveMessagesCallsOr": "You will no longer receive messages, calls, or profile updates from this contact.",
+  "yourId": "Your ID",
+  "yourPassphraseProtectsYourKeys": "Your passphrase protects your keys",
+  "yourPinProtectsYourKeys": "Your PIN protects your keys",
+  "yourPrysmId": "Your Prysm ID",
+  "yourPrysmIdWillAppearOnceTorFinishes": "Your Prysm ID will appear once Tor finishes connecting.",
+  "@deleteMediaFromConversation": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "conversation": {
+        "type": "String"
+      }
+    }
+  },
+  "@groupInviteReceivedAt": {
+    "placeholders": {
+      "receivedAt": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleSendsAt": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "chatMediaFilterAll": "All",
+  "chatMediaFilterFiles": "Files",
+  "chatMediaFilterPhotos": "Photos",
+  "chatMediaFilterVoice": "Voice",
+  "chooseATimeInTheFuture": "Choose a time in the future",
+  "deleteMediaFromConversation": "Delete \"{label}\" from {conversation}? This removes it from your device only.",
+  "groupInviteReceivedAt": "Group invite · {receivedAt}",
+  "scheduleSendsAt": "Sends {label}",
+  "sendHoldToSchedule": "Send. Hold to schedule",
+  "today": "Today",
+  "youWillNeedThisPasswordToRestore": "You will need this password to restore.",
+  "openWithSystemApp": "Open with system app",
+  "displayNameHintExample": "eg. Alice",
+  "showQrCode": "Show QR Code"
+}

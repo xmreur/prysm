@@ -4,12 +4,13 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/services/settings_service.dart';
 
 Future<void> exportLog(BuildContext context) async {
   final logPath = Logging.currentLogFilePath;
   if (logPath == null) {
     if (context.mounted) {
-      showPrysmToast(context, 'No log file found');
+      showPrysmToast(context, SettingsService().localizations.noLogFileFound);
     }
     return;
   }
@@ -17,7 +18,7 @@ Future<void> exportLog(BuildContext context) async {
   final logFile = File(logPath);
   if (!await logFile.exists()) {
     if (context.mounted) {
-      showPrysmToast(context, 'No log file found');
+      showPrysmToast(context, SettingsService().localizations.noLogFileFound);
     }
     return;
   }
@@ -26,7 +27,7 @@ Future<void> exportLog(BuildContext context) async {
     final dir = await DownloadLocation.resolveDirectory();
     if (dir == null) {
       if (context.mounted) {
-        showPrysmToast(context, 'Downloads folder not available');
+        showPrysmToast(context, SettingsService().localizations.downloadsFolderNotAvailable);
       }
       return;
     }

@@ -9,6 +9,7 @@ import 'package:prysm/services/panic_pin_service.dart';
 import 'package:prysm/services/biometric_unlock_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 Future<String?> promptCurrentUnlockSecret(
   BuildContext context,
@@ -18,11 +19,11 @@ Future<String?> promptCurrentUnlockSecret(
   if (type == UnlockType.pin) {
     return showPinPad(
       context: context,
-      title: 'Current PIN',
-      subtitle: 'Enter your current unlock PIN.',
+      title: context.l10n.currentPin,
+      subtitle: context.l10n.enterYourCurrentUnlockPin,
       validatePin: (pin) async {
         if (!await keyManager.passphraseUnlocksStoredKeys(pin)) {
-          return 'Incorrect PIN';
+          return SettingsService().localizations.incorrectPin;
         }
         return null;
       },
@@ -30,12 +31,12 @@ Future<String?> promptCurrentUnlockSecret(
   }
   return showPassphraseDialog(
     context: context,
-    title: 'Current passphrase',
-    subtitle: 'Enter your current unlock passphrase.',
+    title: context.l10n.currentPassphrase,
+    subtitle: context.l10n.enterYourCurrentUnlockPassphrase,
     minLength: CryptoConstants.minPassphraseLength,
     validate: (value) async {
       if (!await keyManager.passphraseUnlocksStoredKeys(value)) {
-        return 'Incorrect passphrase';
+        return SettingsService().localizations.incorrectPassphrase;
       }
       return null;
     },
@@ -50,17 +51,18 @@ Future<String?> _promptNewSecret(
   if (type == UnlockType.pin) {
     return showPinSetupPad(
       context: context,
-      title: 'New PIN',
-      confirmTitle: 'Confirm new PIN',
-      subtitle: 'Choose a new 6-digit PIN.',
+      title: context.l10n.newPin,
+      confirmTitle: context.l10n.confirmNewPin,
+      subtitle: context.l10n.chooseANew6DigitPin,
       validatePin: (pin) async {
-        if (pin == currentSecret) return 'New PIN must be different';
+        final l10n = SettingsService().localizations;
+        if (pin == currentSecret) return l10n.newPinMustBeDifferent;
         if (!CryptoKeyStore.isValidUnlockSecret(pin, UnlockType.pin)) {
-          return 'PIN must be 6 digits';
+          return l10n.pinMustBe6Digits;
         }
         if (await PanicPinService.instance.isConfigured() &&
             await PanicPinService.instance.verify(pin)) {
-          return 'PIN cannot match your panic PIN';
+          return l10n.pinCannotMatchYourPanicPin;
         }
         return null;
       },
@@ -68,18 +70,19 @@ Future<String?> _promptNewSecret(
   }
   return showPassphraseDialog(
     context: context,
-    title: 'New passphrase',
-    subtitle: 'Choose a new passphrase (at least 12 characters).',
+    title: context.l10n.newPassphrase,
+    subtitle: context.l10n.chooseANewPassphraseAtLeast12Characters,
     confirm: true,
     minLength: CryptoConstants.minPassphraseLength,
     validate: (value) async {
-      if (value == currentSecret) return 'New passphrase must be different';
+      final l10n = SettingsService().localizations;
+      if (value == currentSecret) return l10n.newPassphraseMustBeDifferent;
       if (!CryptoKeyStore.isValidUnlockSecret(value, UnlockType.passphrase)) {
-        return 'Passphrase must be at least 12 characters';
+        return l10n.passphraseMustBeAtLeast12Characters;
       }
       if (await PanicPinService.instance.isConfigured() &&
           await PanicPinService.instance.verify(value)) {
-        return 'Passphrase cannot match your panic PIN';
+        return l10n.passphraseCannotMatchYourPanicPin;
       }
       return null;
     },
@@ -113,11 +116,13 @@ Future<bool> runChangePasscodeFlow(
     if (!context.mounted) return false;
     _showSnack(
       context,
-      type == UnlockType.pin ? 'PIN updated' : 'Passphrase updated',
+      type == UnlockType.pin
+          ? context.l10n.pinUpdated
+          : context.l10n.passphraseUpdated,
     );
     return true;
   }
-  _showSnack(context, 'Could not update unlock code');
+  _showSnack(context, context.l10n.couldNotUpdateUnlockCode);
   return false;
 }
 
@@ -151,12 +156,12 @@ Future<bool> runUnlockMethodChange(
     _showSnack(
       context,
       newType == UnlockType.pin
-          ? 'Unlock method set to 6-digit PIN'
-          : 'Unlock method set to passphrase',
+          ? context.l10n.unlockMethodSetTo6DigitPin
+          : context.l10n.unlockMethodSetToPassphrase,
     );
     return true;
   }
-  _showSnack(context, 'Could not change unlock method');
+  _showSnack(context, context.l10n.couldNotChangeUnlockMethod);
   return false;
 }
 

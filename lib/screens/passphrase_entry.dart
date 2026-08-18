@@ -7,6 +7,7 @@ import 'package:prysm/screens/widgets/unlock_lockout_banner.dart';
 import 'package:prysm/services/unlock_lockout_service.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class PassphraseScreen extends StatefulWidget {
   final Future<bool> Function(String passphrase) onVerifyPassphrase;
@@ -64,9 +65,9 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
 
   String get _title {
     if (_passphraseAlreadySet == null) return '';
-    if (_isConfirmingSetup) return 'Confirm Passphrase';
-    if (_isSetup) return 'Create Passphrase';
-    return 'Enter Passphrase';
+    if (_isConfirmingSetup) return context.l10n.confirmPassphrase;
+    if (_isSetup) return context.l10n.createPassphrase;
+    return context.l10n.enterPassphrase;
   }
 
   Future<void> _submit(String passphrase) async {
@@ -82,8 +83,8 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
       await _refreshLockout();
       setState(() {
         error = _isSetup
-            ? 'Could not set up passphrase. Use at least 12 characters.'
-            : 'Incorrect passphrase';
+            ? context.l10n.couldNotSetUpPassphraseMin12
+            : context.l10n.incorrectPassphrase;
         isLoading = false;
         _lastFailure = !_isSetup;
       });
@@ -103,11 +104,11 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
     final value = _controller.text;
     if (_isSetup) {
       if (value.length < 12) {
-        setState(() => error = 'Passphrase must be at least 12 characters');
+        setState(() => error = context.l10n.passphraseMustBeAtLeast12Characters);
         return;
       }
     } else if (value.isEmpty) {
-      setState(() => error = 'Enter passphrase or panic PIN');
+      setState(() => error = context.l10n.enterPassphraseOrPanicPin);
       return;
     }
 
@@ -121,7 +122,7 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
       }
       if (value != _confirmController.text) {
         setState(() {
-          error = 'Passphrases do not match';
+          error = context.l10n.passphrasesDoNotMatch;
           _isConfirmingSetup = false;
           _confirmController.clear();
         });
@@ -158,14 +159,14 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                     const SizedBox(height: 16),
                     PrysmIconButton(
                       icon: PrysmIcons.fingerprint,
-                      tooltip: 'Unlock with biometrics',
+                      tooltip: context.l10n.unlockWithBiometrics,
                       onPressed: widget.onTryBiometric,
                     ),
                   ],
                   if (_isSetup) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Minimum 12 characters',
+                      context.l10n.minimum12Characters,
                       style: context.prysmStyle.captionStyle,
                     ),
                   ],
@@ -174,8 +175,8 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                     controller:
                         _isConfirmingSetup ? _confirmController : _controller,
                     labelText: _isConfirmingSetup
-                        ? 'Confirm passphrase'
-                        : 'Passphrase',
+                        ? context.l10n.confirmPassphrase
+                        : context.l10n.passphrase,
                     obscureText: obscure,
                     enabled: !inputDisabled,
                     suffixIcon: PrysmIconButton(
@@ -202,12 +203,18 @@ class _PassphraseScreenState extends State<PassphraseScreen> {
                     const PrysmProgressIndicator()
                   else
                     PrysmButton(
-                      label: _isSetup ? 'Continue' : 'Unlock',
+                      label: _isSetup
+                          ? context.l10n.continueLabel
+                          : context.l10n.unlock,
                       onPressed: inputDisabled ? null : _onSubmitPressed,
                     ),
                   if (widget.torBootstrapProgress != null) ...[
                     const SizedBox(height: 16),
-                    Text('Tor: ${widget.torBootstrapProgress}%'),
+                    Text(
+                      context.l10n.torBootstrapPercent(
+                        widget.torBootstrapProgress!.toString(),
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -231,7 +238,7 @@ Future<String?> showPassphraseDialog({
   return showGeneralDialog<String>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    barrierLabel: context.l10n.dismiss,
     barrierColor: const Color(0x80000000),
     pageBuilder: (context, animation, secondaryAnimation) {
       return Center(
@@ -291,7 +298,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
       return;
     }
     if (widget.confirm && value != _confirmController.text) {
-      setState(() => _error = 'Passphrases do not match');
+      setState(() => _error = context.l10n.passphrasesDoNotMatch);
       return;
     }
     if (widget.validate != null) {
@@ -317,7 +324,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
           const SizedBox(height: 12),
           PrysmTextField(
             controller: _controller,
-            labelText: 'Passphrase',
+            labelText: context.l10n.passphrase,
             obscureText: _obscure,
             suffixIcon: PrysmIconButton(
               icon: _obscure ? PrysmIcons.visibility : PrysmIcons.visibilityOff,
@@ -329,7 +336,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
             const SizedBox(height: 8),
             PrysmTextField(
               controller: _confirmController,
-              labelText: 'Confirm passphrase',
+              labelText: context.l10n.confirmPassphrase,
               obscureText: _obscure,
               onSubmitted: (_) => _submit(),
             ),
@@ -340,8 +347,8 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
           ],
         ],
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Continue',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.continueLabel,
       onConfirm: _submit,
     );
   }

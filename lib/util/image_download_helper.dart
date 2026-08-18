@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:gal/gal.dart';
 import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/services/settings_service.dart';
 
 class ImageDownloadHelper {
   ImageDownloadHelper._();
@@ -37,7 +38,7 @@ class ImageDownloadHelper {
   }) async {
     if (bytes.isEmpty) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'Image not ready to save');
+      showPrysmToast(context, SettingsService().localizations.imageNotReadyToSave);
       return;
     }
 
@@ -52,14 +53,17 @@ class ImageDownloadHelper {
         final granted = await Gal.requestAccess();
         if (!granted) {
           if (!context.mounted) return;
-          showPrysmToast(context, 'Gallery access denied');
+          showPrysmToast(context, SettingsService().localizations.galleryAccessDenied);
           return;
         }
         await Gal.putImageBytes(bytes, name: galleryName);
         if (!context.mounted) return;
-        showPrysmToast(context, 
-              Platform.isAndroid ? 'Saved to gallery' : 'Saved to Photos',
-            );
+        showPrysmToast(
+          context,
+          Platform.isAndroid
+              ? SettingsService().localizations.savedToGallery
+              : SettingsService().localizations.savedToPhotos,
+        );
         return;
       }
 
@@ -67,11 +71,16 @@ class ImageDownloadHelper {
       if (!context.mounted) return;
       showPrysmToast(
         context,
-        'Image saved (${file.path.split(Platform.pathSeparator).last})',
+        SettingsService().localizations.imageSavedFileName(
+          file.path.split(Platform.pathSeparator).last,
+        ),
       );
     } catch (e) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'Could not save image: $e');
+      showPrysmToast(
+        context,
+        SettingsService().localizations.couldNotSaveImage(e.toString()),
+      );
     }
   }
 }

@@ -3,6 +3,7 @@ import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Shown when local database initialization fails at startup.
 class StartupFatalErrorScreen extends StatelessWidget {
@@ -50,7 +51,7 @@ class StartupFatalErrorScreen extends StatelessWidget {
               ),
               const Spacer(),
               PrysmButton(
-                label: 'Reset local data and continue',
+                label: context.l10n.resetLocalDataAndContinue,
                 onPressed: () => _resetLocalData(context),
               ),
             ],

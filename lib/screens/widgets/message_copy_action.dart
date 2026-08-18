@@ -4,6 +4,8 @@ import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
+import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// The plain text a message copies as, or '' when it carries none.
 ///
@@ -12,7 +14,7 @@ import 'package:prysm/ui/core/prysm_toast.dart';
 String messageCopyText(Message message) {
   if (message is TextMessage) return message.text;
   if (message is FileMessage) return message.name;
-  if (message is ImageMessage) return '📷 Image';
+  if (message is ImageMessage) return SettingsService().localizations.image;
   return '';
 }
 
@@ -29,7 +31,7 @@ PrysmListRow copyMessageTile({
 }) {
   return PrysmListRow(
     leading: const Icon(PrysmIcons.copy),
-    title: 'Copy',
+    title: context.l10n.copy,
     onTap: () async {
       Navigator.pop(context);
       // Claiming success before the write lands makes the toast a lie when
@@ -37,10 +39,10 @@ PrysmListRow copyMessageTile({
       try {
         await Clipboard.setData(ClipboardData(text: text));
       } catch (_) {
-        if (context.mounted) showPrysmToast(context, 'Could not copy');
+        if (context.mounted) showPrysmToast(context, context.l10n.couldNotCopy);
         return;
       }
-      if (context.mounted) showPrysmToast(context, 'Copied to clipboard');
+      if (context.mounted) showPrysmToast(context, context.l10n.copiedToClipboard);
     },
   );
 }

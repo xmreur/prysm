@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/core/prysm_pressable.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 Future<T?> showPrysmSheet<T>({
   required BuildContext context,
@@ -12,7 +13,7 @@ Future<T?> showPrysmSheet<T>({
   return showGeneralDialog<T>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    barrierLabel: context.l10n.dismiss,
     barrierColor: const Color(0x66000000),
     transitionDuration: const Duration(milliseconds: 250),
     pageBuilder: (ctx, animation, secondaryAnimation) {

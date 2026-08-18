@@ -1,4 +1,6 @@
 import 'package:flutter/widgets.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 import 'package:prysm/models/appearance_settings.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
@@ -49,7 +51,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
         const SizedBox(height: 16),
         _fontPicker(),
         _slider(
-          label: 'Text size',
+          label: context.l10n.textSize,
           value: _appearance.textScale,
           min: AppearanceSettings.textScaleMin,
           max: AppearanceSettings.textScaleMax,
@@ -58,7 +60,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
           onChanged: (v) => _save(_appearance.copyWith(textScale: v)),
         ),
         _slider(
-          label: 'Message bubble rounding',
+          label: context.l10n.messageBubbleRounding,
           value: _appearance.messageBubbleRadius,
           min: AppearanceSettings.bubbleRadiusMin,
           max: AppearanceSettings.bubbleRadiusMax,
@@ -68,13 +70,13 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
               _save(_appearance.copyWith(messageBubbleRadius: v)),
         ),
         PrysmSwitchRow(
-          title: 'Message shadows',
+          title: context.l10n.messageShadows,
           value: _appearance.messageShadows,
           onChanged: (v) => _save(_appearance.copyWith(messageShadows: v)),
         ),
         if (_appearance.messageShadows)
           _slider(
-            label: 'Shadow strength',
+            label: context.l10n.shadowStrength,
             value: _appearance.messageShadowStrength,
             min: AppearanceSettings.shadowStrengthMin,
             max: AppearanceSettings.shadowStrengthMax,
@@ -84,7 +86,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
                 _save(_appearance.copyWith(messageShadowStrength: v)),
           ),
         _slider(
-          label: 'Composer rounding',
+          label: context.l10n.composerRounding,
           value: _appearance.composerRadius,
           min: AppearanceSettings.composerRadiusMin,
           max: AppearanceSettings.composerRadiusMax,
@@ -104,7 +106,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
           Expanded(
             child: PrysmBubbleRenderer(
               isSentByMe: false,
-              child: Text('Received preview', style: style.bodyStyle),
+              child: Text(context.l10n.receivedPreview, style: style.bodyStyle),
             ),
           ),
           const SizedBox(width: PrysmTokens.spacing12),
@@ -112,7 +114,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
             child: PrysmBubbleRenderer(
               isSentByMe: true,
               child: Text(
-                'Sent preview',
+                context.l10n.sentPreview,
                 style: style.bodyStyle.copyWith(
                   color: style.tokens.onAccent,
                 ),
@@ -133,7 +135,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Font', style: context.prysmStyle.title),
+          Text(context.l10n.font, style: context.prysmStyle.title),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -141,7 +143,7 @@ class _AppearanceSettingsSectionState extends State<AppearanceSettingsSection> {
             children: PrysmFontFamily.values.map((font) {
               final selected = _appearance.fontFamily == font;
               return PrysmChip(
-                label: font.label,
+                label: font.localizedLabel(context.l10n),
                 selected: selected,
                 onSelected: (_) => _save(_appearance.copyWith(fontFamily: font)),
               );

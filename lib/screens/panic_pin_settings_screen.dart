@@ -13,6 +13,8 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_radio.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class PanicPinSettingsScreen extends StatefulWidget {
   final KeyManager keyManager;
@@ -53,7 +55,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
 
   Future<String?> _validateNewPanicPin(String pin) async {
     if (await widget.keyManager.pinUnlocksStoredKeys(pin)) {
-      return 'Panic PIN cannot match your main passcode';
+      return SettingsService().localizations.panicPinCannotMatchYourMainPasscode;
     }
     return null;
   }
@@ -61,26 +63,26 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
   Future<void> _setPanicPin() async {
     final pin = await showPinSetupPad(
       context: context,
-      title: 'Set panic PIN',
-      confirmTitle: 'Confirm panic PIN',
-      subtitle: 'This is your secondary PIN for emergency use.',
+      title: context.l10n.setPanicPin,
+      confirmTitle: context.l10n.confirmPanicPin,
+      subtitle: context.l10n.thisIsYourSecondaryPinForEmergencyUse,
       validatePin: _validateNewPanicPin,
     );
     if (pin == null || !mounted) return;
 
     await PanicPinService.instance.setPin(pin);
     if (!mounted) return;
-    _showSnack('Panic PIN saved');
+    _showSnack(context.l10n.panicPinSaved);
     await _refresh();
   }
 
   Future<void> _changePanicPin() async {
     final current = await showPinPad(
       context: context,
-      title: 'Current panic PIN',
+      title: context.l10n.currentPanicPin,
       validatePin: (pin) async {
         if (!await PanicPinService.instance.verify(pin)) {
-          return 'Incorrect panic PIN';
+          return SettingsService().localizations.incorrectPanicPin;
         }
         return null;
       },
@@ -89,25 +91,25 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
 
     final pin = await showPinSetupPad(
       context: context,
-      title: 'New panic PIN',
-      confirmTitle: 'Confirm new panic PIN',
+      title: context.l10n.newPanicPin,
+      confirmTitle: context.l10n.confirmNewPanicPin,
       validatePin: _validateNewPanicPin,
     );
     if (pin == null || !mounted) return;
 
     await PanicPinService.instance.setPin(pin);
     if (!mounted) return;
-    _showSnack('Panic PIN updated');
+    _showSnack(context.l10n.panicPinUpdated);
     await _refresh();
   }
 
   Future<void> _removePanicPin() async {
     final current = await showPinPad(
       context: context,
-      title: 'Enter panic PIN to remove',
+      title: context.l10n.enterPanicPinToRemove,
       validatePin: (pin) async {
         if (!await PanicPinService.instance.verify(pin)) {
-          return 'Incorrect panic PIN';
+          return SettingsService().localizations.incorrectPanicPin;
         }
         return null;
       },
@@ -116,7 +118,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
 
     await PanicPinService.instance.clear();
     if (!mounted) return;
-    _showSnack('Panic PIN removed');
+    _showSnack(context.l10n.panicPinRemoved);
     await _refresh();
   }
 
@@ -134,8 +136,8 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
                   PrysmRadioRow<PanicAction>(
                     value: action,
                     groupValue: selected,
-                    title: action.label,
-                    subtitle: action.description,
+                    title: action.localizedLabel(context.l10n),
+                    subtitle: action.localizedDescription(context.l10n),
                     onChanged: (value) {
                       if (value == null) return;
                       setModalState(() => selected = value);
@@ -162,7 +164,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
   Widget build(BuildContext context) {
     final tokens = context.prysmStyle.tokens;
     return PrysmPage(
-      title: 'Panic mode',
+      title: context.l10n.panicMode,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
         onPressed: widget.onClose,
@@ -180,9 +182,7 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'A panic PIN is a second passcode. Entering it at unlock '
-                      'never reveals your real chats. Configure what happens '
-                      'when it is used.',
+                      context.l10n.panicPinExplanationBody,
                       style: context.prysmStyle.bodyStyle,
                     ),
                   ),
@@ -193,16 +193,18 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
                     _configured ? PrysmIcons.shieldOutlined : PrysmIcons.shield,
                     color: _configured ? tokens.accent : tokens.textMuted,
                   ),
-                  title: _configured ? 'Panic PIN is set' : 'Panic PIN not set',
+                  title: _configured
+                      ? context.l10n.panicPinIsSet
+                      : context.l10n.panicPinNotSet,
                   subtitle: _configured
-                      ? 'Secondary PIN is active'
-                      : 'Set a panic PIN to enable panic mode',
+                      ? context.l10n.secondaryPinIsActive
+                      : context.l10n.setPanicPinToEnablePanicMode,
                 ),
                 const PrysmDivider(),
                 PrysmListRow(
                   leading: const Icon(PrysmIcons.emergencyOutlined),
-                  title: 'When panic PIN is used',
-                  subtitle: _action.description,
+                  title: context.l10n.whenPanicPinIsUsed,
+                  subtitle: _action.localizedDescription(context.l10n),
                   trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: _pickAction,
                 ),
@@ -210,19 +212,19 @@ class _PanicPinSettingsScreenState extends State<PanicPinSettingsScreen> {
                 if (!_configured)
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.addModeratorOutlined),
-                    title: 'Set panic PIN',
+                    title: context.l10n.setPanicPin,
                     onTap: _setPanicPin,
                   )
                 else ...[
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.pin),
-                    title: 'Change panic PIN',
+                    title: context.l10n.changePanicPin,
                     onTap: _changePanicPin,
                   ),
                   PrysmListRow(
                     leading: Icon(PrysmIcons.deleteOutline, color: tokens.danger),
                     titleWidget: Text(
-                      'Remove panic PIN',
+                      context.l10n.removePanicPin,
                       style: TextStyle(color: tokens.danger),
                     ),
                     onTap: _removePanicPin,

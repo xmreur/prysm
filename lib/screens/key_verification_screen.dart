@@ -17,6 +17,7 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class KeyVerificationScreen extends StatefulWidget {
   final Contact peer;
@@ -64,7 +65,7 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     widget.onVerificationChanged?.call();
     await _refreshPeerFromDb();
     if (!mounted) return;
-    showPrysmToast(context, 'Identity verified');
+    showPrysmToast(context, context.l10n.identityVerified);
     Navigator.of(context).pop(_peer);
   }
 
@@ -72,12 +73,9 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     if (!QrPlatform.isScanSupported) {
       await showPrysmDialog<void>(
         context: context,
-        title: 'Scan not available',
-        content: const Text(
-          'QR scanning is only supported on mobile devices. '
-          'Compare the fingerprint manually and use "Mark as verified".',
-        ),
-        confirmLabel: 'OK',
+        title: context.l10n.scanNotAvailable,
+        content: Text(context.l10n.qrScanCompareFingerprintManually),
+        confirmLabel: context.l10n.ok,
         onConfirm: () => Navigator.of(context).pop(),
       );
       return;
@@ -93,9 +91,9 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     if (payload == null) {
       await showPrysmDialog<void>(
         context: context,
-        title: 'Invalid QR code',
-        content: const Text('This QR code is not a valid Prysm identity code.'),
-        confirmLabel: 'OK',
+        title: context.l10n.invalidQrCode,
+        content: Text(context.l10n.thisQrCodeIsNotAValidPrysm),
+        confirmLabel: context.l10n.ok,
         onConfirm: () => Navigator.of(context).pop(),
       );
       return;
@@ -108,12 +106,9 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
 
     await showPrysmDialog<void>(
       context: context,
-      title: 'Verification failed',
-      content: const Text(
-        'The scanned QR code does not match this contact\'s identity. '
-        'This may indicate impersonation.',
-      ),
-      confirmLabel: 'OK',
+      title: context.l10n.verificationFailed,
+      content: Text(context.l10n.scannedQrDoesNotMatchContact),
+      confirmLabel: context.l10n.ok,
       onConfirm: () => Navigator.of(context).pop(),
     );
   }
@@ -124,12 +119,9 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
 
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Mark as verified',
-      content: const Text(
-        'Only mark this contact as verified if you compared their '
-        'fingerprint in person or over a trusted channel.',
-      ),
-      confirmLabel: 'Mark verified',
+      title: context.l10n.markAsVerified,
+      content: Text(context.l10n.onlyMarkContactVerifiedIfComparedFull),
+      confirmLabel: context.l10n.markVerified,
     );
     if (confirmed != true || !mounted) return;
     await _markVerified(fingerprint);
@@ -138,7 +130,7 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
   Future<void> _removeVerification() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Remove verification',
+      title: context.l10n.removeVerification,
       content: const Text(
         'This contact will no longer be marked as verified.',
       ),
@@ -151,14 +143,14 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
     widget.onVerificationChanged?.call();
     await _refreshPeerFromDb();
     if (!mounted) return;
-    showPrysmToast(context, 'Verification removed');
+    showPrysmToast(context, context.l10n.verificationRemoved);
   }
 
   void _copyFingerprint() {
     final fingerprint = _fingerprint;
     if (fingerprint == null) return;
     Clipboard.setData(ClipboardData(text: fingerprint));
-    showPrysmToast(context, 'Fingerprint copied');
+    showPrysmToast(context, context.l10n.fingerprintCopied);
   }
 
   Color _statusColor(BuildContext context) {
@@ -187,11 +179,11 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
   String _statusMessage() {
     switch (_status) {
       case VerificationStatus.verified:
-        return 'Verified';
+        return context.l10n.verified;
       case VerificationStatus.keyChanged:
-        return 'Key changed — re-verify';
+        return context.l10n.keyChangedReVerify;
       case VerificationStatus.unverified:
-        return 'Not verified';
+        return context.l10n.notVerified;
     }
   }
 
@@ -205,7 +197,7 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
         : encodedId;
 
     return PrysmPage(
-      title: 'Identity verification',
+      title: context.l10n.identityVerification,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
         onPressed: () => Navigator.of(context).pop(_peer),
@@ -332,20 +324,20 @@ class _KeyVerificationScreenState extends State<KeyVerificationScreen> {
               ),
               const SizedBox(height: 24),
               PrysmButton(
-                label: 'Scan QR code',
+                label: context.l10n.scanQrCode,
                 onPressed: _scanToVerify,
               ),
               const SizedBox(height: 12),
               if (_status != VerificationStatus.verified)
                 PrysmButton(
-                  label: 'Mark as verified',
+                  label: context.l10n.markAsVerified,
                   variant: PrysmButtonVariant.secondary,
                   onPressed: _confirmManualVerify,
                 ),
               if (_status == VerificationStatus.verified) ...[
                 const SizedBox(height: 12),
                 PrysmButton(
-                  label: 'Remove verification',
+                  label: context.l10n.removeVerification,
                   variant: PrysmButtonVariant.danger,
                   onPressed: _removeVerification,
                 ),

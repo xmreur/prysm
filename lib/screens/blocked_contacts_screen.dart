@@ -14,6 +14,7 @@ import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class BlockedContactsScreen extends StatefulWidget {
   final VoidCallback onClose;
@@ -80,12 +81,10 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
   Future<void> _confirmUnblock(String peerId) async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Unblock contact',
-      content: const Text(
-        'This contact will be able to message and call you again.',
-      ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Unblock',
+      title: context.l10n.unblockContact,
+      content: Text(context.l10n.unblockContactBody),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.unblock,
     );
     if (confirmed != true || !mounted) return;
 
@@ -96,7 +95,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmPage(
-      title: 'Blocked contacts',
+      title: context.l10n.blockedContacts,
       leading: PrysmIconButton(
         icon: PrysmIcons.arrowBack,
         onPressed: widget.onClose,
@@ -106,7 +105,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
           : _blockedIds.isEmpty
               ? Center(
                   child: Text(
-                    'No blocked contacts',
+                    context.l10n.noBlockedContacts,
                     style: TextStyle(
                       color: context.prysmStyle.tokens.textMuted,
                     ),
@@ -136,7 +135,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
                         ),
                       ),
                       trailing: PrysmTextButton(
-                        label: 'Unblock',
+                        label: context.l10n.unblock,
                         onPressed: () => _confirmUnblock(peerId),
                       ),
                       onTap: () {

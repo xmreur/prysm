@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:prysm/services/pending_call_action.dart';
 import 'package:prysm/services/pending_notification_route.dart';
+import 'package:prysm/services/settings_service.dart';
 
 typedef NotificationTapHandler = void Function(String? payload);
 typedef CallNotificationTapHandler = void Function(PendingCallAction action);
@@ -39,18 +40,20 @@ class NotificationService {
     if (_initialized) return;
     _initialized = true;
 
+    final l10n = SettingsService().localizations;
+
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('icon');
 
     const DarwinInitializationSettings initializationSettingsDarwin =
         DarwinInitializationSettings();
 
-    const LinuxInitializationSettings initializationSettingsLinux =
-        LinuxInitializationSettings(defaultActionName: 'Open notification');
+    final LinuxInitializationSettings initializationSettingsLinux =
+        LinuxInitializationSettings(defaultActionName: l10n.openNotification);
 
-    const WindowsInitializationSettings initializationSettingsWindows =
+    final WindowsInitializationSettings initializationSettingsWindows =
         WindowsInitializationSettings(
-          appName: 'Prysm',
+          appName: l10n.appTitle,
           appUserModelId: 'com.xmreur.prysm',
           guid: '02fe3791-c87d-4b3c-8549-1cf0b68cd91d',
         );
@@ -76,6 +79,7 @@ class NotificationService {
 
   Future<void> _ensureAndroidCallChannels() async {
     if (!Platform.isAndroid) return;
+    final l10n = SettingsService().localizations;
     final androidImpl = _notificationsPlugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -83,10 +87,10 @@ class NotificationService {
     if (androidImpl == null) return;
 
     await androidImpl.createNotificationChannel(
-      const AndroidNotificationChannel(
+      AndroidNotificationChannel(
         incomingCallChannelId,
-        'Incoming Calls',
-        description: 'Ringing incoming voice calls',
+        l10n.incomingCallsChannel,
+        description: l10n.incomingCallsChannelDescription,
         importance: Importance.max,
         playSound: false,
         enableVibration: true,
@@ -94,15 +98,20 @@ class NotificationService {
       ),
     );
     await androidImpl.createNotificationChannel(
-      const AndroidNotificationChannel(
+      AndroidNotificationChannel(
         activeCallChannelId,
-        'Active Calls',
-        description: 'Ongoing voice calls',
+        l10n.activeCallsChannel,
+        description: l10n.activeCallsChannelDescription,
         importance: Importance.low,
         playSound: false,
         enableVibration: false,
       ),
     );
+  }
+
+  Future<void> refreshLocalizedChannels() async {
+    if (!_initialized) return;
+    await _ensureAndroidCallChannels();
   }
 
   Future<void> _captureNotificationLaunchDetails() async {
@@ -149,10 +158,11 @@ class NotificationService {
   }) async {
     if (!_initialized) await init();
 
+    final l10n = SettingsService().localizations;
     final androidNotificationDetails = AndroidNotificationDetails(
       'prysm_notification_channel',
-      'New Messages',
-      channelDescription: 'Notification channel for new messages',
+      l10n.newMessagesChannel,
+      channelDescription: l10n.newMessagesChannelDescription,
       importance: Importance.max,
       priority: Priority.high,
       groupKey: androidGroupKey,
@@ -218,6 +228,7 @@ class NotificationService {
     required String displayName,
   }) async {
     if (!_initialized) await init();
+    final l10n = SettingsService().localizations;
 
     final payload = PendingCallAction(
       action: CallNotificationAction.open,
@@ -227,28 +238,28 @@ class NotificationService {
 
     final androidDetails = AndroidNotificationDetails(
       incomingCallChannelId,
-      'Incoming Calls',
-      channelDescription: 'Ringing incoming voice calls',
+      l10n.incomingCallsChannel,
+      channelDescription: l10n.incomingCallsChannelDescription,
       importance: Importance.max,
       priority: Priority.max,
       category: AndroidNotificationCategory.call,
       fullScreenIntent: true,
       playSound: false,
       enableVibration: true,
-      ticker: 'Incoming call',
+      ticker: l10n.incomingCall,
       visibility: NotificationVisibility.public,
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
       styleInformation: BigTextStyleInformation(displayName),
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'accept',
-          'Accept',
+          l10n.accept,
           showsUserInterface: true,
           cancelNotification: true,
         ),
         AndroidNotificationAction(
           'decline',
-          'Decline',
+          l10n.decline,
           showsUserInterface: true,
           cancelNotification: true,
         ),
@@ -268,7 +279,7 @@ class NotificationService {
 
     await _notificationsPlugin.show(
       incomingCallNotificationId,
-      'Incoming call',
+      l10n.incomingCall,
       displayName,
       NotificationDetails(
         android: androidDetails,
@@ -287,6 +298,7 @@ class NotificationService {
     required String displayName,
   }) async {
     if (!_initialized) await init();
+    final l10n = SettingsService().localizations;
 
     final payload = PendingCallAction(
       action: CallNotificationAction.open,
@@ -296,8 +308,8 @@ class NotificationService {
 
     final androidDetails = AndroidNotificationDetails(
       activeCallChannelId,
-      'Active Calls',
-      channelDescription: 'Ongoing voice calls',
+      l10n.activeCallsChannel,
+      channelDescription: l10n.activeCallsChannelDescription,
       importance: Importance.low,
       priority: Priority.low,
       category: AndroidNotificationCategory.call,
@@ -307,7 +319,7 @@ class NotificationService {
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'hangup',
-          'Hang up',
+          l10n.hangUp,
           cancelNotification: true,
         ),
       ],
@@ -319,7 +331,7 @@ class NotificationService {
 
     await _notificationsPlugin.show(
       activeCallNotificationId,
-      'In call',
+      l10n.inCall,
       displayName,
       NotificationDetails(
         android: androidDetails,

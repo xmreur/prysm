@@ -25,6 +25,7 @@ import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_style_resolver.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Telegram-style emoji picker with always-visible search bar and Prysm theming.
 class EmojiSearchWrapper extends StatefulWidget {
@@ -123,7 +124,7 @@ class _EmojiSearchWrapperState extends State<EmojiSearchWrapper> {
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Search emoji',
+                      hintText: context.l10n.searchEmoji,
                       hintStyle: style.captionStyle
                           .copyWith(color: tokens.textMuted),
                       prefixIcon: Icon(

@@ -20,6 +20,7 @@ import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/util/desktop_platform.dart';
 import 'package:prysm/util/schedule_time_format.dart';
 import 'package:prysm/util/waveform_extractor.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class MessageComposer extends StatefulWidget {
   final Function(String) onSendText;
@@ -138,7 +139,7 @@ class MessageComposerState extends State<MessageComposer> {
     if (!await schedule(text, sendAt) || !mounted) return;
 
     _clearComposer();
-    showPrysmToast(context, 'Will send ${formatScheduleLabel(sendAt)}');
+    showPrysmToast(context, context.l10n.willSendAt(formatScheduleLabel(sendAt)));
   }
 
   void _clearComposer() {
@@ -211,7 +212,7 @@ class MessageComposerState extends State<MessageComposer> {
         children: [
           PrysmListRow(
             leading: Icon(PrysmIcons.image, color: tokens.textSecondary),
-            title: 'Upload Image',
+            title: context.l10n.uploadImage,
             onTap: () {
               Navigator.pop(ctx);
               widget.onSendImage();
@@ -219,7 +220,7 @@ class MessageComposerState extends State<MessageComposer> {
           ),
           PrysmListRow(
             leading: Icon(PrysmIcons.attach, color: tokens.textSecondary),
-            title: 'Upload File',
+            title: context.l10n.uploadFile,
             onTap: () {
               Navigator.pop(ctx);
               widget.onSendFile();
@@ -236,7 +237,7 @@ class MessageComposerState extends State<MessageComposer> {
       final status = await Permission.microphone.request();
       if (!status.isGranted) {
         if (mounted) {
-          showPrysmToast(context, 'Microphone permission denied');
+          showPrysmToast(context, context.l10n.microphonePermissionDenied);
         }
         return;
       }
@@ -359,7 +360,7 @@ class MessageComposerState extends State<MessageComposer> {
         ),
         const Spacer(),
         Text(
-          'Recording...',
+          context.l10n.recording,
           style: TextStyle(color: tokens.textMuted, fontSize: 14),
         ),
         const SizedBox(width: 12),
@@ -385,7 +386,7 @@ class MessageComposerState extends State<MessageComposer> {
           child: PrysmTextField(
             focusNode: _inputFocusNode,
             controller: _textController,
-            hintText: 'Message',
+            hintText: context.l10n.messageHint,
             onChanged: (text) {
               setState(() => currentText = text);
               _persistDraft();
@@ -422,7 +423,7 @@ class MessageComposerState extends State<MessageComposer> {
                   onPressed: () {
                     showPrysmToast(
                       context,
-                      'Hold to record a voice message',
+                      context.l10n.holdToRecordAVoiceMessage,
                     );
                   },
                   onLongPressStart: (_) => _startRecording(),
@@ -433,7 +434,7 @@ class MessageComposerState extends State<MessageComposer> {
                   color: tokens.accent,
                   tooltip: widget.onScheduleText == null
                       ? null
-                      : 'Send. Hold to schedule',
+                      : context.l10n.sendHoldToSchedule,
                   onPressed: _handleSend,
                   onLongPress:
                       widget.onScheduleText == null ? null : _handleSchedule,

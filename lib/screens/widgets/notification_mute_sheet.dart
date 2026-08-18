@@ -5,39 +5,27 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/l10n/app_localizations.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
+import 'package:prysm/util/schedule_time_format.dart';
 
-String _formatClock(DateTime dt) {
-  final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final minute = dt.minute.toString().padLeft(2, '0');
-  final period = dt.hour >= 12 ? 'PM' : 'AM';
-  return '$hour:$minute $period';
-}
-
-String _formatDate(DateTime dt) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[dt.month - 1]} ${dt.day}';
-}
-
-String formatMuteSubtitle(MuteInfo? info) {
+String formatMuteSubtitle(MuteInfo? info, AppLocalizations l10n) {
   if (info == null) {
-    return 'Silence message alerts';
+    return l10n.silenceMessageAlerts;
   }
   if (info.isForever) {
-    return 'Muted until you turn notifications back on';
+    return l10n.mutedUntilYouTurnNotificationsBackOn;
   }
   final expiresAt = info.expiresAt!;
-  final time = _formatClock(expiresAt);
+  final time = formatScheduleClock(expiresAt);
   final today = DateTime.now();
   final isToday = expiresAt.year == today.year &&
       expiresAt.month == today.month &&
       expiresAt.day == today.day;
   if (isToday) {
-    return 'Muted until $time';
+    return l10n.mutedUntilTime(time);
   }
-  return 'Muted until ${_formatDate(expiresAt)}, $time';
+  return l10n.mutedUntilDateAndTime(formatScheduleDate(expiresAt), time);
 }
 
 Future<void> showNotificationMuteSheet({
@@ -62,7 +50,9 @@ Future<void> showNotificationMuteSheet({
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
               child: Text(
-                isMuted ? 'Notifications muted' : 'Mute notifications',
+                isMuted
+                    ? ctx.l10n.notificationsMuted
+                    : ctx.l10n.muteNotifications,
                 style: ctx.prysmStyle.titleStyle,
               ),
             ),
@@ -70,20 +60,23 @@ Future<void> showNotificationMuteSheet({
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: Text(
-                  formatMuteSubtitle(info),
+                  formatMuteSubtitle(info, ctx.l10n),
                   style: ctx.prysmStyle.captionStyle,
                 ),
               ),
             if (isMuted)
               PrysmListRow(
                 leading: const Icon(PrysmIcons.notificationsActiveOutlined),
-                title: 'Turn notifications back on',
+                title: ctx.l10n.turnNotificationsBackOn,
                 onTap: () async {
                   await service.unmute(target, id);
                   if (ctx.mounted) Navigator.pop(ctx);
                   onChanged?.call();
                   if (context.mounted) {
-                    showPrysmToast(context, 'Notifications enabled for $label');
+                    showPrysmToast(
+                      context,
+                      context.l10n.notificationsEnabledForLabel(label),
+                    );
                   }
                 },
               ),
@@ -102,9 +95,15 @@ Future<void> showNotificationMuteSheet({
                   onChanged?.call();
                   if (context.mounted) {
                     final mutedUntil = duration == MuteDuration.forever
-                        ? 'until you turn them back on'
-                        : 'for ${duration.label}';
-                    showPrysmToast(context, 'Notifications muted $mutedUntil for $label');
+                        ? context.l10n.untilYouTurnThemBackOn
+                        : context.l10n.mutedForDuration(duration.label);
+                    showPrysmToast(
+                      context,
+                      context.l10n.notificationsMutedMuteduntilForLabel(
+                        mutedUntil,
+                        label,
+                      ),
+                    );
                   }
                 },
               );

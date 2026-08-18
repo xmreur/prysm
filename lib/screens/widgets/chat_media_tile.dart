@@ -9,6 +9,7 @@ import 'package:prysm/services/image_attachment_cache.dart';
 import 'package:prysm/util/readable_file_policy.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatMediaTile extends StatefulWidget {
   final ChatMediaItem item;
@@ -259,7 +260,7 @@ class _ChatMediaTileState extends State<ChatMediaTile> {
           children: [
             PrysmListRow(
               leading: const Icon(PrysmIcons.chatBubbleOutline),
-              title: 'Show in chat',
+              title: context.l10n.showInChat,
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onShowInChat();

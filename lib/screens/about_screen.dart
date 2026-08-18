@@ -7,6 +7,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/prysm_section.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class AboutScreen extends StatelessWidget {
   final VoidCallback onClose;
@@ -89,38 +90,38 @@ class AboutScreen extends StatelessWidget {
                       PrysmIcons.code,
                     ),
                     title: 'xmreur',
-                    subtitle: 'Lead Developer',
+                    subtitle: context.l10n.leadDeveloper,
                   ),
                   PrysmListRow(
                     leading: _teamIcon(
                       const Color(0xFF4CAF50),
                       PrysmIcons.security,
                     ),
-                    title: 'Security Team',
-                    subtitle: 'Encryption & Privacy',
+                    title: context.l10n.securityTeam,
+                    subtitle: context.l10n.encryptionPrivacy,
                   ),
                   PrysmListRow(
                     leading: _teamIcon(
                       const Color(0xFF9C27B0),
                       PrysmIcons.designServices,
                     ),
-                    title: 'UI/UX Team',
-                    subtitle: 'User Interface Design',
+                    title: context.l10n.uiUxTeam,
+                    subtitle: context.l10n.userInterfaceDesign,
                   ),
                   PrysmListRow(
                     leading: _teamIcon(
                       const Color(0xFFFF9800),
                       PrysmIcons.troubleshootRounded,
                     ),
-                    title: 'Testers Team',
-                    subtitle: 'Bug finding & Feature suggestions',
+                    title: context.l10n.testersTeam,
+                    subtitle: context.l10n.bugFindingFeatureSuggestions,
                   ),
                 ],
               ),
               const SizedBox(height: 20),
               _infoCard(
                 context,
-                title: 'About This App',
+                title: context.l10n.aboutThisApp,
                 body:
                     '${settings.name} is a secure messaging application that prioritizes your privacy and security. '
                     'Built with end-to-end encryption and Tor network integration, ${settings.name} ensures that your '
@@ -137,7 +138,7 @@ class AboutScreen extends StatelessWidget {
               const SizedBox(height: 20),
               _infoCard(
                 context,
-                title: 'Legal',
+                title: context.l10n.legal,
                 body:
                     'This application is provided "as is" without any warranties. '
                     'The developers are not responsible for any damages or losses '

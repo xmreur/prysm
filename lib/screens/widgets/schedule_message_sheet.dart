@@ -5,6 +5,7 @@ import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/util/schedule_time_format.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// How far ahead a message can be scheduled.
 const scheduleHorizonDays = 60;
@@ -114,8 +115,8 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
 
   String _dayLabel(DateTime day) {
     final daysAway = day.difference(_firstDay).inDays;
-    if (daysAway == 0) return 'Today';
-    if (daysAway == 1) return 'Tomorrow';
+    if (daysAway == 0) return context.l10n.today;
+    if (daysAway == 1) return context.l10n.tomorrow;
     return '${formatScheduleWeekday(day)} ${formatScheduleDate(day)}';
   }
 
@@ -135,7 +136,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
             PrysmTokens.spacing20,
             PrysmTokens.spacing4,
           ),
-          child: Text('Schedule message', style: style.titleStyle),
+          child: Text(context.l10n.scheduleMessage, style: style.titleStyle),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -146,8 +147,8 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
           ),
           child: Text(
             _isValid
-                ? 'Sends ${formatScheduleLabel(_selected)}'
-                : 'Choose a time in the future',
+                ? context.l10n.scheduleSendsAt(formatScheduleLabel(_selected))
+                : context.l10n.chooseATimeInTheFuture,
             style: style.captionStyle.copyWith(
               color: _isValid ? tokens.textSecondary : tokens.danger,
             ),
@@ -229,7 +230,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
             children: [
               Expanded(
                 child: PrysmButton(
-                  label: 'Cancel',
+                  label: context.l10n.cancel,
                   variant: PrysmButtonVariant.secondary,
                   onPressed: () => Navigator.pop(context),
                 ),
@@ -237,7 +238,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
               const SizedBox(width: PrysmTokens.spacing12),
               Expanded(
                 child: PrysmButton(
-                  label: 'Schedule',
+                  label: context.l10n.schedule,
                   onPressed:
                       _isValid ? () => Navigator.pop(context, _selected) : null,
                 ),

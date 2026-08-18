@@ -12,6 +12,8 @@ import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/util/onion_id_codec.dart';
 import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/l10n/app_localizations.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 const defaultContactAddErrorMessage =
     'Could not reach peer or fetch their public key. '
@@ -32,21 +34,24 @@ Future<void> showContactAddErrorDialog(
 }) {
   return showPrysmDialog<void>(
     context: context,
-    title: 'Could not add contact',
+    title: context.l10n.couldNotAddContact,
     content: Text(message ?? defaultContactAddErrorMessage),
-    confirmLabel: 'OK',
+    confirmLabel: context.l10n.ok,
     onConfirm: () => Navigator.of(context).pop(),
   );
 }
 
-Widget buildContactAddLoadingRow(PrysmResolvedStyle style) {
+Widget buildContactAddLoadingRow(
+  PrysmResolvedStyle style,
+  AppLocalizations l10n,
+) {
   return Row(
     children: [
       const PrysmProgressIndicator(size: 20),
       const SizedBox(width: 12),
       Expanded(
         child: Text(
-          'Looking up contact on Tor...',
+          l10n.lookingUpContactOnTor,
           style: style.bodyStyle,
         ),
       ),
@@ -74,7 +79,7 @@ Future<void> showAddContactDialog({
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    barrierLabel: context.l10n.dismiss,
     barrierColor: const Color(0x80000000),
     pageBuilder: (dialogContext, animation, secondaryAnimation) {
       return Center(
@@ -137,13 +142,13 @@ class _AddContactDialogState extends State<AddContactDialog> {
     try {
       onionId = decodeBase58ToOnion(_idController.text.trim());
     } catch (_) {
-      showPrysmToast(context, 'Enter a valid Base58 Prysm ID');
+      showPrysmToast(context, context.l10n.enterAValidBase58PrysmId);
       return;
     }
 
     final displayName = _nameController.text.trim();
     if (onionId.isEmpty || onionId == '.onion' || displayName.isEmpty) {
-      showPrysmToast(context, 'Enter both ID and display name');
+      showPrysmToast(context, context.l10n.enterBothIdAndDisplayName);
       return;
     }
 
@@ -185,7 +190,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
     return PopScope(
       canPop: !_isAdding,
       child: PrysmDialog(
-        title: 'Add contact',
+        title: context.l10n.addContact,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -198,14 +203,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'User ID (Base58 Onion URL)',
+                        context.l10n.userIdBase58OnionUrl,
                         style: style.captionStyle,
                       ),
                       const SizedBox(height: 6),
                       PrysmTextField(
                         controller: _idController,
                         autofocus: widget.prefilledId == null,
-                        hintText: 'eg. 51EsbujFRDJLHJ',
+                        hintText: context.l10n.prysmIdHintExample,
                         enabled: !_isAdding,
                       ),
                     ],
@@ -213,29 +218,29 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 ),
                 if (QrPlatform.isScanSupported)
                   Semantics(
-                    label: 'Scan QR code',
+                    label: context.l10n.scanQrCode,
                     button: true,
                     child: PrysmIconButton(
                       icon: PrysmIcons.qrCodeScanner,
-                      tooltip: 'Scan QR code',
+                      tooltip: context.l10n.scanQrCode,
                       onPressed: _isAdding ? null : () => widget.onScanQr?.call(),
                     ),
                   ),
               ],
             ),
             const SizedBox(height: 16),
-            Text('Display name', style: style.captionStyle),
+            Text(context.l10n.displayName2, style: style.captionStyle),
             const SizedBox(height: 6),
             PrysmTextField(
               controller: _nameController,
               autofocus: widget.prefilledId != null,
-              hintText: 'eg. Alice',
+              hintText: context.l10n.displayNameHintExample,
               enabled: !_isAdding,
               onSubmitted: _isAdding ? null : (_) => _submit(),
             ),
             if (_isAdding) ...[
               const SizedBox(height: 16),
-              buildContactAddLoadingRow(style),
+              buildContactAddLoadingRow(style, context.l10n),
             ],
             const SizedBox(height: 20),
             Row(
@@ -246,7 +251,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   onTap: () => Navigator.of(context).pop(),
                   child: Padding(
                     padding: const EdgeInsets.all(8),
-                    child: Text('Cancel', style: style.bodyStyle),
+                    child: Text(context.l10n.cancel, style: style.bodyStyle),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -259,7 +264,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                         ),
                       )
                     : PrysmButton(
-                        label: 'Add',
+                        label: context.l10n.add,
                         onPressed: _submit,
                       ),
               ],

@@ -5,6 +5,7 @@ import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/util/download_location.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Shows the create-backup password dialog and writes an encrypted backup file.
 /// Returns true when a backup file was written successfully.
@@ -13,31 +14,31 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
   var created = false;
   await showPrysmDialog<void>(
     context: context,
-    title: 'Create Backup',
+    title: context.l10n.createBackup,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Choose a strong password to encrypt your backup. '
-          'You will need this password to restore.',
-          style: TextStyle(fontSize: 14),
+        Text(
+          '${context.l10n.chooseAStrongPasswordToEncryptYourBackup}'
+          '${context.l10n.youWillNeedThisPasswordToRestore}',
+          style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 16),
         PrysmTextField(
           controller: passwordController,
-          labelText: 'Backup Password',
+          labelText: context.l10n.backupPassword,
           obscureText: true,
           prefixIcon: const Icon(PrysmIcons.lock),
         ),
       ],
     ),
-    cancelLabel: 'Cancel',
-    confirmLabel: 'Create Backup',
+    cancelLabel: context.l10n.cancel,
+    confirmLabel: context.l10n.createBackup,
     onConfirm: () async {
       final password = passwordController.text;
       if (password.length < 4) {
-        showPrysmToast(context, 'Password must be at least 4 characters');
+        showPrysmToast(context, context.l10n.passwordMustBeAtLeast4Characters);
         return;
       }
       Navigator.pop(context);
@@ -57,11 +58,11 @@ Future<bool> performBackup(BuildContext context, String password) async {
     await BackupService.createBackup(file.path, password);
 
     if (!context.mounted) return false;
-    showPrysmToast(context, 'Backup saved to ${file.path}');
+    showPrysmToast(context, context.l10n.backupSavedTo(file.path));
     return true;
   } catch (e) {
     if (!context.mounted) return false;
-    showPrysmToast(context, 'Backup failed: $e');
+    showPrysmToast(context, context.l10n.backupFailedE(e.toString()));
     return false;
   }
 }

@@ -30,6 +30,7 @@ import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
   final Group group;
@@ -83,14 +84,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final controller = TextEditingController(text: _groupName);
     final newName = await showPrysmDialog<String>(
       context: context,
-      title: 'Rename group',
+      title: context.l10n.renameGroup,
       content: PrysmTextField(
         controller: controller,
-        labelText: 'Group name',
+        labelText: context.l10n.groupName,
         autofocus: true,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Save',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.save,
       onConfirm: () => Navigator.pop(context, controller.text.trim()),
     );
     if (newName == null || newName.isEmpty || newName == _groupName) return;
@@ -100,7 +101,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       setState(() => _groupName = newName);
       widget.onChanged();
       if (mounted) {
-        showPrysmToast(context, 'Group renamed');
+        showPrysmToast(context, context.l10n.groupRenamed);
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
@@ -136,7 +137,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       setState(() => _avatarBase64 = encoded);
       widget.onChanged();
       if (mounted) {
-        showPrysmToast(context, 'Group photo updated');
+        showPrysmToast(context, context.l10n.groupPhotoUpdated);
       }
     } on GroupServiceException catch (e) {
       if (mounted) {
@@ -196,7 +197,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       orElse: () => null,
     );
     if (contact != null) return contact.displayName;
-    if (memberId == widget.userId) return 'You';
+    if (memberId == widget.userId) return context.l10n.you;
     return memberId.length > 12 ? '${memberId.substring(0, 12)}...' : memberId;
   }
 
@@ -216,7 +217,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final contact = await _contactForMember(memberId);
     if (contact == null) {
       if (mounted) {
-        showPrysmToast(context, 'Contact not found');
+        showPrysmToast(context, context.l10n.contactNotFound);
       }
       return;
     }
@@ -269,7 +270,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         .toList();
 
     if (available.isEmpty) {
-      showPrysmToast(context, 'No contacts available to add');
+      showPrysmToast(context, context.l10n.noContactsAvailableToAdd);
       return;
     }
 
@@ -326,12 +327,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _removeMember(GroupMember member) async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Remove member',
+      title: context.l10n.removeMember,
       content: Text(
-        'Remove ${_displayNameFor(member.memberId)} from the group?',
+        context.l10n.removeMemberFromGroupQuestion(
+          _displayNameFor(member.memberId),
+        ),
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Remove',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.remove,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
@@ -350,10 +353,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _leaveGroup() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Leave group',
-      content: const Text('Leave this group?'),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Leave',
+      title: context.l10n.leaveGroup,
+      content: Text(context.l10n.leaveThisGroup),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.leaveAction,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
@@ -372,12 +375,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _deleteGroup() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Delete group',
-      content: const Text(
-        'Delete this group for everyone? This cannot be undone.',
-      ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Delete',
+      title: context.l10n.deleteGroup,
+      content: Text(context.l10n.deleteThisGroupForEveryoneThisCannotBe),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.delete,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true) return;
@@ -437,14 +438,16 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.editOutlined),
                     title: _groupName,
-                    subtitle: 'Tap to rename',
+                    subtitle: context.l10n.tapToRename,
                     onTap: _renameGroup,
                   )
                 else
-                  PrysmListRow(title: _groupName, subtitle: 'Member'),
+                  PrysmListRow(title: _groupName, subtitle: context.l10n.member),
                 PrysmListRow(
                   title: '${_members.length} / $maxGroupMembers members',
-                  subtitle: _isAdmin ? 'You are admin' : 'Member',
+                  subtitle: _isAdmin
+                      ? context.l10n.youAreAdmin
+                      : context.l10n.member,
                 ),
                 const PrysmDivider(),
                 ..._members.map((m) {
@@ -457,9 +460,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       avatarBase64: _avatarByMemberId[m.memberId],
                     ),
                     title: isSelf
-                        ? '${_displayNameFor(m.memberId)} (you)'
+                        ? context.l10n.memberDisplayNameWithYou(
+                            _displayNameFor(m.memberId),
+                            context.l10n.you,
+                          )
                         : _displayNameFor(m.memberId),
-                    subtitle: m.role == GroupRole.admin ? 'Admin' : 'Member',
+                    subtitle: m.role == GroupRole.admin
+                        ? context.l10n.admin
+                        : context.l10n.member,
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -482,7 +490,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 const PrysmDivider(),
                 PrysmListRow(
                   leading: const Icon(PrysmIcons.photoLibraryOutlined),
-                  title: 'Shared Media',
+                  title: context.l10n.sharedMedia,
                   trailing: const Icon(PrysmIcons.chevronRight),
                   onTap: () async {
                     final navigator = Navigator.of(context);
@@ -536,7 +544,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 if (_isAdmin && _members.length < maxGroupMembers)
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.personAddOutlined),
-                    title: 'Add member',
+                    title: context.l10n.addMember,
                     onTap: _addMember,
                   ),
                 if (_isAdmin)

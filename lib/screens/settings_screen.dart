@@ -43,6 +43,8 @@ import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_radio.dart';
 import 'package:prysm/ui/core/prysm_text_field.dart';
+import 'package:prysm/models/locale_override.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onClose;
   final Function(int) onThemeChanged;
@@ -86,11 +88,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _enableLinkUnfurling = false;
   bool _biometricsEnabled = false;
   bool _biometricsAvailable = false;
+  LocaleOverride _localeOverride = LocaleOverride.system;
   int _pendingInviteCount = 0;
-  String _downloadLocationDisplay = 'Loading...';
+  String? _downloadLocationDisplay;
   List<LinuxAudioDevice> _linuxInputDevices = const [];
   String? _linuxSelectedDeviceId;
-  String _linuxSelectedDeviceLabel = 'System default';
+  String? _linuxSelectedDeviceLabel;
   StreamSubscription<void>? _batterySaverSub;
 
   @override
@@ -126,7 +129,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
       _biometricsEnabled = settings.biometricsEnabled;
+      _localeOverride = settings.localeOverride;
     });
+  }
+
+  Future<void> _onLocaleOverrideChanged(LocaleOverride? value) async {
+    if (value == null) return;
+    setState(() => _localeOverride = value);
+    await settings.setLocaleOverride(value);
   }
 
   Future<void> _loadBiometricsState() async {
@@ -184,30 +194,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Unlock method',
+                      context.l10n.unlockMethod,
                       style: context.prysmStyle.headlineStyle,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Switching methods requires setting a new unlock code.',
+                      context.l10n.switchingMethodsRequiresSettingANewUnlockCode,
                       style: context.prysmStyle.captionStyle,
                     ),
                     const SizedBox(height: 16),
                     PrysmRadioRow<UnlockType>(
-                      title: '6-digit PIN',
+                      title: context.l10n.str6digitpin,
                       value: UnlockType.pin,
                       groupValue: selected,
                       onChanged: (v) => setModalState(() => selected = v),
                     ),
                     PrysmRadioRow<UnlockType>(
-                      title: 'Passphrase (12+ characters)',
+                      title: context.l10n.passphrase12Characters,
                       value: UnlockType.passphrase,
                       groupValue: selected,
                       onChanged: (v) => setModalState(() => selected = v),
                     ),
                     const SizedBox(height: 8),
                     PrysmButton(
-                      label: 'Continue',
+                      label: context.l10n.continueLabel,
                       onPressed: selected == null || selected == current
                           ? null
                           : () => Navigator.pop(ctx, selected),
@@ -252,7 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ) {
     if (selectedId == null || selectedId.isEmpty) {
       final defaultDevice = devices.where((d) => d.isDefault).firstOrNull;
-      return defaultDevice?.name ?? 'System default';
+      return defaultDevice?.name ?? SettingsService().localizations.systemDefault;
     }
     for (final device in devices) {
       if (device.id == selectedId) {
@@ -271,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             PrysmListRow(
               leading: const Icon(PrysmIcons.settingsInputComponentOutlined),
-              title: 'System default',
+              title: context.l10n.systemDefault,
               trailing: _linuxSelectedDeviceId == null
                   ? const Icon(PrysmIcons.check)
                   : null,
@@ -290,7 +300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               PrysmListRow(
                 leading: const Icon(PrysmIcons.micOutlined),
                 title: device.name,
-                subtitle: device.isDefault ? 'Default input' : null,
+                subtitle: device.isDefault ? context.l10n.defaultInput : null,
                 trailing: _linuxSelectedDeviceId == device.id
                     ? const Icon(PrysmIcons.check)
                     : null,
@@ -322,13 +332,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
                 child: Text(
-                  _downloadLocationDisplay,
+                  _downloadLocationDisplay ?? context.l10n.loading,
                   style: ctx.prysmStyle.captionStyle,
                 ),
               ),
               PrysmListRow(
                 leading: const Icon(PrysmIcons.folderOpenOutlined),
-                title: 'Choose folder',
+                title: context.l10n.chooseFolder,
                 onTap: () async {
                   Navigator.pop(ctx);
                   await _pickDownloadLocation();
@@ -336,13 +346,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               PrysmListRow(
                 leading: const Icon(PrysmIcons.restoreOutlined),
-                title: 'Use system default',
+                title: context.l10n.useSystemDefault,
                 onTap: () async {
                   Navigator.pop(ctx);
                   await settings.clearCustomDownloadPath();
                   await _loadDownloadLocationDisplay();
                   if (mounted) {
-                    showPrysmToast(context, 'Download location reset to default');
+                    showPrysmToast(context, context.l10n.downloadLocationResetToDefault);
                   }
                 },
               ),
@@ -355,14 +365,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _pickDownloadLocation() async {
     final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Choose download folder',
+      dialogTitle: context.l10n.chooseDownloadFolder,
     );
     if (path == null) return;
 
     final dir = Directory(path);
     if (!await dir.exists()) {
       if (mounted) {
-        showPrysmToast(context, 'Selected folder does not exist');
+        showPrysmToast(context, context.l10n.selectedFolderDoesNotExist);
       }
       return;
     }
@@ -370,7 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settings.setCustomDownloadPath(path);
     await _loadDownloadLocationDisplay();
     if (mounted) {
-      showPrysmToast(context, 'Downloads will be saved to $path');
+      showPrysmToast(context, context.l10n.downloadsWillBeSavedToPath(path));
     }
   }
 
@@ -416,7 +426,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _checkForUpdates() async {
     if (Platform.isIOS) {
-      showPrysmToast(context, 'Updates are not available on iOS.');
+      showPrysmToast(context, context.l10n.updatesAreNotAvailableOnIos);
       return;
     }
     final message = await AppUpdateService().checkFromSettings(context);
@@ -437,35 +447,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showAboutDialog() {
     showPrysmDialog(
       context: context,
-      title: 'About ${settings.name}',
+      title: context.l10n.aboutApp(settings.name),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Version ${settings.version}'),
+          Text(context.l10n.versionLabel(settings.version)),
           const SizedBox(height: 16),
           Text(settings.description),
           const SizedBox(height: 16),
-          const Text('Features:'),
-          const Text('• End-to-end encryption'),
-          const Text('• Tor network routing'),
-          const Text('• No central servers'),
-          const Text('• Open source'),
+          Text(context.l10n.features),
+          Text(context.l10n.endToEndEncryption),
+          Text(context.l10n.torNetworkRouting),
+          Text(context.l10n.noCentralServers),
+          Text(context.l10n.openSource),
         ],
       ),
-      confirmLabel: 'OK',
+      confirmLabel: context.l10n.ok,
     );
   }
 
   void _showResetDialog() {
     showPrysmConfirmDialog(
       context: context,
-      title: 'Reset All Settings?',
-      content: const Text(
-        'This will restore all settings to their default values. This action cannot be undone.',
+      title: context.l10n.resetAllSettings,
+      content: Text(
+        context.l10n.thisWillRestoreAllSettingsToTheirDefault,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Reset',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.reset,
       confirmVariant: PrysmButtonVariant.danger,
     ).then((confirmed) async {
       if (confirmed != true || !mounted) return;
@@ -473,7 +483,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _loadSettings();
       widget.onThemeChanged(0);
       if (mounted) {
-        showPrysmToast(context, 'Settings reset to defaults');
+        showPrysmToast(context, context.l10n.settingsResetToDefaults);
       }
     });
   }
@@ -483,12 +493,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showExportLogDialog() {
     showPrysmConfirmDialog(
       context: context,
-      title: 'Export Log',
-      content: const Text(
-        'The log file may contain sensitive information. Only share it with trusted parties.',
+      title: context.l10n.exportLog,
+      content: Text(
+        context.l10n.theLogFileMayContainSensitiveInformationOnly,
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Export',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.export,
     ).then((confirmed) async {
       if (confirmed != true || !mounted) return;
       await exportLog(context);
@@ -513,13 +523,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final passwordController = TextEditingController();
     showPrysmDialog(
       context: context,
-      title: 'Restore Backup',
+      title: context.l10n.restoreBackup,
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'This will replace all current data with the backup. The app will restart after restore.',
+            context.l10n.thisWillReplaceAllCurrentDataWithThe,
             style: TextStyle(
               fontSize: 14,
               color: context.prysmStyle.tokens.danger,
@@ -528,14 +538,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           PrysmTextField(
             controller: passwordController,
-            labelText: 'Backup Password',
+            labelText: context.l10n.backupPassword,
             obscureText: true,
             prefixIcon: const Icon(PrysmIcons.lock),
           ),
         ],
       ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Restore',
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.restore,
       onConfirm: () async {
         final password = passwordController.text;
         Navigator.pop(context);
@@ -550,7 +560,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (Platform.isAndroid || Platform.isIOS) {
         final result = await FilePicker.platform.pickFiles(
-          dialogTitle: 'Select Backup File',
+          dialogTitle: context.l10n.selectBackupFile,
           type: FileType.any,
         );
         if (result == null || result.files.single.path == null) return;
@@ -560,7 +570,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (files.isEmpty) {
           final location = await DownloadLocation.displayPath();
           if (!mounted) return;
-          showPrysmToast(context, 'No backup files found in $location');
+          showPrysmToast(
+            context,
+            context.l10n.noBackupFilesFoundInLocation(location),
+          );
           return;
         }
 
@@ -574,7 +587,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Select Backup',
+                    context.l10n.selectBackup,
                     style: context.prysmStyle.headlineStyle,
                   ),
                 ),
@@ -594,14 +607,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ok = await BackupService.restoreBackup(filePath, password);
       if (mounted) {
         if (ok) {
-          showPrysmToast(context, 'Backup restored! Please restart the app.');
+          showPrysmToast(context, context.l10n.backupRestoredPleaseRestartTheApp);
         } else {
-          showPrysmToast(context, 'Restore failed — wrong password or corrupt file');
+          showPrysmToast(context, context.l10n.restoreFailedWrongPasswordOrCorruptFile);
         }
       }
     } catch (e) {
       if (mounted) {
-        showPrysmToast(context, 'Restore failed: $e');
+        showPrysmToast(context, context.l10n.restoreFailedE(e.toString()));
       }
     }
   }
@@ -609,7 +622,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return PrysmScaffold(
-      title: 'Settings',
+      title: context.l10n.settings,
       leading: PrysmIconButton(icon: PrysmIcons.arrowBack, onPressed: widget.onClose),
       body: SingleChildScrollView(
         child: Padding(
@@ -618,24 +631,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ==================== APPEARANCE ====================
-              _buildSectionHeader('Appearance'),
+              _buildSectionHeader(context.l10n.appearance),
               const SizedBox(height: 12),
               _buildCard([
-                _buildThemeOption('Light Mode', PrysmIcons.lightMode, 0),
+                PrysmRadioRow<LocaleOverride>(
+                  value: LocaleOverride.system,
+                  groupValue: _localeOverride,
+                  title: context.l10n.languageSystem,
+                  subtitle: context.l10n.language,
+                  onChanged: _onLocaleOverrideChanged,
+                ),
                 const PrysmDivider(),
-                _buildThemeOption('Dark Mode', PrysmIcons.darkMode, 1),
+                PrysmRadioRow<LocaleOverride>(
+                  value: LocaleOverride.en,
+                  groupValue: _localeOverride,
+                  title: context.l10n.languageEnglish,
+                  onChanged: _onLocaleOverrideChanged,
+                ),
                 const PrysmDivider(),
-                _buildThemeOption('Pink Mode', PrysmIcons.autoAwesome, 2),
+                PrysmRadioRow<LocaleOverride>(
+                  value: LocaleOverride.it,
+                  groupValue: _localeOverride,
+                  title: context.l10n.languageItalian,
+                  onChanged: _onLocaleOverrideChanged,
+                ),
+              ]),
+              const SizedBox(height: 16),
+              _buildCard([
+                _buildThemeOption(context.l10n.lightMode, PrysmIcons.lightMode, 0),
                 const PrysmDivider(),
-                _buildThemeOption('Cyan Mode', PrysmIcons.waterDrop, 3),
+                _buildThemeOption(context.l10n.darkMode, PrysmIcons.darkMode, 1),
+                const PrysmDivider(),
+                _buildThemeOption(context.l10n.pinkMode, PrysmIcons.autoAwesome, 2),
+                const PrysmDivider(),
+                _buildThemeOption(context.l10n.cyanMode, PrysmIcons.waterDrop, 3),
                 const PrysmDivider(),
                 _buildThemeOption(
-                  'Purple Mode',
+                  context.l10n.purpleMode,
                   PrysmIcons.autoAwesome,
                   4,
                 ),
                 const PrysmDivider(),
-                _buildThemeOption('Orange Mode', PrysmIcons.whatshot, 5),
+                _buildThemeOption(context.l10n.orangeMode, PrysmIcons.whatshot, 5),
               ]),
               const SizedBox(height: 16),
               _buildCard([
@@ -647,32 +684,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== PRIVACY ====================
-              _buildSectionHeader('Privacy'),
+              _buildSectionHeader(context.l10n.privacy),
               const SizedBox(height: 12),
               _buildCard([
                 if (widget.keyManager != null) ...[
                   _buildNavigationTile(
-                    'Unlock method',
+                    context.l10n.unlockMethod,
                     PrysmIcons.lock,
                     _showUnlockMethodPicker,
                     subtitle: settings.unlockType == UnlockType.pin
-                        ? '6-digit PIN'
-                        : 'Passphrase (12+ characters)',
+                        ? context.l10n.str6digitpin
+                        : context.l10n.passphrase12Characters,
                   ),
                   const PrysmDivider(),
                   _buildNavigationTile(
-                    'Change passcode',
+                    context.l10n.changePasscode,
                     PrysmIcons.pin,
                     () => runChangePasscodeFlow(context, widget.keyManager!),
                     subtitle: settings.unlockType == UnlockType.pin
-                        ? 'Update your unlock PIN without changing your identity'
-                        : 'Update your unlock passphrase without changing your identity',
+                        ? context.l10n.updateUnlockPinSubtitle
+                        : context.l10n.updateUnlockPassphraseSubtitle,
                   ),
                   const PrysmDivider(),
                   if (Platform.isAndroid && _biometricsAvailable) ...[
                     _buildSwitchTile(
-                      'Unlock with biometrics',
-                      'Skip PIN or passphrase using fingerprint or face',
+                      context.l10n.unlockWithBiometrics,
+                      context.l10n.skipPinOrPassphraseUsingBiometrics,
                       PrysmIcons.fingerprint,
                       _biometricsEnabled,
                       _onBiometricsToggled,
@@ -681,7 +718,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ],
                 _buildNavigationTile(
-                  'Blocked contacts',
+                  context.l10n.blockedContacts,
                   PrysmIcons.blockOutlined,
                   () {
                     Navigator.push(
@@ -696,7 +733,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const PrysmDivider(),
                 if (widget.keyManager != null && widget.onionAddress != null) ...[
                   _buildNavigationTile(
-                    'Invite requests',
+                    context.l10n.inviteRequests,
                     PrysmIcons.group,
                     () {
                       Navigator.push(
@@ -711,13 +748,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       );
                     },
-                    subtitle:
-                        '$_pendingInviteCount request${_pendingInviteCount == 1 ? '' : 's'}',
+                    subtitle: context.l10n.requestCount(_pendingInviteCount),
                   ),
                   const PrysmDivider(),
                 ],
                 _buildNavigationTile(
-                  'Advanced Privacy',
+                  context.l10n.advancedPrivacy,
                   PrysmIcons.privacyTip,
                   () {
                     // Switching to the strict mode inside this screen
@@ -738,21 +774,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== NETWORK ====================
-              _buildSectionHeader('Network'),
+              _buildSectionHeader(context.l10n.network),
               const SizedBox(height: 12),
               _buildCard([
                 if (widget.offlineMode) ...[
                   _buildNavigationTile(
-                    widget.torConnecting ? 'Connecting to Tor…' : 'Connect Tor',
+                    widget.torConnecting
+                        ? context.l10n.connectingToTor
+                        : context.l10n.connectTor,
                     PrysmIcons.link,
                     widget.torConnecting
                         ? null
                         : () => widget.onConnectTor?.call(),
-                    subtitle: 'Go online to send and receive messages',
+                    subtitle: context.l10n.goOnlineToSendAndReceiveMessages,
                   ),
                 ] else ...[
                   _buildNavigationTile(
-                    'Refresh Tor Circuit',
+                    context.l10n.refreshTorCircuit,
                     PrysmIcons.sync,
                     () async {
                       if (widget.torManager == null) return;
@@ -761,11 +799,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       showPrysmToast(
                         context,
                         ok
-                            ? 'New Tor circuit requested'
-                            : 'Failed to refresh circuit',
+                            ? context.l10n.newTorCircuitRequested
+                            : context.l10n.failedToRefreshCircuit,
                       );
                     },
-                    subtitle: 'Request a new circuit when connections are stuck',
+                    subtitle: context.l10n.requestANewCircuitWhenConnectionsAreStuck,
                   ),
                 ],
                 // if (_enableRelay) ...[
@@ -790,19 +828,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== GENERAL ====================
-              _buildSectionHeader('General'),
+              _buildSectionHeader(context.l10n.general),
               const SizedBox(height: 12),
               _buildCard([
                 _buildSwitchTile(
-                  'Notifications',
-                  'Show notifications for new messages',
+                  context.l10n.notifications,
+                  context.l10n.showNotificationsForNewMessages,
                   PrysmIcons.notificationsOutlined,
                   _notificationsEnabled,
                   _onNotificationToggle,
                 ),
                 const PrysmDivider(),
                 _buildSwitchTile(
-                  'Battery saving',
+                  context.l10n.batterySaving,
                   BatterySaverService.instance.statusSubtitle,
                   PrysmIcons.batterySaverOutlined,
                   BatterySaverService.instance.isActive,
@@ -811,25 +849,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (widget.onionAddress != null) ...[
                   const PrysmDivider(),
                   _buildNavigationTile(
-                    'Getting started',
+                    context.l10n.gettingStarted,
                     PrysmIcons.tourOutlined,
                     _openOnboardingReplay,
-                    subtitle: 'Replay the setup tour',
+                    subtitle: context.l10n.replayTheSetupTour,
                   ),
                 ],
                 if (!Platform.isAndroid && !Platform.isIOS) ...[
                   const PrysmDivider(),
                   _buildSwitchTile(
-                    'Minimize to system tray on close',
-                    'Keep Prysm running in the tray when closing the window',
+                    context.l10n.minimizeToSystemTrayOnClose,
+                    context.l10n.keepPrysmRunningInTrayWhenClosing,
                     PrysmIcons.minimizeOutlined,
                     _minimizeToTray,
                     _onMinimizeToTrayToggle,
                   ),
                   const PrysmDivider(),
                   _buildSwitchTile(
-                    'Minimize to tray when minimizing window',
-                    'Hide to tray when clicking the minimize button',
+                    context.l10n.minimizeToTrayWhenMinimizingWindow,
+                    context.l10n.hideToTrayWhenClickingMinimize,
                     PrysmIcons.keyboardArrowDownOutlined,
                     _minimizeOnMinimizeButton,
                     _onMinimizeOnMinimizeButtonToggle,
@@ -838,10 +876,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (!kIsWeb && Platform.isLinux) ...[
                   const PrysmDivider(),
                   _buildNavigationTile(
-                    'Call microphone',
+                    context.l10n.callMicrophone,
                     PrysmIcons.micOutlined,
                     _showLinuxInputDeviceSheet,
-                    subtitle: _linuxSelectedDeviceLabel,
+                    subtitle:
+                        _linuxSelectedDeviceLabel ?? context.l10n.systemDefault,
                   ),
                 ],
                 // const PrysmDivider(),
@@ -871,20 +910,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== DATA ====================
-              _buildSectionHeader('Data'),
+              _buildSectionHeader(context.l10n.data),
               const SizedBox(height: 12),
               _buildCard([
                 _buildSwitchTile(
-                  'File previews',
-                  'Show inline previews for documents, images, and media in chat',
+                  context.l10n.filePreviews,
+                  context.l10n.filePreviewsInChatSubtitle,
                   PrysmIcons.previewOutlined,
                   _enableFilePreview,
                   _onFilePreviewToggle,
                 ),
                 const PrysmDivider(),
                 _buildSwitchTile(
-                  'Link previews',
-                  'Fetch titles and images for URLs in messages via Tor',
+                  context.l10n.linkPreviews,
+                  context.l10n.linkPreviewsViaTorSubtitle,
                   PrysmIcons.linkOutlined,
                   _enableLinkUnfurling,
                   _onLinkUnfurlingToggle,
@@ -893,7 +932,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 if (!widget.decoyMode)
                   _buildNavigationTile(
-                    'Call History',
+                    context.l10n.callHistory,
                     PrysmIcons.call,
                     () {
                       Navigator.push(
@@ -908,15 +947,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 if (!widget.decoyMode) const PrysmDivider(),
                 _buildNavigationTile(
-                  'Download Location',
+                  context.l10n.downloadLocation,
                   PrysmIcons.downloadOutlined,
                   _showDownloadLocationSheet,
-                  subtitle: _downloadLocationDisplay,
+                  subtitle: _downloadLocationDisplay ?? context.l10n.loading,
                 ),
                 if (!widget.decoyMode) const PrysmDivider(),
                 if (!widget.decoyMode)
                   _buildNavigationTile(
-                    'Storage Manager',
+                    context.l10n.storageManager,
                     PrysmIcons.storageOutlined,
                     () {
                       Navigator.push(
@@ -930,53 +969,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       );
                     },
-                    subtitle: 'Disk usage and media management',
+                    subtitle: context.l10n.diskUsageAndMediaManagement,
                   ),
                 const PrysmDivider(),
                 _buildNavigationTile(
-                  'Create Backup',
+                  context.l10n.createBackup,
                   PrysmIcons.backupOutlined,
                   _showBackupDialog,
-                  subtitle: 'Export encrypted backup file',
+                  subtitle: context.l10n.exportEncryptedBackupFile,
                 ),
                 const PrysmDivider(),
                 _buildNavigationTile(
-                  'Restore Backup',
+                  context.l10n.restoreBackup,
                   PrysmIcons.restoreOutlined,
                   _showRestoreDialog,
-                  subtitle: 'Import from backup file',
+                  subtitle: context.l10n.importFromBackupFile,
                 ),
                 const PrysmDivider(),
                 _buildNavigationTile(
-                  'Export Log',
+                  context.l10n.exportLog,
                   PrysmIcons.uploadFile,
                   _showExportLogDialog,
-                  subtitle: 'Save debug log to download folder',
+                  subtitle: context.l10n.saveDebugLogToDownloads,
                 ),
               ]),
 
               const SizedBox(height: 30),
 
               // ==================== ABOUT ====================
-              _buildSectionHeader('About'),
+              _buildSectionHeader(context.l10n.about),
               const SizedBox(height: 12),
               _buildCard([
                 _buildNavigationTile(
-                  'Check for updates',
+                  context.l10n.checkForUpdates,
                   PrysmIcons.refreshOutlined,
                   () => unawaited(_checkForUpdates()),
-                  subtitle: 'Download from GitHub releases',
+                  subtitle: context.l10n.downloadFromGithubReleases,
                 ),
                 const PrysmDivider(),
                 _buildNavigationTile(
-                  'About ${settings.name}',
+                  context.l10n.aboutApp(settings.name),
                   PrysmIcons.infoOutlined,
                   _showAboutDialog,
-                  subtitle: 'Version ${settings.version}',
+                  subtitle: context.l10n.versionLabel(settings.version),
                 ),
                 const PrysmDivider(),
                 _buildNavigationTile(
-                  'Source Code',
+                  context.l10n.sourceCode,
                   PrysmIcons.codeOutlined,
                   () async {
                     await launchUrl(
@@ -984,18 +1023,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       mode: LaunchMode.externalApplication,
                     );
                   },
-                  subtitle: 'View on GitHub',
+                  subtitle: context.l10n.viewOnGithub,
                 ),
               ]),
 
               if (kDebugMode) ...[
                 const SizedBox(height: 30),
-                _buildSectionHeader('Debug options'),
+                _buildSectionHeader(context.l10n.debugOptions),
                 const SizedBox(height: 12),
                 _buildCard([
                   _buildSwitchTile(
-                    'Enable Relay Server',
-                    'COMING SOON, NOT WORKING',
+                    context.l10n.enableRelayServer,
+                    context.l10n.comingSoonNotWorking,
                     PrysmIcons.cloudOutlined,
                     _enableRelay,
                     (bool value) {
@@ -1004,17 +1043,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const PrysmDivider(),
                   _buildNavigationTile(
-                    'Preview update dialog',
+                    context.l10n.previewUpdateDialog,
                     PrysmIcons.codeOutlined,
                     () => unawaited(_debugPreviewUpdateDialog()),
-                    subtitle: 'Mock update UI (no download)',
+                    subtitle: context.l10n.mockUpdateUiNoDownload,
                   ),
                   const PrysmDivider(),
                   _buildNavigationTile(
-                    'Test update flow',
+                    context.l10n.testUpdateFlow,
                     PrysmIcons.codeOutlined,
                     () => unawaited(_debugTestUpdateFlow()),
-                    subtitle: 'Skip version check (desktop dry-run)',
+                    subtitle: context.l10n.skipVersionCheckDesktopDryRun,
                   ),
                 ]),
               ],
@@ -1022,14 +1061,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 30),
 
               // ==================== DANGER ZONE ====================
-              _buildSectionHeader('Danger Zone', color: context.prysmStyle.tokens.danger),
+              _buildSectionHeader(context.l10n.dangerZone, color: context.prysmStyle.tokens.danger),
               const SizedBox(height: 12),
               _buildCard([
                 _buildNavigationTile(
-                  'Reset Settings',
+                  context.l10n.resetSettings,
                   PrysmIcons.restoreOutlined,
                   _showResetDialog,
-                  subtitle: 'Restore default settings',
+                  subtitle: context.l10n.restoreDefaultSettings,
                   textColor: context.prysmStyle.tokens.danger,
                 ),
               ]),

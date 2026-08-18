@@ -10,6 +10,7 @@ import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/schedule_time_format.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 /// Settings row listing the conversation's scheduled messages, with a sheet to
 /// cancel them. Hidden entirely when nothing is queued.
@@ -56,7 +57,7 @@ class _ScheduledMessagesTileState extends State<ScheduledMessagesTile> {
   Future<void> _cancel(ScheduledMessage message) async {
     await _service.cancel(message.id);
     if (!mounted) return;
-    showPrysmToast(context, 'Scheduled message cancelled');
+    showPrysmToast(context, context.l10n.scheduledMessageCancelled);
     await _load();
   }
 
@@ -86,7 +87,7 @@ class _ScheduledMessagesTileState extends State<ScheduledMessagesTile> {
           title: _pending.length == 1
               ? '1 scheduled message'
               : '${_pending.length} scheduled messages',
-          subtitle: 'Next: ${formatScheduleLabel(next.sendAt)}',
+          subtitle: context.l10n.nextScheduleLabel(formatScheduleLabel(next.sendAt)),
           trailing: const Icon(PrysmIcons.chevronRight),
           onTap: _openList,
         ),
@@ -116,7 +117,7 @@ class _ScheduledListSheet extends StatelessWidget {
             PrysmTokens.spacing20,
             PrysmTokens.spacing12,
           ),
-          child: Text('Scheduled messages', style: style.titleStyle),
+          child: Text(context.l10n.scheduledMessages, style: style.titleStyle),
         ),
         const PrysmDivider(),
         Flexible(
@@ -130,18 +131,17 @@ class _ScheduledListSheet extends StatelessWidget {
                 title: formatScheduleLabel(message.sendAt),
                 subtitle: message.body,
                 trailing: PrysmTextButton(
-                  label: 'Cancel',
+                  label: context.l10n.cancel,
                   color: style.tokens.danger,
                   onPressed: () async {
                     final confirmed = await showPrysmConfirmDialog(
                       context: ctx,
-                      title: 'Cancel scheduled message?',
-                      content: Text(
-                        'It will not be sent.',
+                      title: context.l10n.cancelScheduledMessage,
+                      content: Text(context.l10n.itWillNotBeSent,
                         style: style.bodyStyle,
                       ),
-                      confirmLabel: 'Cancel message',
-                      cancelLabel: 'Keep',
+                      confirmLabel: context.l10n.cancelMessage,
+                      cancelLabel: context.l10n.keep,
                     );
                     if (confirmed == true) await onCancel(message);
                   },

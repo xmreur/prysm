@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/l10n/app_localizations.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class TypingIndicatorBar extends StatelessWidget {
   final List<String> typistNames;
@@ -15,7 +17,7 @@ class TypingIndicatorBar extends StatelessWidget {
 
     final style = context.prysmStyle;
     final tokens = style.tokens;
-    final label = _labelFor(typistNames);
+    final label = _labelFor(typistNames, context.l10n);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
@@ -39,14 +41,14 @@ class TypingIndicatorBar extends StatelessWidget {
     );
   }
 
-  String _labelFor(List<String> names) {
+  String _labelFor(List<String> names, AppLocalizations l10n) {
     if (names.length == 1) {
-      return '${names.first} is typing…';
+      return l10n.personIsTyping(names.first);
     }
     if (names.length == 2) {
-      return '${names[0]} and ${names[1]} are typing…';
+      return l10n.twoPeopleAreTyping(names[0], names[1]);
     }
-    return 'Several people are typing…';
+    return l10n.severalPeopleAreTyping;
   }
 }
 

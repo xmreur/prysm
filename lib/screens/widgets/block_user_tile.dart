@@ -5,6 +5,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 
 class BlockUserTile extends StatefulWidget {
   final String peerId;
@@ -28,12 +29,10 @@ class _BlockUserTileState extends State<BlockUserTile> {
   Future<void> _confirmBlock() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Block contact',
-      content: const Text(
-        'You will no longer receive messages, calls, or profile updates from this contact.',
-      ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Block',
+      title: context.l10n.blockContact,
+      content: Text(context.l10n.youWillNoLongerReceiveMessagesCallsOr),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.block,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
@@ -46,12 +45,10 @@ class _BlockUserTileState extends State<BlockUserTile> {
   Future<void> _confirmUnblock() async {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
-      title: 'Unblock contact',
-      content: const Text(
-        'This contact will be able to message and call you again.',
-      ),
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Unblock',
+      title: context.l10n.unblockContact,
+      content: Text(context.l10n.unblockContactBody),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.unblock,
     );
     if (confirmed != true || !mounted) return;
 
@@ -70,14 +67,14 @@ class _BlockUserTileState extends State<BlockUserTile> {
         blocked ? PrysmIcons.block : PrysmIcons.blockOutlined,
         color: blocked ? tokens.danger : null,
       ),
-      title: blocked ? 'Unblock contact' : 'Block contact',
+      title: blocked ? context.l10n.unblockContact : context.l10n.blockContact,
       titleWidget: Text(
-        blocked ? 'Unblock contact' : 'Block contact',
+        blocked ? context.l10n.unblockContact : context.l10n.blockContact,
         style: TextStyle(color: blocked ? tokens.danger : null),
       ),
       subtitle: blocked
-          ? 'Tap to allow messages and calls again'
-          : 'Stop messages, calls, and profile updates',
+          ? context.l10n.tapToAllowMessagesAndCallsAgain
+          : context.l10n.stopMessagesCallsAndProfileUpdates,
       onTap: blocked ? _confirmUnblock : _confirmBlock,
     );
   }

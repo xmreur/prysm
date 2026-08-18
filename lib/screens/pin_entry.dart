@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -55,9 +56,9 @@ class _PinScreenState extends State<PinScreen> {
 
   String get _title {
     if (_pinAlreadySet == null) return '';
-    if (_isConfirmingSetup) return 'Confirm Passcode';
-    if (_isSetup) return 'Setup Passcode';
-    return 'Enter Passcode';
+    if (_isConfirmingSetup) return context.l10n.confirmPasscode;
+    if (_isSetup) return context.l10n.setupPasscode;
+    return context.l10n.enterPasscode;
   }
 
   Future<void> _submitPin(String pin) async {
@@ -73,8 +74,8 @@ class _PinScreenState extends State<PinScreen> {
       await _refreshLockout();
       setState(() {
         error = _isSetup
-            ? 'Could not set up passcode. Try again.'
-            : 'Incorrect PIN';
+            ? context.l10n.couldNotSetUpPasscodeTryAgain
+            : context.l10n.incorrectPin;
         _pin = '';
         _pendingPin = null;
         isLoading = false;
@@ -122,7 +123,7 @@ class _PinScreenState extends State<PinScreen> {
 
         if (_pin != _pendingPin) {
           setState(() {
-            error = "PINs don't match";
+            error = context.l10n.pinsDoNotMatch;
             _pin = '';
             _pendingPin = null;
           });
@@ -170,7 +171,7 @@ class _PinScreenState extends State<PinScreen> {
                     const SizedBox(height: 16),
                     PrysmIconButton(
                       icon: PrysmIcons.fingerprint,
-                      tooltip: 'Unlock with biometrics',
+                      tooltip: context.l10n.unlockWithBiometrics,
                       onPressed: widget.onTryBiometric,
                     ),
                   ],
@@ -192,7 +193,9 @@ class _PinScreenState extends State<PinScreen> {
                   if (widget.torBootstrapProgress != null) ...[
                     const SizedBox(height: 16),
                     Text(
-                      'Tor: ${widget.torBootstrapProgress}%',
+                      context.l10n.torBootstrapPercent(
+                        widget.torBootstrapProgress!.toString(),
+                      ),
                       style: TextStyle(
                         fontSize: 13,
                         color: tokens.textPrimary.withValues(alpha: 0.6),

@@ -19,10 +19,10 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Choose a strong password to encrypt your backup. '
-          'You will need this password to restore.',
-          style: TextStyle(fontSize: 14),
+        Text(
+          '${context.l10n.chooseAStrongPasswordToEncryptYourBackup}'
+          '${context.l10n.youWillNeedThisPasswordToRestore}',
+          style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 16),
         PrysmTextField(
@@ -58,11 +58,11 @@ Future<bool> performBackup(BuildContext context, String password) async {
     await BackupService.createBackup(file.path, password);
 
     if (!context.mounted) return false;
-    showPrysmToast(context, 'Backup saved to ${file.path}');
+    showPrysmToast(context, context.l10n.backupSavedTo(file.path));
     return true;
   } catch (e) {
     if (!context.mounted) return false;
-    showPrysmToast(context, 'Backup failed: $e');
+    showPrysmToast(context, context.l10n.backupFailedE(e.toString()));
     return false;
   }
 }

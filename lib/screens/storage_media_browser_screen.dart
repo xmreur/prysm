@@ -24,6 +24,7 @@ import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/format_file_size.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/readable_file_policy.dart';
+import 'package:prysm/l10n/l10n_enum_extensions.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
 
 class StorageMediaBrowserScreen extends StatefulWidget {
@@ -291,8 +292,7 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
       context: context,
       title: context.l10n.deleteMedia,
       content: Text(
-        'Delete "$label" from ${item.conversationLabel}? '
-        'This removes it from your device only.',
+        context.l10n.deleteMediaFromConversation(label, item.conversationLabel),
       ),
       cancelLabel: context.l10n.cancel,
       confirmLabel: context.l10n.delete,
@@ -442,7 +442,9 @@ class _StorageMediaBrowserScreenState extends State<StorageMediaBrowserScreen> {
       ),
       bottom: PrysmTabBar(
         controller: _tabController,
-        tabs: const ['All', 'Photos', 'Files', 'Voice'],
+        tabs: ChatMediaFilter.values
+            .map((filter) => filter.localizedLabel(context.l10n))
+            .toList(),
       ),
       body: _bootstrapping
           ? const Center(child: PrysmProgressIndicator())

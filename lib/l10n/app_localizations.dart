@@ -470,6 +470,12 @@ abstract class AppLocalizations {
   /// **'Caches cleared'**
   String get cachesCleared;
 
+  /// No description provided for @calculating.
+  ///
+  /// In en, this message translates to:
+  /// **'Calculating…'**
+  String get calculating;
+
   /// No description provided for @callHistory.
   ///
   /// In en, this message translates to:
@@ -547,6 +553,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Chat media is stored encrypted on this device. '**
   String get chatMediaIsStoredEncryptedOnThisDevice;
+
+  /// No description provided for @chatMediaStoredEncryptedDisclaimer.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat media is stored encrypted on this device. Deleting media here removes it locally only — it may still exist for other participants.'**
+  String get chatMediaStoredEncryptedDisclaimer;
 
   /// No description provided for @chatWithMyself.
   ///
@@ -1328,6 +1340,36 @@ abstract class AppLocalizations {
   /// **'8 hours'**
   String get disappearing8h;
 
+  /// No description provided for @disappearingDurationDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}d'**
+  String disappearingDurationDays(int count);
+
+  /// No description provided for @disappearingDurationHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}h'**
+  String disappearingDurationHours(int count);
+
+  /// No description provided for @disappearingDurationMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}m'**
+  String disappearingDurationMinutes(int count);
+
+  /// No description provided for @disappearingDurationSeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}s'**
+  String disappearingDurationSeconds(int count);
+
+  /// No description provided for @disappearingDurationWeeks.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}w'**
+  String disappearingDurationWeeks(int count);
+
   /// No description provided for @disappearingMessages.
   ///
   /// In en, this message translates to:
@@ -1646,6 +1688,12 @@ abstract class AppLocalizations {
   /// **'File is still decrypting or empty'**
   String get fileIsStillDecryptingOrEmpty;
 
+  /// No description provided for @fileMayBeHarmfulOnlyDownloadIfTrusted.
+  ///
+  /// In en, this message translates to:
+  /// **'{fileName} may be harmful to your device. Only download if you trust the sender.'**
+  String fileMayBeHarmfulOnlyDownloadIfTrusted(String fileName);
+
   /// No description provided for @fileNotReadyToDownload.
   ///
   /// In en, this message translates to:
@@ -1928,6 +1976,12 @@ abstract class AppLocalizations {
   /// **'Image not ready to save'**
   String get imageNotReadyToSave;
 
+  /// No description provided for @imageSavedFileName.
+  ///
+  /// In en, this message translates to:
+  /// **'Image saved ({fileName})'**
+  String imageSavedFileName(String fileName);
+
   /// No description provided for @importFromBackupFile.
   ///
   /// In en, this message translates to:
@@ -2126,6 +2180,12 @@ abstract class AppLocalizations {
   /// **'Lead Developer'**
   String get leadDeveloper;
 
+  /// No description provided for @leaveAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave'**
+  String get leaveAction;
+
   /// No description provided for @leaveGroup.
   ///
   /// In en, this message translates to:
@@ -2222,6 +2282,12 @@ abstract class AppLocalizations {
   /// **'Mark as verified'**
   String get markAsVerified;
 
+  /// No description provided for @markVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark verified'**
+  String get markVerified;
+
   /// No description provided for @maxMaxgroupmembersMembersTotal.
   ///
   /// In en, this message translates to:
@@ -2239,6 +2305,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Member'**
   String get member;
+
+  /// No description provided for @memberDisplayNameWithYou.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} ({youLabel})'**
+  String memberDisplayNameWithYou(String name, String youLabel);
 
   /// No description provided for @membersCount.
   ///
@@ -2768,6 +2840,12 @@ abstract class AppLocalizations {
   /// **'Only download if you trust the sender.'**
   String get onlyDownloadIfYouTrustTheSender;
 
+  /// No description provided for @onlyMarkContactVerifiedIfComparedFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Only mark this contact as verified if you compared their fingerprint in person or over a trusted channel.'**
+  String get onlyMarkContactVerifiedIfComparedFull;
+
   /// No description provided for @onlyMarkThisContactAsVerifiedIfYou.
   ///
   /// In en, this message translates to:
@@ -3026,6 +3104,12 @@ abstract class AppLocalizations {
   /// **'Pending'**
   String get pending;
 
+  /// No description provided for @personIsTyping.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} is typing…'**
+  String personIsTyping(String name);
+
   /// No description provided for @photo.
   ///
   /// In en, this message translates to:
@@ -3218,6 +3302,12 @@ abstract class AppLocalizations {
   /// **'Purple Mode'**
   String get purpleMode;
 
+  /// No description provided for @qrScanCompareFingerprintManually.
+  ///
+  /// In en, this message translates to:
+  /// **'QR scanning is only supported on mobile devices. Compare the fingerprint manually and use \"Mark as verified\".'**
+  String get qrScanCompareFingerprintManually;
+
   /// No description provided for @qrScanner.
   ///
   /// In en, this message translates to:
@@ -3307,6 +3397,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove member'**
   String get removeMember;
+
+  /// No description provided for @removeMemberFromGroupQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {name} from the group?'**
+  String removeMemberFromGroupQuestion(String name);
 
   /// No description provided for @removePanicPin.
   ///
@@ -3446,6 +3542,12 @@ abstract class AppLocalizations {
   /// **'Save passphrase'**
   String get savePassphrase;
 
+  /// No description provided for @savedFileName.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved {fileName}'**
+  String savedFileName(String fileName);
+
   /// No description provided for @savedToGallery.
   ///
   /// In en, this message translates to:
@@ -3487,6 +3589,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scan text'**
   String get scanText;
+
+  /// No description provided for @scannedQrDoesNotMatchContact.
+  ///
+  /// In en, this message translates to:
+  /// **'The scanned QR code does not match this contact\'s identity. This may indicate impersonation.'**
+  String get scannedQrDoesNotMatchContact;
 
   /// No description provided for @schedule.
   ///
@@ -3625,6 +3733,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Send photo'**
   String get sendPhoto;
+
+  /// No description provided for @sendViewOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Send view once'**
+  String get sendViewOnce;
 
   /// No description provided for @senderNameNewMessage.
   ///
@@ -3842,6 +3956,12 @@ abstract class AppLocalizations {
   /// **'Launch Prysm hidden in the system tray'**
   String get startMinimizedSubtitle;
 
+  /// No description provided for @stopMessagesCallsAndProfileUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop messages, calls, and profile updates'**
+  String get stopMessagesCallsAndProfileUpdates;
+
   /// No description provided for @storageManager.
   ///
   /// In en, this message translates to:
@@ -3931,6 +4051,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'System default'**
   String get systemDefault;
+
+  /// No description provided for @tapToAllowMessagesAndCallsAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to allow messages and calls again'**
+  String get tapToAllowMessagesAndCallsAgain;
 
   /// No description provided for @tapToChangeGroupPhoto.
   ///
@@ -4195,6 +4321,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Turn notifications back on'**
   String get turnNotificationsBackOn;
+
+  /// No description provided for @twoPeopleAreTyping.
+  ///
+  /// In en, this message translates to:
+  /// **'{first} and {second} are typing…'**
+  String twoPeopleAreTyping(String first, String second);
 
   /// No description provided for @typingIndicators.
   ///
@@ -4663,6 +4795,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your Prysm ID will appear once Tor finishes connecting.'**
   String get yourPrysmIdWillAppearOnceTorFinishes;
+
+  /// No description provided for @chatMediaFilterAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get chatMediaFilterAll;
+
+  /// No description provided for @chatMediaFilterFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get chatMediaFilterFiles;
+
+  /// No description provided for @chatMediaFilterPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Photos'**
+  String get chatMediaFilterPhotos;
+
+  /// No description provided for @chatMediaFilterVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice'**
+  String get chatMediaFilterVoice;
+
+  /// No description provided for @chooseATimeInTheFuture.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a time in the future'**
+  String get chooseATimeInTheFuture;
+
+  /// No description provided for @deleteMediaFromConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{label}\" from {conversation}? This removes it from your device only.'**
+  String deleteMediaFromConversation(String label, String conversation);
+
+  /// No description provided for @groupInviteReceivedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Group invite · {receivedAt}'**
+  String groupInviteReceivedAt(String receivedAt);
+
+  /// No description provided for @scheduleSendsAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Sends {label}'**
+  String scheduleSendsAt(String label);
+
+  /// No description provided for @sendHoldToSchedule.
+  ///
+  /// In en, this message translates to:
+  /// **'Send. Hold to schedule'**
+  String get sendHoldToSchedule;
+
+  /// No description provided for @today.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get today;
+
+  /// No description provided for @youWillNeedThisPasswordToRestore.
+  ///
+  /// In en, this message translates to:
+  /// **'You will need this password to restore.'**
+  String get youWillNeedThisPasswordToRestore;
+
+  /// No description provided for @openWithSystemApp.
+  ///
+  /// In en, this message translates to:
+  /// **'Open with system app'**
+  String get openWithSystemApp;
+
+  /// No description provided for @displayNameHintExample.
+  ///
+  /// In en, this message translates to:
+  /// **'eg. Alice'**
+  String get displayNameHintExample;
+
+  /// No description provided for @showQrCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Show QR Code'**
+  String get showQrCode;
 }
 
 class _AppLocalizationsDelegate

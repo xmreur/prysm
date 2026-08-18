@@ -161,7 +161,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Could not load image',
+            context.l10n.couldNotLoadImage,
             style: context.prysmStyle.bodyStyle,
           ),
           if (widget.decryptFromDb != null) ...[

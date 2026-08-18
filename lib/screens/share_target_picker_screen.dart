@@ -62,13 +62,15 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
     final query = _searchQuery.trim().toLowerCase();
     final rows = <_SharePickerRow>[];
 
-    if (query.isEmpty || 'chat with myself'.contains(query)) {
+    if (query.isEmpty ||
+        context.l10n.chatWithMyself.toLowerCase().contains(query) ||
+        context.l10n.notesToSelf.toLowerCase().contains(query)) {
       rows.add(
         _SharePickerRow(
           target: ShareTarget(
             kind: DetachedChatKind.self,
             conversationId: DetachedChatLaunch.selfConversationId,
-            displayName: 'Chat with myself',
+            displayName: context.l10n.chatWithMyself,
           ),
           title: context.l10n.chatWithMyself,
           subtitle: context.l10n.notesToSelf,

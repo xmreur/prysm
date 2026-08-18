@@ -67,12 +67,9 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
     final confirmed = await showPrysmConfirmDialog(
       context: context,
       title: context.l10n.clearCaches,
-      content: const Text(
-        'Delete temporary image and voice caches? '
-        'Media will be re-decrypted when opened again.',
-      ),
+      content: Text(context.l10n.deleteTemporaryImageAndVoiceCaches),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Clear',
+      confirmLabel: context.l10n.clear,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
@@ -152,7 +149,7 @@ class _DataStorageScreenState extends State<DataStorageScreen> {
                           title: context.l10n.total,
                           subtitle: breakdown != null
                               ? formatFileSize(breakdown.totalBytes)
-                              : 'Calculating…',
+                              : context.l10n.calculating,
                         ),
                         if (breakdown != null) ...[
                           PrysmListRow(

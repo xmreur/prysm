@@ -1329,13 +1329,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _callMessageLabel(PrysmCallMessage message) {
-    final direction = message.direction == 'outbound' ? 'Outgoing' : 'Incoming';
+    final direction = message.direction == 'outbound'
+        ? context.l10n.outgoing
+        : context.l10n.incoming;
     final status = _prettyCallStatus(message.callStatus);
     if (message.callStatus == 'completed') {
       final duration = _formatCallDuration(message.durationMs);
-      return '$direction call · $duration';
+      return context.l10n.directionCallDuration(direction, duration);
     }
-    return '$direction call · $status';
+    return context.l10n.directionCallStatus(direction, status);
   }
 
   String _prettyCallStatus(String status) {

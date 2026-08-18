@@ -64,5 +64,11 @@ void main() {
     );
     expect(row, findsOneWidget);
     expect(SettingsService().refuseUnknownSenders, isFalse);
+
+    await tester.ensureVisible(row);
+    await tester.tap(find.descendant(of: row, matching: find.byType(PrysmSwitch)));
+    await tester.pumpAndSettle();
+
+    expect(SettingsService().refuseUnknownSenders, isTrue);
   });
 }

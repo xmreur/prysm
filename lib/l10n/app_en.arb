@@ -217,6 +217,41 @@
       }
     }
   },
+  "@disappearingDurationDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@disappearingDurationWeeks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@downloadFailedE": {
     "placeholders": {
       "e": {
@@ -248,6 +283,13 @@
   "@failedToExportLogE": {
     "placeholders": {
       "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@fileMayBeHarmfulOnlyDownloadIfTrusted": {
+    "placeholders": {
+      "fileName": {
         "type": "String"
       }
     }
@@ -286,6 +328,13 @@
       }
     }
   },
+  "@imageSavedFileName": {
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
   "@labelModKey": {
     "placeholders": {
       "label": {
@@ -309,6 +358,16 @@
   "@maxMaxgroupmembersMembersTotal": {
     "placeholders": {
       "maxGroupMembers": {
+        "type": "String"
+      }
+    }
+  },
+  "@memberDisplayNameWithYou": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "youLabel": {
         "type": "String"
       }
     }
@@ -412,9 +471,23 @@
       }
     }
   },
+  "@personIsTyping": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "@privacySettingsBody": {
     "placeholders": {
       "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "@removeMemberFromGroupQuestion": {
+    "placeholders": {
+      "name": {
         "type": "String"
       }
     }
@@ -429,6 +502,13 @@
   "@restoreFailedE": {
     "placeholders": {
       "e": {
+        "type": "String"
+      }
+    }
+  },
+  "@savedFileName": {
+    "placeholders": {
+      "fileName": {
         "type": "String"
       }
     }
@@ -558,6 +638,16 @@
       }
     }
   },
+  "@twoPeopleAreTyping": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "second": {
+        "type": "String"
+      }
+    }
+  },
   "@updateAvailable": {
     "placeholders": {
       "tagName": {
@@ -669,6 +759,7 @@
   "builtOnTor": "Built on Tor",
   "caches": "Caches",
   "cachesCleared": "Caches cleared",
+  "calculating": "Calculating…",
   "callHistory": "Call History",
   "callMicrophone": "Call microphone",
   "callPreview": "📞 Call",
@@ -682,6 +773,7 @@
   "chatMedia": "Chat Media",
   "chatMedia2": "Chat media",
   "chatMediaIsStoredEncryptedOnThisDevice": "Chat media is stored encrypted on this device. ",
+  "chatMediaStoredEncryptedDisclaimer": "Chat media is stored encrypted on this device. Deleting media here removes it locally only — it may still exist for other participants.",
   "chatWithMyself": "Chat with myself",
   "chatWithMyself6": "chat with myself",
   "chats": "Chats",
@@ -812,6 +904,11 @@
   "disappearing4w": "4 weeks",
   "disappearing5m": "5 minutes",
   "disappearing8h": "8 hours",
+  "disappearingDurationDays": "{count}d",
+  "disappearingDurationHours": "{count}h",
+  "disappearingDurationMinutes": "{count}m",
+  "disappearingDurationSeconds": "{count}s",
+  "disappearingDurationWeeks": "{count}w",
   "disappearingMessages": "Disappearing messages",
   "disappearingOff": "Off",
   "disappearsAfterViewing": "🔒 Disappears after viewing",
@@ -865,6 +962,7 @@
   "file": "File",
   "fileDeleted": "File deleted",
   "fileIsStillDecryptingOrEmpty": "File is still decrypting or empty",
+  "fileMayBeHarmfulOnlyDownloadIfTrusted": "{fileName} may be harmful to your device. Only download if you trust the sender.",
   "fileNotReadyToDownload": "File not ready to download",
   "filePreview": "📎 File",
   "filePreviews": "File previews",
@@ -912,6 +1010,7 @@
   "identityVerified": "Identity verified",
   "image": "📷 Image",
   "imageNotReadyToSave": "Image not ready to save",
+  "imageSavedFileName": "Image saved ({fileName})",
   "importFromBackupFile": "Import from backup file",
   "inAppPdfPreviewIsNotAvailableOn": "In-app PDF preview is not available on this platform.",
   "inCall": "In call",
@@ -945,6 +1044,7 @@
   "lastSeen": "Last Seen",
   "later": "Later",
   "leadDeveloper": "Lead Developer",
+  "leaveAction": "Leave",
   "leaveGroup": "Leave group",
   "leaveThisGroup": "Leave this group?",
   "legal": "Legal",
@@ -961,9 +1061,11 @@
   "losePassphraseOnlyBackupRestores": "If you lose your passphrase, only a backup can restore your account",
   "losePinOnlyBackupRestores": "If you lose your PIN, only a backup can restore your account",
   "markAsVerified": "Mark as verified",
+  "markVerified": "Mark verified",
   "maxMaxgroupmembersMembersTotal": "Max {maxGroupMembers} members total",
   "mediaDeleted": "Media deleted",
   "member": "Member",
+  "memberDisplayNameWithYou": "{name} ({youLabel})",
   "membersCount": "{count} / {max} members",
   "messageBubbleRounding": "Message bubble rounding",
   "messageHint": "Message",
@@ -1052,6 +1154,7 @@
   "online": "Online",
   "onlyAcceptInvitesFromContacts": "Only accept invites from contacts",
   "onlyDownloadIfYouTrustTheSender": "Only download if you trust the sender.",
+  "onlyMarkContactVerifiedIfComparedFull": "Only mark this contact as verified if you compared their fingerprint in person or over a trusted channel.",
   "onlyMarkThisContactAsVerifiedIfYou": "Only mark this contact as verified if you compared their ",
   "onlyOneFileAtATime": "Only one file at a time",
   "openInASeparateWindow": "Open in a separate window",
@@ -1095,6 +1198,7 @@
   "pdfDocument": "PDF document",
   "peerIsMuted": "Peer is muted",
   "pending": "Pending",
+  "personIsTyping": "{name} is typing…",
   "photo": "Photo",
   "photoDisappearsAfterTheRecipientOpensIt": "Photo disappears after the recipient opens it",
   "photoPreview": "📷 Photo",
@@ -1127,6 +1231,7 @@
   "prysmIdHintExample": "eg. 51EsbujFRDJLHJ",
   "prysmNeedsCameraAccessToScanQrCodes": "Prysm needs camera access to scan QR codes for adding contacts.",
   "purpleMode": "Purple Mode",
+  "qrScanCompareFingerprintManually": "QR scanning is only supported on mobile devices. Compare the fingerprint manually and use \"Mark as verified\".",
   "qrScanner": "QR Scanner",
   "qrScannerIsOnlySupportedOnMobileDevices": "QR Scanner is only supported on mobile devices (Android/iOS).",
   "qrScanningIsOnlySupportedOnMobileDevices": "QR scanning is only supported on mobile devices. ",
@@ -1142,6 +1247,7 @@
   "refuseNonContactsSubtitle": "When enabled, people who are not in your contacts cannot message you directly.",
   "remove": "Remove",
   "removeMember": "Remove member",
+  "removeMemberFromGroupQuestion": "Remove {name} from the group?",
   "removePanicPin": "Remove panic PIN",
   "removeVerification": "Remove verification",
   "renameGroup": "Rename group",
@@ -1165,6 +1271,7 @@
   "saveDebugLogToDownloads": "Save debug log to download folder",
   "saveImage": "Save image",
   "savePassphrase": "Save passphrase",
+  "savedFileName": "Saved {fileName}",
   "savedToGallery": "Saved to gallery",
   "savedToPhotos": "Saved to Photos",
   "scanContactQr": "Scan Contact QR",
@@ -1172,6 +1279,7 @@
   "scanQr": "Scan QR",
   "scanQrCode": "Scan QR code",
   "scanText": "Scan text",
+  "scannedQrDoesNotMatchContact": "The scanned QR code does not match this contact's identity. This may indicate impersonation.",
   "schedule": "Schedule",
   "scheduleDateAt": "{date} at {time}",
   "scheduleMessage": "Schedule message",
@@ -1195,6 +1303,7 @@
   "selectBackupFile": "Select Backup File",
   "selectedFolderDoesNotExist": "Selected folder does not exist",
   "sendPhoto": "Send photo",
+  "sendViewOnce": "Send view once",
   "senderNameNewMessage": "{senderName}: New message",
   "sentPreview": "Sent preview",
   "sentTo": "Sent to {name}",
@@ -1231,6 +1340,7 @@
   "spreadsheet": "Spreadsheet",
   "startMinimized": "Start minimized",
   "startMinimizedSubtitle": "Launch Prysm hidden in the system tray",
+  "stopMessagesCallsAndProfileUpdates": "Stop messages, calls, and profile updates",
   "storageManager": "Storage Manager",
   "storageManagerUnavailable": "Storage manager unavailable",
   "storageUsage": "Storage Usage",
@@ -1246,6 +1356,7 @@
   "str8hours": "8 hours",
   "switchingMethodsRequiresSettingANewUnlockCode": "Switching methods requires setting a new unlock code.",
   "systemDefault": "System default",
+  "tapToAllowMessagesAndCallsAgain": "Tap to allow messages and calls again",
   "tapToChangeGroupPhoto": "Tap to change group photo",
   "tapToCopy": "Tap to copy",
   "tapToRename": "Tap to rename",
@@ -1290,6 +1401,7 @@
   "trayUnreadCount": "Unread: {count}",
   "trayUnreadShort": "{count} unread",
   "turnNotificationsBackOn": "Turn notifications back on",
+  "twoPeopleAreTyping": "{first} and {second} are typing…",
   "typingIndicators": "Typing Indicators",
   "uiUxTeam": "UI/UX Team",
   "unableToDecryptMessage": "Unable to decrypt message",
@@ -1367,5 +1479,43 @@
   "yourPassphraseProtectsYourKeys": "Your passphrase protects your keys",
   "yourPinProtectsYourKeys": "Your PIN protects your keys",
   "yourPrysmId": "Your Prysm ID",
-  "yourPrysmIdWillAppearOnceTorFinishes": "Your Prysm ID will appear once Tor finishes connecting."
+  "yourPrysmIdWillAppearOnceTorFinishes": "Your Prysm ID will appear once Tor finishes connecting.",
+  "@deleteMediaFromConversation": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "conversation": {
+        "type": "String"
+      }
+    }
+  },
+  "@groupInviteReceivedAt": {
+    "placeholders": {
+      "receivedAt": {
+        "type": "String"
+      }
+    }
+  },
+  "@scheduleSendsAt": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "chatMediaFilterAll": "All",
+  "chatMediaFilterFiles": "Files",
+  "chatMediaFilterPhotos": "Photos",
+  "chatMediaFilterVoice": "Voice",
+  "chooseATimeInTheFuture": "Choose a time in the future",
+  "deleteMediaFromConversation": "Delete \"{label}\" from {conversation}? This removes it from your device only.",
+  "groupInviteReceivedAt": "Group invite · {receivedAt}",
+  "scheduleSendsAt": "Sends {label}",
+  "sendHoldToSchedule": "Send. Hold to schedule",
+  "today": "Today",
+  "youWillNeedThisPasswordToRestore": "You will need this password to restore.",
+  "openWithSystemApp": "Open with system app",
+  "displayNameHintExample": "eg. Alice",
+  "showQrCode": "Show QR Code"
 }

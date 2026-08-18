@@ -311,15 +311,15 @@ class _FilePreviewContentState extends State<FilePreviewContent> {
             if (bytes != null && bytes.isNotEmpty) ...[
               const SizedBox(height: 24),
               PrysmButton(
-                label: _downloading ? 'Downloading…' : 'Download',
+                label: _downloading ? context.l10n.downloading : context.l10n.download,
                 onPressed: _downloading ? null : () => _download(bytes, category),
               ),
               if (allowExternalOpen) ...[
                 const SizedBox(height: 12),
                 PrysmButton(
                   label: _openingExternally
-                      ? 'Opening…'
-                      : 'Open with system app',
+                      ? context.l10n.opening
+                      : context.l10n.openWithSystemApp,
                   variant: PrysmButtonVariant.secondary,
                   onPressed:
                       _openingExternally ? null : () => _openWithSystem(bytes),

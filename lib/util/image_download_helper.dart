@@ -58,9 +58,12 @@ class ImageDownloadHelper {
         }
         await Gal.putImageBytes(bytes, name: galleryName);
         if (!context.mounted) return;
-        showPrysmToast(context, 
-              Platform.isAndroid ? 'Saved to gallery' : 'Saved to Photos',
-            );
+        showPrysmToast(
+          context,
+          Platform.isAndroid
+              ? SettingsService().localizations.savedToGallery
+              : SettingsService().localizations.savedToPhotos,
+        );
         return;
       }
 
@@ -68,11 +71,16 @@ class ImageDownloadHelper {
       if (!context.mounted) return;
       showPrysmToast(
         context,
-        'Image saved (${file.path.split(Platform.pathSeparator).last})',
+        SettingsService().localizations.imageSavedFileName(
+          file.path.split(Platform.pathSeparator).last,
+        ),
       );
     } catch (e) {
       if (!context.mounted) return;
-      showPrysmToast(context, 'Could not save image: $e');
+      showPrysmToast(
+        context,
+        SettingsService().localizations.couldNotSaveImage(e.toString()),
+      );
     }
   }
 }

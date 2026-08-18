@@ -87,7 +87,7 @@ class _ScheduledMessagesTileState extends State<ScheduledMessagesTile> {
           title: _pending.length == 1
               ? '1 scheduled message'
               : '${_pending.length} scheduled messages',
-          subtitle: 'Next: ${formatScheduleLabel(next.sendAt)}',
+          subtitle: context.l10n.nextScheduleLabel(formatScheduleLabel(next.sendAt)),
           trailing: const Icon(PrysmIcons.chevronRight),
           onTap: _openList,
         ),
@@ -117,7 +117,7 @@ class _ScheduledListSheet extends StatelessWidget {
             PrysmTokens.spacing20,
             PrysmTokens.spacing12,
           ),
-          child: Text('Scheduled messages', style: style.titleStyle),
+          child: Text(context.l10n.scheduledMessages, style: style.titleStyle),
         ),
         const PrysmDivider(),
         Flexible(
@@ -140,8 +140,8 @@ class _ScheduledListSheet extends StatelessWidget {
                       content: Text(context.l10n.itWillNotBeSent,
                         style: style.bodyStyle,
                       ),
-                      confirmLabel: 'Cancel message',
-                      cancelLabel: 'Keep',
+                      confirmLabel: context.l10n.cancelMessage,
+                      cancelLabel: context.l10n.keep,
                     );
                     if (confirmed == true) await onCancel(message);
                   },

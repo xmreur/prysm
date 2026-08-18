@@ -40,6 +40,12 @@ void main() {
     await service.setLocaleOverride(LocaleOverride.it);
     expect(service.localeOverride, LocaleOverride.it);
     expect(service.localeRevision.value, greaterThan(before));
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = Settings.fromJson(
+      jsonDecode(prefs.getString('app_settings')!) as Map<String, dynamic>,
+    );
+    expect(stored.localeOverride, LocaleOverride.it);
   });
 
   test('resolveLocale uses override when set', () async {

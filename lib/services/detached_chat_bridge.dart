@@ -353,14 +353,19 @@ class DetachedChatBridge {
     unawaited(() async {
       try {
         final id = await send();
-        if (id != null) {
-          await _notifyStatus(
-            chatKind: chatKind,
-            conversationId: conversationId,
-            messageId: messageId,
-            status: 'sent',
-          );
-        }
+        await _notifyStatus(
+          chatKind: chatKind,
+          conversationId: conversationId,
+          messageId: messageId,
+          status: id != null ? 'sent' : 'failed',
+        );
+      } catch (_) {
+        await _notifyStatus(
+          chatKind: chatKind,
+          conversationId: conversationId,
+          messageId: messageId,
+          status: 'failed',
+        );
       } finally {
         dispose();
       }

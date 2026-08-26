@@ -28,6 +28,8 @@ bool canForwardMessage(Message message) {
       message is FileMessage;
 }
 
+bool canPinMessage(Message message) => canForwardMessage(message);
+
 Map<String, Object?> metadataFromDbRow(Map<String, dynamic> row) {
   final meta = <String, Object?>{};
   if (row['deletedAt'] != null) meta['deleted'] = true;

@@ -20,6 +20,8 @@ import 'package:prysm/ui/chat/prysm_chat_message_list.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
+import 'package:prysm/services/pinned_messages_service.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
@@ -38,6 +40,7 @@ import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
+import 'package:prysm/screens/widgets/pin_message_tile.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
@@ -148,6 +151,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _membershipSub;
   StreamSubscription? _readReceiptRefreshSub;
   List<String> _groupMemberIds = [];
+  final Set<String> _pinnedIds = {};
   String? _highlightedMessageId;
   Timer? _highlightTimer;
   bool _showChatSearch = false;
@@ -420,6 +424,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     await _controller.loadMoreMessages();
     _controller.restoreReplyDraft();
     await _controller.markInboundAsRead();
+    await _loadPinnedIds();
     if (widget.detachedClient == null) {
       _chatService.startPolling();
       _chatService.startSendQueue();
@@ -532,6 +537,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               _openForward(message);
             },
           ),
+        if (canPinMessage(message))
+          pinMessageTile(
+            context: context,
+            pinned: _pinnedIds.contains(message.id),
+            onToggle: () => togglePinnedMessage(
+              context: context,
+              messageId: message.id,
+              conversationId: widget.group.id,
+              scope: PinnedMessagesDb.scopeGroup,
+              pinnedIds: _pinnedIds,
+            ).then((_) {
+              if (mounted) setState(() {});
+            }),
+          ),
         PrysmListRow(
           leading: const Icon(PrysmIcons.selectAll),
           title: context.l10n.select,
@@ -566,6 +585,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       contacts: widget.contacts,
       groupById: widget.groupById ?? (_) => null,
     );
+  }
+
+  Future<void> _loadPinnedIds() async {
+    final ids = await PinnedMessagesService.pinnedIdsForConversation(
+      conversationId: widget.group.id,
+      scope: PinnedMessagesDb.scopeGroup,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pinnedIds
+        ..clear()
+        ..addAll(ids);
+    });
   }
 
   /// Deletes [message] and returns the outcome, so the bulk path can report a
@@ -1284,6 +1316,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (result is String) {
       await _scrollToMessage(result);
     }
+    await _loadPinnedIds();
   }
 
   Future<void> _scrollToMessage(String messageId) async {

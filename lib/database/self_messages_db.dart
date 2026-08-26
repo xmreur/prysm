@@ -2,6 +2,7 @@ import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/util/message_preview_label.dart';
 import 'package:sqflite/sqflite.dart';
@@ -122,6 +123,7 @@ class SelfMessagesDb {
         scope: 'self',
       );
     });
+    await PinnedMessagesDb.deleteForMessage(messageId);
   }
 
   static Future<void> updateContent({
@@ -169,5 +171,6 @@ class SelfMessagesDb {
         scope: 'self',
       );
     });
+    await PinnedMessagesDb.deleteForMessage(messageId);
   }
 }

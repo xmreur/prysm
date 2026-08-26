@@ -5,6 +5,7 @@ import 'package:prysm/database/message_read_receipts.dart';
 import 'package:prysm/database/message_schema_migrations.dart';
 import 'package:prysm/database/message_search_dao.dart';
 import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/message_blob_store.dart';
 import 'package:sqflite/sqflite.dart';
@@ -374,6 +375,7 @@ class MessageCrudDao {
       wireMessageId: wireId,
       groupId: groupId,
     );
+    await PinnedMessagesDb.deleteForMessage(wireId);
     await deleteMessageById(storageId);
     await MessageBlobStore.delete(storageId);
   }

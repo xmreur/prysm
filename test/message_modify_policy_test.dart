@@ -149,4 +149,41 @@ void main() {
       isFalse,
     );
   });
+
+  test('canPinMessage matches canForwardMessage', () {
+    expect(
+      canPinMessage(TextMessage(id: 't', authorId: 'a', text: 'hi')),
+      isTrue,
+    );
+    expect(
+      canPinMessage(
+        markMessageDeleted(TextMessage(id: 't', authorId: 'a', text: 'hi')),
+      ),
+      isFalse,
+    );
+    expect(
+      canPinMessage(
+        ImageMessage(
+          id: 'i',
+          authorId: 'a',
+          source: 'x',
+          size: 1,
+          metadata: const {'viewOnce': true},
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      canPinMessage(
+        PrysmCallMessage(
+          id: 'c',
+          authorId: 'a',
+          durationMs: 0,
+          callStatus: 'missed',
+          direction: 'inbound',
+        ),
+      ),
+      isFalse,
+    );
+  });
 }

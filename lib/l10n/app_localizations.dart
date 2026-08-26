@@ -2372,6 +2372,18 @@ abstract class AppLocalizations {
   /// **'Message info'**
   String get messageInfo;
 
+  /// No description provided for @messagePinned.
+  ///
+  /// In en, this message translates to:
+  /// **'Message pinned'**
+  String get messagePinned;
+
+  /// No description provided for @messageUnpinned.
+  ///
+  /// In en, this message translates to:
+  /// **'Message unpinned'**
+  String get messageUnpinned;
+
   /// No description provided for @messageNotFoundInLoadedHistory.
   ///
   /// In en, this message translates to:
@@ -2659,6 +2671,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No conversations found'**
   String get noConversationsFound;
+
+  /// No description provided for @noPinnedMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'No pinned messages'**
+  String get noPinnedMessages;
 
   /// No description provided for @noDownloadedFiles.
   ///
@@ -3182,6 +3200,12 @@ abstract class AppLocalizations {
   /// **'Pick one method. You can change it later in Settings.'**
   String get pickOneMethodYouCanChangeItLater;
 
+  /// No description provided for @pin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get pin;
+
   /// No description provided for @pinCannotMatchYourPanicPin.
   ///
   /// In en, this message translates to:
@@ -3223,6 +3247,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'PINs don\'t match'**
   String get pinsDoNotMatch;
+
+  /// No description provided for @pinnedMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned messages'**
+  String get pinnedMessages;
 
   /// No description provided for @presentation.
   ///
@@ -4495,6 +4525,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unlocking…'**
   String get unlocking;
+
+  /// No description provided for @unpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get unpin;
 
   /// No description provided for @unpinChat.
   ///

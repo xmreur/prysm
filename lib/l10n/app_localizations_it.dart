@@ -1328,6 +1328,12 @@ class AppLocalizationsIt extends AppLocalizations {
   String get messageInfo => 'Informazioni messaggio';
 
   @override
+  String get messagePinned => 'Messaggio fissato';
+
+  @override
+  String get messageUnpinned => 'Fissaggio rimosso';
+
+  @override
   String get messageNotFoundInLoadedHistory =>
       'Messaggio non trovato nei messaggi caricati';
 
@@ -1496,6 +1502,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get noConversationsFound => 'Nessuna conversazione trovata';
+
+  @override
+  String get noPinnedMessages => 'Nessun messaggio fissato';
 
   @override
   String get noDownloadedFiles => 'Nessun file scaricato';
@@ -1803,6 +1812,9 @@ class AppLocalizationsIt extends AppLocalizations {
       'Scegli un metodo. Potrai cambiarlo più tardi nelle Impostazioni.';
 
   @override
+  String get pin => 'Fissa';
+
+  @override
   String get pinCannotMatchYourPanicPin =>
       'Il PIN non può essere uguale al tuo PIN di panico';
 
@@ -1824,6 +1836,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get pinsDoNotMatch => 'I PIN non corrispondono';
+
+  @override
+  String get pinnedMessages => 'Messaggi fissati';
 
   @override
   String get presentation => 'Presentazione';
@@ -2553,6 +2568,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get unlocking => 'Sbloccando...';
+
+  @override
+  String get unpin => 'Rimuovi';
 
   @override
   String get unpinChat => 'Rimuovi fissaggio';

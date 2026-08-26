@@ -13,6 +13,8 @@ import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/chat_media_gallery_screen.dart';
+import 'package:prysm/screens/pinned_messages_screen.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
 import 'package:prysm/screens/key_verification_screen.dart';
 import 'package:prysm/services/contact_verification_service.dart';
 import 'package:prysm/services/group_service.dart';
@@ -507,6 +509,29 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                           groupService: _groupService,
                           contacts: widget.contacts,
                           joinedAt: joinedAt,
+                        ),
+                      ),
+                    );
+                    if (messageId != null && mounted) {
+                      navigator.pop(messageId);
+                    }
+                  },
+                ),
+                const PrysmDivider(),
+                PrysmListRow(
+                  leading: const Icon(PrysmIcons.pushPin),
+                  title: context.l10n.pinnedMessages,
+                  trailing: const Icon(PrysmIcons.chevronRight),
+                  onTap: () async {
+                    final navigator = Navigator.of(context);
+                    final messageId = await navigator.push<String>(
+                      PrysmPageRoute(
+                        page: PinnedMessagesScreen(
+                          conversationId: widget.group.id,
+                          scope: PinnedMessagesDb.scopeGroup,
+                          keyManager: widget.keyManager,
+                          userId: widget.userId,
+                          groupService: _groupService,
                         ),
                       ),
                     );

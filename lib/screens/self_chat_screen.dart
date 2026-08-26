@@ -14,8 +14,12 @@ import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prysm/crypto/wire.dart';
 import 'package:prysm/database/self_messages_db.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
+import 'package:prysm/services/pinned_messages_service.dart';
+import 'package:prysm/screens/pinned_messages_screen.dart';
 import 'package:prysm/screens/widgets/deleted_message_bubble.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
+import 'package:prysm/screens/widgets/pin_message_tile.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
 import 'package:prysm/screens/widgets/image_message_bubble.dart';
 import 'package:prysm/screens/widgets/linked_message_text.dart';
@@ -90,6 +94,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
   Timer? _highlightTimer;
   bool _showChatSearch = false;
   String _chatHighlightQuery = '';
+  final Set<String> _pinnedIds = {};
 
   Future<List<Message>> _decryptForDisplay(
     List<Map<String, dynamic>> rows,
@@ -158,6 +163,7 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       });
     }
     _loadInitialMessages();
+    unawaited(_loadPinnedIds());
   }
 
   @override
@@ -388,6 +394,20 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                 _openForward(message);
               },
             ),
+          if (canPinMessage(message))
+            pinMessageTile(
+              context: context,
+              pinned: _pinnedIds.contains(message.id),
+              onToggle: () => togglePinnedMessage(
+                context: context,
+                messageId: message.id,
+                conversationId: SelfConversation.conversationId,
+                scope: PinnedMessagesDb.scopeSelf,
+                pinnedIds: _pinnedIds,
+              ).then((_) {
+                if (mounted) setState(() {});
+              }),
+            ),
           PrysmListRow(
             leading: const Icon(PrysmIcons.deleteOutline),
             title: context.l10n.delete,
@@ -415,6 +435,34 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       contacts: widget.contacts,
       groupById: widget.groupById ?? (_) => null,
     );
+  }
+
+  Future<void> _loadPinnedIds() async {
+    final ids = await PinnedMessagesService.pinnedIdsForConversation(
+      conversationId: SelfConversation.conversationId,
+      scope: PinnedMessagesDb.scopeSelf,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pinnedIds
+        ..clear()
+        ..addAll(ids);
+    });
+  }
+
+  Future<void> _openPinned() async {
+    final id = await Navigator.of(context).push<String>(
+      PrysmPageRoute(
+        page: PinnedMessagesScreen(
+          conversationId: SelfConversation.conversationId,
+          scope: PinnedMessagesDb.scopeSelf,
+          keyManager: widget.keyManager,
+          userId: widget.userId,
+        ),
+      ),
+    );
+    await _loadPinnedIds();
+    if (id != null && mounted) await _scrollToMessage(id);
   }
 
   Future<void> _openUrl(String url) async {
@@ -683,6 +731,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       title: context.l10n.chatWithMyself,
       subtitle: context.l10n.notesToYourself,
       actions: [
+        PrysmIconButton(
+          icon: PrysmIcons.pushPin,
+          onPressed: _openPinned,
+        ),
         PrysmIconButton(
           icon: PrysmIcons.search,
           onPressed: () => setState(() {

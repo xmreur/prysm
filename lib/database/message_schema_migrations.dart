@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 16;
+  static const int dbVersion = 17;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -36,6 +36,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 14) await _upgradeToV14(db);
     if (oldVersion < 15) await _upgradeToV15(db);
     if (oldVersion < 16) await _upgradeToV16(db);
+    if (oldVersion < 17) await _upgradeToV17(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -137,6 +138,7 @@ class MessageSchemaMigrations {
     await createSelfMessagesTable(db);
     await createScheduledMessagesTable(db);
     await createMessageSearchFtsTable(db);
+    await createPinnedMessagesTable(db);
   }
 
   /// CHANGES: added readAt timestamp
@@ -298,6 +300,27 @@ class MessageSchemaMigrations {
         'ALTER TABLE self_messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0',
       );
     }
+  }
+
+  static Future<void> _upgradeToV17(Database db) async {
+    Logging.info('UPGRADING DB TO v17', 'MessagesDb');
+    await createPinnedMessagesTable(db);
+  }
+
+  static Future<void> createPinnedMessagesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pinned_messages (
+        messageId TEXT NOT NULL,
+        conversationId TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        pinnedAt INTEGER NOT NULL,
+        PRIMARY KEY (messageId, conversationId, scope)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pinned_conversation '
+      'ON pinned_messages(conversationId, scope, pinnedAt DESC)',
+    );
   }
 
   /// Plaintext FTS5 index for local message search (protected by SQLCipher),

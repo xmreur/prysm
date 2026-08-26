@@ -5,6 +5,7 @@ import 'package:prysm/theme/prysm_style_scope.dart';
 import 'dart:convert';
 import 'package:bs58/bs58.dart';
 import 'package:flutter/services.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/contact_verification_service.dart';
 import 'package:prysm/services/notification_mute_service.dart';
@@ -12,6 +13,7 @@ import '../models/contact.dart';
 import '../util/db_helper.dart';
 import '../util/key_manager.dart';
 import 'chat_media_gallery_screen.dart';
+import 'pinned_messages_screen.dart';
 import 'key_verification_screen.dart';
 import 'widgets/block_user_tile.dart';
 import 'widgets/contact_avatar.dart';
@@ -370,25 +372,51 @@ class _ChatProfileScreenState extends State<ChatProfileScreen> {
                       ),
                     ],
                   ),
-                  child: PrysmListRow(
-                    leading: const Icon(PrysmIcons.photoLibraryOutlined),
-                    title: context.l10n.sharedMedia,
-                    trailing: const Icon(PrysmIcons.chevronRight),
-                    onTap: () async {
-                      final messageId = await Navigator.push<String>(
-                        context,
-                        PrysmPageRoute(
-                          page: ChatMediaGalleryScreen.direct(
-                            peer: widget.peer,
-                            userId: widget.userId,
-                            keyManager: widget.keyManager,
-                          ),
-                        ),
-                      );
-                      if (messageId != null && context.mounted) {
-                        Navigator.of(context).pop(messageId);
-                      }
-                    },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PrysmListRow(
+                        leading: const Icon(PrysmIcons.photoLibraryOutlined),
+                        title: context.l10n.sharedMedia,
+                        trailing: const Icon(PrysmIcons.chevronRight),
+                        onTap: () async {
+                          final messageId = await Navigator.push<String>(
+                            context,
+                            PrysmPageRoute(
+                              page: ChatMediaGalleryScreen.direct(
+                                peer: widget.peer,
+                                userId: widget.userId,
+                                keyManager: widget.keyManager,
+                              ),
+                            ),
+                          );
+                          if (messageId != null && context.mounted) {
+                            Navigator.of(context).pop(messageId);
+                          }
+                        },
+                      ),
+                      PrysmListRow(
+                        leading: const Icon(PrysmIcons.pushPin),
+                        title: context.l10n.pinnedMessages,
+                        trailing: const Icon(PrysmIcons.chevronRight),
+                        onTap: () async {
+                          final messageId = await Navigator.push<String>(
+                            context,
+                            PrysmPageRoute(
+                              page: PinnedMessagesScreen(
+                                conversationId: widget.peer.id,
+                                scope: PinnedMessagesDb.scopeDirect,
+                                keyManager: widget.keyManager,
+                                userId: widget.userId,
+                              ),
+                            ),
+                          );
+                          if (messageId != null && context.mounted) {
+                            Navigator.of(context).pop(messageId);
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 20),

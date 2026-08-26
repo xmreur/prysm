@@ -158,11 +158,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text(
-          l10n.couldNotStartCallE(
-            'Bad state: CallManager.start() must be called first',
-          ),
-        ),
+        find.text(l10n.couldNotStartCallE(l10n.disconnected)),
         findsOneWidget,
       );
       await tester.pump(const Duration(seconds: 3));

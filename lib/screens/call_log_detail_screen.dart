@@ -14,6 +14,7 @@ import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 
 String callLogStatusLabel(AppLocalizations l10n, CallLogStatus status) {
@@ -99,7 +100,8 @@ class CallLogDetailScreen extends StatelessWidget {
       }
       await manager.startCall(log.peerOnion);
     } catch (e) {
-      fail('$e');
+      Logging.error('Could not start call: $e', 'CallLogDetailScreen');
+      fail(e is StateError ? l10n.disconnected : l10n.failed);
     }
   }
 

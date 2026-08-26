@@ -143,7 +143,7 @@ class CallLogDetailScreen extends StatelessWidget {
             title: l10n.callStarted,
             subtitle: _formatStartedAt(log.startedAt),
           ),
-          if (log.durationMs > 0)
+          if (log.status == CallLogStatus.completed || log.durationMs > 0)
             PrysmListRow(
               title: l10n.callDuration,
               subtitle: formatCallLogDuration(log.durationMs),

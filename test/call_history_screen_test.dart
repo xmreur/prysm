@@ -102,6 +102,33 @@ void main() {
     },
   );
 
+  testWidgets(
+    'a completed call with zero duration still shows the duration row',
+    (tester) async {
+      final zeroCompleted = CallLog(
+        callId: 'completed-zero',
+        peerOnion: 'dave.onion',
+        direction: CallLogDirection.outbound,
+        status: CallLogStatus.completed,
+        startedAt: now,
+        endedAt: now,
+        durationMs: 0,
+      );
+
+      await pumpWithPrysmL10n(
+        tester,
+        CallLogDetailScreen(
+          log: zeroCompleted,
+          displayName: 'Dave',
+          onClose: () {},
+        ),
+      );
+
+      expect(find.text(l10n.callDuration), findsOneWidget);
+      expect(find.text('0s'), findsOneWidget);
+    },
+  );
+
   testWidgets('tapping a failed outbound log shows Retry call', (tester) async {
     await pumpWithPrysmL10n(tester, history());
 

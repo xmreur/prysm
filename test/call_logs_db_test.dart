@@ -127,4 +127,84 @@ void main() {
     final logs = await CallLogsDb.getLogs();
     expect(logs, isEmpty);
   });
+
+  test('placeAction maps missed inbound to call back', () {
+    expect(
+      _log(
+        direction: CallLogDirection.inbound,
+        status: CallLogStatus.missed,
+      ).placeAction,
+      CallLogPlaceAction.callBack,
+    );
+  });
+
+  test('placeAction maps outbound missed and failed to retry', () {
+    expect(
+      _log(
+        direction: CallLogDirection.outbound,
+        status: CallLogStatus.missed,
+      ).placeAction,
+      CallLogPlaceAction.retry,
+    );
+    expect(
+      _log(
+        direction: CallLogDirection.outbound,
+        status: CallLogStatus.failed,
+      ).placeAction,
+      CallLogPlaceAction.retry,
+    );
+    expect(
+      _log(
+        direction: CallLogDirection.inbound,
+        status: CallLogStatus.failed,
+      ).placeAction,
+      CallLogPlaceAction.retry,
+    );
+  });
+
+  test('placeAction is empty for completed, declined, and ringing', () {
+    expect(
+      _log(
+        direction: CallLogDirection.inbound,
+        status: CallLogStatus.completed,
+      ).placeAction,
+      isNull,
+    );
+    expect(
+      _log(
+        direction: CallLogDirection.inbound,
+        status: CallLogStatus.declined,
+      ).placeAction,
+      isNull,
+    );
+    expect(
+      _log(
+        direction: CallLogDirection.outbound,
+        status: CallLogStatus.declined,
+      ).placeAction,
+      isNull,
+    );
+    expect(
+      _log(
+        direction: CallLogDirection.inbound,
+        status: CallLogStatus.ringing,
+      ).placeAction,
+      isNull,
+    );
+  });
+}
+
+CallLog _log({
+  required CallLogDirection direction,
+  required CallLogStatus status,
+}) {
+  return CallLog(
+    callId: 'c',
+    peerOnion: 'peer.onion',
+    direction: direction,
+    status: status,
+    startedAt: 1,
+    endedAt: 2,
+    durationMs: 0,
+  );
 }

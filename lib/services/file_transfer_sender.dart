@@ -74,6 +74,7 @@ class FileTransferSender {
     required String peerPayload,
     String? replyToId,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
     int? timestamp,
   }) async {
@@ -150,6 +151,7 @@ class FileTransferSender {
               'chunkSize': chunkSize,
               'replyTo': ?replyToId,
               'viewOnce': viewOnce,
+              if (forwarded) 'forwarded': true,
               'expiresAt': ?expiresAt,
             },
             bypassQueue: true,

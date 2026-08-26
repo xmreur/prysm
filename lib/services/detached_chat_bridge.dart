@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:prysm/models/chat/prysm_message.dart';
@@ -60,6 +61,7 @@ class DetachedChatBridge {
       required text,
       replyToId,
       required messageId,
+      forwarded = false,
     }) {
       return _sendText(
         chatKind: chatKind,
@@ -67,6 +69,7 @@ class DetachedChatBridge {
         text: text,
         replyToId: replyToId,
         messageId: messageId,
+        forwarded: forwarded,
         userId: userId,
         keyManager: keyManager,
         contacts: contacts(),
@@ -82,6 +85,7 @@ class DetachedChatBridge {
       replyToId,
       required messageId,
       viewOnce = false,
+      forwarded = false,
     }) {
       return _sendFile(
         chatKind: chatKind,
@@ -92,6 +96,7 @@ class DetachedChatBridge {
         replyToId: replyToId,
         messageId: messageId,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         userId: userId,
         keyManager: keyManager,
         contacts: contacts(),
@@ -282,6 +287,7 @@ class DetachedChatBridge {
     required String text,
     String? replyToId,
     required String messageId,
+    bool forwarded = false,
     required String userId,
     required KeyManager keyManager,
     required List<Contact> contacts,
@@ -293,10 +299,12 @@ class DetachedChatBridge {
       text: text,
       replyToId: replyToId,
       messageId: messageId,
+      forwarded: forwarded,
       userId: userId,
       keyManager: keyManager,
       contacts: contacts,
       groupById: groupById,
+      waitForDelivery: false,
     );
   }
 
@@ -309,6 +317,7 @@ class DetachedChatBridge {
     String? replyToId,
     required String messageId,
     bool viewOnce = false,
+    bool forwarded = false,
     required String userId,
     required KeyManager keyManager,
     required List<Contact> contacts,
@@ -323,11 +332,45 @@ class DetachedChatBridge {
       replyToId: replyToId,
       messageId: messageId,
       viewOnce: viewOnce,
+      forwarded: forwarded,
       userId: userId,
       keyManager: keyManager,
       contacts: contacts,
       groupById: groupById,
+      waitForDelivery: false,
     );
+  }
+
+  /// Share/forward must not wait on the Tor timeout — same as composer send:
+  /// insert as pending, retry from the queue, dispose when the attempt finishes.
+  static String _enqueueOutbound({
+    required Future<String?> Function() send,
+    required void Function() dispose,
+    required DetachedChatKind chatKind,
+    required String conversationId,
+    required String messageId,
+  }) {
+    unawaited(() async {
+      try {
+        final id = await send();
+        await _notifyStatus(
+          chatKind: chatKind,
+          conversationId: conversationId,
+          messageId: messageId,
+          status: id != null ? 'sent' : 'failed',
+        );
+      } catch (_) {
+        await _notifyStatus(
+          chatKind: chatKind,
+          conversationId: conversationId,
+          messageId: messageId,
+          status: 'failed',
+        );
+      } finally {
+        dispose();
+      }
+    }());
+    return messageId;
   }
 
   static Future<String?> _sendText({
@@ -336,10 +379,12 @@ class DetachedChatBridge {
     required String text,
     String? replyToId,
     required String messageId,
+    bool forwarded = false,
     required String userId,
     required KeyManager keyManager,
     required List<Contact> contacts,
     required Group? Function(String groupId) groupById,
+    bool waitForDelivery = true,
   }) async {
     switch (chatKind) {
       case DetachedChatKind.direct:
@@ -356,11 +401,26 @@ class DetachedChatBridge {
           keyManager: keyManager,
         );
         await service.initialize(contact?.publicKeyPem);
-        final id = await service.sendTextMessage(
+        if (service.peerIdentity == null) {
+          service.dispose();
+          return null;
+        }
+        Future<String?> send() => service.sendTextMessage(
           text,
           replyToId: replyToId,
           messageId: messageId,
+          forwarded: forwarded,
         );
+        if (!waitForDelivery) {
+          return _enqueueOutbound(
+            send: send,
+            dispose: service.dispose,
+            chatKind: chatKind,
+            conversationId: conversationId,
+            messageId: messageId,
+          );
+        }
+        final id = await send();
         service.dispose();
         if (id != null) {
           await _notifyStatus(
@@ -373,7 +433,12 @@ class DetachedChatBridge {
         return id;
       case DetachedChatKind.self:
         final id = await SelfChatService(userId: userId, keyManager: keyManager)
-            .sendTextMessage(text, replyToId: replyToId, messageId: messageId);
+            .sendTextMessage(
+          text,
+          replyToId: replyToId,
+          messageId: messageId,
+          forwarded: forwarded,
+        );
         await _notifyStatus(
           chatKind: chatKind,
           conversationId: conversationId,
@@ -391,12 +456,27 @@ class DetachedChatBridge {
           keyManager: keyManager,
           groupService: groupService,
         );
-        await chatService.initialize();
-        final id = await chatService.sendTextMessage(
+        final ready = await chatService.initialize();
+        if (!ready) {
+          chatService.dispose();
+          return null;
+        }
+        Future<String?> send() => chatService.sendTextMessage(
           text,
           replyToId: replyToId,
           messageId: messageId,
+          forwarded: forwarded,
         );
+        if (!waitForDelivery) {
+          return _enqueueOutbound(
+            send: send,
+            dispose: chatService.dispose,
+            chatKind: chatKind,
+            conversationId: conversationId,
+            messageId: messageId,
+          );
+        }
+        final id = await send();
         chatService.dispose();
         if (id != null) {
           await _notifyStatus(
@@ -419,10 +499,12 @@ class DetachedChatBridge {
     String? replyToId,
     required String messageId,
     bool viewOnce = false,
+    bool forwarded = false,
     required String userId,
     required KeyManager keyManager,
     required List<Contact> contacts,
     required Group? Function(String groupId) groupById,
+    bool waitForDelivery = true,
   }) async {
     switch (chatKind) {
       case DetachedChatKind.direct:
@@ -439,14 +521,29 @@ class DetachedChatBridge {
           keyManager: keyManager,
         );
         await service.initialize(contact?.publicKeyPem);
-        final id = await service.sendFileMessage(
+        if (service.peerIdentity == null) {
+          service.dispose();
+          return null;
+        }
+        Future<String?> send() => service.sendFileMessage(
           bytes,
           fileName,
           type,
           replyToId: replyToId,
           messageId: messageId,
           viewOnce: viewOnce,
+          forwarded: forwarded,
         );
+        if (!waitForDelivery) {
+          return _enqueueOutbound(
+            send: send,
+            dispose: service.dispose,
+            chatKind: chatKind,
+            conversationId: conversationId,
+            messageId: messageId,
+          );
+        }
+        final id = await send();
         service.dispose();
         if (id != null) {
           await _notifyStatus(
@@ -466,6 +563,7 @@ class DetachedChatBridge {
           replyToId: replyToId,
           messageId: messageId,
           viewOnce: viewOnce,
+          forwarded: forwarded,
         );
         await _notifyStatus(
           chatKind: chatKind,
@@ -482,15 +580,30 @@ class DetachedChatBridge {
           keyManager: keyManager,
           groupService: groupService,
         );
-        await chatService.initialize();
-        final id = await chatService.sendFileMessage(
+        final ready = await chatService.initialize();
+        if (!ready) {
+          chatService.dispose();
+          return null;
+        }
+        Future<String?> send() => chatService.sendFileMessage(
           bytes,
           fileName,
           type,
           replyToId: replyToId,
           messageId: messageId,
           viewOnce: viewOnce,
+          forwarded: forwarded,
         );
+        if (!waitForDelivery) {
+          return _enqueueOutbound(
+            send: send,
+            dispose: chatService.dispose,
+            chatKind: chatKind,
+            conversationId: conversationId,
+            messageId: messageId,
+          );
+        }
+        final id = await send();
         chatService.dispose();
         if (id != null) {
           await _notifyStatus(

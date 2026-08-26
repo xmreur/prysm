@@ -73,6 +73,13 @@
       }
     }
   },
+  "@couldNotForwardE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
   "@couldNotLoadDownloadsE": {
     "placeholders": {
       "e": {
@@ -834,6 +841,7 @@
   "couldNotDeleteForEveryone": "Could not delete for everyone",
   "couldNotDeleteMediaE": "Could not delete media: {e}",
   "couldNotEditMessage": "Could not edit message",
+  "couldNotForwardE": "Could not forward: {e}",
   "couldNotLoadDownloadsE": "Could not load downloads: {e}",
   "couldNotLoadImage": "Could not load image",
   "couldNotLoadMediaE": "Could not load media: {e}",
@@ -981,6 +989,8 @@
   "fontInter": "Inter",
   "fontJetBrainsMono": "JetBrains Mono",
   "fontSystem": "System",
+  "forward": "Forward",
+  "forwarded": "Forwarded",
   "galleryAccessDenied": "Gallery access denied",
   "general": "General",
   "getStarted": "Get started",
@@ -1327,6 +1337,7 @@
   "shareToPrysm": "Share to Prysm",
   "sharedMedia": "Shared Media",
   "showAnEmptyAppWhileYourRealData": "Show an empty app while your real data stays encrypted on disk",
+  "showAsForwarded": "Show as forwarded",
   "showFullQr": "Show full QR",
   "showInChat": "Show in chat",
   "showMyQrCode": "Show my QR code",

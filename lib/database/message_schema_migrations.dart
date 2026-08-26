@@ -11,7 +11,7 @@ class MessageSchemaMigrations {
   MessageSchemaMigrations._();
 
   /// Current schema version. Bump alongside a new _upgradeToVN step.
-  static const int dbVersion = 15;
+  static const int dbVersion = 16;
 
   static Future<void> onCreate(Database db, int version) async {
     await _createV2(db);
@@ -35,6 +35,7 @@ class MessageSchemaMigrations {
     if (oldVersion < 13) await _upgradeToV13(db);
     if (oldVersion < 14) await _upgradeToV14(db);
     if (oldVersion < 15) await _upgradeToV15(db);
+    if (oldVersion < 16) await _upgradeToV16(db);
   }
 
   static Future<void> migrateOversizedMessagePayloads(Database db) async {
@@ -111,7 +112,8 @@ class MessageSchemaMigrations {
                 groupId TEXT,
                 deletedAt INTEGER,
                 editedAt INTEGER,
-                expiresAt INTEGER
+                expiresAt INTEGER,
+                forwarded INTEGER NOT NULL DEFAULT 0
             )
         ''');
 
@@ -281,6 +283,23 @@ class MessageSchemaMigrations {
     ''');
   }
 
+  static Future<void> _upgradeToV16(Database db) async {
+    Logging.info('UPGRADING DB TO v16', 'MessagesDb');
+    final messageCols = await db.rawQuery('PRAGMA table_info(messages)');
+    if (!messageCols.any((col) => col['name'] == 'forwarded')) {
+      await db.execute(
+        'ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    final selfCols = await db.rawQuery('PRAGMA table_info(self_messages)');
+    if (selfCols.isNotEmpty &&
+        !selfCols.any((col) => col['name'] == 'forwarded')) {
+      await db.execute(
+        'ALTER TABLE self_messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
   /// Plaintext FTS5 index for local message search (protected by SQLCipher),
   /// plus the message_search_rows side table that keeps deletes O(1).
   static Future<void> createMessageSearchFtsTable(Database db) async {
@@ -356,7 +375,8 @@ class MessageSchemaMigrations {
         viewOnce INTEGER DEFAULT 0,
         viewed INTEGER DEFAULT 0,
         deletedAt INTEGER,
-        editedAt INTEGER
+        editedAt INTEGER,
+        forwarded INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute(

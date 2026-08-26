@@ -48,7 +48,8 @@ Future<Database> _openMessagesDb() async {
       groupId TEXT,
       deletedAt INTEGER,
       editedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      forwarded INTEGER NOT NULL DEFAULT 0
     )
   ''');
   await MessageSchemaMigrations.createMessageSearchFtsTable(db);
@@ -265,5 +266,33 @@ void main() {
         expect(refreshCount, 0);
       },
     );
+
+    test('inbound chat message persists forwarded', () async {
+      final aliceKm = KeyManager.fromIdentity(alice);
+      final wire = await aliceKm.encryptForPeer(
+        'hello',
+        localPublic,
+        peerId: 'local.onion',
+      );
+
+      final result = await router.handleMessage({
+        'id': 'fwd-1',
+        'senderId': 'alice.onion',
+        'receiverId': 'local.onion',
+        'message': wire,
+        'type': 'text',
+        'timestamp': 1,
+        'forwarded': true,
+      });
+
+      expect(result.statusCode, 200);
+      final rows = await messagesDb.query(
+        'messages',
+        where: 'id = ?',
+        whereArgs: ['fwd-1'],
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single['forwarded'], 1);
+    });
   });
 }

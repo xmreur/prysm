@@ -25,7 +25,8 @@ Future<Database> _openPendingDb() async {
       replyTo TEXT,
       viewOnce INTEGER DEFAULT 0,
       groupId TEXT,
-      targetMemberId TEXT
+      targetMemberId TEXT,
+      forwarded INTEGER DEFAULT 0
     )
   ''');
   return db;
@@ -52,7 +53,8 @@ Future<Database> _openMessagesDb() async {
       groupId TEXT,
       deletedAt INTEGER,
       editedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      forwarded INTEGER NOT NULL DEFAULT 0
     )
   ''');
   await MessageSchemaMigrations.createMessageSearchFtsTable(db);
@@ -232,18 +234,24 @@ void main() {
         'type': 'text',
         'timestamp': 1,
         'status': 'pending',
+        'forwarded': 1,
       });
 
+      Map<String, dynamic>? sentRow;
       final markedSent = <String>[];
       final reconciler = buildReconciler(
         requeued: [],
-        sendPending: (row) async => true,
+        sendPending: (row) async {
+          sentRow = row;
+          return true;
+        },
         markedSent: markedSent,
       );
 
       await reconciler.flushOnce();
 
       expect(markedSent, ['msg-1']);
+      expect(sentRow?['forwarded'], 1);
       final remaining = await PendingMessageDbHelper.getPendingMessages(
         receiverId: peerId,
       );

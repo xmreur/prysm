@@ -21,7 +21,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/models/conversation.dart';
+import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/screens/widgets/forward_message_flow.dart';
+import 'package:prysm/screens/widgets/message_forwarded_label.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
@@ -91,6 +95,10 @@ class GroupChatScreen extends StatefulWidget {
   final Widget? torStatusAction;
   final DetachedChatClient? detachedClient;
   final String? initialScrollToMessageId;
+  final List<Conversation> shareableConversations;
+  final Group? Function(String groupId)? groupById;
+  final String? userName;
+  final String? userAvatarBase64;
 
   const GroupChatScreen({
     required this.userId,
@@ -102,6 +110,10 @@ class GroupChatScreen extends StatefulWidget {
     this.torStatusAction,
     this.detachedClient,
     this.initialScrollToMessageId,
+    this.shareableConversations = const [],
+    this.groupById,
+    this.userName,
+    this.userAvatarBase64,
     super.key,
   });
 
@@ -511,6 +523,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             _controller.setReplyToMessage(message);
           },
         ),
+        if (canForwardMessage(message))
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.forward),
+            title: context.l10n.forward,
+            onTap: () {
+              Navigator.pop(context);
+              _openForward(message);
+            },
+          ),
         PrysmListRow(
           leading: const Icon(PrysmIcons.selectAll),
           title: context.l10n.select,
@@ -528,6 +549,22 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           },
         ),
       ],
+    );
+  }
+
+  Future<void> _openForward(Message message) {
+    return openForwardMessagePicker(
+      context: context,
+      message: message,
+      sourceKind: DetachedChatKind.group,
+      sourceConversationId: widget.group.id,
+      userId: widget.userId,
+      userName: widget.userName,
+      userAvatarBase64: widget.userAvatarBase64,
+      keyManager: widget.keyManager,
+      conversations: widget.shareableConversations,
+      contacts: widget.contacts,
+      groupById: widget.groupById ?? (_) => null,
     );
   }
 
@@ -1348,6 +1385,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                MessageForwardedLabel(
+                  message: message,
+                  color: tickColor.withAlpha(180),
+                ),
                 _replyQuoteFor(message, isSentByMe),
                 LinkedMessageText(
                   text: message.text,
@@ -1545,6 +1586,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           timeString: timeString,
           tickWidget: tickWidget,
           decryptFromDb: () => _decryptGroupImageFromDb(message.id),
+          caption: MessageForwardedLabel(
+            message: message,
+            color: context.prysmStyle.tokens.textMuted,
+          ),
         ),
       ],
     );
@@ -1578,6 +1623,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             isSentByMe: isSentByMe,
             timeString: timeString,
             tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+            caption: MessageForwardedLabel(
+              message: message,
+              color: tickColor.withAlpha(180),
+            ),
             decryptAudio: message.source.startsWith('audio:')
                 ? null
                 : (_) async {
@@ -1604,6 +1653,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           timeString: timeString,
           isSentByMe: isSentByMe,
           tickWidget: _buildStatusWidget(message, isSentByMe, tickColor),
+          caption: MessageForwardedLabel(
+            message: message,
+            color: tickColor.withAlpha(180),
+          ),
           header: _senderLabel(message.authorId, isSentByMe),
           resolveBytes: () async {
             final rows = await MessagesDb.getMessageById(

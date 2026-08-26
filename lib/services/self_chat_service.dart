@@ -22,6 +22,7 @@ class SelfChatService {
     String text, {
     String? replyToId,
     String? messageId,
+    bool forwarded = false,
   }) async {
     final id = messageId ?? const Uuid().v4();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -33,6 +34,7 @@ class SelfChatService {
       'type': 'text',
       'timestamp': timestamp,
       'replyTo': replyToId,
+      if (forwarded) 'forwarded': 1,
     });
 
     await MessageSearchIndexService.indexBestEffort(
@@ -56,6 +58,7 @@ class SelfChatService {
     String? replyToId,
     String? messageId,
     bool viewOnce = false,
+    bool forwarded = false,
   }) async {
     final id = messageId ?? const Uuid().v4();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -75,6 +78,7 @@ class SelfChatService {
       'timestamp': timestamp,
       'replyTo': replyToId,
       'viewOnce': viewOnce ? 1 : 0,
+      if (forwarded) 'forwarded': 1,
     });
 
     // ponytail: guard instead of a viewOnce param on indexOutboundFile — a

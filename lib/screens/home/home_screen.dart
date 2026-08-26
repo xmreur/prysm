@@ -91,6 +91,7 @@ import 'package:prysm/util/qr_platform.dart';
 import 'package:prysm/util/tor_connection_notifier.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
+import 'package:prysm/services/shareable_conversations.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -850,13 +851,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   List<Conversation> get _shareableConversations {
-    return conversations.where((conversation) {
-      if (conversation is DirectConversation &&
-          BlockService.instance.isBlocked(conversation.id)) {
-        return false;
-      }
-      return !(_conversationPrefs[conversation.id]?.isArchived ?? false);
-    }).toList();
+    return ShareableConversations.filter(
+      conversations: conversations,
+      prefs: _conversationPrefs,
+    );
   }
 
   Group? _groupById(String groupId) {
@@ -2342,6 +2340,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onCloseChat: () => clearChat(),
         reloadSidebar: () => loadUsers(),
         initialScrollToMessageId: scrollId,
+        shareableConversations: _shareableConversations,
+        contacts: contacts,
+        groupById: _groupById,
       );
     }
     if (selectedConversation is GroupConversation) {
@@ -2371,6 +2372,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onCloseChat: () => clearChat(),
         torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
         initialScrollToMessageId: scrollId,
+        shareableConversations: _shareableConversations,
+        groupById: _groupById,
+        userName: appUser.name,
+        userAvatarBase64: appUser.avatarBase64,
       );
     }
     if (selectedContact != null) {
@@ -2405,6 +2410,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onCloseChat: () => clearChat(),
         torStatusAction: widget.decoyMode ? null : _buildTorAppBarAction(),
         initialScrollToMessageId: scrollId,
+        shareableConversations: _shareableConversations,
+        contacts: contacts,
+        groupById: _groupById,
+        userAvatarBase64: appUser.avatarBase64,
       );
     }
     return _buildEmptyHomeState();

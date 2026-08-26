@@ -31,6 +31,7 @@ class _InboundTransfer {
     required this.scheme,
     this.replyTo,
     this.viewOnce = false,
+    this.forwarded = false,
   }) : buffer = Uint8List(ciphertextSize),
        receivedChunks = List<bool>.filled(totalChunks, false),
        lastActivity = DateTime.now();
@@ -50,6 +51,7 @@ class _InboundTransfer {
   final String scheme;
   final String? replyTo;
   final bool viewOnce;
+  final bool forwarded;
 
   final Uint8List buffer;
   final List<bool> receivedChunks;
@@ -238,7 +240,8 @@ class FileTransferHandler {
           base64Encode(existing.nonce) == payload['nonce'] &&
           mapEquals(existing.wrappedKey, payload['wrappedKey']) &&
           existing.replyTo == payload['replyTo'] &&
-          existing.viewOnce == (payload['viewOnce'] == true);
+          existing.viewOnce == (payload['viewOnce'] == true) &&
+          existing.forwarded == (payload['forwarded'] == true);
       if (sameTransfer) {
         Logging.debug(
           'begin duplicate transfer=$transferId message=${payload['messageId']} '
@@ -302,6 +305,7 @@ class FileTransferHandler {
       scheme: scheme,
       replyTo: payload['replyTo'] as String?,
       viewOnce: payload['viewOnce'] == true,
+      forwarded: payload['forwarded'] == true,
     );
 
     FileTransferProgress.setDownload(
@@ -417,6 +421,7 @@ class FileTransferHandler {
       'timestamp': session.timestamp,
       if (session.replyTo != null) 'replyTo': session.replyTo,
       'viewOnce': session.viewOnce,
+      if (session.forwarded) 'forwarded': true,
     };
 
     try {

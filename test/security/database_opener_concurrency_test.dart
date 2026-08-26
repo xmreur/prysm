@@ -129,7 +129,7 @@ void main() {
     'DBHelper: two concurrent first calls share one open and migrate once',
     () async {
       final path = '${tempDir.path}/prysm/chat_app.db';
-      await buildPlaintextDatabase(path, 10);
+      await buildPlaintextDatabase(path, 16);
 
       final dbs = await Future.wait([DBHelper.database, DBHelper.database]);
 
@@ -150,7 +150,7 @@ void main() {
     'migrate once',
     () async {
       final path = '${tempDir.path}/prysm/pending_messages.db';
-      await buildPlaintextDatabase(path, 5);
+      await buildPlaintextDatabase(path, 6);
 
       final dbs = await Future.wait([
         PendingMessageDbHelper.database,

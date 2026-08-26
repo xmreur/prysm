@@ -37,5 +37,6 @@ class MessageQueryFilters {
     'editedAt',
     'readAt',
     'expiresAt',
+    'forwarded',
   ];
 }

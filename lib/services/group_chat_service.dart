@@ -142,6 +142,7 @@ class GroupChatService {
     String text, {
     String? replyToId,
     String? messageId,
+    bool forwarded = false,
   }) async {
     await _refreshSession();
     if (_groupKey == null) return null;
@@ -176,6 +177,7 @@ class GroupChatService {
       'timestamp': timestamp,
       'replyTo': replyToId,
       'expiresAt': ?expiresAt,
+      if (forwarded) 'forwarded': 1,
     });
 
     await MessageSearchIndexService.indexBestEffort(
@@ -206,6 +208,7 @@ class GroupChatService {
         type: groupTextType,
         replyToId: replyToId,
         timestamp: timestamp,
+        forwarded: forwarded,
         expiresAt: expiresAt,
       );
       if (success) {
@@ -218,6 +221,7 @@ class GroupChatService {
           type: groupTextType,
           replyToId: replyToId,
           timestamp: timestamp,
+          forwarded: forwarded,
           expiresAt: expiresAt,
         );
       }
@@ -246,6 +250,7 @@ class GroupChatService {
     String? replyToId,
     String? messageId,
     bool viewOnce = false,
+    bool forwarded = false,
   }) async {
     await _refreshSession();
     if (_groupKey == null) return null;
@@ -277,6 +282,7 @@ class GroupChatService {
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
       'expiresAt': ?expiresAt,
+      if (forwarded) 'forwarded': 1,
     });
 
     if (!viewOnce) {
@@ -313,6 +319,7 @@ class GroupChatService {
         fileName: fileName,
         fileSize: bytes.length,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         expiresAt: expiresAt,
       );
       if (success) {
@@ -328,6 +335,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: bytes.length,
           viewOnce: viewOnce,
+          forwarded: forwarded,
           expiresAt: expiresAt,
         );
       }
@@ -484,6 +492,7 @@ class GroupChatService {
             fileName: msg['fileName'] as String?,
             fileSize: msg['fileSize'] as int?,
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            forwarded: (msg['forwarded'] ?? 0) == 1,
             expiresAt: msg['expiresAt'] as int?,
           );
 
@@ -530,6 +539,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
   }) async {
     if (TorRuntimeGate.blocked) return false;
@@ -559,6 +569,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: fileSize,
           viewOnce: viewOnce,
+          forwarded: forwarded,
           expiresAt: expiresAt,
           timeout: timeout,
         ),
@@ -580,6 +591,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    bool forwarded = false,
     Duration timeout = const Duration(seconds: 30),
     int? expiresAt,
   }) async {
@@ -595,6 +607,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       if (viewOnce) 'viewOnce': true,
+      if (forwarded) 'forwarded': true,
       'expiresAt': ?expiresAt,
     };
     await _postman.postGroup(
@@ -622,6 +635,7 @@ class GroupChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
   }) async {
     await PendingMessageDbHelper.insertPendingMessage({
@@ -638,6 +652,7 @@ class GroupChatService {
       'fileName': ?fileName,
       'fileSize': ?fileSize,
       'viewOnce': viewOnce ? 1 : 0,
+      if (forwarded) 'forwarded': 1,
       'expiresAt': ?expiresAt,
     });
   }
@@ -727,6 +742,7 @@ class GroupChatService {
           fileName: msg['fileName'] as String?,
           fileSize: msg['fileSize'] as int?,
           viewOnce: (msg['viewOnce'] ?? 0) == 1,
+          forwarded: (msg['forwarded'] ?? 0) == 1,
           expiresAt: msg['expiresAt'] as int?,
         );
         if (success) {
@@ -781,6 +797,7 @@ class GroupChatService {
     final fileName = row['fileName'] as String?;
     final fileSize = row['fileSize'] as int?;
     final viewOnce = (row['viewOnce'] ?? 0) == 1;
+    final forwarded = (row['forwarded'] ?? 0) == 1;
     final expiresAt = row['expiresAt'] as int?;
 
     await MessagesDb.updateMessageStatus(messageId, 'pending', groupId: groupId);
@@ -799,6 +816,7 @@ class GroupChatService {
         fileName: fileName,
         fileSize: fileSize,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         expiresAt: expiresAt,
       );
       if (success) {
@@ -814,6 +832,7 @@ class GroupChatService {
           fileName: fileName,
           fileSize: fileSize,
           viewOnce: viewOnce,
+          forwarded: forwarded,
           expiresAt: expiresAt,
         );
       }

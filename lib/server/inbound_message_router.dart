@@ -672,6 +672,7 @@ class InboundMessageRouter {
         'status': messageStatus,
         if (data['replyTo'] != null) 'replyTo': data['replyTo'],
         'viewOnce': (data['viewOnce'] == true || data['viewOnce'] == 1) ? 1 : 0,
+        if (data['forwarded'] == true || data['forwarded'] == 1) 'forwarded': 1,
         'expiresAt': ?expiresAt,
       }, localId);
     } catch (e) {

@@ -26,6 +26,7 @@ class FileAttachmentBubble extends StatefulWidget {
   final Widget tickWidget;
   final Future<Uint8List> Function() resolveBytes;
   final Widget? header;
+  final Widget? caption;
   final ValueNotifier<double>? downloadProgress;
   final ValueNotifier<double>? uploadProgress;
 
@@ -37,6 +38,7 @@ class FileAttachmentBubble extends StatefulWidget {
     required this.resolveBytes,
     this.fileSize,
     this.header,
+    this.caption,
     this.downloadProgress,
     this.uploadProgress,
     super.key,
@@ -359,6 +361,7 @@ class _FileAttachmentBubbleState extends State<FileAttachmentBubble> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (widget.caption != null) widget.caption!,
                 if (_category == FilePreviewCategory.blocked)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),

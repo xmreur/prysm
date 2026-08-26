@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/screens/chat.dart';
@@ -9,6 +10,7 @@ import 'package:prysm/screens/self_chat_screen.dart';
 import 'package:prysm/services/active_conversation_tracker.dart';
 import 'package:prysm/services/detached_chat_client.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/shareable_conversations.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -40,6 +42,7 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
   Contact? _contact;
   Group? _group;
   List<Contact> _contacts = const [];
+  List<Conversation> _shareableConversations = const [];
 
   @override
   void initState() {
@@ -63,6 +66,12 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
 
       await _client.init();
 
+      final users = await DBHelper.getUsers();
+      _contacts = users.map((map) => Contact.fromMap(map)).toList();
+      _shareableConversations = await ShareableConversations.loadFromDb(
+        localUserId: widget.launch.userId,
+      );
+
       switch (widget.launch.chatKind!) {
         case DetachedChatKind.direct:
           final user = await DBHelper.getUserById(widget.launch.conversationId);
@@ -76,8 +85,6 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
             throw StateError('Group not found');
           }
           _group = Group.fromMap(groupRow);
-          final users = await DBHelper.getUsers();
-          _contacts = users.map((map) => Contact.fromMap(map)).toList();
         case DetachedChatKind.self:
           break;
       }
@@ -94,6 +101,16 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
         _error = e.toString();
       });
     }
+  }
+
+  Group? _groupById(String groupId) {
+    for (final conv in _shareableConversations) {
+      if (conv is GroupConversation && conv.id == groupId) {
+        return conv.group;
+      }
+    }
+    if (_group?.id == groupId) return _group;
+    return null;
   }
 
   void _syncActiveConversationTracker() {
@@ -169,6 +186,10 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
           reloadUsers: () {},
           onCloseChat: _closeWindow,
           detachedClient: _client,
+          shareableConversations: _shareableConversations,
+          contacts: _contacts,
+          groupById: _groupById,
+          userAvatarBase64: widget.launch.avatarBase64,
         );
       case DetachedChatKind.group:
         final group = _group!;
@@ -180,6 +201,10 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
           reloadConversations: () {},
           onCloseChat: _closeWindow,
           detachedClient: _client,
+          shareableConversations: _shareableConversations,
+          groupById: _groupById,
+          userName: widget.launch.userName,
+          userAvatarBase64: widget.launch.avatarBase64,
         );
       case DetachedChatKind.self:
         return SelfChatScreen(
@@ -190,6 +215,9 @@ class _DetachedChatShellState extends State<DetachedChatShell> with WindowListen
           onCloseChat: _closeWindow,
           reloadSidebar: () {},
           detachedClient: _client,
+          shareableConversations: _shareableConversations,
+          contacts: _contacts,
+          groupById: _groupById,
         );
     }
   }

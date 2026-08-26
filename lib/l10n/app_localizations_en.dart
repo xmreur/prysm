@@ -479,6 +479,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get couldNotEditMessage => 'Could not edit message';
 
   @override
+  String couldNotForwardE(String e) {
+    return 'Could not forward: $e';
+  }
+
+  @override
   String couldNotLoadDownloadsE(String e) {
     return 'Could not load downloads: $e';
   }
@@ -993,6 +998,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fontSystem => 'System';
+
+  @override
+  String get forward => 'Forward';
+
+  @override
+  String get forwarded => 'Forwarded';
 
   @override
   String get galleryAccessDenied => 'Gallery access denied';
@@ -2172,6 +2183,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get showAnEmptyAppWhileYourRealData =>
       'Show an empty app while your real data stays encrypted on disk';
+
+  @override
+  String get showAsForwarded => 'Show as forwarded';
 
   @override
   String get showFullQr => 'Show full QR';

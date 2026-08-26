@@ -71,7 +71,7 @@ void main() {
       expect(columns, containsAll(<String>[
         'id', 'senderId', 'receiverId', 'message', 'type', 'fileName',
         'fileSize', 'timestamp', 'status', 'replyTo', 'readAt', 'viewOnce',
-        'viewed', 'groupId', 'deletedAt', 'editedAt',
+        'viewed', 'groupId', 'deletedAt', 'editedAt', 'forwarded',
       ]));
 
       expect(await _tableExists(db, 'message_reactions'), isTrue);
@@ -194,6 +194,7 @@ void main() {
       final columns = _columnNames(await db.rawQuery('PRAGMA table_info(messages)'));
       expect(columns, containsAll(<String>[
         'readAt', 'viewOnce', 'viewed', 'groupId', 'deletedAt', 'editedAt',
+        'forwarded',
       ]));
       expect(await _tableExists(db, 'message_reactions'), isTrue);
       expect(await _tableExists(db, 'message_read_receipts'), isTrue);
@@ -369,6 +370,57 @@ void main() {
         ['m1'],
       );
       expect(fts.single['rowid'], byId['m1']!['ftsRowid']);
+
+      await db.close();
+    });
+  });
+
+  group('v16 forwarded column', () {
+    test('onCreate includes forwarded on messages and self_messages', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(
+        db,
+        MessageSchemaMigrations.dbVersion,
+      );
+
+      final messageCols =
+          _columnNames(await db.rawQuery('PRAGMA table_info(messages)'));
+      expect(messageCols, contains('forwarded'));
+      final selfCols =
+          _columnNames(await db.rawQuery('PRAGMA table_info(self_messages)'));
+      expect(selfCols, contains('forwarded'));
+
+      await db.close();
+    });
+
+    test('upgrade from v15 adds forwarded to messages and self_messages',
+        () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(
+        db,
+        MessageSchemaMigrations.dbVersion,
+      );
+      await db.execute('ALTER TABLE messages DROP COLUMN forwarded');
+      await db.execute('ALTER TABLE self_messages DROP COLUMN forwarded');
+      expect(
+        _columnNames(await db.rawQuery('PRAGMA table_info(messages)')),
+        isNot(contains('forwarded')),
+      );
+
+      await MessageSchemaMigrations.onUpgrade(
+        db,
+        15,
+        MessageSchemaMigrations.dbVersion,
+      );
+
+      expect(
+        _columnNames(await db.rawQuery('PRAGMA table_info(messages)')),
+        contains('forwarded'),
+      );
+      expect(
+        _columnNames(await db.rawQuery('PRAGMA table_info(self_messages)')),
+        contains('forwarded'),
+      );
 
       await db.close();
     });

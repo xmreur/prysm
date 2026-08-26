@@ -1826,7 +1826,7 @@ class AppLocalizationsIt extends AppLocalizations {
       'Il PIN a 6 cifre crittografa le chiavi private su questo dispositivo — Prysm non le vede né le memorizza nel cloud.';
 
   @override
-  String get pinMustBe6Digits => 'Il PIN deve avere 6 numeri';
+  String get pinMustBe6Digits => 'Il PIN deve avere 6 cifre';
 
   @override
   String get pinUpdated => 'PIN aggiornato';
@@ -2570,7 +2570,7 @@ class AppLocalizationsIt extends AppLocalizations {
   String get unlocking => 'Sbloccando...';
 
   @override
-  String get unpin => 'Rimuovi';
+  String get unpin => 'Rimuovi fissaggio';
 
   @override
   String get unpinChat => 'Rimuovi fissaggio';

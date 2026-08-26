@@ -140,4 +140,79 @@ void main() {
       isEmpty,
     );
   });
+
+  test('hardDeleteMessage does not unpin the same wire id in another conversation',
+      () async {
+    await insertDirect(id: 'shared-id');
+    await db.insert('messages', {
+      'id': 'g1::shared-id',
+      'senderId': 'me.onion',
+      'receiverId': '',
+      'message': 'cipher',
+      'type': 'text',
+      'timestamp': 1,
+      'groupId': 'g1',
+    });
+    await PinnedMessagesService.pin(
+      messageId: 'shared-id',
+      conversationId: 'peer.onion',
+      scope: PinnedMessagesDb.scopeDirect,
+    );
+    await PinnedMessagesService.pin(
+      messageId: 'shared-id',
+      conversationId: 'g1',
+      scope: PinnedMessagesDb.scopeGroup,
+    );
+
+    await MessagesDb.hardDeleteMessage('shared-id');
+
+    expect(
+      await PinnedMessagesService.pinnedIdsForConversation(
+        conversationId: 'peer.onion',
+        scope: PinnedMessagesDb.scopeDirect,
+      ),
+      isEmpty,
+    );
+    expect(
+      await PinnedMessagesService.pinnedIdsForConversation(
+        conversationId: 'g1',
+        scope: PinnedMessagesDb.scopeGroup,
+      ),
+      {'shared-id'},
+    );
+  });
+
+  test('softDeleteMessage and markViewOnceViewed drop the scoped pin', () async {
+    await insertDirect(id: 'soft-1');
+    await db.insert('messages', {
+      'id': 'vo-1',
+      'senderId': 'me.onion',
+      'receiverId': 'peer.onion',
+      'message': 'cipher',
+      'type': 'image',
+      'timestamp': 1,
+      'viewOnce': 1,
+    });
+    await PinnedMessagesService.pin(
+      messageId: 'soft-1',
+      conversationId: 'peer.onion',
+      scope: PinnedMessagesDb.scopeDirect,
+    );
+    await PinnedMessagesService.pin(
+      messageId: 'vo-1',
+      conversationId: 'peer.onion',
+      scope: PinnedMessagesDb.scopeDirect,
+    );
+
+    await MessagesDb.softDeleteMessage('soft-1', deletedAt: 1);
+    await MessagesDb.markViewOnceViewed('vo-1');
+
+    expect(
+      await PinnedMessagesService.pinnedIdsForConversation(
+        conversationId: 'peer.onion',
+        scope: PinnedMessagesDb.scopeDirect,
+      ),
+      isEmpty,
+    );
+  });
 }

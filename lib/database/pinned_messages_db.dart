@@ -76,21 +76,38 @@ class PinnedMessagesDb {
     });
   }
 
-  static Future<void> deleteForMessage(String messageId) async {
+  /// Caller must hold [MessagesDatabase.mutex].
+  static Future<void> deleteForMessageUnprotected({
+    required String messageId,
+    required String conversationId,
+    required String scope,
+  }) async {
     try {
-      await MessagesDatabase.mutex.protect(() async {
-        final db = await _database();
-        await db.delete(
-          'pinned_messages',
-          where: 'messageId = ?',
-          whereArgs: [messageId],
-        );
-      });
+      final db = await _database();
+      await db.delete(
+        'pinned_messages',
+        where: 'messageId = ? AND conversationId = ? AND scope = ?',
+        whereArgs: [messageId, conversationId, scope],
+      );
     } on DatabaseException catch (e) {
-      // ponytail: hand-rolled test DBs often omit this table; hard-delete
-      // still has to run.
+      // ponytail: hand-rolled test DBs often omit this table; message
+      // delete still has to run.
       if (!e.toString().contains('no such table')) rethrow;
     }
+  }
+
+  static Future<void> deleteForMessage({
+    required String messageId,
+    required String conversationId,
+    required String scope,
+  }) {
+    return MessagesDatabase.mutex.protect(
+      () => deleteForMessageUnprotected(
+        messageId: messageId,
+        conversationId: conversationId,
+        scope: scope,
+      ),
+    );
   }
 
   static Future<Set<String>> pinnedIds({

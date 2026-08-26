@@ -123,7 +123,11 @@ class SelfMessagesDb {
         scope: 'self',
       );
     });
-    await PinnedMessagesDb.deleteForMessage(messageId);
+    await PinnedMessagesDb.deleteForMessage(
+      messageId: messageId,
+      conversationId: SelfConversation.conversationId,
+      scope: PinnedMessagesDb.scopeSelf,
+    );
   }
 
   static Future<void> updateContent({
@@ -171,6 +175,10 @@ class SelfMessagesDb {
         scope: 'self',
       );
     });
-    await PinnedMessagesDb.deleteForMessage(messageId);
+    await PinnedMessagesDb.deleteForMessage(
+      messageId: messageId,
+      conversationId: SelfConversation.conversationId,
+      scope: PinnedMessagesDb.scopeSelf,
+    );
   }
 }

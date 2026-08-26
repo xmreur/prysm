@@ -80,13 +80,24 @@ class MessageCrudDao {
         conversationId: groupId,
         scope: 'group',
       );
+      await PinnedMessagesDb.deleteForMessageUnprotected(
+        messageId: wireId,
+        conversationId: groupId,
+        scope: PinnedMessagesDb.scopeGroup,
+      );
       return;
     }
     for (final side in const ['senderId', 'receiverId']) {
+      final conversationId = row[side] as String;
       await _searchDao.removeUnprotected(
         wireId,
-        conversationId: row[side] as String,
+        conversationId: conversationId,
         scope: 'direct',
+      );
+      await PinnedMessagesDb.deleteForMessageUnprotected(
+        messageId: wireId,
+        conversationId: conversationId,
+        scope: PinnedMessagesDb.scopeDirect,
       );
     }
   }
@@ -375,7 +386,6 @@ class MessageCrudDao {
       wireMessageId: wireId,
       groupId: groupId,
     );
-    await PinnedMessagesDb.deleteForMessage(wireId);
     await deleteMessageById(storageId);
     await MessageBlobStore.delete(storageId);
   }

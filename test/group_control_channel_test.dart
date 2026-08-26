@@ -38,7 +38,8 @@ Future<Database> _openTestDb() async {
             name TEXT NOT NULL,
             avatarBase64 TEXT,
             createdBy TEXT NOT NULL,
-            createdAt INTEGER NOT NULL
+            createdAt INTEGER NOT NULL,
+            onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1
           )
         ''');
         await db.execute('''

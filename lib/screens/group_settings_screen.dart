@@ -21,6 +21,8 @@ import 'package:prysm/services/group_service.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/screens/widgets/conversation_prefs_tiles.dart';
+import 'package:prysm/ui/core/prysm_switch.dart';
+import 'package:prysm/util/group_moderation_policy.dart';
 import 'package:prysm/screens/widgets/notification_mute_tile.dart';
 import 'package:prysm/screens/widgets/scheduled_messages_tile.dart';
 import 'package:prysm/screens/widgets/disappearing_messages_tile.dart';
@@ -63,6 +65,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   final _verificationService = ContactVerificationService.instance;
   List<GroupMember> _members = [];
   bool _isAdmin = false;
+  bool _isOwner = false;
+  bool _onlyAdminsCanAdd = true;
   bool _loading = true;
   String? _avatarBase64;
   late String _groupName;
@@ -151,6 +155,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _load() async {
     final members = await _groupService.getMembers(widget.group.id);
     final admin = await _groupService.isAdmin(widget.group.id, widget.userId);
+    final owner = await _groupService.isOwner(widget.group.id, widget.userId);
+    final groupRow = await DBHelper.getGroupById(widget.group.id);
+    final onlyAdmins = (groupRow?['onlyAdminsCanAdd'] ?? 1) == 1;
     final avatars = <String, String?>{};
     final contacts = <String, Contact>{};
     for (final member in members) {
@@ -164,6 +171,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       setState(() {
         _members = members;
         _isAdmin = admin;
+        _isOwner = owner;
+        _onlyAdminsCanAdd = onlyAdmins;
         _avatarByMemberId
           ..clear()
           ..addAll(avatars);
@@ -289,7 +298,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('Add member', style: ctx.prysmStyle.headlineStyle),
+              child: Text(
+                context.l10n.addMember,
+                style: ctx.prysmStyle.headlineStyle,
+              ),
             ),
             for (final c in available)
               PrysmListRow(
@@ -315,8 +327,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (mounted) {
         showPrysmToast(
           context,
-          'Added ${picked.displayName}. '
-          'They will receive an invite when online.',
+          context.l10n.addedMemberWillReceiveInviteWhenOnline(
+            picked.displayName,
+          ),
         );
       }
     } on GroupServiceException catch (e) {
@@ -396,6 +409,175 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
+  GroupRole get _localRole {
+    for (final m in _members) {
+      if (m.memberId == widget.userId) return m.role;
+    }
+    return GroupRole.member;
+  }
+
+  String _roleLabel(GroupMember m) {
+    final role = switch (m.role) {
+      GroupRole.owner => context.l10n.owner,
+      GroupRole.admin => context.l10n.admin,
+      GroupRole.member => context.l10n.member,
+    };
+    if (m.muted) return '$role · ${context.l10n.mutedInGroup}';
+    return role;
+  }
+
+  Future<void> _openMemberActions(GroupMember member) async {
+    final actor = _localRole;
+    await showPrysmSheet<void>(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PrysmListRow(
+            leading: const Icon(PrysmIcons.fingerprint),
+            title: context.l10n.identityVerification,
+            onTap: () {
+              Navigator.pop(ctx);
+              _openMemberVerification(member.memberId);
+            },
+          ),
+          if (canPromoteToAdmin(actor: actor, target: member.role))
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.addModerator),
+              title: context.l10n.promoteToAdmin,
+              onTap: () {
+                Navigator.pop(ctx);
+                _promote(member);
+              },
+            ),
+          if (canDemoteAdmin(actor: actor, target: member.role))
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.personRemoveOutlined),
+              title: context.l10n.demoteAdmin,
+              onTap: () {
+                Navigator.pop(ctx);
+                _demote(member);
+              },
+            ),
+          if (canTransferOwnership(actor: actor, target: member.role))
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.shield),
+              title: context.l10n.transferOwnership,
+              onTap: () {
+                Navigator.pop(ctx);
+                _transfer(member);
+              },
+            ),
+          if (canMuteOrKick(
+            actor: actor,
+            target: member.role,
+            isSelf: false,
+          )) ...[
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.volumeOff),
+              title: member.muted
+                  ? context.l10n.unmuteMember
+                  : context.l10n.muteMember,
+              onTap: () {
+                Navigator.pop(ctx);
+                _toggleMute(member);
+              },
+            ),
+            PrysmListRow(
+              leading: Icon(
+                PrysmIcons.personRemoveOutlined,
+                color: ctx.prysmStyle.tokens.danger,
+              ),
+              title: context.l10n.removeMember,
+              onTap: () {
+                Navigator.pop(ctx);
+                _removeMember(member);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _promote(GroupMember member) async {
+    try {
+      await _groupService.setMemberRole(
+        groupId: widget.group.id,
+        memberId: member.memberId,
+        role: GroupRole.admin,
+      );
+      await _load();
+      widget.onChanged();
+    } on GroupServiceException catch (e) {
+      if (mounted) showPrysmToast(context, e.message);
+    }
+  }
+
+  Future<void> _demote(GroupMember member) async {
+    try {
+      await _groupService.setMemberRole(
+        groupId: widget.group.id,
+        memberId: member.memberId,
+        role: GroupRole.member,
+      );
+      await _load();
+      widget.onChanged();
+    } on GroupServiceException catch (e) {
+      if (mounted) showPrysmToast(context, e.message);
+    }
+  }
+
+  Future<void> _transfer(GroupMember member) async {
+    final confirmed = await showPrysmConfirmDialog(
+      context: context,
+      title: context.l10n.transferOwnership,
+      content: Text(
+        context.l10n.transferOwnershipTo(
+          _displayNameFor(member.memberId),
+        ),
+      ),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.transferOwnership,
+    );
+    if (confirmed != true) return;
+    try {
+      await _groupService.transferOwnership(
+        groupId: widget.group.id,
+        newOwnerId: member.memberId,
+      );
+      await _load();
+      widget.onChanged();
+    } on GroupServiceException catch (e) {
+      if (mounted) showPrysmToast(context, e.message);
+    }
+  }
+
+  Future<void> _toggleMute(GroupMember member) async {
+    try {
+      await _groupService.setMemberMuted(
+        groupId: widget.group.id,
+        memberId: member.memberId,
+        muted: !member.muted,
+      );
+      await _load();
+    } on GroupServiceException catch (e) {
+      if (mounted) showPrysmToast(context, e.message);
+    }
+  }
+
+  Future<void> _toggleInviteLock(bool value) async {
+    try {
+      await _groupService.setOnlyAdminsCanAdd(
+        groupId: widget.group.id,
+        onlyAdminsCanAdd: value,
+      );
+      setState(() => _onlyAdminsCanAdd = value);
+    } on GroupServiceException catch (e) {
+      if (mounted) showPrysmToast(context, e.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.prysmStyle.tokens;
@@ -446,10 +628,15 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 else
                   PrysmListRow(title: _groupName, subtitle: context.l10n.member),
                 PrysmListRow(
-                  title: '${_members.length} / $maxGroupMembers members',
-                  subtitle: _isAdmin
-                      ? context.l10n.youAreAdmin
-                      : context.l10n.member,
+                  title: context.l10n.membersCount(
+                    '${_members.length}',
+                    '$maxGroupMembers',
+                  ),
+                  subtitle: _isOwner
+                      ? context.l10n.youAreOwner
+                      : _isAdmin
+                          ? context.l10n.youAreAdmin
+                          : context.l10n.member,
                 ),
                 const PrysmDivider(),
                 ..._members.map((m) {
@@ -467,28 +654,25 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             context.l10n.you,
                           )
                         : _displayNameFor(m.memberId),
-                    subtitle: m.role == GroupRole.admin
-                        ? context.l10n.admin
-                        : context.l10n.member,
+                    subtitle: _roleLabel(m),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (!isSelf && badge != null) badge,
                         if (!isSelf && badge != null) const SizedBox(width: 4),
-                        if (_isAdmin && !isSelf && m.role != GroupRole.admin)
-                          PrysmIconButton(
-                            icon: PrysmIcons.personRemoveOutlined,
-                            onPressed: () => _removeMember(m),
-                          )
-                        else if (!isSelf)
+                        if (!isSelf)
                           const Icon(PrysmIcons.chevronRight, size: 18),
                       ],
                     ),
-                    onTap: isSelf
-                        ? null
-                        : () => _openMemberVerification(m.memberId),
+                    onTap: isSelf ? null : () => _openMemberActions(m),
                   );
                 }),
+                if (_isAdmin)
+                  PrysmSwitchRow(
+                    title: context.l10n.onlyAdminsCanAddMembers,
+                    value: _onlyAdminsCanAdd,
+                    onChanged: _toggleInviteLock,
+                  ),
                 const PrysmDivider(),
                 PrysmListRow(
                   leading: const Icon(PrysmIcons.photoLibraryOutlined),
@@ -566,29 +750,33 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   groupService: _groupService,
                   memberIds: _members.map((m) => m.memberId).toList(),
                 ),
-                if (_isAdmin && _members.length < maxGroupMembers)
+                if (canAddMembers(
+                      actor: _localRole,
+                      onlyAdminsCanAdd: _onlyAdminsCanAdd,
+                    ) &&
+                    _members.length < maxGroupMembers)
                   PrysmListRow(
                     leading: const Icon(PrysmIcons.personAddOutlined),
                     title: context.l10n.addMember,
                     onTap: _addMember,
                   ),
-                if (_isAdmin)
+                if (_isOwner)
                   PrysmListRow(
                     leading: Icon(
                       PrysmIcons.deleteOutline,
                       color: tokens.danger,
                     ),
                     titleWidget: Text(
-                      'Delete group',
+                      context.l10n.deleteGroup,
                       style: TextStyle(color: tokens.danger),
                     ),
                     onTap: _deleteGroup,
-                  ),
-                if (!_isAdmin)
+                  )
+                else
                   PrysmListRow(
                     leading: Icon(PrysmIcons.exitToApp, color: tokens.danger),
                     titleWidget: Text(
-                      'Leave group',
+                      context.l10n.leaveGroup,
                       style: TextStyle(color: tokens.danger),
                     ),
                     onTap: _leaveGroup,

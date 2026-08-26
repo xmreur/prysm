@@ -286,6 +286,36 @@ void main() {
         }
       },
     );
+
+    test('refuses to send when the local user is muted', () async {
+      final mutedChat = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: _FakeGroupService(
+          userId: userId,
+          keyManager: keyManager,
+          groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+          members: [
+            GroupMember(
+              groupId: groupId,
+              memberId: userId,
+              role: GroupRole.member,
+              joinedAt: 0,
+              muted: true,
+            ),
+            GroupMember(
+              groupId: groupId,
+              memberId: memberA,
+              role: GroupRole.owner,
+              joinedAt: 0,
+            ),
+          ],
+        ),
+      );
+      addTearDown(mutedChat.dispose);
+      expect(await mutedChat.sendTextMessage('nope'), isNull);
+    });
   });
 
   group('SideChannelPostman injection (Fase 3.3)', () {

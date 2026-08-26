@@ -15,6 +15,7 @@ import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/crypto/identity.dart';
+import 'package:prysm/util/group_moderation_policy.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
@@ -99,8 +100,44 @@ class GroupService {
   }
 
   Future<bool> isAdmin(String groupId, String memberId) async {
+    final role = await _roleOf(groupId, memberId);
+    return role != null && groupRoleIsModerator(role);
+  }
+
+  Future<bool> isOwner(String groupId, String memberId) async {
+    return await _roleOf(groupId, memberId) == GroupRole.owner;
+  }
+
+  Future<bool> isMuted(String groupId, String memberId) async {
     final members = await getMembers(groupId);
-    return members.any((m) => m.memberId == memberId && m.role == GroupRole.admin);
+    return members.any((m) => m.memberId == memberId && m.muted);
+  }
+
+  Future<GroupRole?> _roleOf(String groupId, String memberId) async {
+    final members = await getMembers(groupId);
+    for (final m in members) {
+      if (m.memberId == memberId) return m.role;
+    }
+    return null;
+  }
+
+  Future<GroupMember?> _memberOf(String groupId, String memberId) async {
+    final members = await getMembers(groupId);
+    for (final m in members) {
+      if (m.memberId == memberId) return m;
+    }
+    return null;
+  }
+
+  Future<void> _fanout(
+    String groupId,
+    Future<void> Function(String targetId) send,
+  ) async {
+    final members = await getMembers(groupId);
+    for (final member in members) {
+      if (member.memberId == userId) continue;
+      await send(member.memberId);
+    }
   }
 
   Future<Uint8List?> getDecryptedGroupKey(String groupId) =>
@@ -134,6 +171,7 @@ class GroupService {
       'avatarBase64': avatarBase64,
       'createdBy': userId,
       'createdAt': now,
+      'onlyAdminsCanAdd': 1,
     });
     await DBHelper.upsertGroupKey(
       groupId: groupId,
@@ -142,8 +180,8 @@ class GroupService {
     );
 
     final allMembers = <Map<String, String>>[
-      {'id': userId, 'role': 'admin'},
-      ...uniqueMembers.map((id) => {'id': id, 'role': 'member'}),
+      {'id': userId, 'role': 'owner', 'muted': '0'},
+      ...uniqueMembers.map((id) => {'id': id, 'role': 'member', 'muted': '0'}),
     ];
 
     for (final m in allMembers) {
@@ -152,6 +190,7 @@ class GroupService {
         'memberId': m['id'],
         'role': m['role'],
         'joinedAt': now,
+        'muted': 0,
       });
     }
 
@@ -188,13 +227,7 @@ class GroupService {
     final group = await DBHelper.getGroupById(groupId);
     if (group == null) throw GroupServiceException('Group not found');
 
-    await DBHelper.insertGroup({
-      'id': groupId,
-      'name': trimmed,
-      'avatarBase64': group['avatarBase64'],
-      'createdBy': group['createdBy'],
-      'createdAt': group['createdAt'],
-    });
+    await DBHelper.updateGroupFields(groupId, {'name': trimmed});
 
     final members = await getMembers(groupId);
     for (final member in members) {
@@ -215,13 +248,7 @@ class GroupService {
     final group = await DBHelper.getGroupById(groupId);
     if (group == null) throw GroupServiceException('Group not found');
 
-    await DBHelper.insertGroup({
-      'id': groupId,
-      'name': group['name'],
-      'avatarBase64': avatarBase64,
-      'createdBy': group['createdBy'],
-      'createdAt': group['createdAt'],
-    });
+    await DBHelper.updateGroupFields(groupId, {'avatarBase64': avatarBase64});
 
     final members = await getMembers(groupId);
     for (final member in members) {
@@ -237,10 +264,13 @@ class GroupService {
 
   /// Re-send invites to all members (idempotent on receivers).
   Future<void> syncMemberInvites(String groupId) async {
-    if (!await isAdmin(groupId, userId)) return;
-
+    final actor = await _memberOf(groupId, userId);
     final group = await DBHelper.getGroupById(groupId);
-    if (group == null) return;
+    if (actor == null || group == null) return;
+    final onlyAdmins = (group['onlyAdminsCanAdd'] ?? 1) == 1;
+    if (!canAddMembers(actor: actor.role, onlyAdminsCanAdd: onlyAdmins)) {
+      return;
+    }
 
     final members = await getMembers(groupId);
     final groupKey = await getDecryptedGroupKey(groupId);
@@ -251,7 +281,8 @@ class GroupService {
     final memberMaps = members
         .map((m) => {
               'id': m.memberId,
-              'role': m.role == GroupRole.admin ? 'admin' : 'member',
+              'role': groupRoleToWire(m.role),
+              'muted': m.muted ? '1' : '0',
             })
         .toList();
 
@@ -265,6 +296,7 @@ class GroupService {
         groupKey: groupKey,
         keyVersion: keyVersion,
         targetMemberId: member.memberId,
+        onlyAdminsCanAdd: onlyAdmins,
       );
     }
   }
@@ -293,7 +325,13 @@ class GroupService {
   }
 
   Future<void> addMember(String groupId, String memberOnion) async {
-    if (!await isAdmin(groupId, userId)) {
+    final actor = await _memberOf(groupId, userId);
+    final group = await DBHelper.getGroupById(groupId);
+    if (actor == null || group == null) {
+      throw GroupServiceException('Group not found');
+    }
+    final onlyAdmins = (group['onlyAdminsCanAdd'] ?? 1) == 1;
+    if (!canAddMembers(actor: actor.role, onlyAdminsCanAdd: onlyAdmins)) {
       throw GroupServiceException('Only admins can add members');
     }
     final count = await DBHelper.getGroupMemberCount(groupId);
@@ -305,9 +343,6 @@ class GroupService {
       throw GroupServiceException('Member already in group');
     }
 
-    final group = await DBHelper.getGroupById(groupId);
-    if (group == null) throw GroupServiceException('Group not found');
-
     final groupKey = await getDecryptedGroupKey(groupId);
     if (groupKey == null) throw GroupServiceException('Group key not found');
 
@@ -318,6 +353,7 @@ class GroupService {
       'memberId': memberOnion,
       'role': 'member',
       'joinedAt': now,
+      'muted': 0,
     });
 
     // Re-send invites to every member so existing clients refresh roster + key,
@@ -326,16 +362,20 @@ class GroupService {
   }
 
   Future<void> removeMember(String groupId, String memberOnion) async {
-    if (!await isAdmin(groupId, userId)) {
+    final actor = await _memberOf(groupId, userId);
+    final target = await _memberOf(groupId, memberOnion);
+    if (actor == null) {
       throw GroupServiceException('Only admins can remove members');
     }
-    if (memberOnion == userId) {
-      throw GroupServiceException('Admin cannot remove themselves; delete the group instead');
-    }
-
-    final members = await getMembers(groupId);
-    if (!members.any((m) => m.memberId == memberOnion)) {
+    if (target == null) {
       throw GroupServiceException('Member not in group');
+    }
+    if (!canMuteOrKick(
+      actor: actor.role,
+      target: target.role,
+      isSelf: memberOnion == userId,
+    )) {
+      throw GroupServiceException('Cannot remove this member');
     }
 
     await DBHelper.removeGroupMember(groupId, memberOnion);
@@ -383,8 +423,12 @@ class GroupService {
   }
 
   Future<void> leaveGroup(String groupId) async {
-    if (await isAdmin(groupId, userId)) {
-      throw GroupServiceException('Admin cannot leave; delete the group instead');
+    final actor = await _memberOf(groupId, userId);
+    if (actor == null) {
+      throw GroupServiceException('Not a member of this group');
+    }
+    if (!canLeaveWithoutTransfer(actor.role)) {
+      throw GroupServiceException('Owner cannot leave; transfer ownership first');
     }
 
     final members = await getMembers(groupId);
@@ -429,8 +473,8 @@ class GroupService {
   }
 
   Future<void> deleteGroup(String groupId) async {
-    if (!await isAdmin(groupId, userId)) {
-      throw GroupServiceException('Only admins can delete the group');
+    if (!await isOwner(groupId, userId)) {
+      throw GroupServiceException('Only the owner can delete the group');
     }
 
     final members = await getMembers(groupId);
@@ -450,6 +494,129 @@ class GroupService {
           )
           .catchError((_) {});
     }
+  }
+
+  Future<void> setMemberRole({
+    required String groupId,
+    required String memberId,
+    required GroupRole role,
+  }) async {
+    final actor = await _memberOf(groupId, userId);
+    final target = await _memberOf(groupId, memberId);
+    if (actor == null || target == null) {
+      throw GroupServiceException('Member not in group');
+    }
+    if (role == GroupRole.admin) {
+      if (!canPromoteToAdmin(actor: actor.role, target: target.role)) {
+        throw GroupServiceException('Only the owner can promote admins');
+      }
+    } else if (role == GroupRole.member) {
+      if (!canDemoteAdmin(actor: actor.role, target: target.role)) {
+        throw GroupServiceException('Only the owner can demote admins');
+      }
+    } else {
+      throw GroupServiceException('Invalid role');
+    }
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      memberId,
+      {'role': groupRoleToWire(role)},
+    );
+    await _fanout(
+      groupId,
+      (targetId) => _controlChannel.sendRoleUpdate(
+        groupId: groupId,
+        memberId: memberId,
+        role: groupRoleToWire(role),
+        targetMemberId: targetId,
+      ),
+    );
+  }
+
+  Future<void> transferOwnership({
+    required String groupId,
+    required String newOwnerId,
+  }) async {
+    final actor = await _memberOf(groupId, userId);
+    final target = await _memberOf(groupId, newOwnerId);
+    if (actor == null || target == null) {
+      throw GroupServiceException('Member not in group');
+    }
+    if (!canTransferOwnership(actor: actor.role, target: target.role)) {
+      throw GroupServiceException('Only the owner can transfer ownership');
+    }
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      userId,
+      {'role': groupRoleToWire(GroupRole.admin)},
+    );
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      newOwnerId,
+      {'role': groupRoleToWire(GroupRole.owner)},
+    );
+    await DBHelper.updateGroupFields(groupId, {'createdBy': newOwnerId});
+    await _fanout(
+      groupId,
+      (targetId) => _controlChannel.sendOwnerTransfer(
+        groupId: groupId,
+        newOwnerId: newOwnerId,
+        targetMemberId: targetId,
+      ),
+    );
+  }
+
+  Future<void> setMemberMuted({
+    required String groupId,
+    required String memberId,
+    required bool muted,
+  }) async {
+    final actor = await _memberOf(groupId, userId);
+    final target = await _memberOf(groupId, memberId);
+    if (actor == null || target == null) {
+      throw GroupServiceException('Member not in group');
+    }
+    if (!canMuteOrKick(
+      actor: actor.role,
+      target: target.role,
+      isSelf: memberId == userId,
+    )) {
+      throw GroupServiceException('Cannot mute this member');
+    }
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      memberId,
+      {'muted': muted ? 1 : 0},
+    );
+    await _fanout(
+      groupId,
+      (targetId) => _controlChannel.sendMemberMute(
+        groupId: groupId,
+        memberId: memberId,
+        muted: muted,
+        targetMemberId: targetId,
+      ),
+    );
+  }
+
+  Future<void> setOnlyAdminsCanAdd({
+    required String groupId,
+    required bool onlyAdminsCanAdd,
+  }) async {
+    if (!await isAdmin(groupId, userId)) {
+      throw GroupServiceException('Only admins can change this setting');
+    }
+    await DBHelper.updateGroupFields(groupId, {
+      'onlyAdminsCanAdd': onlyAdminsCanAdd ? 1 : 0,
+    });
+    await _fanout(
+      groupId,
+      (targetId) => _controlChannel.sendPermissionsUpdate(
+        groupId: groupId,
+        onlyAdminsCanAdd: onlyAdminsCanAdd,
+        targetMemberId: targetId,
+      ),
+    );
   }
 
   Future<void> deleteGroupLocal(String groupId, {bool notify = true}) async {
@@ -564,19 +731,31 @@ class GroupService {
 
     switch (type) {
       case groupInviteType:
-        await _handleInvite(data);
+        await _handleInvite(data, senderId);
         break;
       case groupKeyRotateType:
         await _handleKeyRotate(data);
         break;
       case groupMemberRemovedType:
-        await _handleMemberRemoved(data);
+        await _handleMemberRemoved(data, senderId);
         break;
       case groupProfileUpdateType:
         await _handleProfileUpdate(data);
         break;
       case groupDisappearingTimerType:
         await _handleDisappearingTimer(data);
+        break;
+      case groupRoleUpdateType:
+        await _handleRoleUpdate(data, senderId);
+        break;
+      case groupOwnerTransferType:
+        await _handleOwnerTransfer(data, senderId);
+        break;
+      case groupMemberMuteType:
+        await _handleMemberMute(data, senderId);
+        break;
+      case groupPermissionsUpdateType:
+        await _handlePermissionsUpdate(data, senderId);
         break;
     }
     return true;
@@ -613,7 +792,7 @@ class GroupService {
     );
   }
 
-  Future<void> _handleInvite(Map<String, dynamic> data) async {
+  Future<void> _handleInvite(Map<String, dynamic> data, String senderId) async {
     final groupId = data['groupId'] as String;
     final name = data['name'] as String;
     final createdBy = data['createdBy'] as String;
@@ -656,14 +835,12 @@ class GroupService {
         'avatarBase64': avatarBase64,
         'createdBy': createdBy,
         'createdAt': now,
+        'onlyAdminsCanAdd': (data['onlyAdminsCanAdd'] ?? 1) == 1 ? 1 : 0,
       });
     } else if (avatarBase64 != null) {
-      await DBHelper.insertGroup({
-        'id': groupId,
+      await DBHelper.updateGroupFields(groupId, {
         'name': name,
         'avatarBase64': avatarBase64,
-        'createdBy': existing['createdBy'],
-        'createdAt': existing['createdAt'],
       });
     }
 
@@ -679,29 +856,51 @@ class GroupService {
     final localMemberIds = localMembers.map((m) => m.memberId).toSet();
     final isNewToGroup = !localMemberIds.contains(userId);
 
+    if (!isNewToGroup) {
+      final sender = await _memberOf(groupId, senderId);
+      final onlyAdmins =
+          ((await DBHelper.getGroupById(groupId))?['onlyAdminsCanAdd'] ?? 1) == 1;
+      final senderCanAdd = sender != null &&
+          canAddMembers(actor: sender.role, onlyAdminsCanAdd: onlyAdmins);
+      for (final m in members) {
+        final memberId = m['id'] as String;
+        if (localMemberIds.contains(memberId)) continue;
+        if (!senderCanAdd) continue;
+        await DBHelper.addGroupMember({
+          'groupId': groupId,
+          'memberId': memberId,
+          'role': 'member',
+          'joinedAt': now,
+          'muted': 0,
+        });
+      }
+      if (keyVersion == localKeyVersion &&
+          sender != null &&
+          groupRoleIsModerator(sender.role)) {
+        for (final local in localMembers) {
+          if (!inviteMemberIds.contains(local.memberId)) {
+            await DBHelper.removeGroupMember(groupId, local.memberId);
+          }
+        }
+      }
+      return;
+    }
+
     for (final m in members) {
       final memberId = m['id'] as String;
-      final joinedAt = localMemberIds.contains(memberId)
-          ? localMembers.firstWhere((lm) => lm.memberId == memberId).joinedAt
-          : now;
+      final mutedRaw = m['muted'];
+      final muted = mutedRaw == 1 || mutedRaw == '1' || mutedRaw == true;
       await DBHelper.addGroupMember({
         'groupId': groupId,
         'memberId': memberId,
-        'role': m['role'] as String,
-        'joinedAt': joinedAt,
+        'role': m['role'] as String? ?? 'member',
+        'joinedAt': now,
+        'muted': muted ? 1 : 0,
       });
     }
 
     if (isNewToGroup) {
       await MessagesDb.deleteGroupMessagesBefore(groupId, now);
-    }
-
-    if (keyVersion == localKeyVersion && existing != null) {
-      for (final local in localMembers) {
-        if (!inviteMemberIds.contains(local.memberId)) {
-          await DBHelper.removeGroupMember(groupId, local.memberId);
-        }
-      }
     }
   }
 
@@ -739,13 +938,30 @@ class GroupService {
     }
   }
 
-  Future<void> _handleMemberRemoved(Map<String, dynamic> data) async {
+  Future<void> _handleMemberRemoved(
+    Map<String, dynamic> data,
+    String senderId,
+  ) async {
     final groupId = data['groupId'] as String;
     final removedMemberId = data['removedMemberId'] as String;
 
     if (removedMemberId == userId) {
       await deleteGroupLocal(groupId);
       return;
+    }
+
+    if (removedMemberId != senderId) {
+      final sender = await _memberOf(groupId, senderId);
+      final target = await _memberOf(groupId, removedMemberId);
+      if (sender == null ||
+          target == null ||
+          !canMuteOrKick(
+            actor: sender.role,
+            target: target.role,
+            isSelf: false,
+          )) {
+        return;
+      }
     }
 
     await DBHelper.removeGroupMember(groupId, removedMemberId);
@@ -766,12 +982,99 @@ class GroupService {
     final existing = await DBHelper.getGroupById(groupId);
     if (existing == null) return;
 
-    await DBHelper.insertGroup({
-      'id': groupId,
-      'name': name ?? existing['name'],
-      'avatarBase64': avatarBase64 ?? existing['avatarBase64'],
-      'createdBy': existing['createdBy'],
-      'createdAt': existing['createdAt'],
+    await DBHelper.updateGroupFields(groupId, {
+      if (name != null) 'name': name,
+      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+    });
+  }
+
+  Future<void> _handleRoleUpdate(
+    Map<String, dynamic> data,
+    String senderId,
+  ) async {
+    final groupId = data['groupId'] as String;
+    final memberId = data['memberId'] as String?;
+    final role = groupRoleFromWire(data['role'] as String?);
+    if (memberId == null) return;
+    final sender = await _memberOf(groupId, senderId);
+    final target = await _memberOf(groupId, memberId);
+    if (sender == null || target == null) return;
+    if (role == GroupRole.admin &&
+        !canPromoteToAdmin(actor: sender.role, target: target.role)) {
+      return;
+    }
+    if (role == GroupRole.member &&
+        !canDemoteAdmin(actor: sender.role, target: target.role)) {
+      return;
+    }
+    if (role == GroupRole.owner) return;
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      memberId,
+      {'role': groupRoleToWire(role)},
+    );
+  }
+
+  Future<void> _handleOwnerTransfer(
+    Map<String, dynamic> data,
+    String senderId,
+  ) async {
+    final groupId = data['groupId'] as String;
+    final newOwnerId = data['newOwnerId'] as String?;
+    if (newOwnerId == null) return;
+    final sender = await _memberOf(groupId, senderId);
+    final target = await _memberOf(groupId, newOwnerId);
+    if (sender == null || target == null) return;
+    if (!canTransferOwnership(actor: sender.role, target: target.role)) return;
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      senderId,
+      {'role': groupRoleToWire(GroupRole.admin)},
+    );
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      newOwnerId,
+      {'role': groupRoleToWire(GroupRole.owner)},
+    );
+    await DBHelper.updateGroupFields(groupId, {'createdBy': newOwnerId});
+  }
+
+  Future<void> _handleMemberMute(
+    Map<String, dynamic> data,
+    String senderId,
+  ) async {
+    final groupId = data['groupId'] as String;
+    final memberId = data['memberId'] as String?;
+    if (memberId == null) return;
+    final sender = await _memberOf(groupId, senderId);
+    final target = await _memberOf(groupId, memberId);
+    if (sender == null || target == null) return;
+    if (!canMuteOrKick(
+      actor: sender.role,
+      target: target.role,
+      isSelf: memberId == senderId,
+    )) {
+      return;
+    }
+    final muted = data['muted'] == 1 || data['muted'] == true;
+    await DBHelper.updateGroupMemberFields(
+      groupId,
+      memberId,
+      {'muted': muted ? 1 : 0},
+    );
+  }
+
+  Future<void> _handlePermissionsUpdate(
+    Map<String, dynamic> data,
+    String senderId,
+  ) async {
+    final groupId = data['groupId'] as String;
+    final sender = await _memberOf(groupId, senderId);
+    if (sender == null || !groupRoleIsModerator(sender.role)) return;
+    final onlyAdmins = data['onlyAdminsCanAdd'] == 1 ||
+        data['onlyAdminsCanAdd'] == true;
+    await DBHelper.updateGroupFields(groupId, {
+      'onlyAdminsCanAdd': onlyAdmins ? 1 : 0,
     });
   }
 

@@ -1286,6 +1286,12 @@ abstract class AppLocalizations {
   /// **'Delete this group for everyone? This cannot be undone.'**
   String get deleteThisGroupForEveryoneThisCannotBe;
 
+  /// No description provided for @demoteAdmin.
+  ///
+  /// In en, this message translates to:
+  /// **'Demote admin'**
+  String get demoteAdmin;
+
   /// No description provided for @deleted.
   ///
   /// In en, this message translates to:
@@ -2486,6 +2492,12 @@ abstract class AppLocalizations {
   /// **'Must be at least {minLength} characters'**
   String mustBeAtLeastNCharacters(int minLength);
 
+  /// No description provided for @muteMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute member'**
+  String get muteMember;
+
   /// No description provided for @muteNotifications.
   ///
   /// In en, this message translates to:
@@ -2497,6 +2509,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Muted'**
   String get muted;
+
+  /// No description provided for @mutedInGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted in this group'**
+  String get mutedInGroup;
 
   /// No description provided for @mutedForDuration.
   ///
@@ -2882,6 +2900,12 @@ abstract class AppLocalizations {
   /// **'Online'**
   String get online;
 
+  /// No description provided for @onlyAdminsCanAddMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'Only admins can add members'**
+  String get onlyAdminsCanAddMembers;
+
   /// No description provided for @onlyAcceptInvitesFromContacts.
   ///
   /// In en, this message translates to:
@@ -3001,6 +3025,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Outbound queue depth:'**
   String get outboundQueueDepthLabel;
+
+  /// No description provided for @owner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get owner;
 
   /// No description provided for @outgoing.
   ///
@@ -3283,6 +3313,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Previous match'**
   String get previousMatch;
+
+  /// No description provided for @promoteToAdmin.
+  ///
+  /// In en, this message translates to:
+  /// **'Promote to admin'**
+  String get promoteToAdmin;
 
   /// No description provided for @privacy.
   ///
@@ -4388,6 +4424,18 @@ abstract class AppLocalizations {
   /// **'Unread: {count}'**
   String trayUnreadCount(int count);
 
+  /// No description provided for @transferOwnership.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer ownership'**
+  String get transferOwnership;
+
+  /// No description provided for @transferOwnershipTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer ownership to {name}?'**
+  String transferOwnershipTo(String name);
+
   /// No description provided for @trayUnreadShort.
   ///
   /// In en, this message translates to:
@@ -4537,6 +4585,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unpin chat'**
   String get unpinChat;
+
+  /// No description provided for @unmuteMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmute member'**
+  String get unmuteMember;
 
   /// No description provided for @untilITurnItBackOn.
   ///
@@ -4838,11 +4892,23 @@ abstract class AppLocalizations {
   /// **'You are admin'**
   String get youAreAdmin;
 
+  /// No description provided for @youAreMuted.
+  ///
+  /// In en, this message translates to:
+  /// **'You are muted in this group'**
+  String get youAreMuted;
+
   /// No description provided for @youAreNoLongerInThisGroup.
   ///
   /// In en, this message translates to:
   /// **'You are no longer in this group'**
   String get youAreNoLongerInThisGroup;
+
+  /// No description provided for @youAreOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'You are owner'**
+  String get youAreOwner;
 
   /// No description provided for @youWillNoLongerReceiveMessagesCallsOr.
   ///

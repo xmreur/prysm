@@ -1,4 +1,6 @@
 import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/models/group.dart';
+import 'package:prysm/util/group_moderation_policy.dart';
 
 const Duration messageEditWindow = Duration(minutes: 5);
 
@@ -14,9 +16,19 @@ bool canEditMessage(Message message, String currentUserId) {
   return DateTime.now().difference(createdAt) <= messageEditWindow;
 }
 
-bool canDeleteForEveryone(Message message, String currentUserId) {
+bool canDeleteForEveryone(
+  Message message,
+  String currentUserId, {
+  GroupRole? actorRole,
+  GroupRole? authorRole,
+}) {
   if (isMessageDeleted(message)) return false;
-  return message.authorId == currentUserId;
+  if (message.authorId == currentUserId) return true;
+  if (actorRole == null) return false;
+  return canModerationDelete(
+    actor: actorRole,
+    author: authorRole ?? GroupRole.member,
+  );
 }
 
 bool canForwardMessage(Message message) {

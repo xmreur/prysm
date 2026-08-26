@@ -8,6 +8,10 @@ const String groupMemberRemovedType = 'group_member_removed';
 const String groupProfileUpdateType = 'group_profile_update';
 const String groupDisappearingTimerType = 'group_disappearing_timer';
 const String groupHistoryRelayType = 'group_history_relay';
+const String groupRoleUpdateType = 'group_role_update';
+const String groupOwnerTransferType = 'group_owner_transfer';
+const String groupMemberMuteType = 'group_member_mute';
+const String groupPermissionsUpdateType = 'group_permissions_update';
 
 // Group chat message types (AES group-key encrypted payload)
 const String groupTextType = 'group_text';
@@ -36,6 +40,10 @@ const Set<String> groupControlTypes = {
   groupMemberRemovedType,
   groupProfileUpdateType,
   groupDisappearingTimerType,
+  groupRoleUpdateType,
+  groupOwnerTransferType,
+  groupMemberMuteType,
+  groupPermissionsUpdateType,
 };
 
 const Set<String> groupMessageTypes = {

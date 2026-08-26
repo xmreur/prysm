@@ -48,6 +48,7 @@ void main() {
               memberId TEXT NOT NULL,
               role TEXT NOT NULL,
               joinedAt INTEGER NOT NULL,
+              muted INTEGER NOT NULL DEFAULT 0,
               PRIMARY KEY (groupId, memberId)
             )
           ''');
@@ -219,6 +220,33 @@ void main() {
       expect(result.statusCode, 200);
       expect(result.jsonBody?['status'], 'received');
       expect(await messageRowCount(), 1);
+    },
+  );
+
+  test(
+    'group chat from a muted member is acked and dropped',
+    () async {
+      await dbHelperDb.insert('group_members', {
+        'groupId': 'grp-1',
+        'memberId': 'muted.onion',
+        'role': 'member',
+        'joinedAt': 0,
+        'muted': 1,
+      });
+
+      final result = await router.processMessage({
+        'id': 'msg-muted',
+        'senderId': 'muted.onion',
+        'receiverId': 'local.onion',
+        'message': 'cipher',
+        'type': groupTextType,
+        'groupId': 'grp-1',
+        'timestamp': 1,
+      });
+
+      expect(result.statusCode, 200);
+      expect(result.jsonBody?['status'], 'received');
+      expect(await messageRowCount(), 0);
     },
   );
 

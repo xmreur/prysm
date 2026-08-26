@@ -709,6 +709,9 @@ class AppLocalizationsIt extends AppLocalizations {
       'Elimina il gruppo per tutti? questa azione non può essere annullata.';
 
   @override
+  String get demoteAdmin => 'Rimuovi admin';
+
+  @override
   String get deleted => 'Eliminato';
 
   @override
@@ -1396,10 +1399,16 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get muteMember => 'Silenzia membro';
+
+  @override
   String get muteNotifications => 'Silenzia notifiche';
 
   @override
   String get muted => 'Silenziato';
+
+  @override
+  String get mutedInGroup => 'Silenziato in questo gruppo';
 
   @override
   String mutedForDuration(String duration) {
@@ -1633,6 +1642,10 @@ class AppLocalizationsIt extends AppLocalizations {
   String get online => 'Online';
 
   @override
+  String get onlyAdminsCanAddMembers =>
+      'Solo admin e proprietario possono aggiungere membri';
+
+  @override
   String get onlyAcceptInvitesFromContacts =>
       'Accetta solo inviti dai contatti';
 
@@ -1697,6 +1710,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get outboundQueueDepthLabel => 'Profondità coda in uscita:';
+
+  @override
+  String get owner => 'Proprietario';
 
   @override
   String get outgoing => 'In uscita';
@@ -1855,6 +1871,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get previousMatch => 'Risultato precedente';
+
+  @override
+  String get promoteToAdmin => 'Promuovi ad admin';
 
   @override
   String get privacy => 'Privacy';
@@ -2494,6 +2513,14 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get transferOwnership => 'Trasferisci proprietà';
+
+  @override
+  String transferOwnershipTo(String name) {
+    return 'Trasferire la proprietà a $name?';
+  }
+
+  @override
   String trayUnreadShort(int count) {
     return '$count non letti';
   }
@@ -2574,6 +2601,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get unpinChat => 'Rimuovi fissaggio';
+
+  @override
+  String get unmuteMember => 'Riattiva membro';
 
   @override
   String get untilITurnItBackOn => 'Finché non le riattivo';
@@ -2747,7 +2777,13 @@ class AppLocalizationsIt extends AppLocalizations {
   String get youAreAdmin => 'Sei amministratore';
 
   @override
+  String get youAreMuted => 'Sei silenziato in questo gruppo';
+
+  @override
   String get youAreNoLongerInThisGroup => 'Non fai più parte di questo gruppo';
+
+  @override
+  String get youAreOwner => 'Sei il proprietario';
 
   @override
   String get youWillNoLongerReceiveMessagesCallsOr =>

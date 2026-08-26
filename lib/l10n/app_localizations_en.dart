@@ -704,6 +704,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Delete this group for everyone? This cannot be undone.';
 
   @override
+  String get demoteAdmin => 'Demote admin';
+
+  @override
   String get deleted => 'Deleted';
 
   @override
@@ -1382,10 +1385,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get muteMember => 'Mute member';
+
+  @override
   String get muteNotifications => 'Mute notifications';
 
   @override
   String get muted => 'Muted';
+
+  @override
+  String get mutedInGroup => 'Muted in this group';
 
   @override
   String mutedForDuration(String duration) {
@@ -1613,6 +1622,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get online => 'Online';
 
   @override
+  String get onlyAdminsCanAddMembers => 'Only admins can add members';
+
+  @override
   String get onlyAcceptInvitesFromContacts =>
       'Only accept invites from contacts';
 
@@ -1676,6 +1688,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get outboundQueueDepthLabel => 'Outbound queue depth:';
+
+  @override
+  String get owner => 'Owner';
 
   @override
   String get outgoing => 'Outgoing';
@@ -1833,6 +1848,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get previousMatch => 'Previous match';
+
+  @override
+  String get promoteToAdmin => 'Promote to admin';
 
   @override
   String get privacy => 'Privacy';
@@ -2469,6 +2487,14 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get transferOwnership => 'Transfer ownership';
+
+  @override
+  String transferOwnershipTo(String name) {
+    return 'Transfer ownership to $name?';
+  }
+
+  @override
   String trayUnreadShort(int count) {
     return '$count unread';
   }
@@ -2547,6 +2573,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get unpinChat => 'Unpin chat';
+
+  @override
+  String get unmuteMember => 'Unmute member';
 
   @override
   String get untilITurnItBackOn => 'Until I turn it back on';
@@ -2719,7 +2748,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get youAreAdmin => 'You are admin';
 
   @override
+  String get youAreMuted => 'You are muted in this group';
+
+  @override
   String get youAreNoLongerInThisGroup => 'You are no longer in this group';
+
+  @override
+  String get youAreOwner => 'You are owner';
 
   @override
   String get youWillNoLongerReceiveMessagesCallsOr =>

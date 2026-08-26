@@ -506,6 +506,13 @@
       }
     }
   },
+  "@transferOwnershipTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "@restoreFailedE": {
     "placeholders": {
       "e": {
@@ -902,6 +909,7 @@
   "deleteTemporaryImageAndVoiceCaches": "Delete temporary image and voice caches? ",
   "deleteThisContactFromYourListCannotBe": "Delete this contact from your list. Cannot be undone.",
   "deleteThisGroupForEveryoneThisCannotBe": "Delete this group for everyone? This cannot be undone.",
+  "demoteAdmin": "Demote admin",
   "deleted": "Deleted",
   "delivered": "Delivered",
   "delivery": "Delivery",
@@ -1102,8 +1110,10 @@
   "mockUpdateUiNoDownload": "Mock update UI (no download)",
   "moreReactions": "More reactions…",
   "mustBeAtLeastNCharacters": "Must be at least {minLength} characters",
+  "muteMember": "Mute member",
   "muteNotifications": "Mute notifications",
   "muted": "Muted",
+  "mutedInGroup": "Muted in this group",
   "mutedForDuration": "for {duration}",
   "mutedUntilDateAndTime": "Muted until {date}, {time}",
   "mutedUntilTime": "Muted until {time}",
@@ -1168,6 +1178,7 @@
   "onboardingWelcomeTour": "Private messaging over Tor. This short tour covers the essentials so you can start chatting confidently.",
   "onionAddress": "Onion: {address}",
   "online": "Online",
+  "onlyAdminsCanAddMembers": "Only admins can add members",
   "onlyAcceptInvitesFromContacts": "Only accept invites from contacts",
   "onlyDownloadIfYouTrustTheSender": "Only download if you trust the sender.",
   "onlyMarkContactVerifiedIfComparedFull": "Only mark this contact as verified if you compared their fingerprint in person or over a trusted channel.",
@@ -1188,6 +1199,7 @@
   "otherAppData": "Other app data",
   "outboundQueueDepth": "Outbound queue depth: ",
   "outboundQueueDepthLabel": "Outbound queue depth:",
+  "owner": "Owner",
   "outgoing": "Outgoing",
   "panicDecoyDescription": "Show an empty app while your real data stays encrypted on disk",
   "panicDecoyTitle": "Decoy profile",
@@ -1235,6 +1247,7 @@
   "previewUnavailableFileTooLarge": "Preview unavailable (file too large)",
   "previewUpdateDialog": "Preview update dialog",
   "previousMatch": "Previous match",
+  "promoteToAdmin": "Promote to admin",
   "privacy": "Privacy",
   "privacyInformation": "Privacy Information",
   "privacySettings": "Privacy Settings",
@@ -1419,6 +1432,8 @@
   "trayPendingShort": "{count} pending",
   "trayTooltipBase": "Prysm · Tor {status}",
   "trayUnreadCount": "Unread: {count}",
+  "transferOwnership": "Transfer ownership",
+  "transferOwnershipTo": "Transfer ownership to {name}?",
   "trayUnreadShort": "{count} unread",
   "turnNotificationsBackOn": "Turn notifications back on",
   "twoPeopleAreTyping": "{first} and {second} are typing…",
@@ -1444,6 +1459,7 @@
   "unlocking": "Unlocking…",
   "unpin": "Unpin",
   "unpinChat": "Unpin chat",
+  "unmuteMember": "Unmute member",
   "untilITurnItBackOn": "Until I turn it back on",
   "untilYouTurnThemBackOn": "until you turn them back on",
   "upTo5Members": "Up to 5 members",
@@ -1494,7 +1510,9 @@
   "yes": "Yes",
   "you": "You",
   "youAreAdmin": "You are admin",
+  "youAreMuted": "You are muted in this group",
   "youAreNoLongerInThisGroup": "You are no longer in this group",
+  "youAreOwner": "You are owner",
   "youWillNoLongerReceiveMessagesCallsOr": "You will no longer receive messages, calls, or profile updates from this contact.",
   "yourId": "Your ID",
   "yourPassphraseProtectsYourKeys": "Your passphrase protects your keys",

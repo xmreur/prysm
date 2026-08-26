@@ -11,7 +11,7 @@
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v13 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 16, onUpgrade) -> real GroupPendingInviteStore
+// -> openDatabase(version: 17, onUpgrade) -> real GroupPendingInviteStore
 // calls.
 import 'dart:io';
 
@@ -180,14 +180,14 @@ void main() {
     expect(File(path).existsSync(), isTrue);
 
     // The real open path: DatabaseCipher.prepare encrypts the plaintext
-    // fixture in place, then openDatabase(version: 16, onUpgrade) runs the
+    // fixture in place, then openDatabase(version: 17, onUpgrade) runs the
     // oldVersion < 14 step that creates group_pending_invites, the
     // oldVersion < 15 step that adds users.ratchetScheme and the
     // oldVersion < 16 step that adds users.verifiedFingerprint. The handle
     // is closed by DBHelper.closeForWipe() in tearDown.
     final db = await DBHelper.database;
 
-    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 16);
+    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 17);
     expect(
       await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -202,6 +202,10 @@ void main() {
       usersCols.map((c) => c['name']),
       containsAll(['ratchetScheme', 'verifiedFingerprint']),
     );
+    final groupCols = await db.rawQuery('PRAGMA table_info(groups)');
+    expect(groupCols.map((c) => c['name']), contains('onlyAdminsCanAdd'));
+    final memberCols = await db.rawQuery('PRAGMA table_info(group_members)');
+    expect(memberCols.map((c) => c['name']), contains('muted'));
     // The upgrade is not allowed to lose what was already there. hasLength
     // alone would pass a migration that deleted local-user and inserted a
     // different row: assert the preserved identity, and that the fresh

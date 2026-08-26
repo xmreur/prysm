@@ -41,7 +41,8 @@ Future<Database> _openTestDb() async {
             name TEXT NOT NULL,
             avatarBase64 TEXT,
             createdBy TEXT NOT NULL,
-            createdAt INTEGER NOT NULL
+            createdAt INTEGER NOT NULL,
+            onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1
           )
         ''');
         await db.execute('''
@@ -50,6 +51,7 @@ Future<Database> _openTestDb() async {
             memberId TEXT NOT NULL,
             role TEXT NOT NULL,
             joinedAt INTEGER NOT NULL,
+            muted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (groupId, memberId)
           )
         ''');
@@ -123,7 +125,7 @@ Future<void> _insertGroupWithMember(
     await db.insert('group_members', {
       'groupId': groupId,
       'memberId': memberId,
-      'role': memberId == createdBy ? 'admin' : 'member',
+      'role': memberId == createdBy ? 'owner' : 'member',
       'joinedAt': 1000,
     });
   }

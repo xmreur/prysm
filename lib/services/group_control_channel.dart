@@ -62,6 +62,7 @@ class GroupControlChannel {
     required Uint8List groupKey,
     required int keyVersion,
     required String targetMemberId,
+    bool onlyAdminsCanAdd = true,
   }) async {
     final peerKey = await _fetchPeerPublicKey(targetMemberId);
     if (peerKey == null) {
@@ -76,6 +77,7 @@ class GroupControlChannel {
           'members': members,
           'keyVersion': keyVersion,
           'avatarBase64': ?avatarBase64,
+          'onlyAdminsCanAdd': onlyAdminsCanAdd ? 1 : 0,
         },
       );
       return;
@@ -95,6 +97,7 @@ class GroupControlChannel {
       'encryptedGroupKey': encryptedGroupKey,
       'keyVersion': keyVersion,
       'avatarBase64': ?avatarBase64,
+      'onlyAdminsCanAdd': onlyAdminsCanAdd ? 1 : 0,
     });
 
     await _sendControlMessage(
@@ -207,6 +210,74 @@ class GroupControlChannel {
       targetMemberId: targetMemberId,
       groupId: groupId,
       payload: payload,
+    );
+  }
+
+  Future<void> sendRoleUpdate({
+    required String groupId,
+    required String memberId,
+    required String role,
+    required String targetMemberId,
+  }) {
+    return _sendControlMessage(
+      type: groupRoleUpdateType,
+      targetMemberId: targetMemberId,
+      groupId: groupId,
+      payload: jsonEncode({
+        'groupId': groupId,
+        'memberId': memberId,
+        'role': role,
+      }),
+    );
+  }
+
+  Future<void> sendOwnerTransfer({
+    required String groupId,
+    required String newOwnerId,
+    required String targetMemberId,
+  }) {
+    return _sendControlMessage(
+      type: groupOwnerTransferType,
+      targetMemberId: targetMemberId,
+      groupId: groupId,
+      payload: jsonEncode({
+        'groupId': groupId,
+        'newOwnerId': newOwnerId,
+      }),
+    );
+  }
+
+  Future<void> sendMemberMute({
+    required String groupId,
+    required String memberId,
+    required bool muted,
+    required String targetMemberId,
+  }) {
+    return _sendControlMessage(
+      type: groupMemberMuteType,
+      targetMemberId: targetMemberId,
+      groupId: groupId,
+      payload: jsonEncode({
+        'groupId': groupId,
+        'memberId': memberId,
+        'muted': muted ? 1 : 0,
+      }),
+    );
+  }
+
+  Future<void> sendPermissionsUpdate({
+    required String groupId,
+    required bool onlyAdminsCanAdd,
+    required String targetMemberId,
+  }) {
+    return _sendControlMessage(
+      type: groupPermissionsUpdateType,
+      targetMemberId: targetMemberId,
+      groupId: groupId,
+      payload: jsonEncode({
+        'groupId': groupId,
+        'onlyAdminsCanAdd': onlyAdminsCanAdd ? 1 : 0,
+      }),
     );
   }
 
@@ -326,6 +397,7 @@ class GroupControlChannel {
           'encryptedGroupKey': encryptedGroupKey,
           'keyVersion': data['keyVersion'] ?? 1,
           if (data['avatarBase64'] != null) 'avatarBase64': data['avatarBase64'],
+          'onlyAdminsCanAdd': data['onlyAdminsCanAdd'] ?? 1,
         });
       case groupKeyRotateType:
         final groupId = data['groupId'] as String;
@@ -360,6 +432,28 @@ class GroupControlChannel {
           'timerSeconds': data['timerSeconds'],
           'updatedAt': data['updatedAt'],
           'updatedBy': data['updatedBy'],
+        });
+      case groupRoleUpdateType:
+        return jsonEncode({
+          'groupId': data['groupId'],
+          'memberId': data['memberId'],
+          'role': data['role'],
+        });
+      case groupOwnerTransferType:
+        return jsonEncode({
+          'groupId': data['groupId'],
+          'newOwnerId': data['newOwnerId'],
+        });
+      case groupMemberMuteType:
+        return jsonEncode({
+          'groupId': data['groupId'],
+          'memberId': data['memberId'],
+          'muted': data['muted'],
+        });
+      case groupPermissionsUpdateType:
+        return jsonEncode({
+          'groupId': data['groupId'],
+          'onlyAdminsCanAdd': data['onlyAdminsCanAdd'],
         });
       default:
         return null;

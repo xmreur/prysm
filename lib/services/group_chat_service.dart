@@ -146,6 +146,7 @@ class GroupChatService {
   }) async {
     await _refreshSession();
     if (_groupKey == null) return null;
+    if (await groupService.isMuted(groupId, userId)) return null;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
@@ -254,6 +255,7 @@ class GroupChatService {
   }) async {
     await _refreshSession();
     if (_groupKey == null) return null;
+    if (await groupService.isMuted(groupId, userId)) return null;
     if (!FileTransferPolicy.isWithinMaxFileSize(bytes.length)) {
       Logging.error(FileTransferPolicy.maxFileSizeError, 'GroupChatService');
       return null;

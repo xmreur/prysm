@@ -62,7 +62,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 16,
+      version: 17,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -112,7 +112,8 @@ class DBHelper {
         name TEXT NOT NULL,
         avatarBase64 TEXT,
         createdBy TEXT NOT NULL,
-        createdAt INTEGER NOT NULL
+        createdAt INTEGER NOT NULL,
+        onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1
       )
     ''');
     await db.execute('''
@@ -121,6 +122,7 @@ class DBHelper {
         memberId TEXT NOT NULL,
         role TEXT NOT NULL,
         joinedAt INTEGER NOT NULL,
+        muted INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (groupId, memberId),
         FOREIGN KEY (groupId) REFERENCES groups(id) ON DELETE CASCADE
       )
@@ -249,6 +251,37 @@ class DBHelper {
         await db.execute('ALTER TABLE users ADD COLUMN verifiedFingerprint TEXT');
       }
     }
+    if (oldVersion < 17) {
+      await applyGroupModerationV17(db);
+    }
+  }
+
+  /// v17: owner role, per-member mute, invite lock.
+  static Future<void> applyGroupModerationV17(Database db) async {
+    final groupCols = await db.rawQuery('PRAGMA table_info(groups)');
+    if (groupCols.isNotEmpty &&
+        !groupCols.any((c) => c['name'] == 'onlyAdminsCanAdd')) {
+      await db.execute(
+        'ALTER TABLE groups ADD COLUMN onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1',
+      );
+    }
+    final memberCols = await db.rawQuery('PRAGMA table_info(group_members)');
+    if (memberCols.isNotEmpty &&
+        !memberCols.any((c) => c['name'] == 'muted')) {
+      await db.execute(
+        'ALTER TABLE group_members ADD COLUMN muted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (memberCols.isNotEmpty) {
+      await db.execute('''
+        UPDATE group_members
+        SET role = 'owner'
+        WHERE role = 'admin'
+          AND memberId = (
+            SELECT createdBy FROM groups WHERE groups.id = group_members.groupId
+          )
+      ''');
+    }
   }
 
 
@@ -326,6 +359,40 @@ class DBHelper {
   }
 
   // --- Group helpers ---
+
+  static Future<void> updateGroupFields(
+    String groupId,
+    Map<String, Object?> fields,
+  ) async {
+    final db = await database;
+    await db.update('groups', fields, where: 'id = ?', whereArgs: [groupId]);
+  }
+
+  static Future<void> updateGroupMemberFields(
+    String groupId,
+    String memberId,
+    Map<String, Object?> fields,
+  ) async {
+    final db = await database;
+    await db.update(
+      'group_members',
+      fields,
+      where: 'groupId = ? AND memberId = ?',
+      whereArgs: [groupId, memberId],
+    );
+  }
+
+  static Future<bool> isGroupMemberMuted(String groupId, String memberId) async {
+    final db = await database;
+    final rows = await db.query(
+      'group_members',
+      where: 'groupId = ? AND memberId = ?',
+      whereArgs: [groupId, memberId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    return (rows.first['muted'] ?? 0) == 1;
+  }
 
   static Future<void> insertGroup(Map<String, dynamic> group) async {
     final db = await database;

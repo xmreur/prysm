@@ -10,6 +10,8 @@ import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/services/side_channel_transport.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/group_moderation_policy.dart';
+import 'package:prysm/models/group.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/services/message_search_index_service.dart';
@@ -471,13 +473,39 @@ class MessageModifyService {
       return InboundModifyOutcome.unknownTarget;
     }
     final row = rows.first;
-    if (row['senderId'] != senderId) {
-      Logging.error(
-        'Inbound message modify from ${Logging.redactOnion(senderId)} '
-        'rejected: message ${payload.targetMessageId} is not owned by the sender',
-        'MessageModifyService',
-      );
-      return InboundModifyOutcome.ownershipRejected;
+    final isAuthor = row['senderId'] == senderId;
+    if (!isAuthor) {
+      if (groupId == null || !payload.isDelete) {
+        Logging.error(
+          'Inbound message modify from ${Logging.redactOnion(senderId)} '
+          'rejected: message ${payload.targetMessageId} is not owned by the sender',
+          'MessageModifyService',
+        );
+        return InboundModifyOutcome.ownershipRejected;
+      }
+      if (await DBHelper.isGroupMemberMuted(groupId, senderId)) {
+        return InboundModifyOutcome.ownershipRejected;
+      }
+      final members = await DBHelper.getGroupMembers(groupId);
+      GroupRole? actorRole;
+      GroupRole? authorRole;
+      for (final m in members) {
+        final parsed = GroupMember.fromMap(m);
+        if (parsed.memberId == senderId) actorRole = parsed.role;
+        if (parsed.memberId == row['senderId']) authorRole = parsed.role;
+      }
+      if (actorRole == null ||
+          !canModerationDelete(
+            actor: actorRole,
+            author: authorRole ?? GroupRole.member,
+          )) {
+        Logging.error(
+          'Inbound message modify from ${Logging.redactOnion(senderId)} '
+          'rejected: message ${payload.targetMessageId} is not owned by the sender',
+          'MessageModifyService',
+        );
+        return InboundModifyOutcome.ownershipRejected;
+      }
     }
 
     String? newText;

@@ -58,6 +58,7 @@ void main() {
         'ciphertextSize': ciphertext.length,
         'totalChunks': totalChunks,
         'chunkSize': chunkSize,
+        'forwarded': true,
       },
       peerOnion: 'peer.onion',
       localOnion: 'local.onion',
@@ -91,6 +92,7 @@ void main() {
     expect(endResult['ok'], isTrue);
     expect(testRouter.lastProcessed?['id'], 'msg-1');
     expect(testRouter.lastProcessed?['type'], 'file');
+    expect(testRouter.lastProcessed?['forwarded'], isTrue);
 
     final wire = testRouter.lastProcessed?['message'] as String;
     final envelope = CryptoEnvelope.tryParse(wire);

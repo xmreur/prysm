@@ -28,6 +28,13 @@
       }
     }
   },
+  "@couldNotForwardE": {
+    "placeholders": {
+      "e": {
+        "type": "String"
+      }
+    }
+  },
   "@couldNotLoadDownloadsE": {
     "placeholders": {
       "e": {
@@ -457,6 +464,7 @@
   "couldNotDeleteForEveryone": "Impossibile cancellare per tutti",
   "couldNotDeleteMediaE": "Impossibile cancellare media: {e}",
   "couldNotEditMessage": "Impossibile modificare il messaggio",
+  "couldNotForwardE": "Impossibile inoltrare: {e}",
   "couldNotLoadDownloadsE": "Impossibile caricare i downloads: {e}",
   "couldNotLoadImage": "Impossibile copiare l'immagine",
   "couldNotLoadMediaE": "Impossibile caricare i media: {e}",
@@ -604,6 +612,8 @@
   "fontInter": "Inter",
   "fontJetBrainsMono": "JetBrains Mono",
   "fontSystem": "Sistema",
+  "forward": "Inoltra",
+  "forwarded": "Inoltrato",
   "galleryAccessDenied": "Accesso alla galleria negato",
   "general": "Generale",
   "getStarted": "Inizia",
@@ -949,6 +959,7 @@
   "shareToPrysm": "Condividi su Prysm",
   "sharedMedia": "Media condivisi",
   "showAnEmptyAppWhileYourRealData": "Mostra l'app vuota mentre i dati reali rimangono cifrati sul disco",
+  "showAsForwarded": "Mostra come inoltrato",
   "showFullQr": "Mostra QR completo",
   "showInChat": "Mostra in chat",
   "showMyQrCode": "Mostra il mio codice QR",

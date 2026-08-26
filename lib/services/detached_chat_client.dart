@@ -72,6 +72,7 @@ class DetachedChatClient {
     required String text,
     String? replyToId,
     required String messageId,
+    bool forwarded = false,
   }) async {
     return _hostChannel.invokeMethod<String>(
       'sendText',
@@ -81,6 +82,7 @@ class DetachedChatClient {
         'text': text,
         'replyToId': replyToId,
         'messageId': messageId,
+        'forwarded': forwarded,
       },
     );
   }
@@ -92,6 +94,7 @@ class DetachedChatClient {
     String? replyToId,
     required String messageId,
     bool viewOnce = false,
+    bool forwarded = false,
   }) async {
     return _hostChannel.invokeMethod<String>(
       'sendFile',
@@ -103,6 +106,7 @@ class DetachedChatClient {
         'replyToId': replyToId,
         'messageId': messageId,
         'viewOnce': viewOnce,
+        'forwarded': forwarded,
         'bytes': bytes,
       },
     );

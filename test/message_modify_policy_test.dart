@@ -71,4 +71,82 @@ void main() {
       isTrue,
     );
   });
+
+  test('metadataFromDbRow maps forwarded=1', () {
+    expect(metadataFromDbRow({'forwarded': 1})['forwarded'], isTrue);
+    expect(metadataFromDbRow({'forwarded': 0})['forwarded'], isNull);
+    expect(metadataFromDbRow({})['forwarded'], isNull);
+  });
+
+  test('canForwardMessage allows text image file and voice', () {
+    expect(
+      canForwardMessage(
+        TextMessage(id: 't', authorId: 'a', text: 'hi'),
+      ),
+      isTrue,
+    );
+    expect(
+      canForwardMessage(
+        ImageMessage(id: 'i', authorId: 'a', source: 'x', size: 1),
+      ),
+      isTrue,
+    );
+    expect(
+      canForwardMessage(
+        FileMessage(
+          id: 'f',
+          authorId: 'a',
+          name: 'doc.pdf',
+          source: 'x',
+          size: 1,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      canForwardMessage(
+        FileMessage(
+          id: 'v',
+          authorId: 'a',
+          name: 'voice_message.wav',
+          source: 'x',
+          size: 1,
+        ),
+      ),
+      isTrue,
+    );
+  });
+
+  test('canForwardMessage rejects deleted view-once and call events', () {
+    expect(
+      canForwardMessage(
+        markMessageDeleted(TextMessage(id: 't', authorId: 'a', text: 'hi')),
+      ),
+      isFalse,
+    );
+    expect(
+      canForwardMessage(
+        ImageMessage(
+          id: 'i',
+          authorId: 'a',
+          source: 'x',
+          size: 1,
+          metadata: const {'viewOnce': true},
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      canForwardMessage(
+        PrysmCallMessage(
+          id: 'c',
+          authorId: 'a',
+          durationMs: 0,
+          callStatus: 'missed',
+          direction: 'inbound',
+        ),
+      ),
+      isFalse,
+    );
+  });
 }

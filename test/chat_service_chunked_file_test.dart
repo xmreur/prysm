@@ -100,7 +100,8 @@ Future<Database> _openMessagesDb() async {
       groupId TEXT,
       deletedAt INTEGER,
       editedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      forwarded INTEGER NOT NULL DEFAULT 0
     )
   ''');
   return db;

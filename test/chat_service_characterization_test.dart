@@ -36,7 +36,8 @@ Future<Database> _openPendingDb() async {
       replyTo TEXT,
       viewOnce INTEGER DEFAULT 0,
       groupId TEXT,
-      targetMemberId TEXT
+      targetMemberId TEXT,
+      forwarded INTEGER DEFAULT 0
     )
   ''');
   return db;
@@ -95,7 +96,8 @@ Future<Database> _openMessagesDb() async {
       groupId TEXT,
       deletedAt INTEGER,
       editedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      forwarded INTEGER NOT NULL DEFAULT 0
     )
   ''');
   return db;
@@ -450,6 +452,30 @@ void main() {
       expect(stored.first['status'], 'sent');
       expect(await PendingMessageDbHelper.getPendingMessages(receiverId: peerId),
           isEmpty);
+    });
+
+    test('sendTextMessage includes forwarded on the wire when set', () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      final service = ChatService(
+        userId: userId,
+        peerId: peerId,
+        keyManager: keyManager,
+        postman: postman,
+      );
+      addTearDown(service.dispose);
+      service.peerIdentity = IdentityPublicKeys(
+        signPublic: await peerKeyPair.signPublicKey,
+        agreePublic: await peerKeyPair.agreePublicKey,
+        fingerprint: 'test',
+      );
+
+      final id = await service.sendTextMessage('hello', forwarded: true);
+
+      expect(postman.directCalls, hasLength(1));
+      expect(postman.directCalls.single.payload['forwarded'], isTrue);
+      final stored = await MessagesDb.getMessageById(id!);
+      expect(stored.first['forwarded'], 1);
     });
 
     test(

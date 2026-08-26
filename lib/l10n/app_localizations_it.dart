@@ -472,6 +472,11 @@ class AppLocalizationsIt extends AppLocalizations {
   String get couldNotEditMessage => 'Impossibile modificare il messaggio';
 
   @override
+  String couldNotForwardE(String e) {
+    return 'Impossibile inoltrare: $e';
+  }
+
+  @override
   String couldNotLoadDownloadsE(String e) {
     return 'Impossibile caricare i downloads: $e';
   }
@@ -993,6 +998,12 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get fontSystem => 'Sistema';
+
+  @override
+  String get forward => 'Inoltra';
+
+  @override
+  String get forwarded => 'Inoltrato';
 
   @override
   String get galleryAccessDenied => 'Accesso alla galleria negato';
@@ -2183,6 +2194,9 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get showAnEmptyAppWhileYourRealData =>
       'Mostra l\'app vuota mentre i dati reali rimangono cifrati sul disco';
+
+  @override
+  String get showAsForwarded => 'Mostra come inoltrato';
 
   @override
   String get showFullQr => 'Mostra QR completo';

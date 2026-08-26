@@ -18,7 +18,13 @@ import 'package:prysm/ui/core/prysm_text_field.dart';
 import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/util/key_manager.dart';
+import 'package:prysm/ui/core/prysm_switch.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
+
+typedef ShareCustomSend = Future<void> Function(
+  ShareTarget target, {
+  required bool markForwarded,
+});
 
 class ShareTargetPickerScreen extends StatefulWidget {
   const ShareTargetPickerScreen({
@@ -30,6 +36,8 @@ class ShareTargetPickerScreen extends StatefulWidget {
     required this.contacts,
     required this.keyManager,
     required this.groupById,
+    this.showForwardedToggle = false,
+    this.customSend,
     super.key,
   });
 
@@ -41,6 +49,8 @@ class ShareTargetPickerScreen extends StatefulWidget {
   final List<Contact> contacts;
   final KeyManager keyManager;
   final Group? Function(String groupId) groupById;
+  final bool showForwardedToggle;
+  final ShareCustomSend? customSend;
 
   @override
   State<ShareTargetPickerScreen> createState() =>
@@ -51,6 +61,7 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   bool _sending = false;
+  bool _markForwarded = true;
 
   @override
   void dispose() {
@@ -139,6 +150,22 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
     if (_sending) return;
     setState(() => _sending = true);
 
+    final customSend = widget.customSend;
+    if (customSend != null) {
+      try {
+        await customSend(row.target, markForwarded: _markForwarded);
+        if (!mounted) return;
+        setState(() => _sending = false);
+        showPrysmToast(context, context.l10n.sentTo(row.target.displayName));
+        Navigator.of(context).pop();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _sending = false);
+        showPrysmToast(context, context.l10n.couldNotForwardE('$e'));
+      }
+      return;
+    }
+
     final result = await ShareSendService.send(
       target: row.target,
       content: widget.content,
@@ -153,7 +180,7 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
 
     if (result.success) {
       PendingShareStore.instance.clear();
-      showPrysmToast(context, 'Sent to ${row.target.displayName}');
+      showPrysmToast(context, context.l10n.sentTo(row.target.displayName));
       Navigator.of(context).pop(row.target);
       return;
     }
@@ -175,7 +202,9 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
     final tokens = context.prysmTokens;
 
     return PrysmPage(
-      title: context.l10n.shareToPrysm,
+      title: widget.showForwardedToggle
+          ? context.l10n.forward
+          : context.l10n.shareToPrysm,
       leading: PrysmIconButton(
         icon: PrysmIcons.close,
         onPressed: _sending ? null : _cancel,
@@ -197,6 +226,14 @@ class _ShareTargetPickerScreenState extends State<ShareTargetPickerScreen> {
                   ),
                 ),
               ),
+              if (widget.showForwardedToggle)
+                PrysmSwitchRow(
+                  title: context.l10n.showAsForwarded,
+                  value: _markForwarded,
+                  onChanged: _sending
+                      ? null
+                      : (value) => setState(() => _markForwarded = value),
+                ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: PrysmTextField(

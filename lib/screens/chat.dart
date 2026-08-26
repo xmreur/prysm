@@ -90,6 +90,11 @@ import 'package:prysm/util/key_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/models/conversation.dart';
+import 'package:prysm/models/detached_chat_launch.dart';
+import 'package:prysm/models/group.dart';
+import 'package:prysm/screens/widgets/forward_message_flow.dart';
+import 'package:prysm/screens/widgets/message_forwarded_label.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -109,6 +114,10 @@ class ChatScreen extends StatefulWidget {
   final Widget? torStatusAction;
   final DetachedChatClient? detachedClient;
   final String? initialScrollToMessageId;
+  final List<Conversation> shareableConversations;
+  final List<Contact> contacts;
+  final Group? Function(String groupId)? groupById;
+  final String? userAvatarBase64;
 
   const ChatScreen({
     required this.userId,
@@ -126,6 +135,10 @@ class ChatScreen extends StatefulWidget {
     this.torStatusAction,
     this.detachedClient,
     this.initialScrollToMessageId,
+    this.shareableConversations = const [],
+    this.contacts = const [],
+    this.groupById,
+    this.userAvatarBase64,
     super.key,
   });
 
@@ -1455,6 +1468,15 @@ class _ChatScreenState extends State<ChatScreen> {
           _controller.setReplyToMessage(message);
         },
       ),
+      if (canForwardMessage(message))
+        PrysmListRow(
+          leading: const Icon(PrysmIcons.forward),
+          title: context.l10n.forward,
+          onTap: () {
+            Navigator.pop(context);
+            _openForward(message);
+          },
+        ),
       PrysmListRow(
         leading: const Icon(PrysmIcons.selectAll),
         title: context.l10n.select,
@@ -1477,6 +1499,22 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       onReactionSelected: (emoji) => _controller.onReactionSelected(message, emoji),
       actionTiles: tiles,
+    );
+  }
+
+  Future<void> _openForward(Message message) {
+    return openForwardMessagePicker(
+      context: context,
+      message: message,
+      sourceKind: DetachedChatKind.direct,
+      sourceConversationId: widget.peerId,
+      userId: widget.userId,
+      userName: widget.userName,
+      userAvatarBase64: widget.userAvatarBase64,
+      keyManager: widget.keyManager,
+      conversations: widget.shareableConversations,
+      contacts: widget.contacts,
+      groupById: widget.groupById ?? (_) => null,
     );
   }
 
@@ -2146,6 +2184,10 @@ class _ChatScreenState extends State<ChatScreen> {
       timeString: timeString,
       tickWidget: tickWidget,
       decryptFromDb: () => _decryptImageFromDb(message.id),
+      caption: MessageForwardedLabel(
+        message: message,
+        color: prysmBubbleMetaColor(context, isSentByMe: isSentByMe),
+      ),
       ),
     );
   }
@@ -2188,6 +2230,10 @@ class _ChatScreenState extends State<ChatScreen> {
       timeString: timeString,
       isSentByMe: isSentByMe,
       tickWidget: tickWidget,
+      caption: MessageForwardedLabel(
+        message: message,
+        color: prysmBubbleMetaColor(context, isSentByMe: isSentByMe),
+      ),
       uploadProgress: isSentByMe
           ? FileTransferProgress.uploadFor(message.id)
           : null,
@@ -2232,6 +2278,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            MessageForwardedLabel(message: message, color: metaColor),
             _replyQuoteFor(message, isSentByMe),
             LinkedMessageText(
               text: message.text,
@@ -2298,6 +2345,10 @@ class _ChatScreenState extends State<ChatScreen> {
       isSentByMe: isSentByMe,
       timeString: timeString,
       tickWidget: tickWidget,
+      caption: MessageForwardedLabel(
+        message: message,
+        color: prysmBubbleMetaColor(context, isSentByMe: isSentByMe),
+      ),
       decryptAudio: message.source.startsWith('audio:')
           ? null
           : (encryptedSource) async {

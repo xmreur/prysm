@@ -85,6 +85,7 @@ abstract final class PrysmIcons {
   static const flipCameraAndroid = CupertinoIcons.camera_rotate;
   static const folderOpen = CupertinoIcons.folder;
   static const folderOpenOutlined = CupertinoIcons.folder;
+  static const forward = CupertinoIcons.arrowshape_turn_up_right;
   static const group = CupertinoIcons.person_2;
   static const groupAdd = CupertinoIcons.person_add_solid;
   static const groupAddOutlined = CupertinoIcons.person_add;

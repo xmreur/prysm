@@ -19,11 +19,21 @@ bool canDeleteForEveryone(Message message, String currentUserId) {
   return message.authorId == currentUserId;
 }
 
+bool canForwardMessage(Message message) {
+  if (isMessageDeleted(message)) return false;
+  if (message is PrysmCallMessage) return false;
+  if (message.metadata?['viewOnce'] == true) return false;
+  return message is TextMessage ||
+      message is ImageMessage ||
+      message is FileMessage;
+}
+
 Map<String, Object?> metadataFromDbRow(Map<String, dynamic> row) {
   final meta = <String, Object?>{};
   if (row['deletedAt'] != null) meta['deleted'] = true;
   if (row['editedAt'] != null) meta['edited'] = true;
   if (row['expiresAt'] != null) meta['expiresAt'] = row['expiresAt'];
+  if ((row['forwarded'] ?? 0) == 1) meta['forwarded'] = true;
   return meta;
 }
 

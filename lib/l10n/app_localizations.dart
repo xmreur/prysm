@@ -902,6 +902,12 @@ abstract class AppLocalizations {
   /// **'Could not edit message'**
   String get couldNotEditMessage;
 
+  /// No description provided for @couldNotForwardE.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not forward: {e}'**
+  String couldNotForwardE(String e);
+
   /// No description provided for @couldNotLoadDownloadsE.
   ///
   /// In en, this message translates to:
@@ -1783,6 +1789,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'System'**
   String get fontSystem;
+
+  /// No description provided for @forward.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward'**
+  String get forward;
+
+  /// No description provided for @forwarded.
+  ///
+  /// In en, this message translates to:
+  /// **'Forwarded'**
+  String get forwarded;
 
   /// No description provided for @galleryAccessDenied.
   ///
@@ -3853,6 +3871,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show an empty app while your real data stays encrypted on disk'**
   String get showAnEmptyAppWhileYourRealData;
+
+  /// No description provided for @showAsForwarded.
+  ///
+  /// In en, this message translates to:
+  /// **'Show as forwarded'**
+  String get showAsForwarded;
 
   /// No description provided for @showFullQr.
   ///

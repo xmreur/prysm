@@ -27,6 +27,7 @@ class VoiceMessageBubble extends StatefulWidget {
 
   /// Decrypt encrypted audio payload to WAV bytes (1:1 received messages).
   final Future<Uint8List?> Function(String encryptedSource)? decryptAudio;
+  final Widget? caption;
 
   const VoiceMessageBubble({
     required this.message,
@@ -34,6 +35,7 @@ class VoiceMessageBubble extends StatefulWidget {
     required this.timeString,
     required this.tickWidget,
     this.decryptAudio,
+    this.caption,
     super.key,
   });
 
@@ -321,7 +323,12 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
               color: bubbleColor,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.caption != null) widget.caption!,
+                Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -388,6 +395,8 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                     ],
                   ),
                 ),
+              ],
+            ),
               ],
             ),
           ),

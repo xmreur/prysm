@@ -19,6 +19,7 @@ class ImageMessageBubble extends StatefulWidget {
   final Widget tickWidget;
   final Future<Uint8List> Function()? decryptFromDb;
   final Widget? senderLabel;
+  final Widget? caption;
   final ValueNotifier<double>? downloadProgress;
 
   const ImageMessageBubble({
@@ -28,6 +29,7 @@ class ImageMessageBubble extends StatefulWidget {
     required this.tickWidget,
     this.decryptFromDb,
     this.senderLabel,
+    this.caption,
     this.downloadProgress,
     super.key,
   });
@@ -184,6 +186,7 @@ class _ImageMessageBubbleState extends State<ImageMessageBubble> {
       crossAxisAlignment: crossAlign,
       children: [
         if (widget.senderLabel != null) widget.senderLabel!,
+        if (widget.caption != null) widget.caption!,
         _buildImageArea(context),
         const SizedBox(height: 4),
         Row(

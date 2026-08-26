@@ -37,7 +37,7 @@ class PendingMessageDbHelper {
 
     final db = await openDatabase(
       path,
-      version: 5,
+      version: 6,
       singleInstance: true,
       // PRAGMA key must be the first statement on the connection.
       onConfigure: (db) async {
@@ -59,7 +59,8 @@ class PendingMessageDbHelper {
             viewOnce INTEGER DEFAULT 0,
             groupId TEXT,
             targetMemberId TEXT,
-            expiresAt INTEGER
+            expiresAt INTEGER,
+            forwarded INTEGER DEFAULT 0
           )
         ''');
         await db.execute('CREATE INDEX idx_pending_receiver ON pending_messages(receiverId)');
@@ -89,6 +90,14 @@ class PendingMessageDbHelper {
           final columns = await db.rawQuery('PRAGMA table_info(pending_messages)');
           if (!columns.any((col) => col['name'] == 'expiresAt')) {
             await db.execute('ALTER TABLE pending_messages ADD COLUMN expiresAt INTEGER');
+          }
+        }
+        if (oldVersion < 6) {
+          final columns = await db.rawQuery('PRAGMA table_info(pending_messages)');
+          if (!columns.any((col) => col['name'] == 'forwarded')) {
+            await db.execute(
+              'ALTER TABLE pending_messages ADD COLUMN forwarded INTEGER DEFAULT 0',
+            );
           }
         }
       },

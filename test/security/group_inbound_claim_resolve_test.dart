@@ -245,7 +245,8 @@ Future<void> _createMessagesTable(Database db) async {
       groupId TEXT,
       deletedAt INTEGER,
       editedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      forwarded INTEGER NOT NULL DEFAULT 0
     )
   ''');
 }

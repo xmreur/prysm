@@ -20,6 +20,7 @@ typedef DetachedSendTextFn = Future<String?> Function({
   required String text,
   String? replyToId,
   required String messageId,
+  bool forwarded,
 });
 
 typedef DetachedSendFileFn = Future<String?> Function({
@@ -31,6 +32,7 @@ typedef DetachedSendFileFn = Future<String?> Function({
   String? replyToId,
   required String messageId,
   bool viewOnce,
+  bool forwarded,
 });
 
 typedef DetachedSendVoiceFn = Future<String?> Function({
@@ -144,6 +146,7 @@ class DetachedChatHost {
           text: args['text'] as String,
           replyToId: args['replyToId'] as String?,
           messageId: args['messageId'] as String,
+          forwarded: args['forwarded'] as bool? ?? false,
         );
       case 'sendFile':
         final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? {};
@@ -158,6 +161,7 @@ class DetachedChatHost {
           replyToId: args['replyToId'] as String?,
           messageId: args['messageId'] as String,
           viewOnce: args['viewOnce'] as bool? ?? false,
+          forwarded: args['forwarded'] as bool? ?? false,
         );
       case 'sendVoice':
         final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? {};

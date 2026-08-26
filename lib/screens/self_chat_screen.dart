@@ -33,6 +33,11 @@ import 'package:prysm/ui/chat/prysm_constrained_composer.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/models/conversation.dart';
+import 'package:prysm/models/contact.dart';
+import 'package:prysm/models/detached_chat_launch.dart';
+import 'package:prysm/models/group.dart';
+import 'package:prysm/screens/widgets/forward_message_flow.dart';
+import 'package:prysm/screens/widgets/message_forwarded_label.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
@@ -52,6 +57,9 @@ class SelfChatScreen extends StatefulWidget {
   final VoidCallback reloadSidebar;
   final DetachedChatClient? detachedClient;
   final String? initialScrollToMessageId;
+  final List<Conversation> shareableConversations;
+  final List<Contact> contacts;
+  final Group? Function(String groupId)? groupById;
 
   const SelfChatScreen({
     required this.userId,
@@ -62,6 +70,9 @@ class SelfChatScreen extends StatefulWidget {
     required this.reloadSidebar,
     this.detachedClient,
     this.initialScrollToMessageId,
+    this.shareableConversations = const [],
+    this.contacts = const [],
+    this.groupById,
     super.key,
   });
 
@@ -368,6 +379,15 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (text.isNotEmpty) copyMessageTile(context: context, text: text),
+          if (canForwardMessage(message))
+            PrysmListRow(
+              leading: const Icon(PrysmIcons.forward),
+              title: context.l10n.forward,
+              onTap: () {
+                Navigator.pop(ctx);
+                _openForward(message);
+              },
+            ),
           PrysmListRow(
             leading: const Icon(PrysmIcons.deleteOutline),
             title: context.l10n.delete,
@@ -378,6 +398,22 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openForward(Message message) {
+    return openForwardMessagePicker(
+      context: context,
+      message: message,
+      sourceKind: DetachedChatKind.self,
+      sourceConversationId: DetachedChatLaunch.selfConversationId,
+      userId: widget.userId,
+      userName: widget.userName,
+      userAvatarBase64: widget.avatarBase64,
+      keyManager: widget.keyManager,
+      conversations: widget.shareableConversations,
+      contacts: widget.contacts,
+      groupById: widget.groupById ?? (_) => null,
     );
   }
 
@@ -419,6 +455,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            MessageForwardedLabel(
+              message: message,
+              color: tokens.onAccent.withValues(alpha: 0.75),
+            ),
             LinkedMessageText(
               text: message.text,
               textColor: tokens.onAccent,
@@ -575,6 +615,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       timeString: timeString,
       tickWidget: const SizedBox.shrink(),
       decryptFromDb: () => _service.decryptImageFromDb(message.id),
+      caption: MessageForwardedLabel(
+        message: message,
+        color: context.prysmStyle.tokens.textMuted,
+      ),
     );
   }
 
@@ -595,6 +639,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         isSentByMe: true,
         timeString: timeString,
         tickWidget: const SizedBox.shrink(),
+        caption: MessageForwardedLabel(
+          message: message,
+          color: context.prysmStyle.tokens.textMuted,
+        ),
         decryptAudio: message.source.startsWith('audio:')
             ? null
             : (encryptedSource) => CryptoWire.decryptFile(
@@ -614,6 +662,10 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       timeString: timeString,
       isSentByMe: true,
       tickWidget: const SizedBox.shrink(),
+      caption: MessageForwardedLabel(
+        message: message,
+        color: context.prysmStyle.tokens.textMuted,
+      ),
       resolveBytes: () => FileAttachmentResolver.resolve(
         message,
         keyManager: widget.keyManager,

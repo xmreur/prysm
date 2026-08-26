@@ -93,6 +93,7 @@ class ChatService {
             fileName: row['fileName'] as String?,
             fileSize: row['fileSize'] as int?,
             viewOnce: (row['viewOnce'] ?? 0) == 1,
+            forwarded: (row['forwarded'] ?? 0) == 1,
             expiresAt: row['expiresAt'] as int?,
             timestamp: row['timestamp'] as int?,
           ),
@@ -208,6 +209,7 @@ class ChatService {
     String text, {
     String? replyToId,
     String? messageId,
+    bool forwarded = false,
   }) async {
     if (BlockService.instance.isBlocked(peerId)) return null;
     if (peerIdentity == null) return null;
@@ -238,6 +240,7 @@ class ChatService {
       'timestamp': timestamp,
       'replyTo': replyToId,
       'expiresAt': ?expiresAt,
+      if (forwarded) 'forwarded': 1,
     }, notifyListeners: false);
 
     await MessageSearchIndexService.indexBestEffort(
@@ -261,6 +264,7 @@ class ChatService {
       encryptedForPeer,
       'text',
       replyToId: replyToId,
+      forwarded: forwarded,
       expiresAt: expiresAt,
       timestamp: timestamp,
     );
@@ -284,6 +288,7 @@ class ChatService {
         encryptedForPeer,
         'text',
         replyToId: replyToId,
+        forwarded: forwarded,
         expiresAt: expiresAt,
         timestamp: timestamp,
       );
@@ -300,6 +305,7 @@ class ChatService {
     String? replyToId,
     String? messageId,
     bool viewOnce = false,
+    bool forwarded = false,
   }) async {
     if (BlockService.instance.isBlocked(peerId)) return null;
     if (peerIdentity == null) return null;
@@ -333,6 +339,7 @@ class ChatService {
       'status': 'pending',
       'viewOnce': viewOnce ? 1 : 0,
       'expiresAt': ?expiresAt,
+      if (forwarded) 'forwarded': 1,
     }, notifyListeners: false);
 
     // ponytail: guard instead of a viewOnce param on indexOutboundFile — the
@@ -377,6 +384,7 @@ class ChatService {
       fileSize: bytes.length,
       replyToId: replyToId,
       viewOnce: viewOnce,
+      forwarded: forwarded,
       expiresAt: expiresAt,
       timestamp: timestamp,
     );
@@ -407,6 +415,7 @@ class ChatService {
         fileSize: bytes.length,
         replyToId: replyToId,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         expiresAt: expiresAt,
         timestamp: timestamp,
       );
@@ -554,6 +563,7 @@ class ChatService {
             fileName: msg['fileName'],
             fileSize: msg['fileSize'],
             viewOnce: (msg['viewOnce'] ?? 0) == 1,
+            forwarded: (msg['forwarded'] ?? 0) == 1,
             expiresAt: msg['expiresAt'] as int?,
             timestamp: msg['timestamp'] as int?,
           );
@@ -611,6 +621,7 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
     int? timestamp,
   }) {
@@ -633,6 +644,7 @@ class ChatService {
         fileSize: fileSize,
         replyToId: replyToId,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         expiresAt: expiresAt,
         timestamp: wireTimestamp,
       );
@@ -658,6 +670,7 @@ class ChatService {
           'fileSize': fileSize,
           'replyTo': replyToId,
           'viewOnce': viewOnce,
+          if (forwarded) 'forwarded': true,
           'timestamp': wireTimestamp,
           'expiresAt': ?expiresAt,
         },
@@ -684,6 +697,7 @@ class ChatService {
     required int fileSize,
     String? replyToId,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
     int? timestamp,
   }) async {
@@ -724,6 +738,7 @@ class ChatService {
         peerPayload: encrypted,
         replyToId: replyToId,
         viewOnce: viewOnce,
+        forwarded: forwarded,
         expiresAt: expiresAt,
         timestamp: timestamp,
       );
@@ -903,6 +918,7 @@ class ChatService {
       fileName: msg['fileName'] as String?,
       fileSize: msg['fileSize'] as int?,
       viewOnce: (msg['viewOnce'] ?? 0) == 1,
+      forwarded: (msg['forwarded'] ?? 0) == 1,
       expiresAt: msg['expiresAt'] as int?,
       timestamp: msg['timestamp'] as int?,
     );
@@ -937,6 +953,7 @@ class ChatService {
     String? fileName,
     int? fileSize,
     bool viewOnce = false,
+    bool forwarded = false,
     int? expiresAt,
     int? timestamp,
   }) async {
@@ -951,6 +968,7 @@ class ChatService {
       'timestamp': timestamp ?? DateTime.now().millisecondsSinceEpoch,
       'replyTo': replyToId,
       'viewOnce': viewOnce ? 1 : 0,
+      if (forwarded) 'forwarded': 1,
       'expiresAt': ?expiresAt,
     });
   }

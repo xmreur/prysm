@@ -27,6 +27,8 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/peer_ws_connection_notifier.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/database/messages.dart';
+import 'package:prysm/database/pinned_messages_db.dart';
+import 'package:prysm/services/pinned_messages_service.dart';
 import 'package:prysm/screens/chat_profile_screen.dart';
 import 'package:prysm/ui/chat/prysm_bubble_renderer.dart';
 import 'package:prysm/ui/chat/prysm_chat_composer_column.dart';
@@ -40,6 +42,7 @@ import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
+import 'package:prysm/screens/widgets/pin_message_tile.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';
 import 'package:prysm/screens/widgets/message_reaction_picker.dart';
 import 'package:prysm/screens/widgets/file_attachment_bubble.dart';
@@ -157,6 +160,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, Message> _messageCache = {};
   PrysmChatMessageList get _messages => _controller.messages;
   Set<String> get selectedMessageIds => _controller.selectedMessageIds;
+  final Set<String> _pinnedIds = {};
 
   String _peerName = '';
   String? _peerAvatarBase64;
@@ -440,6 +444,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await _loadInitialMessages();
     _controller.restoreReplyDraft();
     await _controller.markInboundAsRead();
+    await _loadPinnedIds();
 
     if (mounted && _controller.messages.messages.isNotEmpty) {
       _controller.scheduleScrollToBottomAfterSend();
@@ -1296,6 +1301,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } else if (result is String) {
       await _scrollToMessage(result);
     }
+    await _loadPinnedIds();
   }
 
   Widget _buildReplyPreview() {
@@ -1477,6 +1483,20 @@ class _ChatScreenState extends State<ChatScreen> {
             _openForward(message);
           },
         ),
+      if (canPinMessage(message))
+        pinMessageTile(
+          context: context,
+          pinned: _pinnedIds.contains(message.id),
+          onToggle: () => togglePinnedMessage(
+            context: context,
+            messageId: message.id,
+            conversationId: widget.peerId,
+            scope: PinnedMessagesDb.scopeDirect,
+            pinnedIds: _pinnedIds,
+          ).then((_) {
+            if (mounted) setState(() {});
+          }),
+        ),
       PrysmListRow(
         leading: const Icon(PrysmIcons.selectAll),
         title: context.l10n.select,
@@ -1516,6 +1536,19 @@ class _ChatScreenState extends State<ChatScreen> {
       contacts: widget.contacts,
       groupById: widget.groupById ?? (_) => null,
     );
+  }
+
+  Future<void> _loadPinnedIds() async {
+    final ids = await PinnedMessagesService.pinnedIdsForConversation(
+      conversationId: widget.peerId,
+      scope: PinnedMessagesDb.scopeDirect,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pinnedIds
+        ..clear()
+        ..addAll(ids);
+    });
   }
 
   /// Deletes [message] and returns the outcome, so the bulk path can report a

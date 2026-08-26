@@ -1316,6 +1316,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get messageInfo => 'Message info';
 
   @override
+  String get messagePinned => 'Message pinned';
+
+  @override
+  String get messageUnpinned => 'Message unpinned';
+
+  @override
   String get messageNotFoundInLoadedHistory =>
       'Message not found in loaded history';
 
@@ -1479,6 +1485,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noConversationsFound => 'No conversations found';
+
+  @override
+  String get noPinnedMessages => 'No pinned messages';
 
   @override
   String get noDownloadedFiles => 'No downloaded files';
@@ -1782,6 +1791,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Pick one method. You can change it later in Settings.';
 
   @override
+  String get pin => 'Pin';
+
+  @override
   String get pinCannotMatchYourPanicPin => 'PIN cannot match your panic PIN';
 
   @override
@@ -1802,6 +1814,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pinsDoNotMatch => 'PINs don\'t match';
+
+  @override
+  String get pinnedMessages => 'Pinned messages';
 
   @override
   String get presentation => 'Presentation';
@@ -2526,6 +2541,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get unlocking => 'Unlocking…';
+
+  @override
+  String get unpin => 'Unpin';
 
   @override
   String get unpinChat => 'Unpin chat';

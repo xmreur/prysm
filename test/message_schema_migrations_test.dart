@@ -79,6 +79,7 @@ void main() {
       expect(await _tableExists(db, 'self_messages'), isTrue);
       expect(await _tableExists(db, 'scheduled_messages'), isTrue);
       expect(await _virtualTableExists(db, 'message_search_fts'), isTrue);
+      expect(await _tableExists(db, 'pinned_messages'), isTrue);
 
       await db.close();
     });
@@ -422,6 +423,35 @@ void main() {
         contains('forwarded'),
       );
 
+      await db.close();
+    });
+  });
+
+  group('v17 pinned_messages table', () {
+    test('onCreate includes pinned_messages', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(
+        db,
+        MessageSchemaMigrations.dbVersion,
+      );
+
+      expect(await _tableExists(db, 'pinned_messages'), isTrue);
+      await db.close();
+    });
+
+    test('upgrade from v16 creates pinned_messages', () async {
+      final db = await _openBareDb();
+      await MessageSchemaMigrations.onCreate(db, 16);
+      await db.execute('DROP TABLE IF EXISTS pinned_messages');
+      expect(await _tableExists(db, 'pinned_messages'), isFalse);
+
+      await MessageSchemaMigrations.onUpgrade(
+        db,
+        16,
+        MessageSchemaMigrations.dbVersion,
+      );
+
+      expect(await _tableExists(db, 'pinned_messages'), isTrue);
       await db.close();
     });
   });

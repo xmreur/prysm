@@ -32,11 +32,13 @@ Future<void> pumpWithPrysmL10n(
         color: const Color(0xFF000000),
         pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
             PageRouteBuilder<T>(
-          settings: settings,
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              builder(context),
+              settings: settings,
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  builder(context),
+            ),
+        home: Center(
+          child: SizedBox(width: width, child: child),
         ),
-        home: Center(child: SizedBox(width: width, child: child)),
       ),
     ),
   );

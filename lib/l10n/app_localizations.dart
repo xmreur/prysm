@@ -476,6 +476,18 @@ abstract class AppLocalizations {
   /// **'Calculating…'**
   String get calculating;
 
+  /// No description provided for @callBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Call back'**
+  String get callBack;
+
+  /// No description provided for @callDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get callDuration;
+
   /// No description provided for @callHistory.
   ///
   /// In en, this message translates to:
@@ -493,6 +505,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'📞 Call'**
   String get callPreview;
+
+  /// No description provided for @callStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Started'**
+  String get callStarted;
 
   /// No description provided for @cameraPermissionRequired.
   ///
@@ -3511,6 +3529,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Retry'**
   String get retry;
+
+  /// No description provided for @retryCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry call'**
+  String get retryCall;
 
   /// No description provided for @ringing.
   ///

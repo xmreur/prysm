@@ -229,6 +229,12 @@ class AppLocalizationsIt extends AppLocalizations {
   String get calculating => 'Calcolo in corso…';
 
   @override
+  String get callBack => 'Richiama';
+
+  @override
+  String get callDuration => 'Durata';
+
+  @override
   String get callHistory => 'Cronologia chiamate';
 
   @override
@@ -236,6 +242,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get callPreview => '📞 Chiamata';
+
+  @override
+  String get callStarted => 'Inizio';
 
   @override
   String get cameraPermissionRequired => 'Permesso fotocamera richiesto';
@@ -1991,6 +2000,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get retry => 'Riprova';
+
+  @override
+  String get retryCall => 'Riprova chiamata';
 
   @override
   String get ringing => 'Squillo...';

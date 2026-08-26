@@ -1,18 +1,14 @@
 import 'package:prysm/util/db_helper.dart';
 import 'package:sqflite/sqflite.dart';
 
-enum CallLogDirection {
-  inbound,
-  outbound,
-}
+enum CallLogDirection { inbound, outbound }
 
-enum CallLogStatus {
-  ringing,
-  completed,
-  missed,
-  declined,
-  failed,
-}
+enum CallLogStatus { ringing, completed, missed, declined, failed }
+
+/// Place-call action offered on a finished log.
+///
+/// Outbound ring-timeout is stored as [CallLogStatus.missed], not `failed`.
+enum CallLogPlaceAction { callBack, retry }
 
 class CallLog {
   const CallLog({
@@ -34,6 +30,22 @@ class CallLog {
   final int durationMs;
 
   bool get isSuccessful => status == CallLogStatus.completed;
+
+  /// Call back a missed inbound, or retry an unanswered/failed outbound.
+  CallLogPlaceAction? get placeAction {
+    switch (status) {
+      case CallLogStatus.missed:
+        return direction == CallLogDirection.inbound
+            ? CallLogPlaceAction.callBack
+            : CallLogPlaceAction.retry;
+      case CallLogStatus.failed:
+        return CallLogPlaceAction.retry;
+      case CallLogStatus.completed:
+      case CallLogStatus.declined:
+      case CallLogStatus.ringing:
+        return null;
+    }
+  }
 }
 
 class CallLogsDb {
@@ -67,19 +79,15 @@ class CallLogsDb {
     required int startedAt,
   }) async {
     final db = await DBHelper.database;
-    await db.insert(
-      _table,
-      {
-        'callId': callId,
-        'peerOnion': peerOnion,
-        'direction': direction.name,
-        'status': status.name,
-        'startedAt': startedAt,
-        'endedAt': null,
-        'durationMs': 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(_table, {
+      'callId': callId,
+      'peerOnion': peerOnion,
+      'direction': direction.name,
+      'status': status.name,
+      'startedAt': startedAt,
+      'endedAt': null,
+      'durationMs': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<void> upsertLog({
@@ -92,19 +100,15 @@ class CallLogsDb {
     required int durationMs,
   }) async {
     final db = await DBHelper.database;
-    await db.insert(
-      _table,
-      {
-        'callId': callId,
-        'peerOnion': peerOnion,
-        'direction': direction.name,
-        'status': status.name,
-        'startedAt': startedAt,
-        'endedAt': endedAt,
-        'durationMs': durationMs,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(_table, {
+      'callId': callId,
+      'peerOnion': peerOnion,
+      'direction': direction.name,
+      'status': status.name,
+      'startedAt': startedAt,
+      'endedAt': endedAt,
+      'durationMs': durationMs,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<List<CallLog>> getLogs({

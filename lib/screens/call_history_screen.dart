@@ -2,25 +2,36 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:prysm/database/call_logs_db.dart';
+import 'package:prysm/l10n/l10n_extensions.dart';
+import 'package:prysm/screens/call_log_detail_screen.dart';
+import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/services/call/call_logs_service.dart';
+import 'package:prysm/theme/prysm_style_scope.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
+import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
 import 'package:prysm/ui/core/prysm_list_row.dart';
 import 'package:prysm/ui/core/prysm_progress.dart';
-import 'package:prysm/ui/core/prysm_divider.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
-import 'package:prysm/screens/widgets/contact_avatar.dart';
-import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/onion_id_codec.dart';
-import 'package:prysm/l10n/l10n_extensions.dart';
 
 class CallHistoryScreen extends StatefulWidget {
   final VoidCallback onClose;
 
+  /// Seeded rows for widget tests so the screen does not hit sqlite.
+  @visibleForTesting
+  final List<CallLog>? debugLogs;
+
+  @visibleForTesting
+  final Map<String, Map<String, dynamic>?>? debugUsers;
+
   const CallHistoryScreen({
     required this.onClose,
+    this.debugLogs,
+    this.debugUsers,
     super.key,
   });
 
@@ -37,6 +48,13 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    final seeded = widget.debugLogs;
+    if (seeded != null) {
+      _logs.addAll(seeded);
+      _users.addAll(widget.debugUsers ?? {});
+      _loading = false;
+      return;
+    }
     _load();
     _subscription = CallLogsService.instance.onChanged.listen((_) {
       if (mounted) _load();
@@ -50,7 +68,6 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
     final logs = await CallLogsService.instance.getLogs(limit: 200);
     final uniquePeerIds = logs.map((log) => log.peerOnion).toSet();
     final userFutures = <Future<MapEntry<String, Map<String, dynamic>?>>>[];
@@ -94,13 +111,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   }
 
   String _statusLabel(CallLogStatus status) {
-    return switch (status) {
-      CallLogStatus.completed => 'Completed',
-      CallLogStatus.missed => 'Missed',
-      CallLogStatus.declined => 'Declined',
-      CallLogStatus.failed => 'Failed',
-      CallLogStatus.ringing => 'Ringing',
-    };
+    return callLogStatusLabel(context.l10n, status);
   }
 
   IconData _statusIcon(CallLogStatus status) {
@@ -124,24 +135,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     };
   }
 
-  String _formatDuration(int durationMs) {
-    final totalSeconds = durationMs ~/ 1000;
-    final hours = totalSeconds ~/ 3600;
-    final minutes = (totalSeconds % 3600) ~/ 60;
-    final seconds = totalSeconds % 60;
-    if (hours > 0) {
-      return '${hours}h ${minutes.toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
-    }
-    if (minutes > 0) {
-      return '${minutes}m ${seconds.toString().padLeft(2, '0')}s';
-    }
-    return '${seconds}s';
-  }
-
   String _formatDate(int timestamp) {
     final dt = DateTime.fromMillisecondsSinceEpoch(timestamp).toLocal();
     final now = DateTime.now();
-    final isSameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final isSameDay =
+        dt.year == now.year && dt.month == now.month && dt.day == now.day;
     if (isSameDay) {
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     }
@@ -154,7 +152,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       title: context.l10n.clearCallHistory,
       content: Text(context.l10n.thisWillPermanentlyDeleteAllCallLogs),
       cancelLabel: context.l10n.cancel,
-      confirmLabel: 'Clear',
+      confirmLabel: context.l10n.clear,
       confirmVariant: PrysmButtonVariant.danger,
     );
     if (confirmed != true || !mounted) return;
@@ -180,38 +178,46 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       body: _loading
           ? const Center(child: PrysmProgressIndicator())
           : _logs.isEmpty
-              ? Center(
-                  child: Text(
-                    'No calls yet',
-                    style: TextStyle(
-                      color: context.prysmStyle.tokens.textMuted,
-                    ),
+          ? Center(
+              child: Text(
+                context.l10n.noCallsYet,
+                style: TextStyle(color: context.prysmStyle.tokens.textMuted),
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: _logs.length,
+              separatorBuilder: (_, _) => const PrysmDivider(),
+              itemBuilder: (context, index) {
+                final log = _logs[index];
+                final statusColor = _statusColor(log.status);
+                final subtitle = log.status == CallLogStatus.completed
+                    ? '${formatCallLogDuration(log.durationMs)} · ${_formatDate(log.startedAt)}'
+                    : '${_statusLabel(log.status)} · ${_formatDate(log.startedAt)}';
+                return PrysmListRow(
+                  leading: ContactAvatar(
+                    name: _displayName(log.peerOnion),
+                    avatarBase64:
+                        _users[log.peerOnion]?['avatarBase64'] as String?,
                   ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _logs.length,
-                  separatorBuilder: (_, _) => const PrysmDivider(),
-                  itemBuilder: (context, index) {
-                    final log = _logs[index];
-                    final statusColor = _statusColor(log.status);
-                    final subtitle = log.status == CallLogStatus.completed
-                        ? '${_formatDuration(log.durationMs)} · ${_formatDate(log.startedAt)}'
-                        : '${_statusLabel(log.status)} · ${_formatDate(log.startedAt)}';
-                    return PrysmListRow(
-                      leading: ContactAvatar(
-                        name: _displayName(log.peerOnion),
-                        avatarBase64: _users[log.peerOnion]?['avatarBase64'] as String?,
-                      ),
-                      title: _displayName(log.peerOnion),
-                      subtitle: subtitle,
-                      trailing: Icon(
-                        _statusIcon(log.status),
-                        color: statusColor,
+                  title: _displayName(log.peerOnion),
+                  subtitle: subtitle,
+                  trailing: Icon(_statusIcon(log.status), color: statusColor),
+                  onTap: () {
+                    prysmPush(
+                      context,
+                      CallLogDetailScreen(
+                        log: log,
+                        displayName: _displayName(log.peerOnion),
+                        avatarBase64:
+                            _users[log.peerOnion]?['avatarBase64'] as String?,
+                        onClose: () => Navigator.of(context).pop(),
                       ),
                     );
                   },
-                ),
+                );
+              },
+            ),
     );
   }
 }

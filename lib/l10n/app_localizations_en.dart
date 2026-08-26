@@ -229,6 +229,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calculating => 'Calculating…';
 
   @override
+  String get callBack => 'Call back';
+
+  @override
+  String get callDuration => 'Duration';
+
+  @override
   String get callHistory => 'Call History';
 
   @override
@@ -236,6 +242,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get callPreview => '📞 Call';
+
+  @override
+  String get callStarted => 'Started';
 
   @override
   String get cameraPermissionRequired => 'Camera Permission Required';
@@ -1969,6 +1978,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get retry => 'Retry';
+
+  @override
+  String get retryCall => 'Retry call';
 
   @override
   String get ringing => 'Ringing...';

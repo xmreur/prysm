@@ -41,7 +41,8 @@ Future<Database> _openTestDb() async {
             name TEXT NOT NULL,
             avatarBase64 TEXT,
             createdBy TEXT NOT NULL,
-            createdAt INTEGER NOT NULL
+            createdAt INTEGER NOT NULL,
+            onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1
           )
         ''');
         await db.execute('''
@@ -50,6 +51,7 @@ Future<Database> _openTestDb() async {
             memberId TEXT NOT NULL,
             role TEXT NOT NULL,
             joinedAt INTEGER NOT NULL,
+            muted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (groupId, memberId)
           )
         ''');
@@ -145,6 +147,7 @@ class _FakeGroupControlChannel implements GroupControlChannel {
     required Uint8List groupKey,
     required int keyVersion,
     required String targetMemberId,
+    bool onlyAdminsCanAdd = true,
   }) async {}
 
   @override
@@ -184,6 +187,36 @@ class _FakeGroupControlChannel implements GroupControlChannel {
   }) async {
     memberRemovedCalls.add({'targetMemberId': targetMemberId});
   }
+
+  @override
+  Future<void> sendRoleUpdate({
+    required String groupId,
+    required String memberId,
+    required String role,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendOwnerTransfer({
+    required String groupId,
+    required String newOwnerId,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendMemberMute({
+    required String groupId,
+    required String memberId,
+    required bool muted,
+    required String targetMemberId,
+  }) async {}
+
+  @override
+  Future<void> sendPermissionsUpdate({
+    required String groupId,
+    required bool onlyAdminsCanAdd,
+    required String targetMemberId,
+  }) async {}
 
   @override
   Future<bool> processPendingControlMessages({int maxPerCycle = 20}) async => false;
@@ -273,6 +306,15 @@ void main() {
       expect(groupRow, isNotNull);
       final members = await DBHelper.getGroupMembers(group.id);
       expect(members.map((m) => m['memberId']), containsAll([userId, peerId]));
+      expect(
+        members.firstWhere((m) => m['memberId'] == userId)['role'],
+        'owner',
+      );
+      expect(
+        members.firstWhere((m) => m['memberId'] == peerId)['role'],
+        'member',
+      );
+      expect(groupRow!['onlyAdminsCanAdd'], 1);
     });
 
     test('addMember re-syncs invites for all members via the control channel', () async {

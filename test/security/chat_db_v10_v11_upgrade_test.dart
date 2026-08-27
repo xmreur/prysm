@@ -13,7 +13,7 @@
 // Like test/security/database_cipher_test.dart, this builds a real on-disk
 // database in a fresh temp directory and drives DBHelper's actual open path:
 // plaintext v10/v11 fixture -> DatabaseCipher.prepare (in-place encryption)
-// -> openDatabase(version: 16, onUpgrade) -> real GroupSenderIndexStore
+// -> openDatabase(version: 17, onUpgrade) -> real GroupSenderIndexStore
 // calls.
 import 'dart:io';
 
@@ -263,14 +263,14 @@ void main() {
       expect(File(path).existsSync(), isTrue);
 
       // The real open path: DatabaseCipher.prepare encrypts the plaintext
-      // fixture in place, then openDatabase(version: 16, onUpgrade) runs the
+      // fixture in place, then openDatabase(version: 17, onUpgrade) runs the
       // oldVersion < 11 and oldVersion < 13 steps that create
       // group_inbound_seen and group_inbound_floor. The handle is closed by
       // DBHelper.closeForWipe() in tearDown.
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 16);
+      expect(uv.first.values.single, 17);
       // The v15/v16 steps must add the users.ratchetScheme cache and
       // identity-verification columns, not just bump the version: a step
       // that skipped the ALTER would pass a version-only assertion.
@@ -374,7 +374,7 @@ void main() {
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 16);
+      expect(uv.first.values.single, 17);
       // The v15/v16 steps must add the users.ratchetScheme cache and
       // identity-verification columns, not just bump the version: a step
       // that skipped the ALTER would pass a version-only assertion.

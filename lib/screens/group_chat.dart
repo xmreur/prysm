@@ -151,6 +151,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   StreamSubscription? _membershipSub;
   StreamSubscription? _readReceiptRefreshSub;
   List<String> _groupMemberIds = [];
+  List<GroupMember> _roster = [];
+  bool _selfMuted = false;
   final Set<String> _pinnedIds = {};
   String? _highlightedMessageId;
   Timer? _highlightTimer;
@@ -388,7 +390,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final members = await _groupService.getMembers(widget.group.id);
     _memberCount = members.length;
+    _roster = members;
     _groupMemberIds = members.map((m) => m.memberId).toList();
+    _selfMuted = members.any((m) => m.memberId == widget.userId && m.muted);
     await _resolveSenderNames(_groupMemberIds);
     _typingService.dispose();
     _typingService = TypingIndicatorService.group(
@@ -561,7 +565,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
         PrysmListRow(
           leading: const Icon(PrysmIcons.deleteOutline),
-          title: isSentByMe ? 'Delete for everyone' : 'Delete',
+          title: canDeleteForEveryone(
+            message,
+            widget.userId,
+            actorRole: _roleOf(widget.userId),
+            authorRole: _roleOf(message.authorId),
+          )
+              ? context.l10n.deleteForEveryone
+              : context.l10n.delete,
           onTap: () async {
             Navigator.pop(context);
             await _deleteMessage(message);
@@ -609,6 +620,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final outcome = await _actionsService.deleteMessage(
       message,
       localUserId: widget.userId,
+      actorRole: _roleOf(widget.userId),
+      authorRole: _roleOf(message.authorId),
     );
     if (!mounted) return outcome;
     setState(() {
@@ -1282,7 +1295,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
 
-  void _openSettings() async {
+  GroupRole? _roleOf(String memberId) {
+    for (final m in _roster) {
+      if (m.memberId == memberId) return m.role;
+    }
+    return null;
+  }
+
+  Future<void> _openSettings() async {
     final result = await Navigator.of(context).push(
       PrysmPageRoute(page: GroupSettingsScreen(
           group: widget.group,
@@ -1294,7 +1314,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             if (mounted) {
               setState(() {
                 _memberCount = members.length;
+                _roster = members;
                 _groupMemberIds = members.map((m) => m.memberId).toList();
+                _selfMuted =
+                    members.any((m) => m.memberId == widget.userId && m.muted);
               });
               await _resolveSenderNames(_groupMemberIds);
             }
@@ -1794,6 +1817,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) => Column(
             children: [
+              if (_selfMuted)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                    context.l10n.youAreMuted,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: context.prysmStyle.tokens.textMuted,
+                    ),
+                  ),
+                ),
               Expanded(
                 child: PrysmChatList(
                   controller: _messages,
@@ -1810,7 +1844,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               // overflowing.
               PrysmConstrainedComposer(
                 maxHeight: constraints.maxHeight,
-                composer: PrysmChatComposerColumn(
+                composer: _selfMuted
+                    ? Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          context.l10n.youAreMuted,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: context.prysmStyle.tokens.textMuted,
+                          ),
+                        ),
+                      )
+                    : PrysmChatComposerColumn(
                   draftKey: _draftKey,
                   replyPreview: _controller.replyToMessage != null || _controller.replyDraft != null
                       ? _buildReplyPreview()

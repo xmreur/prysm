@@ -1,5 +1,6 @@
 import 'package:prysm/models/chat/prysm_message.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/models/group.dart';
 import 'package:prysm/util/message_modify_policy.dart';
 
 void main() {
@@ -184,6 +185,67 @@ void main() {
         ),
       ),
       isFalse,
+    );
+  });
+
+  test('author can always delete for everyone', () {
+    final message = msg(authorId: 'me');
+    expect(canDeleteForEveryone(message, 'me'), isTrue);
+    expect(
+      canDeleteForEveryone(
+        message,
+        'me',
+        actorRole: GroupRole.member,
+        authorRole: GroupRole.member,
+      ),
+      isTrue,
+    );
+  });
+
+  test('group admin can delete a member message, not an owner message', () {
+    final memberMsg = msg(authorId: 'member');
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+        authorRole: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+        authorRole: GroupRole.owner,
+      ),
+      isFalse,
+    );
+  });
+
+  test('direct chats still reject non-author deletes', () {
+    expect(canDeleteForEveryone(msg(authorId: 'peer'), 'me'), isFalse);
+  });
+
+  test('moderation delete requires both actor and author roles', () {
+    final memberMsg = msg(authorId: 'member');
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+      ),
+      isFalse,
+    );
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+        authorRole: GroupRole.member,
+      ),
+      isTrue,
     );
   });
 }

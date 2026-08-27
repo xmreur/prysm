@@ -83,6 +83,7 @@ Future<Database> _openDbHelperDb() async {
             memberId TEXT NOT NULL,
             role TEXT NOT NULL,
             joinedAt INTEGER NOT NULL,
+            muted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (groupId, memberId)
           )
         ''');
@@ -92,7 +93,8 @@ Future<Database> _openDbHelperDb() async {
             name TEXT NOT NULL,
             avatarBase64 TEXT,
             createdBy TEXT NOT NULL,
-            createdAt INTEGER NOT NULL
+            createdAt INTEGER NOT NULL,
+            onlyAdminsCanAdd INTEGER NOT NULL DEFAULT 1
           )
         ''');
         await db.execute('''

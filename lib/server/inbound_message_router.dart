@@ -294,6 +294,13 @@ class InboundMessageRouter {
       return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
     }
 
+    if (groupId != null &&
+        await DBHelper.isGroupMemberMuted(groupId, senderId)) {
+      if (isGroupMessageType(type) || type == groupReactionType) {
+        return InboundHandleResult.ok({'status': 'received', 'id': data['id']});
+      }
+    }
+
     if (isMessageModifyType(type)) {
       return _handleMessageModify(data, type);
     }

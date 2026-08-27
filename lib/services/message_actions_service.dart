@@ -1,6 +1,7 @@
 import 'package:prysm/database/message_reactions.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/models/chat/prysm_message.dart';
+import 'package:prysm/models/group.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/util/message_content_wiper.dart';
 import 'package:prysm/util/message_modify_policy.dart';
@@ -66,6 +67,8 @@ class MessageActionsService {
   Future<MessageDeleteOutcome> deleteMessage(
     Message message, {
     required String localUserId,
+    GroupRole? actorRole,
+    GroupRole? authorRole,
   }) async {
     if (cancelPendingSend != null &&
         message.authorId == localUserId &&
@@ -74,7 +77,12 @@ class MessageActionsService {
       return MessageDeleteOutcome.removedPending;
     }
 
-    if (canDeleteForEveryone(message, localUserId)) {
+    if (canDeleteForEveryone(
+      message,
+      localUserId,
+      actorRole: actorRole,
+      authorRole: authorRole,
+    )) {
       final propagated = await modifyService.deleteMessage(
         targetMessageId: message.id,
       );

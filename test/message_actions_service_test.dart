@@ -19,6 +19,7 @@ import 'package:prysm/services/message_actions_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -111,6 +112,7 @@ Future<Database> _openDbHelperDb() async {
     )
   ''');
   await RatchetSessionStore.ensureTable(db);
+  await GroupSenderIndexStore.ensureTable(db);
   await db.execute('''
     CREATE TABLE conversation_preferences (
       conversationId TEXT PRIMARY KEY,

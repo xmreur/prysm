@@ -6,9 +6,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:prysm/models/contact.dart';
+import 'package:prysm/screens/call/group_call_view.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/group_call_manager.dart';
+import 'package:prysm/services/call/group_call_snapshot.dart';
 import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/services/call/linux_mic_capture.dart';
 import 'package:prysm/ui/core/prysm_linear_progress.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
@@ -30,6 +34,10 @@ class _CallOverlayState extends State<CallOverlay> {
   Contact? _peer;
   String? _loadedPeerOnion;
   String? _lastShownError;
+  String? _loadedGroupId;
+  String _groupLabel = '';
+  final Map<String, String> _memberLabels = {};
+  GroupCallManager? _watchedGroupManager;
 
   @override
   void initState() {
@@ -41,6 +49,7 @@ class _CallOverlayState extends State<CallOverlay> {
         CallManager.instance.addListener(_onCallChanged);
         _onCallChanged();
       } catch (_) {}
+      _ensureGroupListener();
     });
   }
 
@@ -50,8 +59,91 @@ class _CallOverlayState extends State<CallOverlay> {
       try {
         CallManager.instance.removeListener(_onCallChanged);
       } catch (_) {}
+      _watchedGroupManager?.removeListener(_onGroupCallChanged);
     }
     super.dispose();
+  }
+
+  /// The group manager is configured when Tor connects, which can be after
+  /// this overlay mounts.
+  void _ensureGroupListener() {
+    final manager = GroupCallManager.maybeInstance;
+    if (manager == null || identical(manager, _watchedGroupManager)) return;
+    _watchedGroupManager?.removeListener(_onGroupCallChanged);
+    _watchedGroupManager = manager;
+    manager.addListener(_onGroupCallChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onGroupCallChanged();
+    });
+  }
+
+  void _onGroupCallChanged() {
+    final manager = GroupCallManager.maybeInstance;
+    if (manager == null) return;
+    final snapshot = manager.snapshot;
+
+    final error = snapshot.error;
+    if (error != null && error != _lastShownError && mounted) {
+      _lastShownError = error;
+      showPrysmToast(context, error);
+    }
+
+    final groupId = snapshot.groupId;
+    if (groupId == null) {
+      if (_loadedGroupId != null && mounted) {
+        setState(() {
+          _loadedGroupId = null;
+          _groupLabel = '';
+          _memberLabels.clear();
+        });
+      }
+      return;
+    }
+    if (groupId != _loadedGroupId) {
+      _loadedGroupId = groupId;
+      unawaited(_loadGroup(groupId, snapshot.members));
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadGroup(String groupId, List<String> members) async {
+    final group = await DBHelper.getGroupById(groupId);
+    final labels = <String, String>{};
+    for (final member in members) {
+      final row = await DBHelper.getUserById(member);
+      final customName = (row?['customName'] as String?)?.trim();
+      final name = (row?['name'] as String?)?.trim();
+      labels[member] = customName?.isNotEmpty == true
+          ? customName!
+          : name?.isNotEmpty == true
+              ? name!
+              : _shortOnion(member);
+    }
+    if (!mounted || _loadedGroupId != groupId) return;
+    setState(() {
+      _groupLabel = (group?['name'] as String?)?.trim().isNotEmpty == true
+          ? (group!['name'] as String).trim()
+          : _shortOnion(groupId);
+      _memberLabels
+        ..clear()
+        ..addAll(labels);
+    });
+  }
+
+  List<GroupCallParticipant> _participantsFor(GroupCallSnapshot snapshot) {
+    final local = LocalOnionAddress.value;
+    return [
+      for (final member in snapshot.members)
+        if (snapshot.joined.contains(member))
+          GroupCallParticipant(
+            onion: member,
+            label: _memberLabels[member] ?? _shortOnion(member),
+            muted: member == local
+                ? snapshot.localMuted
+                : snapshot.peerMuted[member] ?? false,
+            isSelf: member == local,
+          ),
+    ];
   }
 
   void _onCallChanged() {
@@ -120,6 +212,12 @@ class _CallOverlayState extends State<CallOverlay> {
   Widget build(BuildContext context) {
     if (widget.decoyMode) return widget.child;
 
+    _ensureGroupListener();
+    final groupManager = GroupCallManager.maybeInstance;
+    if (groupManager != null && groupManager.snapshot.isInCall) {
+      return _buildGroupOverlay(groupManager);
+    }
+
     CallManager? manager;
     try {
       manager = CallManager.instance;
@@ -166,6 +264,46 @@ class _CallOverlayState extends State<CallOverlay> {
                   ),
                 ),
               ),
+          ],
+        );
+      },
+      child: widget.child,
+    );
+  }
+
+  Widget _buildGroupOverlay(GroupCallManager manager) {
+    return AnimatedBuilder(
+      animation: manager,
+      builder: (context, child) {
+        final snapshot = manager.snapshot;
+        if (!snapshot.isInCall) return child ?? const SizedBox.shrink();
+        final label = _groupLabel.isNotEmpty
+            ? _groupLabel
+            : snapshot.groupId ?? context.l10n.groupCall;
+        return Stack(
+          children: [
+            ?child,
+            Positioned.fill(
+              child: ColoredBox(
+                color: context.prysmStyle.tokens.surface,
+                child: SafeArea(
+                  child: snapshot.state == CallState.incoming
+                      ? GroupIncomingCallView(
+                          groupLabel: label,
+                          onJoin: () => unawaited(manager.join()),
+                          onDismiss: () =>
+                              unawaited(manager.dismissIncoming()),
+                        )
+                      : GroupActiveCallView(
+                          groupLabel: label,
+                          snapshot: snapshot,
+                          participants: _participantsFor(snapshot),
+                          onToggleMute: () => unawaited(manager.toggleMute()),
+                          onLeave: () => unawaited(manager.leave()),
+                        ),
+                ),
+              ),
+            ),
           ],
         );
       },

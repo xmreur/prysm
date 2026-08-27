@@ -4,6 +4,7 @@ import 'package:prysm/crypto/peer_proof.dart';
 import 'package:prysm/server/PrysmServer.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/group_call_manager.dart';
 import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/message_search_backfill_service.dart';
 import 'package:prysm/services/peer_identity_resolver.dart';
@@ -67,8 +68,14 @@ class AppComposition {
     };
     CallManager.configure(keyManager: keyManager);
     CallManager.instance.start();
-    BlockService.instance.onPeerBlocked = (peerOnion) =>
-        CallManager.endCallWithPeer(peerOnion, reason: 'declined');
+    // Group calls share the device's single call slot with 1:1 calls, and
+    // chain onto the same peer-disconnect hook, so they are wired right after.
+    GroupCallManager.configure(keyManager: keyManager);
+    GroupCallManager.instance.start();
+    BlockService.instance.onPeerBlocked = (peerOnion) {
+      GroupCallManager.maybeInstance?.onPeerBlocked(peerOnion);
+      return CallManager.endCallWithPeer(peerOnion, reason: 'declined');
+    };
   }
 
   /// Creates the per-session [SyncCoordinator]. Kept here (rather than as a

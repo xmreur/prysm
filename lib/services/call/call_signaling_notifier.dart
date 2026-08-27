@@ -7,6 +7,10 @@ enum CallSignalOp {
   answer,
   end,
   mute,
+  groupOffer,
+  groupJoin,
+  groupLeave,
+  groupMute,
 }
 
 CallSignalOp? callSignalOpFromWire(String op) {
@@ -19,6 +23,14 @@ CallSignalOp? callSignalOpFromWire(String op) {
       return CallSignalOp.end;
     case 'call_mute':
       return CallSignalOp.mute;
+    case 'group_call_offer':
+      return CallSignalOp.groupOffer;
+    case 'group_call_join':
+      return CallSignalOp.groupJoin;
+    case 'group_call_leave':
+      return CallSignalOp.groupLeave;
+    case 'group_call_mute':
+      return CallSignalOp.groupMute;
     default:
       return null;
   }

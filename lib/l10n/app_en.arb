@@ -308,6 +308,13 @@
       }
     }
   },
+  "@groupCallParticipantCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@groupIsFullMax": {
     "placeholders": {
       "max": {
@@ -1009,6 +1016,9 @@
   "groupInviteContactsOnlyDescription": "Invites from anyone else are discarded the moment they arrive: nothing is stored, nothing is shown.",
   "groupInviteContactsOnlyTitle": "Only accept invites from contacts",
   "groupInviteHoldDescription": "An invite from someone who is not in your contacts is kept as a request. Your device never contacts them, and adding them as a contact is what applies the invite.",
+  "groupCall": "Group call",
+  "groupCallInProgress": "Call in progress",
+  "groupCallParticipantCount": "{count, plural, =1{1 participant} other{{count} participants}}",
   "groupInviteHoldTitle": "Hold invites from unknown senders",
   "groupInvites": "Group invites",
   "groupIsFullMax": "Group is full ({max} members max)",
@@ -1037,6 +1047,7 @@
   "inCall": "In call",
   "incoming": "Incoming",
   "incomingCall": "Incoming call",
+  "incomingGroupCall": "Incoming group call",
   "incomingCalls": "Incoming Calls",
   "incomingCallsChannel": "Incoming Calls",
   "incomingCallsChannelDescription": "Ringing incoming voice calls",
@@ -1065,7 +1076,9 @@
   "lastSeen": "Last Seen",
   "later": "Later",
   "leadDeveloper": "Lead Developer",
+  "joinCall": "Join call",
   "leaveAction": "Leave",
+  "leaveCall": "Leave call",
   "leaveGroup": "Leave group",
   "leaveThisGroup": "Leave this group?",
   "legal": "Legal",
@@ -1510,6 +1523,7 @@
   "yes": "Yes",
   "you": "You",
   "youAreAdmin": "You are admin",
+  "youAreListenOnly": "You are muted in this group — listen only",
   "youAreMuted": "You are muted in this group",
   "youAreNoLongerInThisGroup": "You are no longer in this group",
   "youAreOwner": "You are owner",

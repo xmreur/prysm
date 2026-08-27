@@ -19,6 +19,7 @@ class CallLog {
     required this.startedAt,
     required this.endedAt,
     required this.durationMs,
+    this.groupId,
   });
 
   final String callId;
@@ -28,11 +29,15 @@ class CallLog {
   final int startedAt;
   final int? endedAt;
   final int durationMs;
+  final String? groupId;
 
   bool get isSuccessful => status == CallLogStatus.completed;
 
+  bool get isGroup => groupId != null && groupId!.isNotEmpty;
+
   /// Call back a missed inbound, or retry an unanswered/failed outbound.
   CallLogPlaceAction? get placeAction {
+    if (isGroup) return null;
     switch (status) {
       case CallLogStatus.missed:
         return direction == CallLogDirection.inbound
@@ -60,7 +65,8 @@ class CallLogsDb {
         status TEXT NOT NULL,
         startedAt INTEGER NOT NULL,
         endedAt INTEGER,
-        durationMs INTEGER NOT NULL DEFAULT 0
+        durationMs INTEGER NOT NULL DEFAULT 0,
+        groupId TEXT
       )
     ''');
     await db.execute(
@@ -77,6 +83,7 @@ class CallLogsDb {
     required CallLogDirection direction,
     required CallLogStatus status,
     required int startedAt,
+    String? groupId,
   }) async {
     final db = await DBHelper.database;
     await db.insert(_table, {
@@ -87,6 +94,7 @@ class CallLogsDb {
       'startedAt': startedAt,
       'endedAt': null,
       'durationMs': 0,
+      'groupId': groupId,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -98,6 +106,7 @@ class CallLogsDb {
     required int startedAt,
     required int endedAt,
     required int durationMs,
+    String? groupId,
   }) async {
     final db = await DBHelper.database;
     await db.insert(_table, {
@@ -108,6 +117,7 @@ class CallLogsDb {
       'startedAt': startedAt,
       'endedAt': endedAt,
       'durationMs': durationMs,
+      'groupId': groupId,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -153,6 +163,7 @@ class CallLogsDb {
       startedAt: row['startedAt'] as int,
       endedAt: row['endedAt'] as int?,
       durationMs: row['durationMs'] as int,
+      groupId: row['groupId'] as String?,
     );
   }
 }

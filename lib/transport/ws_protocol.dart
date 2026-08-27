@@ -18,6 +18,10 @@ const List<String> wsSupportedOps = [
   'call_answer',
   'call_end',
   'call_mute',
+  'group_call_offer',
+  'group_call_join',
+  'group_call_leave',
+  'group_call_mute',
   'file_transfer',
 ];
 
@@ -36,6 +40,10 @@ const List<String> wsCallOps = [
   'call_answer',
   'call_end',
   'call_mute',
+  'group_call_offer',
+  'group_call_join',
+  'group_call_leave',
+  'group_call_mute',
 ];
 
 const int callAudioFrameMagic = 0xA1;

@@ -395,7 +395,7 @@ class ReadReceiptService {
           publicKeyPem: user?['publicKeyPem'] as String?,
         );
         if (peerKey == null) return null;
-        return keyManager.decryptPeerMessage(
+        return await keyManager.decryptPeerMessage(
           peerId: senderId,
           wire: encrypted,
           peer: peerKey,
@@ -407,7 +407,7 @@ class ReadReceiptService {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
         if (GroupCryptoV2.isSenderKeyEnvelope(encrypted)) {
-          return _decryptSenderKey(
+          return await _decryptSenderKey(
             groupKey: groupKey,
             groupId: groupId,
             wire: encrypted,

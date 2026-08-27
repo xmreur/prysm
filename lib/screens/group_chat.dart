@@ -21,11 +21,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prysm/constants/group_constants.dart';
 import 'package:prysm/database/messages.dart';
 import 'package:prysm/database/pinned_messages_db.dart';
+import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/group_call_manager.dart';
 import 'package:prysm/services/pinned_messages_service.dart';
+import 'package:prysm/transport/transport_provider.dart';
+import 'package:prysm/util/tor_runtime_gate.dart';
 import 'package:prysm/models/contact.dart';
 import 'package:prysm/models/conversation.dart';
 import 'package:prysm/models/detached_chat_launch.dart';
 import 'package:prysm/models/group.dart';
+import 'package:prysm/screens/widgets/call_message_bubble.dart';
+import 'package:prysm/screens/widgets/group_call_join_banner.dart';
 import 'package:prysm/screens/widgets/forward_message_flow.dart';
 import 'package:prysm/screens/widgets/message_forwarded_label.dart';
 import 'package:prysm/screens/group_settings_screen.dart';
@@ -153,6 +159,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   List<String> _groupMemberIds = [];
   List<GroupMember> _roster = [];
   bool _selfMuted = false;
+  GroupCallManager? _watchedGroupCallManager;
   final Set<String> _pinnedIds = {};
   String? _highlightedMessageId;
   Timer? _highlightTimer;
@@ -310,6 +317,44 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         DisappearingTimerRefreshNotifier.instance.onChanged.listen((id) {
       if (id == widget.group.id) unawaited(_loadDisappearingTimer());
     });
+    _ensureGroupCallListener();
+  }
+
+  /// The group manager is configured when Tor connects, which can be after
+  /// this screen opens.
+  void _ensureGroupCallListener() {
+    final manager = GroupCallManager.maybeInstance;
+    if (manager == null || identical(manager, _watchedGroupCallManager)) return;
+    _watchedGroupCallManager?.removeListener(_onGroupCallChanged);
+    _watchedGroupCallManager = manager;
+    manager.addListener(_onGroupCallChanged);
+  }
+
+  void _onGroupCallChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _canStartGroupCall {
+    if (_selfMuted) return false;
+    if (TorRuntimeGate.blocked) return false;
+    if (!TransportProvider.isConfigured) return false;
+    final manager = GroupCallManager.maybeInstance;
+    if (manager == null) return false;
+    if (manager.snapshot.callId != null) return false;
+    try {
+      return !CallManager.instance.snapshot.isInCall;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _startGroupCall() async {
+    try {
+      await GroupCallManager.instance.startGroupCall(widget.group.id);
+    } catch (e) {
+      if (!mounted) return;
+      showPrysmToast(context, context.l10n.couldNotStartCallE('$e'));
+    }
   }
 
   Future<void> _loadDisappearingTimer() async {
@@ -340,6 +385,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   void _teardown() {
+    _watchedGroupCallManager?.removeListener(_onGroupCallChanged);
+    _watchedGroupCallManager = null;
     _typingService.dispose();
     _typingSub?.cancel();
     _typingTrackerSub?.cancel();
@@ -1024,6 +1071,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               'timerSeconds': payload['timerSeconds'],
               'actorId': payload['actorId'],
             },
+          ));
+        } else if (type == 'call') {
+          // Group call summaries are written locally in plaintext, like the
+          // disappearing-timer notice.
+          final payload = jsonDecode((wire as String?) ?? '{}')
+              as Map<String, dynamic>;
+          result.add(PrysmCallMessage(
+            id: id,
+            authorId: authorId,
+            createdAt: createdAt,
+            durationMs: (payload['durationMs'] as num?)?.toInt() ?? 0,
+            callStatus: payload['status'] as String? ?? 'completed',
+            direction: payload['direction'] as String? ?? 'outbound',
           ));
         } else if (type == groupFileType || type == groupAudioType) {
           final fileName = msg['fileName'] as String? ??
@@ -1766,6 +1826,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _ensureGroupCallListener();
     return PrysmPage(
       headerHeight: 70,
       leading: PrysmIconButton(
@@ -1787,6 +1848,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             _showChatSearch = !_showChatSearch;
             if (!_showChatSearch) _chatHighlightQuery = '';
           }),
+        ),
+        PrysmIconButton(
+          icon: PrysmIcons.phone,
+          onPressed: _canStartGroupCall ? _startGroupCall : null,
         ),
         if (selectedMessageIds.isNotEmpty)
           PrysmIconButton(
@@ -1827,6 +1892,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       color: context.prysmStyle.tokens.textMuted,
                     ),
                   ),
+                ),
+              if (GroupCallManager.maybeInstance?.snapshot
+                      .showJoinBannerFor(widget.group.id) ??
+                  false)
+                GroupCallJoinBanner(
+                  onJoin: () => unawaited(GroupCallManager.instance.join()),
                 ),
               Expanded(
                 child: PrysmChatList(
@@ -1915,6 +1986,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     Message message,
     int index,
   ) {
+    if (message is PrysmCallMessage) {
+      return _buildCallMessageRow(message, index);
+    }
+
     if (message is TextMessage &&
         message.metadata?['systemNotice'] == 'disappearing_timer') {
       return _buildDisappearingTimerNoticeRow(message, index);
@@ -1951,6 +2026,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       reactionBar: isMessageDeleted(message)
           ? const SizedBox.shrink()
           : _reactionBarFor(message, isSentByMe),
+    );
+  }
+
+  Widget _buildCallMessageRow(PrysmCallMessage message, int index) {
+    final showDateHeader = shouldShowChatDateHeader(_messages.messages, index);
+    return Column(
+      children: [
+        if (showDateHeader) PrysmDateHeader(date: message.createdAt!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: CallMessageBubble(message: message),
+        ),
+      ],
     );
   }
 

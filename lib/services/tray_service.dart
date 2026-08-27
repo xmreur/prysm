@@ -10,6 +10,7 @@ import 'package:prysm/database/messages.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/group_call_manager.dart';
 import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
@@ -149,6 +150,7 @@ class TrayService with TrayListener {
     try {
       CallManager.instance.addListener(_callManagerListener!);
     } catch (_) {}
+    GroupCallManager.maybeInstance?.addListener(_callManagerListener!);
 
     _restartPollTimer();
     await refreshStatus();
@@ -343,6 +345,14 @@ class TrayService with TrayListener {
     try {
       callSnapshot = CallManager.instance.snapshot;
     } catch (_) {}
+    // A group call occupies the same device slot, so at most one of the two
+    // snapshots is ever in a call.
+    final group = GroupCallManager.maybeInstance;
+    final groupSnapshot = group?.snapshot;
+    final inGroupCall = groupSnapshot?.isInCall ?? false;
+    if (inGroupCall) {
+      callSnapshot = groupSnapshot!.asCallSnapshot;
+    }
 
     final incoming = callSnapshot?.state == CallState.incoming;
     final active = callSnapshot?.state == CallState.active;
@@ -355,16 +365,21 @@ class TrayService with TrayListener {
         MenuItem(
           key: 'call_accept',
           label: l10n.acceptCall,
-          onClick: (_) => unawaited(_acceptCallFromTray()),
+          onClick: (_) => unawaited(_acceptCallFromTray(group: inGroupCall)),
         ),
         MenuItem(
           key: 'call_decline',
           label: l10n.declineCall,
           onClick: (_) => unawaited(
-            CallManager.instance.declineFromNotification(
-              callId: incomingCallId,
-              peerOnion: incomingPeer,
-            ),
+            inGroupCall
+                ? group!.declineFromNotification(
+                    callId: incomingCallId,
+                    peerOnion: incomingPeer,
+                  )
+                : CallManager.instance.declineFromNotification(
+                    callId: incomingCallId,
+                    peerOnion: incomingPeer,
+                  ),
           ),
         ),
         MenuItem.separator(),
@@ -373,8 +388,10 @@ class TrayService with TrayListener {
       items.add(
         MenuItem(
           key: 'call_hangup',
-          label: l10n.hangUp,
-          onClick: (_) => unawaited(CallManager.instance.endCall()),
+          label: inGroupCall ? l10n.leaveCall : l10n.hangUp,
+          onClick: (_) => unawaited(
+            inGroupCall ? group!.leave() : CallManager.instance.endCall(),
+          ),
         ),
       );
       items.add(MenuItem.separator());
@@ -420,8 +437,12 @@ class TrayService with TrayListener {
     await windowManager.focus();
   }
 
-  Future<void> _acceptCallFromTray() async {
+  Future<void> _acceptCallFromTray({bool group = false}) async {
     await _showWindow();
+    if (group) {
+      await GroupCallManager.instance.join();
+      return;
+    }
     await CallManager.instance.acceptIncoming();
   }
 
@@ -453,6 +474,7 @@ class TrayService with TrayListener {
       try {
         CallManager.instance.removeListener(_callManagerListener!);
       } catch (_) {}
+      GroupCallManager.maybeInstance?.removeListener(_callManagerListener!);
       _callManagerListener = null;
     }
     trayManager.removeListener(this);

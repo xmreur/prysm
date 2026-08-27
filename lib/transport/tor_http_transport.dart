@@ -112,7 +112,7 @@ class TorHttpTransport implements OutboundTransport {
           requesterOnion: requester,
         );
         final response = await client.get(uri, {}).timeout(timeout);
-        return client.readUtf8Body(response);
+        return await client.readUtf8Body(response);
       } finally {
         await client.close();
       }
@@ -135,7 +135,7 @@ class TorHttpTransport implements OutboundTransport {
         final response = await client
             .get(Uri.parse('http://$peerOnion:80/public'), {})
             .timeout(timeout);
-        return client.readUtf8Body(response);
+        return await client.readUtf8Body(response);
       } finally {
         await client.close();
       }

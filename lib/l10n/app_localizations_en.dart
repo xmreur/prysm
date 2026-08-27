@@ -1043,6 +1043,23 @@ class AppLocalizationsEn extends AppLocalizations {
       'An invite from someone who is not in your contacts is kept as a request. Your device never contacts them, and adding them as a contact is what applies the invite.';
 
   @override
+  String get groupCall => 'Group call';
+
+  @override
+  String get groupCallInProgress => 'Call in progress';
+
+  @override
+  String groupCallParticipantCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count participants',
+      one: '1 participant',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get groupInviteHoldTitle => 'Hold invites from unknown senders';
 
   @override
@@ -1138,6 +1155,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get incomingCall => 'Incoming call';
 
   @override
+  String get incomingGroupCall => 'Incoming group call';
+
+  @override
   String get incomingCalls => 'Incoming Calls';
 
   @override
@@ -1230,7 +1250,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get leadDeveloper => 'Lead Developer';
 
   @override
+  String get joinCall => 'Join call';
+
+  @override
   String get leaveAction => 'Leave';
+
+  @override
+  String get leaveCall => 'Leave call';
 
   @override
   String get leaveGroup => 'Leave group';
@@ -2746,6 +2772,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get youAreAdmin => 'You are admin';
+
+  @override
+  String get youAreListenOnly => 'You are muted in this group — listen only';
 
   @override
   String get youAreMuted => 'You are muted in this group';

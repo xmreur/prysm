@@ -271,7 +271,7 @@ class CryptoKeyStore {
         nonce: iv,
       );
       final privateMap = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
-      return IdentityKeyPair.fromPrivateJson(privateMap);
+      return await IdentityKeyPair.fromPrivateJson(privateMap);
     } catch (_) {
       return null;
     }

@@ -42,6 +42,7 @@ class CallHistoryScreen extends StatefulWidget {
 class _CallHistoryScreenState extends State<CallHistoryScreen> {
   final List<CallLog> _logs = [];
   final Map<String, Map<String, dynamic>?> _users = {};
+  final Map<String, String> _groupNames = {};
   bool _loading = true;
   StreamSubscription<void>? _subscription;
 
@@ -69,7 +70,17 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
 
   Future<void> _load() async {
     final logs = await CallLogsService.instance.getLogs(limit: 200);
-    final uniquePeerIds = logs.map((log) => log.peerOnion).toSet();
+    // A group call log carries the group id where a peer onion would be.
+    final groupNames = <String, String>{};
+    for (final groupId in logs
+        .where((log) => log.isGroup)
+        .map((log) => log.groupId!)
+        .toSet()) {
+      final name = (await DBHelper.getGroupById(groupId))?['name'] as String?;
+      if (name != null && name.isNotEmpty) groupNames[groupId] = name;
+    }
+    final uniquePeerIds =
+        logs.where((log) => !log.isGroup).map((log) => log.peerOnion).toSet();
     final userFutures = <Future<MapEntry<String, Map<String, dynamic>?>>>[];
     for (final peerOnion in uniquePeerIds) {
       userFutures.add(() async {
@@ -88,8 +99,19 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       _users
         ..clear()
         ..addAll(users);
+      _groupNames
+        ..clear()
+        ..addAll(groupNames);
       _loading = false;
     });
+  }
+
+  String _logDisplayName(CallLog log) {
+    final groupId = log.groupId;
+    if (groupId != null) {
+      return _groupNames[groupId] ?? context.l10n.groupCall;
+    }
+    return _displayName(log.peerOnion);
   }
 
   String _displayName(String peerOnion) {
@@ -194,13 +216,12 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                 final subtitle = log.status == CallLogStatus.completed
                     ? '${formatCallLogDuration(log.durationMs)} · ${_formatDate(log.startedAt)}'
                     : '${_statusLabel(log.status)} · ${_formatDate(log.startedAt)}';
+                final title = _logDisplayName(log);
+                final avatar =
+                    _users[log.peerOnion]?['avatarBase64'] as String?;
                 return PrysmListRow(
-                  leading: ContactAvatar(
-                    name: _displayName(log.peerOnion),
-                    avatarBase64:
-                        _users[log.peerOnion]?['avatarBase64'] as String?,
-                  ),
-                  title: _displayName(log.peerOnion),
+                  leading: ContactAvatar(name: title, avatarBase64: avatar),
+                  title: title,
                   subtitle: subtitle,
                   trailing: Icon(_statusIcon(log.status), color: statusColor),
                   onTap: () {
@@ -208,9 +229,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                       context,
                       CallLogDetailScreen(
                         log: log,
-                        displayName: _displayName(log.peerOnion),
-                        avatarBase64:
-                            _users[log.peerOnion]?['avatarBase64'] as String?,
+                        displayName: title,
+                        avatarBase64: avatar,
                         onClose: () => Navigator.of(context).pop(),
                       ),
                     );

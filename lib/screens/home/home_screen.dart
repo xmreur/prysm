@@ -39,6 +39,7 @@ import 'package:prysm/util/logging.dart';
 import 'package:prysm/services/app_update_service.dart';
 import 'package:prysm/services/call/call_foreground_session.dart';
 import 'package:prysm/services/call/call_manager.dart';
+import 'package:prysm/services/call/group_call_manager.dart';
 import 'package:prysm/screens/chat.dart';
 import 'package:prysm/screens/self_chat_screen.dart';
 import 'package:prysm/screens/create_group_screen.dart';
@@ -772,19 +773,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    // Group calls ring through the same notification, so the action belongs to
+    // whichever manager owns this callId.
+    final groupManager = GroupCallManager.maybeInstance;
+    final group = groupManager != null &&
+        groupManager.snapshot.callId == action.callId &&
+        groupManager.snapshot.isInCall;
+
     try {
       switch (action.action) {
         case CallNotificationAction.accept:
+          if (group) {
+            if (groupManager.snapshot.state != CallState.incoming) break;
+            await NotificationService().cancelCallNotifications();
+            await groupManager.join();
+            break;
+          }
           if (CallManager.instance.snapshot.state != CallState.incoming) break;
           await NotificationService().cancelCallNotifications();
           await CallManager.instance.acceptIncoming();
         case CallNotificationAction.decline:
           await NotificationService().cancelCallNotifications();
+          if (group) {
+            await groupManager.declineFromNotification(
+              callId: action.callId,
+              peerOnion: action.peerOnion,
+            );
+            break;
+          }
           await CallManager.instance.declineFromNotification(
             callId: action.callId,
             peerOnion: action.peerOnion,
           );
         case CallNotificationAction.hangup:
+          if (group) {
+            await NotificationService().cancelCallNotifications();
+            await groupManager.leave();
+            break;
+          }
           if (!CallManager.instance.snapshot.isInCall) break;
           await NotificationService().cancelCallNotifications();
           await CallManager.instance.endCall();

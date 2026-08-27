@@ -120,4 +120,12 @@ void main() {
     expect(canSendChat(muted: false), isTrue);
     expect(canSendChat(muted: true), isFalse);
   });
+
+  test('any member can start a group call; muted members listen only', () {
+    expect(canStartGroupCall(GroupRole.owner), isTrue);
+    expect(canStartGroupCall(GroupRole.admin), isTrue);
+    expect(canStartGroupCall(GroupRole.member), isTrue);
+    expect(canSpeakInGroupCall(muted: false), isTrue);
+    expect(canSpeakInGroupCall(muted: true), isFalse);
+  });
 }

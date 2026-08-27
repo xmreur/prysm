@@ -233,10 +233,10 @@ class TorManager {
           return TorHealthStatus.healthy;
         }
 
-        return _controlReadMutex.protect(_checkDesktopControlHealth);
+        return await _controlReadMutex.protect(_checkDesktopControlHealth);
       }
 
-      return _controlReadMutex.protect(() async {
+      return await _controlReadMutex.protect(() async {
         if (!await _probeSocksPort()) {
           return const TorHealthStatus(
             ok: false,
@@ -342,7 +342,7 @@ class TorManager {
       }
 
       writeCmd(cmd);
-      return readUntilOk().timeout(timeout);
+      return await readUntilOk().timeout(timeout);
     } finally {
       await socket?.close();
     }

@@ -62,7 +62,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 17,
+      version: 18,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -254,6 +254,9 @@ class DBHelper {
     if (oldVersion < 17) {
       await applyGroupModerationV17(db);
     }
+    if (oldVersion < 18) {
+      await applyCallLogsGroupIdV18(db);
+    }
   }
 
   /// v17: owner role, per-member mute, invite lock.
@@ -281,6 +284,14 @@ class DBHelper {
             SELECT createdBy FROM groups WHERE groups.id = group_members.groupId
           )
       ''');
+    }
+  }
+
+  /// v18: groupId on call_logs so group calls can be listed without a peer.
+  static Future<void> applyCallLogsGroupIdV18(Database db) async {
+    final cols = await db.rawQuery('PRAGMA table_info(call_logs)');
+    if (cols.isNotEmpty && !cols.any((c) => c['name'] == 'groupId')) {
+      await db.execute('ALTER TABLE call_logs ADD COLUMN groupId TEXT');
     }
   }
 

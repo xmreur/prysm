@@ -362,7 +362,7 @@ class TransportProvider implements OutboundTransport {
             requesterOnion: requester,
           );
           final response = await torClient.get(uri, {}).timeout(timeout);
-          return torClient.readUtf8Body(response);
+          return await torClient.readUtf8Body(response);
         } finally {
           await torClient.close();
         }
@@ -396,7 +396,7 @@ class TransportProvider implements OutboundTransport {
         try {
           final uri = Uri.parse('http://$peerOnion:80/public');
           final response = await torClient.get(uri, {}).timeout(timeout);
-          return torClient.readUtf8Body(response);
+          return await torClient.readUtf8Body(response);
         } finally {
           await torClient.close();
         }
@@ -520,7 +520,7 @@ class TransportProvider implements OutboundTransport {
         if (!isConfigured) return;
         final onion = await instance._torManager.getOnionAddress();
         if (onion == null || onion.isEmpty) return;
-        return postSyncHint(
+        return await postSyncHint(
           peerOnion: peerOnion,
           senderId: onion,
           timeout: timeout,

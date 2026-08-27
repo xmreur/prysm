@@ -36,7 +36,6 @@ import 'package:prysm/ui/chat/prysm_date_header.dart';
 import 'package:prysm/ui/chat/prysm_chat_list.dart';
 import 'package:prysm/ui/chat/chat_search_bar.dart';
 import 'package:prysm/ui/chat/prysm_message_row.dart';
-import 'package:prysm/util/group_moderation_policy.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
 import 'package:prysm/screens/widgets/message_reaction_bar.dart';

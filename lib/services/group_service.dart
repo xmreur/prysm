@@ -983,8 +983,8 @@ class GroupService {
     if (existing == null) return;
 
     await DBHelper.updateGroupFields(groupId, {
-      if (name != null) 'name': name,
-      if (avatarBase64 != null) 'avatarBase64': avatarBase64,
+      'name': ?name,
+      'avatarBase64': ?avatarBase64,
     });
   }
 

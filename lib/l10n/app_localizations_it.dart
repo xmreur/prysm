@@ -1051,6 +1051,23 @@ class AppLocalizationsIt extends AppLocalizations {
       'Un invito da qualcuno che non è nei tuoi contatti viene conservato come richiesta. Il dispositivo non lo contatta mai; aggiungerlo come contatto applica l\'invito.';
 
   @override
+  String get groupCall => 'Chiamata di gruppo';
+
+  @override
+  String get groupCallInProgress => 'Chiamata in corso';
+
+  @override
+  String groupCallParticipantCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count partecipanti',
+      one: '1 partecipante',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get groupInviteHoldTitle => 'Trattieni inviti da mittenti sconosciuti';
 
   @override
@@ -1147,6 +1164,9 @@ class AppLocalizationsIt extends AppLocalizations {
   String get incomingCall => 'Chiamata in arrivo';
 
   @override
+  String get incomingGroupCall => 'Chiamata di gruppo in arrivo';
+
+  @override
   String get incomingCalls => 'Chiamate in arrivo';
 
   @override
@@ -1241,7 +1261,13 @@ class AppLocalizationsIt extends AppLocalizations {
   String get leadDeveloper => 'Sviluppatore principale';
 
   @override
+  String get joinCall => 'Entra nella chiamata';
+
+  @override
   String get leaveAction => 'Esci';
+
+  @override
+  String get leaveCall => 'Esci dalla chiamata';
 
   @override
   String get leaveGroup => 'Lascia gruppo';
@@ -2775,6 +2801,10 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get youAreAdmin => 'Sei amministratore';
+
+  @override
+  String get youAreListenOnly =>
+      'Sei silenziato in questo gruppo — solo ascolto';
 
   @override
   String get youAreMuted => 'Sei silenziato in questo gruppo';

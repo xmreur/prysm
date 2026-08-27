@@ -50,7 +50,7 @@ class MessageBlobStore {
 
   static Future<bool> exists(String storageId) async {
     try {
-      return (await _fileFor(storageId)).exists();
+      return await (await _fileFor(storageId)).exists();
     } on ArgumentError {
       return false;
     }

@@ -287,3 +287,41 @@ class OpusCodec {
     }
   }
 }
+
+/// Independent Opus decoder for one group-call remote stream.
+class OpusStreamDecoder {
+  OpusStreamDecoder._(this._decoder, this.sampleRate, this.channels);
+
+  final SimpleOpusDecoder _decoder;
+  final int sampleRate;
+  final int channels;
+
+  static Future<OpusStreamDecoder?> create({
+    int sampleRate = 16000,
+    int channels = 1,
+  }) async {
+    if (!await OpusCodec.ensureLoaded()) return null;
+    try {
+      return OpusStreamDecoder._(
+        SimpleOpusDecoder(sampleRate: sampleRate, channels: channels),
+        sampleRate,
+        channels,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        Logging.error('decoder init failed: $e', 'OpusStreamDecoder');
+      }
+      return null;
+    }
+  }
+
+  Int16List decodeFrame(Uint8List opusBytes) {
+    return _decoder.decode(input: opusBytes);
+  }
+
+  void dispose() {
+    if (!_decoder.destroyed) {
+      _decoder.destroy();
+    }
+  }
+}

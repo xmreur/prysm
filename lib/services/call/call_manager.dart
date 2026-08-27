@@ -80,6 +80,9 @@ class CallManager extends ChangeNotifier {
 
   static CallManager? _instance;
 
+  /// Set by [GroupCallManager] so 1:1 and group calls share one occupancy slot.
+  static bool Function()? extraBusyCheck;
+
   static CallManager get instance {
     final i = _instance;
     if (i == null) {
@@ -87,6 +90,14 @@ class CallManager extends ChangeNotifier {
     }
     return i;
   }
+
+  static CallManager? get maybeInstance => _instance;
+
+  bool get isBusy => _snapshot.isInCall;
+
+  static bool get deviceBusy =>
+      (_instance?._snapshot.isInCall ?? false) ||
+      (extraBusyCheck?.call() ?? false);
 
   static void configure({
     required KeyManager keyManager,
@@ -113,6 +124,7 @@ class CallManager extends ChangeNotifier {
   static void resetForTest() {
     _instance?._shutdown();
     _instance = null;
+    extraBusyCheck = null;
     CallForegroundSession.resetState();
   }
 
@@ -197,7 +209,7 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> startCall(String peerOnion) async {
-    if (_shuttingDown || _snapshot.isInCall) return;
+    if (_shuttingDown || _snapshot.isInCall || deviceBusy) return;
     if (BlockService.instance.isBlocked(peerOnion)) return;
 
     _setSnapshot(
@@ -396,6 +408,11 @@ class CallManager extends ChangeNotifier {
         await _handleEnd(event);
       case CallSignalOp.mute:
         _handleMute(event);
+      case CallSignalOp.groupOffer:
+      case CallSignalOp.groupJoin:
+      case CallSignalOp.groupLeave:
+      case CallSignalOp.groupMute:
+        break;
     }
   }
 
@@ -422,7 +439,7 @@ class CallManager extends ChangeNotifier {
       return;
     }
 
-    if (_snapshot.isInCall) {
+    if (_snapshot.isInCall || (extraBusyCheck?.call() ?? false)) {
       final callId = event.callId;
       if (callId != null) {
         await _sendEnd(event.peerOnion, callId, reason: 'busy');

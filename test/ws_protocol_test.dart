@@ -51,6 +51,19 @@ void main() {
       expect(WsFrame.isCallOp('message'), isFalse);
     });
 
+    test('group call ops are supported and detected as call ops', () {
+      for (final op in [
+        'group_call_offer',
+        'group_call_join',
+        'group_call_leave',
+        'group_call_mute',
+      ]) {
+        expect(wsSupportedOps, contains(op));
+        expect(wsCallOps, contains(op));
+        expect(WsFrame.isCallOp(op), isTrue);
+      }
+    });
+
     test('file transfer ops are supported and detected', () {
       expect(wsSupportedOps, contains(wsFileTransferCapability));
       expect(WsFrame.isFileTransferOp('file_transfer_begin'), isTrue);

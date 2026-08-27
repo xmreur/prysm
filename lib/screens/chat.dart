@@ -40,6 +40,7 @@ import 'package:prysm/ui/chat/prysm_message_row.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/util/scroll_to_chat_message.dart';
+import 'package:prysm/screens/widgets/call_message_bubble.dart';
 import 'package:prysm/screens/widgets/contact_avatar.dart';
 import 'package:prysm/screens/widgets/message_copy_action.dart';
 import 'package:prysm/screens/widgets/pin_message_tile.dart';
@@ -1347,92 +1348,11 @@ class _ChatScreenState extends State<ChatScreen> {
     return messageCopyText(message);
   }
 
-  String _callMessageLabel(PrysmCallMessage message) {
-    final direction = message.direction == 'outbound'
-        ? context.l10n.outgoing
-        : context.l10n.incoming;
-    final status = _prettyCallStatus(message.callStatus);
-    if (message.callStatus == 'completed') {
-      final duration = _formatCallDuration(message.durationMs);
-      return context.l10n.directionCallDuration(direction, duration);
-    }
-    return context.l10n.directionCallStatus(direction, status);
-  }
+  String _callMessageLabel(PrysmCallMessage message) =>
+      callMessageLabel(context.l10n, message);
 
-  String _prettyCallStatus(String status) {
-    switch (status) {
-      case 'completed':
-        return context.l10n.completed;
-      case 'missed':
-        return context.l10n.missed;
-      case 'declined':
-        return context.l10n.declined;
-      case 'failed':
-        return context.l10n.failed;
-      default:
-        return status;
-    }
-  }
-
-  String _formatCallDuration(int durationMs) {
-    final seconds = (durationMs ~/ 1000).clamp(0, Duration.secondsPerDay * 99);
-    final minutes = seconds ~/ 60;
-    final secs = seconds % 60;
-    if (minutes > 0) {
-      return '${minutes}m ${secs.toString().padLeft(2, '0')}s';
-    }
-    return '${secs}s';
-  }
-
-  Widget _callMessageBuilder(PrysmCallMessage message) {
-    final tokens = context.prysmStyle.tokens;
-    final isMissed = message.callStatus == 'missed';
-    final label = _callMessageLabel(message);
-    final timeString = message.createdAt != null
-        ? '${message.createdAt!.hour.toString().padLeft(2, '0')}:${message.createdAt!.minute.toString().padLeft(2, '0')}'
-        : '';
-
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 280),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: tokens.surfaceElevated,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              PrysmIcons.phone,
-              size: 16,
-              color: isMissed ? tokens.danger : tokens.textSecondary,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-              label,
-              style: context.prysmStyle.captionStyle.copyWith(
-                color: isMissed ? tokens.danger : tokens.textSecondary,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            ),
-            if (timeString.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Text(
-                timeString,
-                style: context.prysmStyle.captionStyle.copyWith(
-                  color: tokens.textMuted,
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _callMessageBuilder(PrysmCallMessage message) =>
+      CallMessageBubble(message: message);
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);

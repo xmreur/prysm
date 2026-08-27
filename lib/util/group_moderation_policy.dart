@@ -53,3 +53,14 @@ bool canModerationDelete({
 }
 
 bool canSendChat({required bool muted}) => !muted;
+
+bool canStartGroupCall(GroupRole actor) {
+  switch (actor) {
+    case GroupRole.owner:
+    case GroupRole.admin:
+    case GroupRole.member:
+      return true;
+  }
+}
+
+bool canSpeakInGroupCall({required bool muted}) => !muted;

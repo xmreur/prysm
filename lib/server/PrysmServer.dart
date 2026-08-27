@@ -374,7 +374,7 @@ class PrysmServer {
                     final response = await torClient
                         .get(uri, {})
                         .timeout(const Duration(seconds: 20));
-                    return torClient.readUtf8Body(response);
+                    return await torClient.readUtf8Body(response);
                   } finally {
                     await torClient.close();
                   }

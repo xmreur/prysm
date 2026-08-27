@@ -1,17 +1,12 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:prysm/services/call/call_capture_source.dart';
 import 'package:prysm/services/call/call_pcm_playback.dart';
 import 'package:prysm/services/call/call_session.dart';
-import 'package:prysm/services/call/linux_audio_settings.dart';
-import 'package:prysm/services/call/linux_mic_capture.dart';
 import 'package:prysm/services/call/opus_codec.dart';
-import 'package:prysm/services/call/pcm_capture_processor.dart';
 import 'package:prysm/services/call/pcm_gain_normalizer.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_service.dart';
@@ -52,16 +47,11 @@ class AudioEngine implements CallAudio {
   OpusCodec? _codec;
   final CallPcmPlayback _playback;
 
-  final AudioRecorder _recorder = AudioRecorder();
-  StreamSubscription<Uint8List>? _captureSub;
-  final List<int> _pcmBuffer = [];
+  CallCaptureSource? _capture;
   bool _running = false;
   bool _muted = false;
-  bool _linuxCaptureActive = false;
   Future<void> _sendChain = Future.value();
-  final PcmGainNormalizer _captureGain = PcmGainNormalizer();
   final PcmGainNormalizer _playbackGain = PcmGainNormalizer();
-  final PcmCaptureProcessor _captureProcessor = PcmCaptureProcessor();
 
   @override
   bool get isRunning => _running;
@@ -73,14 +63,6 @@ class AudioEngine implements CallAudio {
   Future<bool> start() async {
     if (_running) return true;
 
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        AudioEngine.lastStartError = 'Microphone permission denied';
-        return false;
-      }
-    }
-
     try {
       _codec ??= await OpusCodec.create(
         sampleRate: session.codec.sampleRate,
@@ -89,15 +71,15 @@ class AudioEngine implements CallAudio {
       );
       final codec = _codec;
       if (codec == null) {
-        AudioEngine.lastStartError =
-            OpusCodec.lastLoadError ?? 'Opus codec unavailable';
+        lastStartError = OpusCodec.lastLoadError ?? 'Opus codec unavailable';
+        AudioEngine.lastStartError = lastStartError;
         return false;
       }
 
       if (!kIsWeb && Platform.isIOS) {
         await TorManager.setIosCallAudioActive(true);
         await _configureIosCallAudioSession();
-        await _recorder.ios?.manageAudioSession(false);
+        await AudioRecorder().ios?.manageAudioSession(false);
       }
 
       await _playback.start(
@@ -105,73 +87,48 @@ class AudioEngine implements CallAudio {
         channels: codec.channels,
       );
 
-      final Stream<Uint8List> stream;
-      if (!kIsWeb && Platform.isLinux) {
-        final deviceId = await LinuxAudioSettings.getSelectedDeviceId();
-        stream = await LinuxMicCapture.start(
-          sampleRate: codec.sampleRate,
-          channels: codec.channels,
-          deviceId: deviceId,
-        );
-        _linuxCaptureActive = true;
-      } else {
-        stream = await _recorder.startStream(_captureConfig());
-      }
-
-      _running = true;
-      final bytesPerFrame = codec.frameSamples * codec.channels * 2;
-      _captureSub = stream.listen(
-        (chunk) {
-          if (!_running || _muted || chunk.isEmpty) return;
-          _pcmBuffer.addAll(chunk);
-          while (_pcmBuffer.length >= bytesPerFrame) {
-            final frameBytes = Uint8List.fromList(
-              _pcmBuffer.sublist(0, bytesPerFrame),
-            );
-            _pcmBuffer.removeRange(0, bytesPerFrame);
-            final pcm = Int16List.view(
-              frameBytes.buffer,
-              frameBytes.offsetInBytes,
-              frameBytes.lengthInBytes ~/ 2,
-            );
-            try {
-              final cleaned = _captureProcessor.process(pcm);
-              final normalized = _captureGain.normalize(
-                cleaned,
-                applyGain: _captureProcessor.gateOpen,
-              );
-              final opus = codec.encodeFrame(normalized);
-              _sendChain = chainAudioSend(
-                _sendChain,
-                () => session.encryptAudioFrame(opus),
-                onSendFrame,
-              );
-            } catch (e) {
-              if (kDebugMode) {
-                Logging.error('encode failed: $e', 'AudioEngine');
-              }
-            }
-          }
-        },
-        onError: (Object e) {
-          AudioEngine.lastStartError = 'Microphone stream error: $e';
-          if (kDebugMode) {
-            Logging.error('capture stream error: $e', 'AudioEngine');
-          }
-        },
+      final capture = CallCaptureSource(
+        sampleRate: codec.sampleRate,
+        channels: codec.channels,
+        frameSamples: codec.frameSamples,
+        onFrame: _onCaptureFrame,
       );
-
+      capture.setMuted(_muted);
+      final started = await capture.start();
+      if (!started) {
+        lastStartError = CallCaptureSource.lastStartError;
+        AudioEngine.lastStartError = lastStartError;
+        await _playback.stop();
+        return false;
+      }
+      _capture = capture;
+      _running = true;
+      lastStartError = null;
       AudioEngine.lastStartError = null;
       return true;
-    } on PlatformException catch (e) {
-      AudioEngine.lastStartError =
-          e.message ?? 'Linux microphone capture failed';
-      await stop();
-      return false;
     } catch (e) {
-      AudioEngine.lastStartError = e.toString();
+      lastStartError = e.toString();
+      AudioEngine.lastStartError = lastStartError;
       await stop();
       return false;
+    }
+  }
+
+  void _onCaptureFrame(CallCaptureFrame frame) {
+    if (!_running || _muted) return;
+    final codec = _codec;
+    if (codec == null) return;
+    try {
+      final opus = codec.encodeFrame(frame.pcm);
+      _sendChain = chainAudioSend(
+        _sendChain,
+        () => session.encryptAudioFrame(opus),
+        onSendFrame,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        Logging.error('encode failed: $e', 'AudioEngine');
+      }
     }
   }
 
@@ -200,16 +157,6 @@ class AudioEngine implements CallAudio {
     }());
   }
 
-  RecordConfig _captureConfig() {
-    return const RecordConfig(
-      encoder: AudioEncoder.pcm16bits,
-      sampleRate: 16000,
-      numChannels: 1,
-      echoCancel: true,
-      noiseSuppress: true,
-    );
-  }
-
   Future<void> _configureIosCallAudioSession() async {
     final audioSession = await AudioSession.instance;
     await audioSession.configure(
@@ -225,32 +172,23 @@ class AudioEngine implements CallAudio {
   }
 
   Future<void> _restoreIosCallAudioSession() async {
-    await _recorder.ios?.manageAudioSession(true);
+    await AudioRecorder().ios?.manageAudioSession(true);
     await TorManager.setIosCallAudioActive(false);
   }
 
   @override
   void setMuted(bool muted) {
     _muted = muted;
+    _capture?.setMuted(muted);
   }
 
   @override
   Future<void> stop() async {
     _running = false;
     _sendChain = Future.value();
-    await _captureSub?.cancel();
-    _captureSub = null;
-    _pcmBuffer.clear();
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
-    }
-    if (_linuxCaptureActive) {
-      await LinuxMicCapture.stop();
-      _linuxCaptureActive = false;
-    }
-    _captureGain.reset();
+    await _capture?.stop();
+    _capture = null;
     _playbackGain.reset();
-    _captureProcessor.reset();
     await _playback.stop();
     if (!kIsWeb && Platform.isIOS) {
       await _restoreIosCallAudioSession();

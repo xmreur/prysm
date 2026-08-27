@@ -193,7 +193,7 @@ class ImageAttachmentCache {
       if (!await file.exists()) return null;
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) return null;
-      return _fromBytes(bytes);
+      return await _fromBytes(bytes);
     } catch (e) {
       Logging.error('Image disk cache read failed ($messageId): $e', 'ImageAttachmentCache');
       return null;

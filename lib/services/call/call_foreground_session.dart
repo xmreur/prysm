@@ -186,6 +186,11 @@ class CallForegroundSession implements CallForegroundSessionPort {
   }
 
   Future<String> _peerDisplayName(String peerOnion) async {
+    // A group call passes its group id here in place of a peer onion.
+    final group = await DBHelper.getGroupById(peerOnion);
+    final groupName = group?['name'] as String?;
+    if (groupName != null && groupName.isNotEmpty) return groupName;
+
     final row = await DBHelper.getUserById(peerOnion);
     final customName = row?['customName'] as String?;
     final name = row?['name'] as String?;

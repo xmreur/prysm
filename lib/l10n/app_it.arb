@@ -193,6 +193,13 @@
       }
     }
   },
+  "@groupCallParticipantCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@groupIsFullMaxgroupmembersMembersMax": {
     "placeholders": {
       "maxGroupMembers": {
@@ -628,6 +635,9 @@
   "groupInviteContactsOnlyDescription": "Gli inviti da chiunque altro vengono scartati all'arrivo: nulla viene salvato o mostrato.",
   "groupInviteContactsOnlyTitle": "Accetta solo inviti dai contatti",
   "groupInviteHoldDescription": "Un invito da qualcuno che non è nei tuoi contatti viene conservato come richiesta. Il dispositivo non lo contatta mai; aggiungerlo come contatto applica l'invito.",
+  "groupCall": "Chiamata di gruppo",
+  "groupCallInProgress": "Chiamata in corso",
+  "groupCallParticipantCount": "{count, plural, =1{1 partecipante} other{{count} partecipanti}}",
   "groupInviteHoldTitle": "Trattieni inviti da mittenti sconosciuti",
   "groupInvites": "Inviti di gruppo",
   "groupIsFullMax": "Gruppo pieno (max {max} membri)",
@@ -656,6 +666,7 @@
   "inCall": "In chiamata",
   "incoming": "In arrivo",
   "incomingCall": "Chiamata in arrivo",
+  "incomingGroupCall": "Chiamata di gruppo in arrivo",
   "incomingCalls": "Chiamate in arrivo",
   "incomingCallsChannel": "Chiamate in arrivo",
   "incomingCallsChannelDescription": "Squillo delle chiamate vocali in arrivo",
@@ -684,7 +695,9 @@
   "lastSeen": "Ultimo accesso",
   "later": "Più tardi",
   "leadDeveloper": "Sviluppatore principale",
+  "joinCall": "Entra nella chiamata",
   "leaveAction": "Esci",
+  "leaveCall": "Esci dalla chiamata",
   "leaveGroup": "Lascia gruppo",
   "leaveThisGroup": "Lasciare questo gruppo?",
   "legal": "Note legali",
@@ -1129,6 +1142,7 @@
   "yes": "Sì",
   "you": "Tu",
   "youAreAdmin": "Sei amministratore",
+  "youAreListenOnly": "Sei silenziato in questo gruppo — solo ascolto",
   "youAreMuted": "Sei silenziato in questo gruppo",
   "youAreNoLongerInThisGroup": "Non fai più parte di questo gruppo",
   "youAreOwner": "Sei il proprietario",

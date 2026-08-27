@@ -323,7 +323,7 @@ class MessageSearchIndexService {
       if (GroupCryptoV2.isSenderKeyEnvelope(wire)) {
         final senderKeys = await loadPeerIdentityFromDb(keyManager, senderId);
         if (senderKeys == null) return null;
-        return GroupCryptoV2.decryptWithSenderKey(
+        return await GroupCryptoV2.decryptWithSenderKey(
           epochKey: groupKey,
           groupId: groupId,
           wire: wire,
@@ -331,7 +331,7 @@ class MessageSearchIndexService {
           senderKeys: senderKeys,
         );
       }
-      return GroupCryptoV2.decryptText(groupKey, wire);
+      return await GroupCryptoV2.decryptText(groupKey, wire);
     } catch (e) {
       Logging.error('Search index group decrypt failed: $e', 'MessageSearch');
       return null;

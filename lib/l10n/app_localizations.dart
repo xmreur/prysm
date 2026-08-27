@@ -1886,6 +1886,24 @@ abstract class AppLocalizations {
   /// **'An invite from someone who is not in your contacts is kept as a request. Your device never contacts them, and adding them as a contact is what applies the invite.'**
   String get groupInviteHoldDescription;
 
+  /// No description provided for @groupCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Group call'**
+  String get groupCall;
+
+  /// No description provided for @groupCallInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Call in progress'**
+  String get groupCallInProgress;
+
+  /// No description provided for @groupCallParticipantCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 participant} other{{count} participants}}'**
+  String groupCallParticipantCount(int count);
+
   /// No description provided for @groupInviteHoldTitle.
   ///
   /// In en, this message translates to:
@@ -2053,6 +2071,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Incoming call'**
   String get incomingCall;
+
+  /// No description provided for @incomingGroupCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming group call'**
+  String get incomingGroupCall;
 
   /// No description provided for @incomingCalls.
   ///
@@ -2222,11 +2246,23 @@ abstract class AppLocalizations {
   /// **'Lead Developer'**
   String get leadDeveloper;
 
+  /// No description provided for @joinCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Join call'**
+  String get joinCall;
+
   /// No description provided for @leaveAction.
   ///
   /// In en, this message translates to:
   /// **'Leave'**
   String get leaveAction;
+
+  /// No description provided for @leaveCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave call'**
+  String get leaveCall;
 
   /// No description provided for @leaveGroup.
   ///
@@ -4891,6 +4927,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You are admin'**
   String get youAreAdmin;
+
+  /// No description provided for @youAreListenOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'You are muted in this group — listen only'**
+  String get youAreListenOnly;
 
   /// No description provided for @youAreMuted.
   ///

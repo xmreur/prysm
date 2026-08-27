@@ -213,7 +213,7 @@ class MessageCrudDao {
       );
       if (rows.isEmpty) return null;
       final wire = rows.first['message'] as String?;
-      return MessageBlobStore.resolve(wire);
+      return await MessageBlobStore.resolve(wire);
     } catch (e, stack) {
       Logging.error(
         'getMessageWire failed for $messageId, attempting migration: $e\n$stack',

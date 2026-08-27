@@ -24,10 +24,10 @@ bool canDeleteForEveryone(
 }) {
   if (isMessageDeleted(message)) return false;
   if (message.authorId == currentUserId) return true;
-  if (actorRole == null) return false;
+  if (actorRole == null || authorRole == null) return false;
   return canModerationDelete(
     actor: actorRole,
-    author: authorRole ?? GroupRole.member,
+    author: authorRole,
   );
 }
 

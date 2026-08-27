@@ -227,4 +227,25 @@ void main() {
   test('direct chats still reject non-author deletes', () {
     expect(canDeleteForEveryone(msg(authorId: 'peer'), 'me'), isFalse);
   });
+
+  test('moderation delete requires both actor and author roles', () {
+    final memberMsg = msg(authorId: 'member');
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+      ),
+      isFalse,
+    );
+    expect(
+      canDeleteForEveryone(
+        memberMsg,
+        'admin',
+        actorRole: GroupRole.admin,
+        authorRole: GroupRole.member,
+      ),
+      isTrue,
+    );
+  });
 }

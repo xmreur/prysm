@@ -663,7 +663,7 @@ class MessageModifyService {
         final groupKey = await groupService.getDecryptedGroupKey(groupId);
         if (groupKey == null) return null;
         if (GroupCryptoV2.isSenderKeyEnvelope(encrypted)) {
-          return await _decryptSenderKey(
+          final plaintext = await _decryptSenderKey(
             groupKey: groupKey,
             groupId: groupId,
             wire: encrypted,

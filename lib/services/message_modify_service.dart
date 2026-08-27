@@ -11,6 +11,7 @@ import 'package:prysm/services/side_channel_transport.dart';
 import 'package:prysm/crypto/group_crypto.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/group_moderation_policy.dart';
+import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/models/group.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/message_content_wiper.dart';
@@ -380,12 +381,26 @@ class MessageModifyService {
     final groupKey = await gs.getDecryptedGroupKey(groupId!);
     if (groupKey == null) return false;
 
-    final encrypted = await GroupCryptoV2.encryptText(groupKey, payload.encode());
     final members = await gs.getMembers(groupId!);
     var targets = members.map((m) => m.memberId).where((id) => id != userId);
     if (onlyTargets != null) {
       targets = targets.where(onlyTargets.contains);
     }
+    final targetList = targets.toList();
+    if (targetList.isEmpty) return true;
+
+    final index = await GroupSenderIndexStore.nextIndex(
+      groupId: groupId!,
+      senderId: userId,
+    );
+    final encrypted = await GroupCryptoV2.encryptWithSenderKey(
+      epochKey: groupKey,
+      groupId: groupId!,
+      senderId: userId,
+      messageIndex: index,
+      plaintext: payload.encode(),
+      sender: keyManager.identity,
+    );
 
     final eventId = modifyEventId(
       targetMessageId: payload.targetMessageId,
@@ -395,7 +410,7 @@ class MessageModifyService {
     );
 
     var allDelivered = true;
-    for (final target in targets) {
+    for (final target in targetList) {
       final ok = await _transport.sendGroupAndQueue(
         id: '${eventId}__$target',
         groupId: groupId!,
@@ -428,7 +443,7 @@ class MessageModifyService {
     String? groupId,
     GroupService? groupService,
   }) async {
-    final plaintext = await _decryptInbound(
+    final decrypted = await _decryptInbound(
       keyManager: keyManager,
       encrypted: encrypted,
       type: type,
@@ -436,7 +451,7 @@ class MessageModifyService {
       groupId: groupId,
       groupService: groupService,
     );
-    if (plaintext == null) {
+    if (decrypted == null) {
       Logging.error(
         'Inbound message modify from ${Logging.redactOnion(senderId)} '
         'rejected: could not authenticate or decrypt the envelope',
@@ -447,7 +462,7 @@ class MessageModifyService {
 
     final MessageModifyPayload payload;
     try {
-      payload = MessageModifyPayload.decode(plaintext);
+      payload = MessageModifyPayload.decode(decrypted.plaintext);
     } catch (e) {
       // An authenticated peer can still send a payload this build cannot
       // parse (a buggy or hostile client). Report it as a rejection instead
@@ -483,6 +498,14 @@ class MessageModifyService {
         );
         return InboundModifyOutcome.ownershipRejected;
       }
+      if (!decrypted.senderAuthenticated) {
+        Logging.error(
+          'Inbound message modify from ${Logging.redactOnion(senderId)} '
+          'rejected: moderator delete requires a sender-authenticated envelope',
+          'MessageModifyService',
+        );
+        return InboundModifyOutcome.ownershipRejected;
+      }
       if (await DBHelper.isGroupMemberMuted(groupId, senderId)) {
         return InboundModifyOutcome.ownershipRejected;
       }
@@ -495,9 +518,10 @@ class MessageModifyService {
         if (parsed.memberId == row['senderId']) authorRole = parsed.role;
       }
       if (actorRole == null ||
+          authorRole == null ||
           !canModerationDelete(
             actor: actorRole,
-            author: authorRole ?? GroupRole.member,
+            author: authorRole,
           )) {
         Logging.error(
           'Inbound message modify from ${Logging.redactOnion(senderId)} '
@@ -607,7 +631,7 @@ class MessageModifyService {
     return null;
   }
 
-  static Future<String?> _decryptInbound({
+  static Future<({String plaintext, bool senderAuthenticated})?> _decryptInbound({
     required KeyManager keyManager,
     required String encrypted,
     required String type,
@@ -626,11 +650,12 @@ class MessageModifyService {
         // Awaited so a decrypt rejection (e.g. a legacy unsigned `dh-aead`
         // envelope) is caught below and reported as `decryptFailed` instead
         // of escaping as an unclassified internal error.
-        return await keyManager.decryptPeerMessage(
+        final plaintext = await keyManager.decryptPeerMessage(
           peerId: senderId,
           wire: encrypted,
           peer: peerKey,
         );
+        return (plaintext: plaintext, senderAuthenticated: true);
       }
       if (type == groupMessageModifyType &&
           groupId != null &&
@@ -645,8 +670,10 @@ class MessageModifyService {
             transportSenderId: senderId,
             keyManager: keyManager,
           );
+          return (plaintext: plaintext, senderAuthenticated: true);
         }
-        return await GroupCryptoV2.decryptText(groupKey, encrypted);
+        final plaintext = await GroupCryptoV2.decryptText(groupKey, encrypted);
+        return (plaintext: plaintext, senderAuthenticated: false);
       }
     } catch (e) {
       Logging.error(

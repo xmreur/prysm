@@ -412,7 +412,7 @@ void main() {
       return groupKey;
     }
 
-    Future<InboundModifyOutcome> applyDelete({
+    Future<InboundModifyOutcome> applySharedKeyDelete({
       required String actorId,
       required Uint8List groupKey,
       required String targetWireId,
@@ -436,7 +436,109 @@ void main() {
       );
     }
 
+    Future<InboundModifyOutcome> applySenderKeyDelete({
+      required String actorId,
+      required IdentityKeyPair actor,
+      required Uint8List groupKey,
+      required String targetWireId,
+    }) async {
+      await _insertIdentity(chatDb, actorId, actor);
+      final encrypted = await GroupCryptoV2.encryptWithSenderKey(
+        epochKey: groupKey,
+        groupId: groupId,
+        senderId: actorId,
+        messageIndex: 0,
+        plaintext: MessageModifyPayload(
+          targetMessageId: targetWireId,
+          action: 'delete',
+          modifiedAt: 9,
+        ).encode(),
+        sender: actor,
+      );
+      return MessageModifyService.applyInbound(
+        keyManager: keyManager,
+        localUserId: localId,
+        encrypted: encrypted,
+        senderId: actorId,
+        type: groupMessageModifyType,
+        groupId: groupId,
+        groupService: service,
+      );
+    }
+
     test('admin delete of a member message is accepted', () async {
+      final groupKey = await storeGroupKey();
+      final admin = await IdentityKeyPair.generate();
+      await _insertGroup(
+        db: chatDb,
+        groupId: groupId,
+        createdBy: ownerId,
+        members: [
+          (id: ownerId, role: 'owner', muted: 0),
+          (id: adminId, role: 'admin', muted: 0),
+          (id: memberId, role: 'member', muted: 0),
+          (id: localId, role: 'member', muted: 0),
+        ],
+      );
+      await MessagesDb.insertMessage({
+        'id': 'wire-1',
+        'senderId': memberId,
+        'receiverId': localId,
+        'groupId': groupId,
+        'message': 'cipher',
+        'type': groupTextType,
+        'status': 'sent',
+        'timestamp': 1,
+      });
+
+      final outcome = await applySenderKeyDelete(
+        actorId: adminId,
+        actor: admin,
+        groupKey: groupKey,
+        targetWireId: 'wire-1',
+      );
+      expect(outcome, InboundModifyOutcome.applied);
+      final rows = await MessagesDb.getMessageById('wire-1', groupId: groupId);
+      expect(rows.single['deletedAt'], isNotNull);
+    });
+
+    test('admin delete of an owner message is rejected', () async {
+      final groupKey = await storeGroupKey();
+      final admin = await IdentityKeyPair.generate();
+      await _insertGroup(
+        db: chatDb,
+        groupId: groupId,
+        createdBy: ownerId,
+        members: [
+          (id: ownerId, role: 'owner', muted: 0),
+          (id: adminId, role: 'admin', muted: 0),
+          (id: localId, role: 'member', muted: 0),
+        ],
+      );
+      await MessagesDb.insertMessage({
+        'id': 'wire-1',
+        'senderId': ownerId,
+        'receiverId': localId,
+        'groupId': groupId,
+        'message': 'cipher',
+        'type': groupTextType,
+        'status': 'sent',
+        'timestamp': 1,
+      });
+
+      final outcome = await applySenderKeyDelete(
+        actorId: adminId,
+        actor: admin,
+        groupKey: groupKey,
+        targetWireId: 'wire-1',
+      );
+      expect(outcome, InboundModifyOutcome.ownershipRejected);
+      final rows = await MessagesDb.getMessageById('wire-1', groupId: groupId);
+      expect(rows.single['deletedAt'], isNull);
+    });
+
+    test('shared-key moderator delete is rejected without loading roles',
+        () async {
       final groupKey = await storeGroupKey();
       await _insertGroup(
         db: chatDb,
@@ -460,8 +562,41 @@ void main() {
         'timestamp': 1,
       });
 
-      final outcome = await applyDelete(
+      final outcome = await applySharedKeyDelete(
         actorId: adminId,
+        groupKey: groupKey,
+        targetWireId: 'wire-1',
+      );
+      expect(outcome, InboundModifyOutcome.ownershipRejected);
+      final rows = await MessagesDb.getMessageById('wire-1', groupId: groupId);
+      expect(rows.single['deletedAt'], isNull);
+    });
+
+    test('author shared-key delete of own message is still accepted', () async {
+      final groupKey = await storeGroupKey();
+      await _insertGroup(
+        db: chatDb,
+        groupId: groupId,
+        createdBy: ownerId,
+        members: [
+          (id: ownerId, role: 'owner', muted: 0),
+          (id: memberId, role: 'member', muted: 0),
+          (id: localId, role: 'member', muted: 0),
+        ],
+      );
+      await MessagesDb.insertMessage({
+        'id': 'wire-1',
+        'senderId': memberId,
+        'receiverId': localId,
+        'groupId': groupId,
+        'message': 'cipher',
+        'type': groupTextType,
+        'status': 'sent',
+        'timestamp': 1,
+      });
+
+      final outcome = await applySharedKeyDelete(
+        actorId: memberId,
         groupKey: groupKey,
         targetWireId: 'wire-1',
       );
@@ -470,8 +605,9 @@ void main() {
       expect(rows.single['deletedAt'], isNotNull);
     });
 
-    test('admin delete of an owner message is rejected', () async {
+    test('moderator delete of a departed author is rejected', () async {
       final groupKey = await storeGroupKey();
+      final admin = await IdentityKeyPair.generate();
       await _insertGroup(
         db: chatDb,
         groupId: groupId,
@@ -484,7 +620,7 @@ void main() {
       );
       await MessagesDb.insertMessage({
         'id': 'wire-1',
-        'senderId': ownerId,
+        'senderId': memberId,
         'receiverId': localId,
         'groupId': groupId,
         'message': 'cipher',
@@ -493,8 +629,9 @@ void main() {
         'timestamp': 1,
       });
 
-      final outcome = await applyDelete(
+      final outcome = await applySenderKeyDelete(
         actorId: adminId,
+        actor: admin,
         groupKey: groupKey,
         targetWireId: 'wire-1',
       );

@@ -12,6 +12,7 @@ import 'package:prysm/services/side_channel_postman.dart';
 import 'package:prysm/util/battery_saver_policy.dart';
 import 'package:prysm/util/disappearing_activity_notifier.dart';
 import 'package:prysm/util/file_transfer_policy.dart';
+import 'package:prysm/util/group_moderation_policy.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_delivery.dart';
@@ -86,6 +87,13 @@ class GroupChatService {
     _memberIds = members.map((m) => m.memberId).toList();
   }
 
+  /// Same eligibility as a fresh send: a live group key and not muted.
+  /// Queued/retried rows stay in pending so they can deliver after unmute.
+  Future<bool> _canSendChat() async {
+    if (_groupKey == null) return false;
+    return canSendChat(muted: await groupService.isMuted(groupId, userId));
+  }
+
   void startPolling() {
     if (_isPolling) return;
     _isPolling = true;
@@ -145,8 +153,7 @@ class GroupChatService {
     bool forwarded = false,
   }) async {
     await _refreshSession();
-    if (_groupKey == null) return null;
-    if (await groupService.isMuted(groupId, userId)) return null;
+    if (!await _canSendChat()) return null;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = messageId ?? const Uuid().v4();
@@ -254,8 +261,7 @@ class GroupChatService {
     bool forwarded = false,
   }) async {
     await _refreshSession();
-    if (_groupKey == null) return null;
-    if (await groupService.isMuted(groupId, userId)) return null;
+    if (!await _canSendChat()) return null;
     if (!FileTransferPolicy.isWithinMaxFileSize(bytes.length)) {
       Logging.error(FileTransferPolicy.maxFileSizeError, 'GroupChatService');
       return null;
@@ -436,6 +442,7 @@ class GroupChatService {
     try {
       while (!_disposed) {
         await _refreshSession();
+        if (!await _canSendChat()) break;
         final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
             .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
             .toList();
@@ -704,6 +711,8 @@ class GroupChatService {
     if (_isSending || _disposed) return;
     _isSending = true;
     try {
+      await _refreshSession();
+      if (!await _canSendChat()) return;
       final pending = (await PendingMessageDbHelper.getPendingMessages(groupId: groupId))
           .where((m) => isPendingOutboundChatType(m['type'] as String? ?? ''))
           .toList();
@@ -784,7 +793,7 @@ class GroupChatService {
 
   Future<void> resendMessage(String messageId) async {
     await _refreshSession();
-    if (_groupKey == null) return;
+    if (!await _canSendChat()) return;
 
     final rows = await MessagesDb.getMessageById(messageId, groupId: groupId);
     if (rows.isEmpty) return;

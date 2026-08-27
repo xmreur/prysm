@@ -982,10 +982,12 @@ class GroupService {
     final existing = await DBHelper.getGroupById(groupId);
     if (existing == null) return;
 
-    await DBHelper.updateGroupFields(groupId, {
+    final fields = {
       'name': ?name,
       'avatarBase64': ?avatarBase64,
-    });
+    };
+    if (fields.isEmpty) return;
+    await DBHelper.updateGroupFields(groupId, fields);
   }
 
   Future<void> _handleRoleUpdate(

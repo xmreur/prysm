@@ -566,5 +566,164 @@ void main() {
       expect(remaining, hasLength(1));
       expect(remaining.first['type'], groupHistoryRelayType);
     });
+
+    test(
+        'startSendQueue retains pending while muted and delivers after unmute',
+        () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      const wireId = 'msg-muted-queue';
+
+      await MessagesDb.insertMessage({
+        'id': wireId,
+        'senderId': userId,
+        'receiverId': userId,
+        'groupId': groupId,
+        'message': 'self-cipher',
+        'type': groupTextType,
+        'status': 'failed',
+        'timestamp': 1,
+      }, notifyListeners: false);
+
+      await PendingMessageDbHelper.insertPendingMessage({
+        'id': '${wireId}__$memberA',
+        'senderId': userId,
+        'receiverId': memberA,
+        'message': 'peer-cipher-a',
+        'type': groupTextType,
+        'timestamp': 1,
+        'status': 'pending',
+        'groupId': groupId,
+        'targetMemberId': memberA,
+      });
+
+      final mutedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: _FakeGroupService(
+          userId: userId,
+          keyManager: keyManager,
+          groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+          members: [
+            GroupMember(
+              groupId: groupId,
+              memberId: userId,
+              role: GroupRole.member,
+              joinedAt: 0,
+              muted: true,
+            ),
+            GroupMember(
+              groupId: groupId,
+              memberId: memberA,
+              role: GroupRole.owner,
+              joinedAt: 0,
+            ),
+          ],
+        ),
+        postman: postman,
+      );
+      addTearDown(mutedService.dispose);
+      await mutedService.initialize();
+      mutedService.startSendQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(postman.groupCalls, isEmpty);
+      expect(
+        await PendingMessageDbHelper.getPendingMessages(groupId: groupId),
+        hasLength(1),
+      );
+
+      final unmutedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: _FakeGroupService(
+          userId: userId,
+          keyManager: keyManager,
+          groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+          members: [
+            GroupMember(
+              groupId: groupId,
+              memberId: userId,
+              role: GroupRole.member,
+              joinedAt: 0,
+            ),
+            GroupMember(
+              groupId: groupId,
+              memberId: memberA,
+              role: GroupRole.owner,
+              joinedAt: 0,
+            ),
+          ],
+        ),
+        postman: postman,
+      );
+      addTearDown(unmutedService.dispose);
+      await unmutedService.initialize();
+      unmutedService.startSendQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(postman.groupCalls, isNotEmpty);
+      expect(
+        await PendingMessageDbHelper.getPendingMessages(groupId: groupId),
+        isEmpty,
+      );
+    });
+
+    test('resendMessage does not deliver while muted', () async {
+      TorRuntimeGate.resetForTest();
+      final postman = _FakePostman();
+      const wireId = 'msg-muted-resend';
+
+      await MessagesDb.insertMessage({
+        'id': wireId,
+        'senderId': userId,
+        'receiverId': userId,
+        'groupId': groupId,
+        'message': 'self-cipher',
+        'type': groupTextType,
+        'status': 'failed',
+        'timestamp': 1,
+      }, notifyListeners: false);
+
+      final mutedService = GroupChatService(
+        userId: userId,
+        groupId: groupId,
+        keyManager: keyManager,
+        groupService: _FakeGroupService(
+          userId: userId,
+          keyManager: keyManager,
+          groupKey: Uint8List.fromList(List.generate(32, (i) => i)),
+          members: [
+            GroupMember(
+              groupId: groupId,
+              memberId: userId,
+              role: GroupRole.member,
+              joinedAt: 0,
+              muted: true,
+            ),
+            GroupMember(
+              groupId: groupId,
+              memberId: memberA,
+              role: GroupRole.owner,
+              joinedAt: 0,
+            ),
+          ],
+        ),
+        postman: postman,
+      );
+      addTearDown(mutedService.dispose);
+
+      await mutedService.resendMessage(wireId);
+
+      expect(postman.groupCalls, isEmpty);
+      final stored = await MessagesDb.getMessageById(wireId, groupId: groupId);
+      expect(stored.first['status'], 'failed');
+      expect(
+        await PendingMessageDbHelper.getPendingMessages(groupId: groupId),
+        isEmpty,
+      );
+    });
   });
 }

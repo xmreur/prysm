@@ -2047,6 +2047,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Restore failed — wrong password or corrupt file';
 
   @override
+  String get restoreLegacyNoAddressKeys =>
+      'Backup restored without address keys: you have a new ID — share it with your contacts. Please restart the app.';
+
+  @override
+  String get restoreAddressKeysFailed =>
+      'Backup restored, but the address keys could not be installed: you have a new ID. Please restart the app.';
+
+  @override
   String get retry => 'Retry';
 
   @override
@@ -2511,6 +2519,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String trayUnreadCount(int count) {
     return 'Unread: $count';
   }
+
+  @override
+  String get transferAccount => 'Transfer Account';
+
+  @override
+  String get transferAccountSubtitle => 'Move this account to another device';
+
+  @override
+  String get transferCreatesBackupAndWipes =>
+      'Creates an encrypted backup including this device\'s address keys, then wipes this device.';
+
+  @override
+  String get transferNoAddressKeys =>
+      'No address keys found — start Tor first, then retry.';
+
+  @override
+  String get transferWipeConfirm => 'Backup created. Wipe this device now?';
 
   @override
   String get transferOwnership => 'Transfer ownership';

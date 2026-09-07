@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/screens/widgets/backup_flow.dart';
+import 'package:prysm/services/handoff_service.dart';
+import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/screens/onboarding/onboarding_screen.dart';
 import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
@@ -603,15 +605,143 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (chosen == null) return;
         filePath = chosen.path;
       }
-
-      final ok = await BackupService.restoreBackup(filePath, password);
-      if (mounted) {
-        if (ok) {
-          showPrysmToast(context, context.l10n.backupRestoredPleaseRestartTheApp);
-        } else {
-          showPrysmToast(context, context.l10n.restoreFailedWrongPasswordOrCorruptFile);
+      final result = await BackupService.restoreBackupDetailed(
+        filePath,
+        password,
+      );
+      if (!mounted) return;
+      if (!result.ok) {
+        showPrysmToast(
+          context,
+          context.l10n.restoreFailedWrongPasswordOrCorruptFile,
+        );
+        return;
+      }
+      // Mobile HS keys live behind the native channel: install them now so
+      // the restart keeps the same onion. Desktop already installed inline.
+      var hsReady = result.hsKeysInstalled;
+      final hsKeys = result.hsKeys;
+      if (result.hasHsKeys && !hsReady && hsKeys != null) {
+        try {
+          hsReady =
+              await widget.torManager?.setHsKeysForTransfer(hsKeys) == true;
+        } catch (_) {
+          hsReady = false;
         }
       }
+      if (result.hasHsKeys && widget.keyManager != null) {
+        try {
+          await HandoffService.reinitCryptoForHandoff(
+            keyManager: widget.keyManager!,
+          );
+        } catch (_) {
+          // Best effort: stale sessions heal via fresh handshakes on failure.
+        }
+      }
+      if (!mounted) return;
+      if (!result.hasHsKeys) {
+        showPrysmToast(context, context.l10n.restoreLegacyNoAddressKeys);
+      } else if (!hsReady) {
+        showPrysmToast(context, context.l10n.restoreAddressKeysFailed);
+      } else {
+        showPrysmToast(
+          context,
+          context.l10n.backupRestoredPleaseRestartTheApp,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showPrysmToast(context, context.l10n.restoreFailedE(e.toString()));
+      }
+    }
+  }
+
+  void _showTransferDialog() {
+    final passwordController = TextEditingController();
+    showPrysmDialog(
+      context: context,
+      title: context.l10n.transferAccount,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.l10n.transferCreatesBackupAndWipes,
+            style: TextStyle(
+              fontSize: 14,
+              color: context.prysmStyle.tokens.danger,
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrysmTextField(
+            controller: passwordController,
+            labelText: context.l10n.backupPassword,
+            obscureText: true,
+            prefixIcon: const Icon(PrysmIcons.lock),
+          ),
+        ],
+      ),
+      cancelLabel: context.l10n.cancel,
+      confirmLabel: context.l10n.transferAccount,
+      onConfirm: () async {
+        final password = passwordController.text;
+        if (password.length < 4) {
+          showPrysmToast(
+            context,
+            context.l10n.passwordMustBeAtLeast4Characters,
+          );
+          return;
+        }
+        Navigator.pop(context);
+        await _performTransfer(password);
+      },
+    );
+  }
+
+  Future<void> _performTransfer(String password) async {
+    try {
+      Map<String, String>? hsKeys;
+      try {
+        hsKeys = await widget.torManager?.getHsKeysForTransfer();
+      } catch (_) {
+        hsKeys = null;
+      }
+      if (!mounted) return;
+      if (hsKeys == null || hsKeys.isEmpty) {
+        showPrysmToast(context, context.l10n.transferNoAddressKeys);
+        return;
+      }
+      final created = await performBackup(context, password, hsKeys: hsKeys);
+      if (!created || !mounted) return;
+      showPrysmDialog(
+        context: context,
+        title: context.l10n.transferAccount,
+        content: Text(
+          context.l10n.transferWipeConfirm,
+          style: TextStyle(
+            fontSize: 14,
+            color: context.prysmStyle.tokens.danger,
+          ),
+        ),
+        cancelLabel: context.l10n.cancel,
+        confirmLabel: context.l10n.reset,
+        onConfirm: () async {
+          Navigator.pop(context);
+          try {
+            try {
+              await widget.torManager?.stopTor();
+            } catch (_) {}
+            await PanicWipeService.wipeForTransfer(
+              torManager: widget.torManager,
+            );
+          } catch (_) {}
+          if (!mounted) return;
+          showPrysmToast(
+            context,
+            context.l10n.backupRestoredPleaseRestartTheApp,
+          );
+        },
+      );
     } catch (e) {
       if (mounted) {
         showPrysmToast(context, context.l10n.restoreFailedE(e.toString()));
@@ -984,6 +1114,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   PrysmIcons.restoreOutlined,
                   _showRestoreDialog,
                   subtitle: context.l10n.importFromBackupFile,
+                ),
+                const PrysmDivider(),
+                _buildNavigationTile(
+                  context.l10n.transferAccount,
+                  PrysmIcons.swapHoriz,
+                  _showTransferDialog,
+                  subtitle: context.l10n.transferAccountSubtitle,
                 ),
                 const PrysmDivider(),
                 _buildNavigationTile(

@@ -2070,6 +2070,14 @@ class AppLocalizationsIt extends AppLocalizations {
       'Ripristinio fallito, password sbagliata o file corrotto';
 
   @override
+  String get restoreLegacyNoAddressKeys =>
+      'Backup ripristinato senza chiavi di indirizzo: hai un nuovo ID, ricondividilo con i contatti. Riavvia l\'app.';
+
+  @override
+  String get restoreAddressKeysFailed =>
+      'Backup ripristinato ma chiavi di indirizzo non installate: hai un nuovo ID. Riavvia l\'app.';
+
+  @override
   String get retry => 'Riprova';
 
   @override
@@ -2537,6 +2545,25 @@ class AppLocalizationsIt extends AppLocalizations {
   String trayUnreadCount(int count) {
     return 'Non letti: $count';
   }
+
+  @override
+  String get transferAccount => 'Trasferisci account';
+
+  @override
+  String get transferAccountSubtitle =>
+      'Sposta questo account su un altro dispositivo';
+
+  @override
+  String get transferCreatesBackupAndWipes =>
+      'Crea un backup cifrato con le chiavi di indirizzo e poi azzera questo dispositivo.';
+
+  @override
+  String get transferNoAddressKeys =>
+      'Chiavi di indirizzo assenti — avvia Tor e riprova.';
+
+  @override
+  String get transferWipeConfirm =>
+      'Backup creato. Azzerare questo dispositivo ora?';
 
   @override
   String get transferOwnership => 'Trasferisci proprietà';

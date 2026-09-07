@@ -79,6 +79,7 @@ class CryptoConstants {
   static bool peerSupportsRatchet3(String? scheme) =>
       scheme == schemeRatchet3;
 
-  static const int backupVersion = 2;
+  static const int backupVersion = 3;
+  static const int backupMinSupportedVersion = 2;
   static const int cryptoGeneration = 2;
 }

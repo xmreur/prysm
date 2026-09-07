@@ -64,6 +64,20 @@ class TorChannelHandler(
                 }
             }
 
+            "getHsKeys" -> {
+                result.success(torController.getHsKeys())
+            }
+
+            "setHsKeys" -> {
+                @Suppress("UNCHECKED_CAST")
+                val keys = call.arguments as? Map<String, String>
+                result.success(torController.setHsKeys(keys ?: emptyMap()))
+            }
+
+            "clearHsKeys" -> {
+                result.success(torController.clearHsKeys())
+            }
+
             else -> result.notImplemented()
         }
     }

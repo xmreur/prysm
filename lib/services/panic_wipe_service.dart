@@ -45,4 +45,37 @@ class PanicWipeService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
   }
+
+  /// Wipe for account transfer: [wipeAll] plus the hidden-service keys, so
+  /// the source cannot come back online with the transferred onion. Desktop
+  /// deletes the Tor hidden-service dir; mobile clears it through the
+  /// native channel. Runs after the transfer backup is safely written.
+  static Future<void> wipeForTransfer({dynamic torManager}) async {
+    await wipeAll();
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        // Mobile keys live behind the native channel; without a manager
+        // there is nothing Dart-side to delete.
+        if (torManager != null) {
+          await torManager.clearHsKeysForTransfer();
+        }
+        return;
+      }
+      final docDir = await getApplicationDocumentsDirectory();
+      final hsDir = Directory(
+        p.join(
+          docDir.path,
+          'prysm',
+          'tor_executable',
+          'tor_data',
+          'hidden_service',
+        ),
+      );
+      if (await hsDir.exists()) {
+        await hsDir.delete(recursive: true);
+      }
+    } catch (_) {
+      // Best effort: wipeAll already destroyed identity and history.
+    }
+  }
 }

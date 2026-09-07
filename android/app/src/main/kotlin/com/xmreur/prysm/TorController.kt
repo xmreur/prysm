@@ -180,6 +180,58 @@ class TorController(private val context: Context) {
         }
     }
 
+    /** Reads raw hidden-service files as base64 for account transfer, null when incomplete. */
+    fun getHsKeys(): Map<String, String>? {
+        try {
+            val hostname = File(hiddenServiceDir, "hostname").takeIf { it.exists() }?.readText() ?: return null
+            val secret = File(hiddenServiceDir, "hs_ed25519_secret_key").takeIf { it.exists() }?.readBytes() ?: return null
+            val public = File(hiddenServiceDir, "hs_ed25519_public_key").takeIf { it.exists() }?.readBytes() ?: return null
+            if (hostname.trim().isEmpty() || secret.isEmpty() || public.isEmpty()) return null
+            return mapOf(
+                "hostname" to android.util.Base64.encodeToString(hostname.toByteArray(), android.util.Base64.NO_WRAP),
+                "hs_ed25519_secret_key" to android.util.Base64.encodeToString(secret, android.util.Base64.NO_WRAP),
+                "hs_ed25519_public_key" to android.util.Base64.encodeToString(public, android.util.Base64.NO_WRAP),
+            )
+        } catch (e: Exception) {
+            Log.e("TorController", "Error reading HS keys", e)
+            return null
+        }
+    }
+
+    /** Writes transferred hidden-service keys. Call while Tor is stopped, before the next start. */
+    fun setHsKeys(keys: Map<String, String>): Boolean {
+        try {
+            val hostnameB64 = keys["hostname"] ?: return false
+            val secretB64 = keys["hs_ed25519_secret_key"] ?: return false
+            val publicB64 = keys["hs_ed25519_public_key"] ?: return false
+            val hostname = String(android.util.Base64.decode(hostnameB64, android.util.Base64.NO_WRAP))
+            val secret = android.util.Base64.decode(secretB64, android.util.Base64.NO_WRAP)
+            val public = android.util.Base64.decode(publicB64, android.util.Base64.NO_WRAP)
+            if (hostname.trim().isEmpty() || secret.isEmpty() || public.isEmpty()) return false
+            if (!hiddenServiceDir.exists()) hiddenServiceDir.mkdirs()
+            File(hiddenServiceDir, "hs_ed25519_secret_key").writeBytes(secret)
+            File(hiddenServiceDir, "hs_ed25519_public_key").writeBytes(public)
+            File(hiddenServiceDir, "hostname").writeText(hostname)
+            return true
+        } catch (e: Exception) {
+            Log.e("TorController", "Error writing HS keys", e)
+            return false
+        }
+    }
+
+    /** Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion. */
+    fun clearHsKeys(): Boolean {
+        try {
+            if (!hiddenServiceDir.exists()) return true
+            hiddenServiceDir.deleteRecursively()
+            hiddenServiceDir.mkdirs()
+            return true
+        } catch (e: Exception) {
+            Log.e("TorController", "Error clearing HS keys", e)
+            return false
+        }
+    }
+
     private fun readOnionAddressFromFile(): String? {
         try {
             val hostnameFile = File(hiddenServiceDir, "hostname")

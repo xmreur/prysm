@@ -1,10 +1,35 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prysm/crypto/aead.dart';
+import 'package:prysm/crypto/constants.dart';
+import 'package:prysm/crypto/kdf.dart';
 import 'package:prysm/crypto/key_store.dart';
 import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/services/backup_service.dart';
+import 'package:prysm/util/hs_transfer_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Writes a raw manifest envelope like [BackupService.createBackup] does,
+/// so tests can craft legacy/future versions the current writer never emits.
+Future<void> _writeRawManifest(
+  String path,
+  String password,
+  Map<String, dynamic> manifest,
+) async {
+  final salt = CryptoKdf.randomBytes(CryptoConstants.saltLength);
+  final keyBytes = CryptoKdf.deriveKeyFromPassphrase(password, salt);
+  final aeadKey = await CryptoAead.secretKeyFromBytes(keyBytes);
+  final enc = await CryptoAead.encryptAesGcm(
+    utf8.encode(jsonEncode(manifest)),
+    key: aeadKey,
+  );
+  await File(path).writeAsBytes(
+    Uint8List.fromList(salt + enc.nonce + enc.ciphertext),
+  );
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -86,5 +111,116 @@ void main() {
     );
 
     await File(backupPath).delete();
+  });
+
+  test('v3 round trip carries hsKeys and installs them on desktop', () async {
+    final hsDir =
+        '${Directory.systemTemp.path}/prysm_hs_src_${DateTime.now().microsecondsSinceEpoch}';
+    await Directory(hsDir).create(recursive: true);
+    await File('$hsDir/hostname').writeAsString('${'z' * 56}.onion');
+    await File(
+      '$hsDir/hs_ed25519_secret_key',
+    ).writeAsBytes(List.filled(96, 7));
+    await File(
+      '$hsDir/hs_ed25519_public_key',
+    ).writeAsBytes(List.filled(32, 9));
+
+    final hsKeys = await HsTransferKeys.collectFromDirectory(hsDir);
+    expect(hsKeys, isNotNull);
+
+    final backupPath =
+        '${Directory.systemTemp.path}/prysm_backup_v3_${DateTime.now().microsecondsSinceEpoch}.bin';
+    await BackupService.createBackup(
+      backupPath,
+      'backup-test-passphrase',
+      hsKeys: hsKeys,
+    );
+
+    final result = await BackupService.restoreBackupDetailed(
+      backupPath,
+      'backup-test-passphrase',
+    );
+    expect(result.ok, isTrue);
+    expect(result.hasHsKeys, isTrue);
+    expect(result.hsKeysInstalled, isTrue);
+    // Desktop inline install landed in the test documents dir.
+    final installedHostname = File(
+      '${Directory.systemTemp.path}/prysm/tor_executable/tor_data/hidden_service/hostname',
+    );
+    expect(await installedHostname.readAsString(), '${'z' * 56}.onion');
+
+    await Directory(hsDir).delete(recursive: true);
+    await File(backupPath).delete();
+    await Directory(
+      '${Directory.systemTemp.path}/prysm',
+    ).delete(recursive: true);
+  });
+
+  test('legacy v2 manifest restores without hsKeys', () async {
+    // A live target leaves -wal/-shm next to our DBs: restoring a manifest
+    // without sidecars must drop them, or foreign pages replay into the
+    // fresh base file (SQLCipher HMAC failure, seen live).
+    final staleWal = File(
+      '${Directory.systemTemp.path}/prysm/messages.db-wal',
+    );
+    await staleWal.parent.create(recursive: true);
+    await staleWal.writeAsString('foreign wal pages');
+    final backupPath =
+        '${Directory.systemTemp.path}/prysm_backup_v2_${DateTime.now().microsecondsSinceEpoch}.bin';
+    await _writeRawManifest(backupPath, 'backup-test-passphrase', {
+      'version': 2,
+      'timestamp': DateTime.now().toIso8601String(),
+      'databases': <String, String>{},
+      'secureKeys': <String, String?>{},
+      'preferences': <String, dynamic>{},
+    });
+
+    final result = await BackupService.restoreBackupDetailed(
+      backupPath,
+      'backup-test-passphrase',
+    );
+    expect(result.ok, isTrue);
+    expect(result.hasHsKeys, isFalse);
+    expect(result.hsKeysInstalled, isFalse);
+    expect(await BackupService.restoreBackup(backupPath, 'wrong'), isFalse);
+
+    expect(await staleWal.exists(), isFalse);
+    await File(backupPath).delete();
+  });
+
+  test('unsupported versions are rejected', () async {
+    for (final version in [1, 99]) {
+      final backupPath =
+          '${Directory.systemTemp.path}/prysm_backup_v${version}_${DateTime.now().microsecondsSinceEpoch}.bin';
+      await _writeRawManifest(backupPath, 'backup-test-passphrase', {
+        'version': version,
+        'timestamp': DateTime.now().toIso8601String(),
+        'databases': <String, String>{},
+        'secureKeys': <String, String?>{},
+        'preferences': <String, dynamic>{},
+      });
+      final result = await BackupService.restoreBackupDetailed(
+        backupPath,
+        'backup-test-passphrase',
+      );
+      expect(result.ok, isFalse, reason: 'version $version');
+      await File(backupPath).delete();
+    }
+  });
+
+  test('hsKeys collect returns null when files are missing', () async {
+    expect(
+      await HsTransferKeys.collectFromDirectory(
+        '${Directory.systemTemp.path}/prysm_hs_absent_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+      isNull,
+    );
+    expect(
+      await HsTransferKeys.installToDirectory(
+        '${Directory.systemTemp.path}/prysm_hs_bad',
+        {'hostname': 'bm90LWFuLW9uaW9u'},
+      ),
+      isFalse,
+    );
   });
 }

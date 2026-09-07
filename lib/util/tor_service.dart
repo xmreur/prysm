@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/tor_bootstrap_notifier.dart';
+import 'package:prysm/util/hs_transfer_keys.dart';
 import 'package:prysm/util/tor_health_status.dart';
 
 class TorManager {
@@ -128,6 +129,66 @@ class TorManager {
     final hostnameFile = File('$dataDir/hidden_service/hostname');
     if (!hostnameFile.existsSync()) return null;
     return hostnameFile.readAsStringSync().trim();
+  }
+
+  /// Hidden-service keys for account transfer (export). Null when
+  /// unavailable: Tor never started on desktop, or the native side has no
+  /// keys yet. The caller embeds the result in the backup manifest.
+  Future<Map<String, String>?> getHsKeysForTransfer() async {
+    if (_usesNativeTorChannel) {
+      try {
+        final raw =
+            await _channel.invokeMapMethod<String, dynamic>('getHsKeys');
+        if (raw == null) return null;
+        final keys = raw.map((key, value) => MapEntry(key, '$value'));
+        for (final name in [
+          HsTransferKeys.hostnameFile,
+          HsTransferKeys.secretKeyFile,
+          HsTransferKeys.publicKeyFile,
+        ]) {
+          if (keys[name]?.isNotEmpty != true) return null;
+        }
+        return keys;
+      } catch (_) {
+        return null;
+      }
+    }
+    return HsTransferKeys.collectFromDirectory('$dataDir/hidden_service');
+  }
+
+  /// Installs transferred hidden-service keys (import). Run while Tor is
+  /// stopped (or before the first start) so Tor reuses them and keeps the
+  /// same onion. False on any failure: the caller falls back to a fresh
+  /// onion and warns.
+  Future<bool> setHsKeysForTransfer(Map<String, String> keys) async {
+    if (_usesNativeTorChannel) {
+      try {
+        return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
+      } catch (_) {
+        return false;
+      }
+    }
+    return HsTransferKeys.installToDirectory('$dataDir/hidden_service', keys);
+  }
+
+  /// Deletes local hidden-service keys (source deactivation after a
+  /// transfer export). The next start generates a fresh onion.
+  Future<bool> clearHsKeysForTransfer() async {
+    if (_usesNativeTorChannel) {
+      try {
+        return await _channel.invokeMethod<bool>('clearHsKeys') ?? false;
+      } catch (_) {
+        return false;
+      }
+    }
+    try {
+      final dir = Directory('$dataDir/hidden_service');
+      if (!await dir.exists()) return true;
+      await dir.delete(recursive: true);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> stopTor() {

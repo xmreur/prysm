@@ -211,6 +211,85 @@ actor PrysmTorController {
         return address
     }
 
+    /// Reads raw hidden-service files as base64 for account transfer, nil when incomplete.
+    func getHsKeys() -> [String: String]? {
+        let hs = hiddenServiceDirectory
+        guard let hostnameData = try? Data(contentsOf: hs.appendingPathComponent("hostname")),
+              let hostname = String(data: hostnameData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !hostname.isEmpty,
+              let secret = try? Data(contentsOf: hs.appendingPathComponent("hs_ed25519_secret_key")),
+              !secret.isEmpty,
+              let publicKey = try? Data(contentsOf: hs.appendingPathComponent("hs_ed25519_public_key")),
+              !publicKey.isEmpty else {
+            return nil
+        }
+        return [
+            "hostname": hostnameData.base64EncodedString(),
+            "hs_ed25519_secret_key": secret.base64EncodedString(),
+            "hs_ed25519_public_key": publicKey.base64EncodedString(),
+        ]
+    }
+
+    /// Writes transferred hidden-service keys. Call while Tor is stopped, before the next start.
+    func setHsKeys(_ keys: [String: String]) -> Bool {
+        guard let hostnameB64 = keys["hostname"],
+              let secretB64 = keys["hs_ed25519_secret_key"],
+              let publicB64 = keys["hs_ed25519_public_key"],
+              let hostnameData = Data(base64Encoded: hostnameB64),
+              let hostname = String(data: hostnameData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !hostname.isEmpty,
+              let secret = Data(base64Encoded: secretB64),
+              !secret.isEmpty,
+              let publicKey = Data(base64Encoded: publicB64),
+              !publicKey.isEmpty else {
+            return false
+        }
+        do {
+            let fm = FileManager.default
+            let hs = hiddenServiceDirectory
+            try fm.createDirectory(
+                at: hs, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: Self.dirPermissions]
+            )
+            try secret.write(to: hs.appendingPathComponent("hs_ed25519_secret_key"), options: .atomic)
+            try publicKey.write(to: hs.appendingPathComponent("hs_ed25519_public_key"), options: .atomic)
+            try hostnameData.write(to: hs.appendingPathComponent("hostname"), options: .atomic)
+            try fm.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: hs.appendingPathComponent("hs_ed25519_secret_key").path
+            )
+            try fm.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: hs.appendingPathComponent("hs_ed25519_public_key").path
+            )
+            return true
+        } catch {
+            NSLog("PrysmTor setHsKeys failed: \(error)")
+            return false
+        }
+    }
+
+    /// Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion.
+    func clearHsKeys() -> Bool {
+        do {
+            let fm = FileManager.default
+            let hs = hiddenServiceDirectory
+            if fm.fileExists(atPath: hs.path) {
+                try fm.removeItem(at: hs)
+            }
+            try fm.createDirectory(
+                at: hs, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: Self.dirPermissions]
+            )
+            return true
+        } catch {
+            NSLog("PrysmTor clearHsKeys failed: \(error)")
+            return false
+        }
+    }
+
     private func sendShutdown(cookie: Data) async {
         await sendSignal(cookie: cookie, signal: "SHUTDOWN")
     }

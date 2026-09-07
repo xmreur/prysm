@@ -3644,6 +3644,18 @@ abstract class AppLocalizations {
   /// **'Restore failed — wrong password or corrupt file'**
   String get restoreFailedWrongPasswordOrCorruptFile;
 
+  /// No description provided for @restoreLegacyNoAddressKeys.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup restored without address keys: you have a new ID — share it with your contacts. Please restart the app.'**
+  String get restoreLegacyNoAddressKeys;
+
+  /// No description provided for @restoreAddressKeysFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup restored, but the address keys could not be installed: you have a new ID. Please restart the app.'**
+  String get restoreAddressKeysFailed;
+
   /// No description provided for @retry.
   ///
   /// In en, this message translates to:
@@ -4459,6 +4471,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unread: {count}'**
   String trayUnreadCount(int count);
+
+  /// No description provided for @transferAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer Account'**
+  String get transferAccount;
+
+  /// No description provided for @transferAccountSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move this account to another device'**
+  String get transferAccountSubtitle;
+
+  /// No description provided for @transferCreatesBackupAndWipes.
+  ///
+  /// In en, this message translates to:
+  /// **'Creates an encrypted backup including this device\'s address keys, then wipes this device.'**
+  String get transferCreatesBackupAndWipes;
+
+  /// No description provided for @transferNoAddressKeys.
+  ///
+  /// In en, this message translates to:
+  /// **'No address keys found — start Tor first, then retry.'**
+  String get transferNoAddressKeys;
+
+  /// No description provided for @transferWipeConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup created. Wipe this device now?'**
+  String get transferWipeConfirm;
 
   /// No description provided for @transferOwnership.
   ///

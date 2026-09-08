@@ -233,9 +233,9 @@ actor PrysmTorController {
 
     /// Writes transferred hidden-service keys. Call while Tor is stopped, before the next start.
     func setHsKeys(_ keys: [String: String]) -> Bool {
-        guard let hostnameB64 = keys["hostname"],
-              let secretB64 = keys["hs_ed25519_secret_key"],
-              let publicB64 = keys["hs_ed25519_public_key"],
+        guard let hostnameB64 = keys["hostname"], !hostnameB64.isEmpty,
+              let secretB64 = keys["hs_ed25519_secret_key"], !secretB64.isEmpty,
+              let publicB64 = keys["hs_ed25519_public_key"], !publicB64.isEmpty,
               let hostnameData = Data(base64Encoded: hostnameB64),
               let hostname = String(data: hostnameData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),

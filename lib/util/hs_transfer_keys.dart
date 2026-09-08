@@ -51,6 +51,9 @@ class HsTransferKeys {
   /// Writes HS files into [hsDir] (created when missing). Must run before
   /// the first Tor start so Tor reuses the keys instead of generating new
   /// ones. False on any failure: the caller falls back to a fresh onion.
+  /// Every field is validated before anything lands on disk, and files go
+  /// through .tmp + rename, so bad input never leaves partial writes and a
+  /// mid-write crash never leaves a torn key file.
   static Future<bool> installToDirectory(
     String hsDir,
     Map<String, String> keys,
@@ -59,7 +62,12 @@ class HsTransferKeys {
       final hostnameB64 = keys[hostnameFile];
       final secretB64 = keys[secretKeyFile];
       final publicB64 = keys[publicKeyFile];
-      if (hostnameB64 == null || secretB64 == null || publicB64 == null) {
+      if (hostnameB64 == null ||
+          secretB64 == null ||
+          publicB64 == null ||
+          hostnameB64.isEmpty ||
+          secretB64.isEmpty ||
+          publicB64.isEmpty) {
         return false;
       }
       final hostname = utf8.decode(base64Decode(hostnameB64));
@@ -70,9 +78,22 @@ class HsTransferKeys {
       }
       final dir = Directory(hsDir);
       await dir.create(recursive: true);
-      await File(p.join(hsDir, secretKeyFile)).writeAsBytes(secret);
-      await File(p.join(hsDir, publicKeyFile)).writeAsBytes(public);
-      await File(p.join(hsDir, hostnameFile)).writeAsString(hostname);
+      final secretTmp = File(p.join(hsDir, '$secretKeyFile.tmp'));
+      final publicTmp = File(p.join(hsDir, '$publicKeyFile.tmp'));
+      final hostnameTmp = File(p.join(hsDir, '$hostnameFile.tmp'));
+      try {
+        await secretTmp.writeAsBytes(secret);
+        await publicTmp.writeAsBytes(public);
+        await hostnameTmp.writeAsString(hostname);
+        await secretTmp.rename(p.join(hsDir, secretKeyFile));
+        await publicTmp.rename(p.join(hsDir, publicKeyFile));
+        await hostnameTmp.rename(p.join(hsDir, hostnameFile));
+      } catch (_) {
+        await _deleteQuietly(secretTmp);
+        await _deleteQuietly(publicTmp);
+        await _deleteQuietly(hostnameTmp);
+        return false;
+      }
       await _lockDown(hsDir);
       return true;
     } catch (_) {
@@ -80,11 +101,24 @@ class HsTransferKeys {
     }
   }
 
-  /// Tor refuses overly-permissive key material: best-effort 0700/0600 on
-  /// POSIX, no-op elsewhere. Failures are ignored (install still reports
-  /// success; Tor logs the complaint itself).
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  /// Tor refuses overly-permissive key material. POSIX: best-effort 0700/0600.
+  /// Windows: best-effort `icacls` (strip inheritance, current user only) —
+  /// Dart has no ACL API, so a locked-down host account remains the real
+  /// guarantee. Mobile: no-op, keys live in plugin-private storage.
+  /// Failures are ignored (install still reports success; Tor logs the
+  /// complaint itself).
   static Future<void> _lockDown(String hsDir) async {
-    if (Platform.isWindows || Platform.isAndroid || Platform.isIOS) return;
+    if (Platform.isAndroid || Platform.isIOS) return;
+    if (Platform.isWindows) {
+      await _lockDownWindows(hsDir);
+      return;
+    }
     try {
       await Process.run('chmod', ['700', hsDir]);
       await Process.run('chmod', [
@@ -92,6 +126,29 @@ class HsTransferKeys {
         p.join(hsDir, secretKeyFile),
         p.join(hsDir, publicKeyFile),
       ]);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  /// Best-effort Windows ACL lockdown: strip inheritance, grant the current
+  /// user full control on the HS dir and both key files.
+  static Future<void> _lockDownWindows(String hsDir) async {
+    try {
+      final user = Platform.environment['USERNAME'];
+      if (user == null || user.isEmpty) return;
+      for (final path in [
+        hsDir,
+        p.join(hsDir, secretKeyFile),
+        p.join(hsDir, publicKeyFile),
+      ]) {
+        await Process.run('icacls', [
+          path,
+          '/inheritance:r',
+          '/grant:r',
+          '$user:(OI)(CI)F',
+        ]);
+      }
     } catch (_) {
       // Best effort only.
     }

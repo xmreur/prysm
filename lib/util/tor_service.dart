@@ -156,10 +156,11 @@ class TorManager {
     return HsTransferKeys.collectFromDirectory('$dataDir/hidden_service');
   }
 
-  /// Installs transferred hidden-service keys (import). Run while Tor is
-  /// stopped (or before the first start) so Tor reuses them and keeps the
-  /// same onion. False on any failure: the caller falls back to a fresh
-  /// onion and warns.
+  /// Installs transferred hidden-service keys (import). Best run while Tor
+  /// is stopped (or before the first start) so Tor reuses them and keeps
+  /// the same onion; restore installs while running and takes effect on the
+  /// restart the UI already requires. False on any failure: the caller falls
+  /// back to a fresh onion and warns.
   Future<bool> setHsKeysForTransfer(Map<String, String> keys) async {
     if (_usesNativeTorChannel) {
       try {

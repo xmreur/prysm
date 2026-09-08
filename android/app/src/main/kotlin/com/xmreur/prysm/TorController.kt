@@ -201,17 +201,33 @@ class TorController(private val context: Context) {
     /** Writes transferred hidden-service keys. Call while Tor is stopped, before the next start. */
     fun setHsKeys(keys: Map<String, String>): Boolean {
         try {
-            val hostnameB64 = keys["hostname"] ?: return false
-            val secretB64 = keys["hs_ed25519_secret_key"] ?: return false
-            val publicB64 = keys["hs_ed25519_public_key"] ?: return false
+            // Strict validation first: nothing lands on disk until every
+            // field decodes (rejects early, avoids partial writes).
+            val hostnameB64 = keys["hostname"]?.takeIf { it.isNotEmpty() } ?: return false
+            val secretB64 = keys["hs_ed25519_secret_key"]?.takeIf { it.isNotEmpty() } ?: return false
+            val publicB64 = keys["hs_ed25519_public_key"]?.takeIf { it.isNotEmpty() } ?: return false
             val hostname = String(android.util.Base64.decode(hostnameB64, android.util.Base64.NO_WRAP))
             val secret = android.util.Base64.decode(secretB64, android.util.Base64.NO_WRAP)
             val public = android.util.Base64.decode(publicB64, android.util.Base64.NO_WRAP)
             if (hostname.trim().isEmpty() || secret.isEmpty() || public.isEmpty()) return false
             if (!hiddenServiceDir.exists()) hiddenServiceDir.mkdirs()
-            File(hiddenServiceDir, "hs_ed25519_secret_key").writeBytes(secret)
-            File(hiddenServiceDir, "hs_ed25519_public_key").writeBytes(public)
-            File(hiddenServiceDir, "hostname").writeText(hostname)
+            // Atomic per file (like iOS): stage to .tmp, then rename over the
+            // final name, so a mid-write crash never leaves a torn key file.
+            val secretTmp = File(hiddenServiceDir, "hs_ed25519_secret_key.tmp")
+            val publicTmp = File(hiddenServiceDir, "hs_ed25519_public_key.tmp")
+            val hostnameTmp = File(hiddenServiceDir, "hostname.tmp")
+            try {
+                secretTmp.writeBytes(secret)
+                publicTmp.writeBytes(public)
+                hostnameTmp.writeText(hostname)
+                if (!secretTmp.renameTo(File(hiddenServiceDir, "hs_ed25519_secret_key"))) return false
+                if (!publicTmp.renameTo(File(hiddenServiceDir, "hs_ed25519_public_key"))) return false
+                if (!hostnameTmp.renameTo(File(hiddenServiceDir, "hostname"))) return false
+            } finally {
+                secretTmp.delete()
+                publicTmp.delete()
+                hostnameTmp.delete()
+            }
             return true
         } catch (e: Exception) {
             Log.e("TorController", "Error writing HS keys", e)

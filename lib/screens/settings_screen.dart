@@ -619,7 +619,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       // Mobile HS keys live behind the native channel: install them now so
       // the restart keeps the same onion. Desktop already installed inline.
-      var hsReady = result.hsKeysInstalled;
+      var hsReady = result.hsKeysInstalledOnDesktop;
       final hsKeys = result.hsKeys;
       if (result.hasHsKeys && !hsReady && hsKeys != null) {
         try {

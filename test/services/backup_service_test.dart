@@ -142,7 +142,7 @@ void main() {
     );
     expect(result.ok, isTrue);
     expect(result.hasHsKeys, isTrue);
-    expect(result.hsKeysInstalled, isTrue);
+    expect(result.hsKeysInstalledOnDesktop, isTrue);
     // Desktop inline install landed in the test documents dir.
     final installedHostname = File(
       '${Directory.systemTemp.path}/prysm/tor_executable/tor_data/hidden_service/hostname',
@@ -181,7 +181,7 @@ void main() {
     );
     expect(result.ok, isTrue);
     expect(result.hasHsKeys, isFalse);
-    expect(result.hsKeysInstalled, isFalse);
+    expect(result.hsKeysInstalledOnDesktop, isFalse);
     expect(await BackupService.restoreBackup(backupPath, 'wrong'), isFalse);
 
     expect(await staleWal.exists(), isFalse);
@@ -222,5 +222,60 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('installToDirectory rejects invalid keys without partial writes', () async {
+    final dir =
+        '${Directory.systemTemp.path}/prysm_hs_reject_${DateTime.now().microsecondsSinceEpoch}';
+    String b64(List<int> bytes) => base64Encode(bytes);
+
+    // Seed valid keys first: bad input must not clobber or half-replace them.
+    final good = {
+      'hostname': b64(utf8.encode('${'z' * 56}.onion')),
+      'hs_ed25519_secret_key': b64(List.filled(96, 7)),
+      'hs_ed25519_public_key': b64(List.filled(32, 9)),
+    };
+    expect(await HsTransferKeys.installToDirectory(dir, good), isTrue);
+    final before = <String, List<int>>{
+      for (final name in [
+        'hostname',
+        'hs_ed25519_secret_key',
+        'hs_ed25519_public_key',
+      ])
+        name: await File('$dir/$name').readAsBytes(),
+    };
+
+    final badCases = [
+      // Not base64 at all.
+      {
+        'hostname': '!!!',
+        'hs_ed25519_secret_key': '!!!',
+        'hs_ed25519_public_key': '!!!',
+      },
+      // Missing fields.
+      {'hostname': b64(utf8.encode('x.onion'))},
+      // Empty strings.
+      {'hostname': '', 'hs_ed25519_secret_key': '', 'hs_ed25519_public_key': ''},
+      // Valid base64, empty after decode.
+      {
+        'hostname': b64(utf8.encode('   ')),
+        'hs_ed25519_secret_key': b64([]),
+        'hs_ed25519_public_key': b64([]),
+      },
+    ];
+    for (final bad in badCases) {
+      expect(await HsTransferKeys.installToDirectory(dir, bad), isFalse);
+    }
+
+    // Originals untouched, no .tmp leftovers.
+    for (final entry in before.entries) {
+      expect(await File('$dir/${entry.key}').readAsBytes(), entry.value);
+    }
+    expect(
+      Directory(dir).listSync().where((e) => e.path.endsWith('.tmp')).isEmpty,
+      isTrue,
+    );
+
+    await Directory(dir).delete(recursive: true);
   });
 }

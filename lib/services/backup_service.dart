@@ -12,6 +12,7 @@ import 'package:prysm/crypto/ratchet/prekey_bundle.dart';
 import 'package:prysm/database/messages_database.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/hs_transfer_keys.dart';
+import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,7 +57,12 @@ class BackupService {
     ]) {
       try {
         await (await open).execute('PRAGMA wal_checkpoint(TRUNCATE)');
-      } catch (_) {}
+      } catch (e) {
+        Logging.warning(
+          'WAL checkpoint failed, export may be torn: $e',
+          'BackupService',
+        );
+      }
     }
 
     // Base files plus their WAL sidecars: a live database keeps recent pages
@@ -233,13 +239,13 @@ class BackupService {
     final hsKeys = (manifest['hsKeys'] as Map?)?.map(
       (key, value) => MapEntry(key.toString(), value.toString()),
     );
-    var hsKeysInstalled = false;
+    var hsKeysInstalledOnDesktop = false;
     if (hsKeys != null &&
         hsKeys.isNotEmpty &&
         !Platform.isAndroid &&
         !Platform.isIOS) {
       final docDir = await _documentsDirectory();
-      hsKeysInstalled = await HsTransferKeys.installToDirectory(
+      hsKeysInstalledOnDesktop = await HsTransferKeys.installToDirectory(
         HsTransferKeys.hsDirForDocuments(docDir),
         hsKeys,
       );
@@ -248,7 +254,7 @@ class BackupService {
     return RestoreResult(
       ok: true,
       hasHsKeys: hsKeys != null && hsKeys.isNotEmpty,
-      hsKeysInstalled: hsKeysInstalled,
+      hsKeysInstalledOnDesktop: hsKeysInstalledOnDesktop,
       hsKeys: hsKeys,
     );
   }
@@ -267,14 +273,14 @@ class RestoreResult {
   const RestoreResult({
     required this.ok,
     required this.hasHsKeys,
-    required this.hsKeysInstalled,
+    required this.hsKeysInstalledOnDesktop,
     required this.hsKeys,
   });
 
   static const failed = RestoreResult(
     ok: false,
     hasHsKeys: false,
-    hsKeysInstalled: false,
+    hsKeysInstalledOnDesktop: false,
     hsKeys: null,
   );
 
@@ -285,7 +291,7 @@ class RestoreResult {
 
   /// Desktop inline install succeeded. Always false on mobile: the caller
   /// installs [hsKeys] through the native channel.
-  final bool hsKeysInstalled;
+  final bool hsKeysInstalledOnDesktop;
 
   /// Raw base64 HS files for a caller-side install, null when absent.
   final Map<String, String>? hsKeys;

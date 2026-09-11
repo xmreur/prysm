@@ -1789,8 +1789,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get passphrasesDoNotMatch => 'Passphrases do not match';
 
   @override
-  String get passwordMustBeAtLeast4Characters =>
-      'Password must be at least 4 characters';
+  String get passwordMustBeAtLeast8Characters =>
+      'Password must be at least 8 characters';
 
   @override
   String get paste => 'Paste';
@@ -2045,6 +2045,14 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get restoreFailedWrongPasswordOrCorruptFile =>
       'Restore failed — wrong password or corrupt file';
+
+  @override
+  String get restoreLegacyNoAddressKeys =>
+      'Backup restored without address keys: you have a new ID — share it with your contacts. Please restart the app.';
+
+  @override
+  String get restoreAddressKeysFailed =>
+      'Backup restored, but the address keys could not be installed: you have a new ID. Please restart the app.';
 
   @override
   String get retry => 'Retry';
@@ -2511,6 +2519,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String trayUnreadCount(int count) {
     return 'Unread: $count';
   }
+
+  @override
+  String get transferAccount => 'Transfer Account';
+
+  @override
+  String get transferAccountSubtitle => 'Move this account to another device';
+
+  @override
+  String get transferCreatesBackupAndWipes =>
+      'Creates an encrypted backup including this device\'s address keys, then wipes this device.';
+
+  @override
+  String get transferNoAddressKeys =>
+      'No address keys found — start Tor first, then retry.';
+
+  @override
+  String get transferWipeConfirm => 'Backup created. Wipe this device now?';
+
+  @override
+  String get transferDeactivateFailed =>
+      'Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.';
+
+  @override
+  String get transferCompletedDeactivated =>
+      'Transfer completed. This device has been deactivated; restart or close the app.';
 
   @override
   String get transferOwnership => 'Transfer ownership';

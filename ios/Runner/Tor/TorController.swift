@@ -6,6 +6,12 @@ actor PrysmTorController {
     static let controlPort: UInt16 = 9051
     static let socksPort: UInt = 9050
     private static let dirPermissions: Int = 0o700
+    private static let pendingMarkerName = ".hs_install_pending"
+    private static let hsFileNames = [
+        "hs_ed25519_secret_key",
+        "hs_ed25519_public_key",
+        "hostname",
+    ]
 
     private static let stopSettleMs: UInt64 = 500
     private static let portPollMs: UInt64 = 100
@@ -42,6 +48,10 @@ actor PrysmTorController {
     }
 
     func startTor() async throws {
+        // A process death mid-install leaves a possibly-mixed HS triplet;
+        // purge it before Tor can read the directory. Fail closed when the
+        // purge cannot be verified: the marker stays and the next start retries.
+        try repairInterruptedHsInstall()
         if isRunning, Self.isTcpPortOpen(Self.controlPort) {
             NSLog("PrysmTor: Tor already running")
             return
@@ -209,6 +219,190 @@ actor PrysmTorController {
             return nil
         }
         return address
+    }
+
+    /// Reads raw hidden-service files as base64 for account transfer, nil when incomplete.
+    func getHsKeys() -> [String: String]? {
+        let hs = hiddenServiceDirectory
+        guard let hostnameData = try? Data(contentsOf: hs.appendingPathComponent("hostname")),
+              let hostname = String(data: hostnameData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !hostname.isEmpty,
+              let secret = try? Data(contentsOf: hs.appendingPathComponent("hs_ed25519_secret_key")),
+              !secret.isEmpty,
+              let publicKey = try? Data(contentsOf: hs.appendingPathComponent("hs_ed25519_public_key")),
+              !publicKey.isEmpty else {
+            return nil
+        }
+        return [
+            "hostname": hostnameData.base64EncodedString(),
+            "hs_ed25519_secret_key": secret.base64EncodedString(),
+            "hs_ed25519_public_key": publicKey.base64EncodedString(),
+        ]
+    }
+
+    /// Writes transferred hidden-service keys. Call while Tor is stopped, before the next start.
+    func setHsKeys(_ keys: [String: String]) -> Bool {
+        guard let hostnameB64 = keys["hostname"], !hostnameB64.isEmpty,
+              let secretB64 = keys["hs_ed25519_secret_key"], !secretB64.isEmpty,
+              let publicB64 = keys["hs_ed25519_public_key"], !publicB64.isEmpty,
+              let hostnameData = Data(base64Encoded: hostnameB64),
+              let hostname = String(data: hostnameData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !hostname.isEmpty,
+              let secret = Data(base64Encoded: secretB64),
+              !secret.isEmpty,
+              let publicKey = Data(base64Encoded: publicB64),
+              !publicKey.isEmpty else {
+            return false
+        }
+        do {
+            let fm = FileManager.default
+            let hs = hiddenServiceDirectory
+            try fm.createDirectory(
+                at: hs, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: Self.dirPermissions]
+            )
+            let secretURL = hs.appendingPathComponent("hs_ed25519_secret_key")
+            let publicURL = hs.appendingPathComponent("hs_ed25519_public_key")
+            let hostnameURL = hs.appendingPathComponent("hostname")
+            let marker = hs.appendingPathComponent(Self.pendingMarkerName)
+            // Deterministic .tmp names (like Android and desktop) so an
+            // interrupted write never leaves secret bytes under a name the
+            // repair cannot purge; Foundation's `.atomic` temp names would.
+            let staged: [(tmp: URL, final: URL, data: Data)] = [
+                (hs.appendingPathComponent("hs_ed25519_secret_key.tmp"), secretURL, secret),
+                (hs.appendingPathComponent("hs_ed25519_public_key.tmp"), publicURL, publicKey),
+                (hs.appendingPathComponent("hostname.tmp"), hostnameURL, hostnameData),
+            ]
+            do {
+                for entry in staged { try entry.data.write(to: entry.tmp) }
+                // Marker first: a process death mid-rename leaves it behind
+                // and startTor()'s repair purges the mixed set.
+                try Data("installing".utf8).write(to: marker)
+            } catch {
+                // Staging failed before any rename: live keys untouched, so
+                // a partial marker must not make the next start purge them.
+                for entry in staged { try? fm.removeItem(at: entry.tmp) }
+                try? fm.removeItem(at: marker)
+                throw error
+            }
+            // POSIX rename(2): atomic replace over an existing final file,
+            // which FileManager.moveItem refuses.
+            let committed = staged.allSatisfy {
+                Darwin.rename($0.tmp.path, $0.final.path) == 0
+            }
+            for entry in staged { try? fm.removeItem(at: entry.tmp) }
+            guard committed, Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
+                // Mixed or incomplete: roll back to no keys so the caller
+                // falls back to a fresh onion instead of a torn identity.
+                rollbackHsInstall(marker: marker)
+                return false
+            }
+            try fm.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: secretURL.path
+            )
+            try fm.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: publicURL.path
+            )
+            // Marker last. If it survives, the next start purges this valid
+            // triplet, so report failure rather than a success the restart
+            // undoes.
+            try fm.removeItem(at: marker)
+            return true
+        } catch {
+            NSLog("PrysmTor setHsKeys failed: \(error)")
+            return false
+        }
+    }
+
+    private static func hsTripletPresent(_ urls: URL...) -> Bool {
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = values.fileSize, size > 0 else {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Deletes live and staged HS files; true only when all are verified
+    /// absent.
+    private func purgeHsTriplet() -> Bool {
+        let fm = FileManager.default
+        let hs = hiddenServiceDirectory
+        var purged = true
+        for name in Self.hsFileNames {
+            for url in [hs.appendingPathComponent(name), hs.appendingPathComponent("\(name).tmp")] {
+                try? fm.removeItem(at: url)
+                if fm.fileExists(atPath: url.path) { purged = false }
+            }
+        }
+        return purged
+    }
+
+    /// Rolls back to no keys. The marker goes only once every file is
+    /// verified gone, so a surviving file makes the next start retry the
+    /// purge instead of reading a mixed set.
+    private func rollbackHsInstall(marker: URL) {
+        if purgeHsTriplet() {
+            try? FileManager.default.removeItem(at: marker)
+        }
+    }
+
+    /// Purges a possibly-mixed HS triplet left by a process death during
+    /// setHsKeys(); the next start mints a fresh onion (the user can
+    /// restore the backup again). No-op without the marker. Throws when a
+    /// file survives the purge: the marker is kept so the next start
+    /// retries, and Tor must not read the mixed set.
+    private func repairInterruptedHsInstall() throws {
+        let fm = FileManager.default
+        let marker = hiddenServiceDirectory.appendingPathComponent(Self.pendingMarkerName)
+        guard fm.fileExists(atPath: marker.path) else { return }
+        NSLog("PrysmTor: interrupted HS install detected, purging triplet")
+        guard purgeHsTriplet() else {
+            throw NSError(
+                domain: "PrysmTor",
+                code: 5,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Interrupted hidden-service install could not be purged",
+                ]
+            )
+        }
+        try fm.removeItem(at: marker)
+    }
+
+    /// Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion.
+    func clearHsKeys() -> Bool {
+        do {
+            let fm = FileManager.default
+            let hs = hiddenServiceDirectory
+            if fm.fileExists(atPath: hs.path) {
+                try fm.removeItem(at: hs)
+            }
+            try fm.createDirectory(
+                at: hs, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: Self.dirPermissions]
+            )
+            let cleared = !fm.fileExists(
+                atPath: hs.appendingPathComponent("hs_ed25519_secret_key").path
+            ) && !fm.fileExists(
+                atPath: hs.appendingPathComponent("hs_ed25519_public_key").path
+            ) && !fm.fileExists(
+                atPath: hs.appendingPathComponent("hostname").path
+            )
+            if (!cleared) {
+                NSLog("PrysmTor clearHsKeys: key files still present")
+                return false
+            }
+            return true
+        } catch {
+            NSLog("PrysmTor clearHsKeys failed: \(error)")
+            return false
+        }
     }
 
     private func sendShutdown(cookie: Data) async {

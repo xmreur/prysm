@@ -37,8 +37,8 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
     confirmLabel: context.l10n.createBackup,
     onConfirm: () async {
       final password = passwordController.text;
-      if (password.length < 4) {
-        showPrysmToast(context, context.l10n.passwordMustBeAtLeast4Characters);
+      if (password.length < 8) {
+        showPrysmToast(context, context.l10n.passwordMustBeAtLeast8Characters);
         return;
       }
       Navigator.pop(context);
@@ -50,12 +50,16 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
 }
 
 /// Creates an encrypted backup in the user's download folder.
-Future<bool> performBackup(BuildContext context, String password) async {
+Future<bool> performBackup(
+  BuildContext context,
+  String password, {
+  Map<String, String>? hsKeys,
+}) async {
   try {
     final fileName =
         'prysm_backup_${DateTime.now().millisecondsSinceEpoch}.prysmbackup';
     final file = await DownloadLocation.uniqueFile(fileName);
-    await BackupService.createBackup(file.path, password);
+    await BackupService.createBackup(file.path, password, hsKeys: hsKeys);
 
     if (!context.mounted) return false;
     showPrysmToast(context, context.l10n.backupSavedTo(file.path));

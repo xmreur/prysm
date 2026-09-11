@@ -1811,8 +1811,8 @@ class AppLocalizationsIt extends AppLocalizations {
   String get passphrasesDoNotMatch => 'Le passphrase non corrispondono';
 
   @override
-  String get passwordMustBeAtLeast4Characters =>
-      'La password deve essere almeno 4 caratteri';
+  String get passwordMustBeAtLeast8Characters =>
+      'La password deve essere di almeno 8 caratteri';
 
   @override
   String get paste => 'Incolla';
@@ -2068,6 +2068,14 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get restoreFailedWrongPasswordOrCorruptFile =>
       'Ripristinio fallito, password sbagliata o file corrotto';
+
+  @override
+  String get restoreLegacyNoAddressKeys =>
+      'Backup ripristinato senza chiavi di indirizzo: hai un nuovo ID, ricondividilo con i contatti. Riavvia l\'app.';
+
+  @override
+  String get restoreAddressKeysFailed =>
+      'Backup ripristinato ma chiavi di indirizzo non installate: hai un nuovo ID. Riavvia l\'app.';
 
   @override
   String get retry => 'Riprova';
@@ -2537,6 +2545,33 @@ class AppLocalizationsIt extends AppLocalizations {
   String trayUnreadCount(int count) {
     return 'Non letti: $count';
   }
+
+  @override
+  String get transferAccount => 'Trasferisci account';
+
+  @override
+  String get transferAccountSubtitle =>
+      'Sposta questo account su un altro dispositivo';
+
+  @override
+  String get transferCreatesBackupAndWipes =>
+      'Crea un backup cifrato con le chiavi di indirizzo e poi azzera questo dispositivo.';
+
+  @override
+  String get transferNoAddressKeys =>
+      'Chiavi di indirizzo assenti — avvia Tor e riprova.';
+
+  @override
+  String get transferWipeConfirm =>
+      'Backup creato. Azzerare questo dispositivo ora?';
+
+  @override
+  String get transferDeactivateFailed =>
+      'Backup creato, ma non è stato possibile disattivare questo dispositivo (Tor ancora attivo o chiavi non rimosse). Non usare entrambi i dispositivi — riprova il trasferimento.';
+
+  @override
+  String get transferCompletedDeactivated =>
+      'Trasferimento completato. Questo dispositivo è stato disattivato; riavvia o chiudi l\'app.';
 
   @override
   String get transferOwnership => 'Trasferisci proprietà';

@@ -27,6 +27,12 @@ class TorController(private val context: Context) {
         private const val RESTART_SETTLE_MS = 800L
         private const val PORT_POLL_MS = 100L
         private const val PORT_POLL_TIMEOUT_MS = 3000L
+        private const val PENDING_MARKER = ".hs_install_pending"
+        private val HS_FILES = listOf(
+            "hs_ed25519_secret_key",
+            "hs_ed25519_public_key",
+            "hostname"
+        )
     }
 
     init {
@@ -58,6 +64,12 @@ class TorController(private val context: Context) {
     }
 
     suspend fun startTor() {
+        // A process death mid-install leaves a possibly-mixed HS triplet;
+        // purge it before Tor can read the directory. Fail closed when the
+        // purge cannot be verified: the marker stays and the next start retries.
+        if (!repairInterruptedHsInstall()) {
+            throw IllegalStateException("interrupted HS install could not be purged")
+        }
         val restarting = isBound
         if (restarting) {
             stopTor()
@@ -177,6 +189,165 @@ class TorController(private val context: Context) {
                 Log.d("TorController", "Onion address fetch completed with result: $address")
                 onResult(address)
             }
+        }
+    }
+
+    /** Reads raw hidden-service files as base64 for account transfer, null when incomplete. */
+    fun getHsKeys(): Map<String, String>? {
+        try {
+            val hostname = File(hiddenServiceDir, "hostname").takeIf { it.exists() }?.readText() ?: return null
+            val secret = File(hiddenServiceDir, "hs_ed25519_secret_key").takeIf { it.exists() }?.readBytes() ?: return null
+            val public = File(hiddenServiceDir, "hs_ed25519_public_key").takeIf { it.exists() }?.readBytes() ?: return null
+            if (hostname.trim().isEmpty() || secret.isEmpty() || public.isEmpty()) return null
+            return mapOf(
+                "hostname" to android.util.Base64.encodeToString(hostname.toByteArray(), android.util.Base64.NO_WRAP),
+                "hs_ed25519_secret_key" to android.util.Base64.encodeToString(secret, android.util.Base64.NO_WRAP),
+                "hs_ed25519_public_key" to android.util.Base64.encodeToString(public, android.util.Base64.NO_WRAP),
+            )
+        } catch (e: Exception) {
+            Log.e("TorController", "Error reading HS keys", e)
+            return null
+        }
+    }
+
+    /** Writes transferred hidden-service keys. Call while Tor is stopped, before the next start. */
+    fun setHsKeys(keys: Map<String, String>): Boolean {
+        try {
+            // Strict validation first: nothing lands on disk until every
+            // field decodes (rejects early, avoids partial writes).
+            val hostnameB64 = keys["hostname"]?.takeIf { it.isNotEmpty() } ?: return false
+            val secretB64 = keys["hs_ed25519_secret_key"]?.takeIf { it.isNotEmpty() } ?: return false
+            val publicB64 = keys["hs_ed25519_public_key"]?.takeIf { it.isNotEmpty() } ?: return false
+            val hostname = String(android.util.Base64.decode(hostnameB64, android.util.Base64.NO_WRAP))
+            val secret = android.util.Base64.decode(secretB64, android.util.Base64.NO_WRAP)
+            val public = android.util.Base64.decode(publicB64, android.util.Base64.NO_WRAP)
+            if (hostname.trim().isEmpty() || secret.isEmpty() || public.isEmpty()) return false
+            if (!hiddenServiceDir.exists()) hiddenServiceDir.mkdirs()
+            // Atomic per file (like iOS): stage to .tmp, then rename over the
+            // final name, so a mid-write crash never leaves a torn key file.
+            val secretFile = File(hiddenServiceDir, "hs_ed25519_secret_key")
+            val publicFile = File(hiddenServiceDir, "hs_ed25519_public_key")
+            val hostnameFile = File(hiddenServiceDir, "hostname")
+            val secretTmp = File(hiddenServiceDir, "hs_ed25519_secret_key.tmp")
+            val publicTmp = File(hiddenServiceDir, "hs_ed25519_public_key.tmp")
+            val hostnameTmp = File(hiddenServiceDir, "hostname.tmp")
+            val marker = File(hiddenServiceDir, PENDING_MARKER)
+            try {
+                try {
+                    secretTmp.writeBytes(secret)
+                    publicTmp.writeBytes(public)
+                    hostnameTmp.writeText(hostname)
+                } catch (e: Exception) {
+                    // Staging failed before any rename: live keys untouched.
+                    secretTmp.delete()
+                    publicTmp.delete()
+                    hostnameTmp.delete()
+                    return false
+                }
+                // Marker first: a process death mid-rename leaves it behind
+                // and startTor()'s repair purges the mixed set.
+                marker.writeText("installing")
+                val committed = secretTmp.renameTo(secretFile) &&
+                    publicTmp.renameTo(publicFile) &&
+                    hostnameTmp.renameTo(hostnameFile)
+                secretTmp.delete()
+                publicTmp.delete()
+                hostnameTmp.delete()
+                if (!committed || !hsTripletPresent(secretFile, publicFile, hostnameFile)) {
+                    // Mixed or incomplete: roll back to no keys so the caller
+                    // falls back to a fresh onion instead of a torn identity.
+                    rollbackHsInstall(marker)
+                    return false
+                }
+                // Marker last. If it survives, the next start purges this
+                // valid triplet, so report failure rather than a success the
+                // restart undoes.
+                if (!marker.absentAfterDelete()) {
+                    Log.e("TorController", "setHsKeys: pending marker could not be removed")
+                    return false
+                }
+            } catch (e: Exception) {
+                // Unexpected failure at/after promote: assume mixed, roll back.
+                rollbackHsInstall(marker)
+                throw e
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e("TorController", "Error writing HS keys", e)
+            return false
+        }
+    }
+
+    /** Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion. */
+    fun clearHsKeys(): Boolean {
+        try {
+            if (!hiddenServiceDir.exists()) return true
+            if (!hiddenServiceDir.deleteRecursively()) {
+                Log.e("TorController", "clearHsKeys: deleteRecursively failed")
+                return false
+            }
+            if (!hiddenServiceDir.mkdirs() && !hiddenServiceDir.isDirectory) {
+                Log.e("TorController", "clearHsKeys: mkdirs failed")
+                return false
+            }
+            val cleared = !File(hiddenServiceDir, "hs_ed25519_secret_key").exists() &&
+                !File(hiddenServiceDir, "hs_ed25519_public_key").exists() &&
+                !File(hiddenServiceDir, "hostname").exists()
+            if (!cleared) {
+                Log.e("TorController", "clearHsKeys: key files still present")
+                return false
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e("TorController", "Error clearing HS keys", e)
+            return false
+        }
+    }
+
+    private fun hsTripletPresent(vararg files: File): Boolean =
+        files.all { it.exists() && it.length() > 0 }
+
+    private fun File.absentAfterDelete(): Boolean = delete() || !exists()
+
+    /** Deletes live and staged HS files; true only when all are verified absent. */
+    private fun purgeHsTriplet(): Boolean {
+        var purged = true
+        for (name in HS_FILES) {
+            purged = File(hiddenServiceDir, name).absentAfterDelete() && purged
+            purged = File(hiddenServiceDir, "$name.tmp").absentAfterDelete() && purged
+        }
+        return purged
+    }
+
+    /**
+     * Rolls back to no keys. The marker goes only once every file is verified
+     * gone, so a surviving file makes the next start retry the purge instead
+     * of reading a mixed set.
+     */
+    private fun rollbackHsInstall(marker: File) {
+        if (purgeHsTriplet()) marker.delete()
+    }
+
+    /**
+     * Purges a possibly-mixed HS triplet left by a process death during
+     * setHsKeys() and reports whether the directory is safe for Tor to read:
+     * true without a marker or once every file is verified absent (the next
+     * start mints a fresh onion; the user can restore the backup again).
+     * False when a file survived: the marker is kept and Tor must not start.
+     */
+    private fun repairInterruptedHsInstall(): Boolean {
+        try {
+            val marker = File(hiddenServiceDir, PENDING_MARKER)
+            if (!marker.exists()) return true
+            Log.w("TorController", "interrupted HS install detected: purging triplet")
+            if (!purgeHsTriplet()) {
+                Log.e("TorController", "repairInterruptedHsInstall: key files still present, keeping marker")
+                return false
+            }
+            return marker.absentAfterDelete()
+        } catch (e: Exception) {
+            Log.e("TorController", "repairInterruptedHsInstall failed", e)
+            return false
         }
     }
 

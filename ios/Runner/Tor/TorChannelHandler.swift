@@ -91,6 +91,22 @@ final class TorChannelHandler {
                 }
             }
 
+        case "getHsKeys":
+            Task {
+                result(await torController.getHsKeys())
+            }
+
+        case "setHsKeys":
+            Task {
+                let keys = call.arguments as? [String: String] ?? [:]
+                result(await torController.setHsKeys(keys))
+            }
+
+        case "clearHsKeys":
+            Task {
+                result(await torController.clearHsKeys())
+            }
+
         case "setCallAudioActive":
             let active = call.arguments as? Bool ?? false
             TorKeepAlive.shared.setCallAudioActive(active)

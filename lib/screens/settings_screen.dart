@@ -18,6 +18,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:prysm/util/download_location.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
+import 'package:prysm/util/db_helper.dart';
+import 'package:prysm/database/messages_database.dart';
+import 'package:prysm/util/pending_message_db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/log_export_helper.dart';
 import 'package:prysm/models/unlock_type.dart';
@@ -605,6 +608,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (chosen == null) return;
         filePath = chosen.path;
       }
+      // Close every cached handle before the backup bytes land: restoring
+      // under open connections leaves stale reads and torn sidecars. The
+      // helpers reopen lazily (reinitCryptoForHandoff below gets the fresh DB).
+      await DBHelper.closeForWipe();
+      await MessagesDatabase.closeForWipe();
+      await PendingMessageDbHelper.closeForWipe();
       final result = await BackupService.restoreBackupDetailed(
         filePath,
         password,
@@ -623,6 +632,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final hsKeys = result.hsKeys;
       if (result.hasHsKeys && !hsReady && hsKeys != null) {
         try {
+          // Native installers require Tor stopped; a running instance keeps
+          // serving the old onion even when the files land fine.
+          await widget.torManager?.stopTor();
           hsReady =
               await widget.torManager?.setHsKeysForTransfer(hsKeys) == true;
         } catch (_) {
@@ -727,15 +739,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         confirmLabel: context.l10n.reset,
         onConfirm: () async {
           Navigator.pop(context);
+          bool torStopped = true;
           try {
-            try {
-              await widget.torManager?.stopTor();
-            } catch (_) {}
-            await PanicWipeService.wipeForTransfer(
+            await widget.torManager?.stopTor();
+          } catch (_) {
+            torStopped = false;
+          }
+          bool wiped = false;
+          try {
+            wiped = await PanicWipeService.wipeForTransfer(
               torManager: widget.torManager,
             );
-          } catch (_) {}
+          } catch (_) {
+            wiped = false;
+          }
           if (!mounted) return;
+          if (!torStopped || !wiped) {
+            showPrysmToast(
+              context,
+              context.l10n.transferDeactivateFailed,
+            );
+            return;
+          }
           showPrysmToast(
             context,
             context.l10n.backupRestoredPleaseRestartTheApp,

@@ -1452,6 +1452,7 @@
   "transferCreatesBackupAndWipes": "Creates an encrypted backup including this device's address keys, then wipes this device.",
   "transferNoAddressKeys": "No address keys found — start Tor first, then retry.",
   "transferWipeConfirm": "Backup created. Wipe this device now?",
+  "transferDeactivateFailed": "Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.",
   "transferOwnership": "Transfer ownership",
   "transferOwnershipTo": "Transfer ownership to {name}?",
   "trayUnreadShort": "{count} unread",

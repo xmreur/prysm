@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:mutex/mutex.dart';
 import 'package:path/path.dart' as p;
 
 /// Hidden-service key transfer: raw Tor `hidden_service` files as base64.
@@ -12,6 +13,13 @@ import 'package:path/path.dart' as p;
 /// `TorManager`), never through this file helper.
 class HsTransferKeys {
   HsTransferKeys._();
+
+  /// Single process-wide lock for every hidden-service dir mutation
+  /// (install + delete, all platforms Dart-side). TorManager additionally
+  /// holds its control mutex around these, serializing them against
+  /// start/stop/restart.
+  // ponytail: one global lock; per-dir locks if HS throughput ever matters.
+  static final Mutex opMutex = Mutex();
 
   static const String hostnameFile = 'hostname';
   static const String secretKeyFile = 'hs_ed25519_secret_key';
@@ -55,6 +63,27 @@ class HsTransferKeys {
   /// through .tmp + rename, so bad input never leaves partial writes and a
   /// mid-write crash never leaves a torn key file.
   static Future<bool> installToDirectory(
+    String hsDir,
+    Map<String, String> keys,
+  ) async {
+    return opMutex.protect(() => _installUnlocked(hsDir, keys));
+  }
+
+  /// Deletes the HS dir (source deactivation). True when nothing remains.
+  static Future<bool> deleteDirectory(String hsDir) async {
+    return opMutex.protect(() async {
+      try {
+        final dir = Directory(hsDir);
+        if (!await dir.exists()) return true;
+        await dir.delete(recursive: true);
+        return !(await dir.exists());
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+
+  static Future<bool> _installUnlocked(
     String hsDir,
     Map<String, String> keys,
   ) async {

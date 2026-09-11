@@ -2538,6 +2538,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get transferWipeConfirm => 'Backup created. Wipe this device now?';
 
   @override
+  String get transferDeactivateFailed =>
+      'Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.';
+
+  @override
   String get transferOwnership => 'Transfer ownership';
 
   @override

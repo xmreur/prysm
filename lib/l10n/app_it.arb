@@ -1072,6 +1072,7 @@
   "transferCreatesBackupAndWipes": "Crea un backup cifrato con le chiavi di indirizzo e poi azzera questo dispositivo.",
   "transferNoAddressKeys": "Chiavi di indirizzo assenti — avvia Tor e riprova.",
   "transferWipeConfirm": "Backup creato. Azzerare questo dispositivo ora?",
+  "transferDeactivateFailed": "Backup creato, ma non è stato possibile disattivare questo dispositivo (Tor ancora attivo o chiavi non rimosse). Non usare entrambi i dispositivi — riprova il trasferimento.",
   "transferOwnership": "Trasferisci proprietà",
   "transferOwnershipTo": "Trasferire la proprietà a {name}?",
   "turnNotificationsBackOn": "Riattiva notifiche",

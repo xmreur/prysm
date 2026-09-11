@@ -278,4 +278,25 @@ void main() {
 
     await Directory(dir).delete(recursive: true);
   });
+
+  test('deleteDirectory removes the dir and is true when absent', () async {
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    expect(
+      await HsTransferKeys.deleteDirectory(
+        '${Directory.systemTemp.path}/prysm_hs_gone_$stamp',
+      ),
+      isTrue,
+    );
+    final dir =
+        '${Directory.systemTemp.path}/prysm_hs_del_$stamp';
+    String b64(List<int> bytes) => base64Encode(bytes);
+    final keys = {
+      'hostname': b64(utf8.encode("${'z' * 56}.onion")),
+      'hs_ed25519_secret_key': b64(List.filled(96, 7)),
+      'hs_ed25519_public_key': b64(List.filled(32, 9)),
+    };
+    expect(await HsTransferKeys.installToDirectory(dir, keys), isTrue);
+    expect(await HsTransferKeys.deleteDirectory(dir), isTrue);
+    expect(await Directory(dir).exists(), isFalse);
+  });
 }

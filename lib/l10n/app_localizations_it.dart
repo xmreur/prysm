@@ -2566,6 +2566,10 @@ class AppLocalizationsIt extends AppLocalizations {
       'Backup creato. Azzerare questo dispositivo ora?';
 
   @override
+  String get transferDeactivateFailed =>
+      'Backup creato, ma non è stato possibile disattivare questo dispositivo (Tor ancora attivo o chiavi non rimosse). Non usare entrambi i dispositivi — riprova il trasferimento.';
+
+  @override
   String get transferOwnership => 'Trasferisci proprietà';
 
   @override

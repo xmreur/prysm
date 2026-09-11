@@ -162,34 +162,32 @@ class TorManager {
   /// restart the UI already requires. False on any failure: the caller falls
   /// back to a fresh onion and warns.
   Future<bool> setHsKeysForTransfer(Map<String, String> keys) async {
-    if (_usesNativeTorChannel) {
-      try {
-        return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
-      } catch (_) {
-        return false;
+    return _controlWriteMutex.protect(() async {
+      if (_usesNativeTorChannel) {
+        try {
+          return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
+        } catch (_) {
+          return false;
+        }
       }
-    }
-    return HsTransferKeys.installToDirectory('$dataDir/hidden_service', keys);
+      // ponytail: file lock lives inside installToDirectory (HsTransferKeys.opMutex).
+      return HsTransferKeys.installToDirectory('$dataDir/hidden_service', keys);
+    });
   }
 
   /// Deletes local hidden-service keys (source deactivation after a
   /// transfer export). The next start generates a fresh onion.
   Future<bool> clearHsKeysForTransfer() async {
-    if (_usesNativeTorChannel) {
-      try {
-        return await _channel.invokeMethod<bool>('clearHsKeys') ?? false;
-      } catch (_) {
-        return false;
+    return _controlWriteMutex.protect(() async {
+      if (_usesNativeTorChannel) {
+        try {
+          return await _channel.invokeMethod<bool>('clearHsKeys') ?? false;
+        } catch (_) {
+          return false;
+        }
       }
-    }
-    try {
-      final dir = Directory('$dataDir/hidden_service');
-      if (!await dir.exists()) return true;
-      await dir.delete(recursive: true);
-      return true;
-    } catch (_) {
-      return false;
-    }
+      return HsTransferKeys.deleteDirectory('$dataDir/hidden_service');
+    });
   }
 
   Future<void> stopTor() {

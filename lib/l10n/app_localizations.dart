@@ -4502,6 +4502,12 @@ abstract class AppLocalizations {
   /// **'Backup created. Wipe this device now?'**
   String get transferWipeConfirm;
 
+  /// No description provided for @transferDeactivateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.'**
+  String get transferDeactivateFailed;
+
   /// No description provided for @transferOwnership.
   ///
   /// In en, this message translates to:

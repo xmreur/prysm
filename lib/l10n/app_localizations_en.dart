@@ -1789,8 +1789,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get passphrasesDoNotMatch => 'Passphrases do not match';
 
   @override
-  String get passwordMustBeAtLeast4Characters =>
-      'Password must be at least 4 characters';
+  String get passwordMustBeAtLeast8Characters =>
+      'Password must be at least 8 characters';
 
   @override
   String get paste => 'Paste';
@@ -2540,6 +2540,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get transferDeactivateFailed =>
       'Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.';
+
+  @override
+  String get transferCompletedDeactivated =>
+      'Transfer completed. This device has been deactivated; restart or close the app.';
 
   @override
   String get transferOwnership => 'Transfer ownership';

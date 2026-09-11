@@ -26,22 +26,18 @@ class HsTransferKeys {
   static const String publicKeyFile = 'hs_ed25519_public_key';
 
   static String hsDirForDocuments(String documentsDir) => p.join(
-        documentsDir,
-        'prysm',
-        'tor_executable',
-        'tor_data',
-        'hidden_service',
-      );
+    documentsDir,
+    'prysm',
+    'tor_executable',
+    'tor_data',
+    'hidden_service',
+  );
 
   /// Reads the three HS files from [hsDir]; null when any is missing.
-  static Future<Map<String, String>?> collectFromDirectory(
-    String hsDir,
-  ) async {
+  static Future<Map<String, String>?> collectFromDirectory(String hsDir) async {
     try {
-      final hostname =
-          await File(p.join(hsDir, hostnameFile)).readAsString();
-      final secret =
-          await File(p.join(hsDir, secretKeyFile)).readAsBytes();
+      final hostname = await File(p.join(hsDir, hostnameFile)).readAsString();
+      final secret = await File(p.join(hsDir, secretKeyFile)).readAsBytes();
       final public = await File(p.join(hsDir, publicKeyFile)).readAsBytes();
       if (hostname.trim().isEmpty || secret.isEmpty || public.isEmpty) {
         return null;
@@ -107,6 +103,9 @@ class HsTransferKeys {
       }
       final dir = Directory(hsDir);
       await dir.create(recursive: true);
+      final secretFile = File(p.join(hsDir, secretKeyFile));
+      final publicFile = File(p.join(hsDir, publicKeyFile));
+      final hostnameFile_ = File(p.join(hsDir, hostnameFile));
       final secretTmp = File(p.join(hsDir, '$secretKeyFile.tmp'));
       final publicTmp = File(p.join(hsDir, '$publicKeyFile.tmp'));
       final hostnameTmp = File(p.join(hsDir, '$hostnameFile.tmp'));
@@ -114,13 +113,31 @@ class HsTransferKeys {
         await secretTmp.writeAsBytes(secret);
         await publicTmp.writeAsBytes(public);
         await hostnameTmp.writeAsString(hostname);
-        await secretTmp.rename(p.join(hsDir, secretKeyFile));
-        await publicTmp.rename(p.join(hsDir, publicKeyFile));
-        await hostnameTmp.rename(p.join(hsDir, hostnameFile));
       } catch (_) {
+        // Staging failed before any promote: live keys untouched.
         await _deleteQuietly(secretTmp);
         await _deleteQuietly(publicTmp);
         await _deleteQuietly(hostnameTmp);
+        return false;
+      }
+      bool committed = false;
+      try {
+        committed =
+            await _promote(secretTmp, secretFile) &&
+            await _promote(publicTmp, publicFile) &&
+            await _promote(hostnameTmp, hostnameFile_);
+      } finally {
+        await _deleteQuietly(secretTmp);
+        await _deleteQuietly(publicTmp);
+        await _deleteQuietly(hostnameTmp);
+      }
+      if (!committed ||
+          !await _tripletPresent(secretFile, publicFile, hostnameFile_)) {
+        // Mixed or incomplete: roll back to no keys so the caller falls
+        // back to a fresh onion instead of a torn identity.
+        await _deleteQuietly(secretFile);
+        await _deleteQuietly(publicFile);
+        await _deleteQuietly(hostnameFile_);
         return false;
       }
       await _lockDown(hsDir);
@@ -128,6 +145,26 @@ class HsTransferKeys {
     } catch (_) {
       return false;
     }
+  }
+
+  static Future<bool> _promote(File tmp, File dest) async {
+    try {
+      await tmp.rename(dest.path);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _tripletPresent(File a, File b, File c) async {
+    for (final f in [a, b, c]) {
+      try {
+        if (!await f.exists() || await f.length() == 0) return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static Future<void> _deleteQuietly(File file) async {

@@ -20,11 +20,7 @@ class PanicWipeService {
 
     final docDir = await getApplicationDocumentsDirectory();
     final prysmDir = Directory(p.join(docDir.path, 'prysm'));
-    for (final name in [
-      'chat_app.db',
-      'messages.db',
-      'pending_messages.db',
-    ]) {
+    for (final name in ['chat_app.db', 'messages.db', 'pending_messages.db']) {
       // The -wal/-shm sidecars can carry plaintext pages even when the main
       // file is encrypted; leaving them defeats the wipe. A leftover
       // $name.migrating must go too: if secureStorage.deleteAll() fails
@@ -47,21 +43,20 @@ class PanicWipeService {
     await prefs.clear();
   }
 
-  /// Wipe for account transfer: [wipeAll] plus the hidden-service keys, so
-  /// the source cannot come back online with the transferred onion. Desktop
-  /// deletes the Tor hidden-service dir; mobile clears it through the
-  /// native channel. Runs after the transfer backup is safely written.
-  /// Returns true only when the HS keys are confirmed gone: the caller must
-  /// NOT report transfer success on false (double-onion risk).
+  /// Wipe for account transfer: [wipeAll] plus single-op source deactivation
+  /// ([TorManager.deactivateForTransfer]: restarts suppressed, Tor stopped
+  /// and verified dead, HS keys deleted and verified absent, all under one
+  /// lock). Returns true only when deactivation is confirmed: the caller
+  /// must NOT report transfer success on false (double-onion risk).
   static Future<bool> wipeForTransfer({dynamic torManager}) async {
     await wipeAll();
     try {
-      if (Platform.isAndroid || Platform.isIOS) {
-        // Mobile keys live behind the native channel; without a manager
-        // there is nothing Dart-side to delete and removal is unconfirmed.
-        if (torManager == null) return false;
-        return await torManager.clearHsKeysForTransfer() == true;
+      if (torManager != null) {
+        return await torManager.deactivateForTransfer() == true;
       }
+      // No manager (e.g. tests): best-effort desktop file delete only.
+      // Tor cannot be stopped or verified from here.
+      if (Platform.isAndroid || Platform.isIOS) return false;
       final docDir = await getApplicationDocumentsDirectory();
       // ponytail: file lock lives inside deleteDirectory (HsTransferKeys.opMutex).
       return await HsTransferKeys.deleteDirectory(

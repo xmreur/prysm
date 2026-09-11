@@ -42,6 +42,15 @@ class TorManager {
   final stderrController = StreamController<String>.broadcast();
   final _controlReadMutex = Mutex();
   final _controlWriteMutex = Mutex();
+
+  /// Set by [deactivateForTransfer]; while true, [startTor] and [restartTor]
+  /// refuse to run (fail-closed until app restart) so no automatic restart
+  /// can bring the transferred onion back online on the source device.
+  // ponytail: plain bool, only touched under _controlWriteMutex or before it.
+  bool _deactivatedForTransfer = false;
+
+  static StateError _deactivatedError() =>
+      StateError('TorManager deactivated for transfer; restart the app.');
   final List<String> _recentStderrLines = [];
   int _healthPollCount = 0;
   static const int _fullHealthEvery = 4;
@@ -79,6 +88,10 @@ class TorManager {
   // =========================
 
   Future<void> startTor() {
+    // Fail-closed after a transfer deactivation: every restart path
+    // (supervisor auto-restart, controller, UI button) funnels through here
+    // and restartTor, so one guard suppresses them all until app restart.
+    if (_deactivatedForTransfer) throw _deactivatedError();
     // Tripwire for placeholder constructions (e.g. DetachedChatApp passing
     // controlPassword: ''): that password is inert only while no code path
     // in the window starts a daemon. If a daemon path ever grows from such a
@@ -137,8 +150,9 @@ class TorManager {
   Future<Map<String, String>?> getHsKeysForTransfer() async {
     if (_usesNativeTorChannel) {
       try {
-        final raw =
-            await _channel.invokeMapMethod<String, dynamic>('getHsKeys');
+        final raw = await _channel.invokeMapMethod<String, dynamic>(
+          'getHsKeys',
+        );
         if (raw == null) return null;
         final keys = raw.map((key, value) => MapEntry(key, '$value'));
         for (final name in [
@@ -161,33 +175,104 @@ class TorManager {
   /// the same onion; restore installs while running and takes effect on the
   /// restart the UI already requires. False on any failure: the caller falls
   /// back to a fresh onion and warns.
-  Future<bool> setHsKeysForTransfer(Map<String, String> keys) async {
-    return _controlWriteMutex.protect(() async {
-      if (_usesNativeTorChannel) {
-        try {
-          return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
-        } catch (_) {
-          return false;
-        }
+  Future<bool> setHsKeysForTransfer(Map<String, String> keys) {
+    return _controlWriteMutex.protect(() => _setHsKeysUnlocked(keys));
+  }
+
+  Future<bool> _setHsKeysUnlocked(Map<String, String> keys) async {
+    if (_usesNativeTorChannel) {
+      try {
+        return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
+      } catch (_) {
+        return false;
       }
-      // ponytail: file lock lives inside installToDirectory (HsTransferKeys.opMutex).
-      return HsTransferKeys.installToDirectory('$dataDir/hidden_service', keys);
-    });
+    }
+    // ponytail: file lock lives inside installToDirectory (HsTransferKeys.opMutex).
+    return HsTransferKeys.installToDirectory('$dataDir/hidden_service', keys);
   }
 
   /// Deletes local hidden-service keys (source deactivation after a
   /// transfer export). The next start generates a fresh onion.
-  Future<bool> clearHsKeysForTransfer() async {
-    return _controlWriteMutex.protect(() async {
-      if (_usesNativeTorChannel) {
-        try {
-          return await _channel.invokeMethod<bool>('clearHsKeys') ?? false;
-        } catch (_) {
-          return false;
-        }
+  Future<bool> clearHsKeysForTransfer() {
+    return _controlWriteMutex.protect(_clearHsKeysUnlocked);
+  }
+
+  Future<bool> _clearHsKeysUnlocked() async {
+    if (_usesNativeTorChannel) {
+      try {
+        return await _channel.invokeMethod<bool>('clearHsKeys') ?? false;
+      } catch (_) {
+        return false;
       }
-      return HsTransferKeys.deleteDirectory('$dataDir/hidden_service');
-    });
+    }
+    return HsTransferKeys.deleteDirectory('$dataDir/hidden_service');
+  }
+
+  /// Single atomic source-deactivation for account transfer: suppresses all
+  /// future starts/restarts (fail-closed until app restart), stops Tor,
+  /// verifies it is dead, deletes the HS keys and verifies their absence —
+  /// all under the control mutex. True only when every step is confirmed.
+  Future<bool> deactivateForTransfer() {
+    return _controlWriteMutex.protect(_deactivateUnlocked);
+  }
+
+  /// Whether [deactivateForTransfer] ran (successful or not). Test seam.
+  bool get isDeactivatedForTransfer => _deactivatedForTransfer;
+
+  Future<bool> _deactivateUnlocked() async {
+    _deactivatedForTransfer = true;
+    try {
+      await _stopTorUnlocked();
+    } catch (_) {
+      return false;
+    }
+    if (!await _verifyTorStopped()) return false;
+    if (!await _clearHsKeysUnlocked()) return false;
+    return _verifyHsKeysAbsent();
+  }
+
+  Future<bool> _verifyTorStopped() async {
+    // Native stopTor awaits control-port close internally and throws on
+    // failure, so reaching here means Tor is down on mobile.
+    if (_usesNativeTorChannel) return true;
+    if (_torProcess != null) return false;
+    return _controlPortClosed();
+  }
+
+  Future<bool> _controlPortClosed() async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        '127.0.0.1',
+        controlPort,
+        timeout: const Duration(seconds: 1),
+      );
+      return false;
+    } catch (_) {
+      return true;
+    } finally {
+      try {
+        await socket?.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> _verifyHsKeysAbsent() async {
+    if (_usesNativeTorChannel) {
+      try {
+        return await getHsKeysForTransfer() == null;
+      } catch (_) {
+        return false;
+      }
+    }
+    for (final name in [
+      HsTransferKeys.hostnameFile,
+      HsTransferKeys.secretKeyFile,
+      HsTransferKeys.publicKeyFile,
+    ]) {
+      if (File('$dataDir/hidden_service/$name').existsSync()) return false;
+    }
+    return true;
   }
 
   Future<void> stopTor() {
@@ -196,6 +281,7 @@ class TorManager {
 
   /// Restart Tor without tearing down the native iOS thread when possible.
   Future<void> restartTor() {
+    if (_deactivatedForTransfer) throw _deactivatedError();
     return _controlWriteMutex.protect(() async {
       TorBootstrapNotifier.instance.reset();
       if (Platform.isIOS) {
@@ -275,10 +361,7 @@ class TorManager {
         }
         try {
           await proc.exitCode.timeout(const Duration(milliseconds: 50));
-          return const TorHealthStatus(
-            ok: false,
-            reason: 'Tor process exited',
-          );
+          return const TorHealthStatus(ok: false, reason: 'Tor process exited');
         } catch (_) {}
 
         if (!await _probeSocksPort()) {
@@ -462,16 +545,14 @@ class TorManager {
   static bool shouldClearControlSessionOnSocketDone(
     int closedGeneration,
     int currentGeneration,
-  ) =>
-      closedGeneration == currentGeneration;
+  ) => closedGeneration == currentGeneration;
 
   static bool shouldHandleProcessExit(
     int exitedGeneration,
     int currentGeneration,
     Process? activeProcess,
     Process? exitedProcess,
-  ) =>
-      exitedGeneration == currentGeneration && activeProcess == exitedProcess;
+  ) => exitedGeneration == currentGeneration && activeProcess == exitedProcess;
 
   // =========================
   // Native mobile implementation (Android / iOS)
@@ -501,8 +582,9 @@ class TorManager {
     final cookiePath = _parseCookieFileFromProtocolInfo(authLine);
     if (cookiePath != null) {
       final cookie = await File(cookiePath).readAsBytes();
-      final cookieHex =
-          cookie.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final cookieHex = cookie
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
       await _sendAndCollectImpl('AUTHENTICATE $cookieHex', untilOk: true);
       return;
     }
@@ -548,14 +630,21 @@ class TorManager {
   Future<void> _killOrphanTorForce() async {
     try {
       if (Platform.isLinux || Platform.isMacOS) {
-        final r1 = await Process.run(
-          'pkill',
-          ['-9', '-f', 'tor.*$dataDir/torrc'],
+        final r1 = await Process.run('pkill', [
+          '-9',
+          '-f',
+          'tor.*$dataDir/torrc',
+        ]);
+        Logging.debug(
+          'tor cleanup: pkill targeted exit ${r1.exitCode}',
+          'TorManager',
         );
-        Logging.debug('tor cleanup: pkill targeted exit ${r1.exitCode}', 'TorManager');
         if (r1.exitCode != 0) {
           final r2 = await Process.run('pkill', ['-9', 'tor']);
-          Logging.debug('tor cleanup: pkill broad exit ${r2.exitCode}', 'TorManager');
+          Logging.debug(
+            'tor cleanup: pkill broad exit ${r2.exitCode}',
+            'TorManager',
+          );
         }
       } else if (Platform.isWindows) {
         await Process.run('taskkill', ['/F', '/IM', 'tor.exe']);
@@ -570,7 +659,8 @@ class TorManager {
     for (var i = 0; i < 10; i++) {
       try {
         final s = await Socket.connect(
-          '127.0.0.1', controlPort,
+          '127.0.0.1',
+          controlPort,
           timeout: const Duration(milliseconds: 200),
         );
         await s.close();
@@ -630,11 +720,10 @@ class TorManager {
     final torrcPath = await _writeTorrcDesktop();
     final processGeneration = ++_processGeneration;
 
-    _torProcess = await Process.start(
-      torPath,
-      ['-f', torrcPath],
-      mode: ProcessStartMode.normal,
-    );
+    _torProcess = await Process.start(torPath, [
+      '-f',
+      torrcPath,
+    ], mode: ProcessStartMode.normal);
 
     final proc = _torProcess!;
     await _writePidFile(proc.pid);
@@ -689,7 +778,8 @@ class TorManager {
     final torrcFile = File('$dataDir/torrc');
     final hashedPassword = await _hashControlPasswordDesktop();
 
-    final torrcContent = '''
+    final torrcContent =
+        '''
 ControlPort $controlPort
 SocksPort $socksPort
 DataDirectory $dataDir
@@ -716,16 +806,23 @@ HiddenServicePort 80 127.0.0.1:12345
       }
     }
 
-    final result =
-        await Process.run(torPath, ['--hash-password', controlPassword]);
+    final result = await Process.run(torPath, [
+      '--hash-password',
+      controlPassword,
+    ]);
     if (result.exitCode != 0) {
       throw Exception('Failed to hash control password: ${result.stderr}');
     }
-    final output =
-        (result.stdout as String).split('\n').map((l) => l.trim()).toList();
-    final hash = output.firstWhere((l) => l.startsWith('16:'), orElse: () {
-      throw Exception('No hashed password line (16:...) in: $output');
-    });
+    final output = (result.stdout as String)
+        .split('\n')
+        .map((l) => l.trim())
+        .toList();
+    final hash = output.firstWhere(
+      (l) => l.startsWith('16:'),
+      orElse: () {
+        throw Exception('No hashed password line (16:...) in: $output');
+      },
+    );
     try {
       await cacheFile.writeAsString('$digest\n$hash');
     } catch (_) {}
@@ -733,8 +830,10 @@ HiddenServicePort 80 127.0.0.1:12345
   }
 
   Future<void> _authenticateDesktopPassword() async {
-    final resp =
-        await _sendAndCollectImpl('AUTHENTICATE "$controlPassword"', untilOk: true);
+    final resp = await _sendAndCollectImpl(
+      'AUTHENTICATE "$controlPassword"',
+      untilOk: true,
+    );
     if (resp.every((l) => !l.startsWith('250'))) {
       throw Exception('Desktop AUTHENTICATE failed: $resp');
     }
@@ -826,7 +925,10 @@ HiddenServicePort 80 127.0.0.1:12345
         }
       }
     } catch (e) {
-      Logging.error('SOCKS port discovery failed, using $_socksPort: $e', 'TorManager');
+      Logging.error(
+        'SOCKS port discovery failed, using $_socksPort: $e',
+        'TorManager',
+      );
     }
   }
 
@@ -868,9 +970,12 @@ HiddenServicePort 80 127.0.0.1:12345
 
     _sendControlCommand(cmd);
 
-    return completer.future.timeout(timeout, onTimeout: () async {
-      await sub.cancel();
-      throw Exception('Timeout waiting for reply to: $cmd (got: $lines)');
-    });
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () async {
+        await sub.cancel();
+        throw Exception('Timeout waiting for reply to: $cmd (got: $lines)');
+      },
+    );
   }
 }

@@ -37,8 +37,8 @@ Future<bool> showCreateBackupDialog(BuildContext context) async {
     confirmLabel: context.l10n.createBackup,
     onConfirm: () async {
       final password = passwordController.text;
-      if (password.length < 4) {
-        showPrysmToast(context, context.l10n.passwordMustBeAtLeast4Characters);
+      if (password.length < 8) {
+        showPrysmToast(context, context.l10n.passwordMustBeAtLeast8Characters);
         return;
       }
       Navigator.pop(context);

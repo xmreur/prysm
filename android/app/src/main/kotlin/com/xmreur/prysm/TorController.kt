@@ -213,20 +213,47 @@ class TorController(private val context: Context) {
             if (!hiddenServiceDir.exists()) hiddenServiceDir.mkdirs()
             // Atomic per file (like iOS): stage to .tmp, then rename over the
             // final name, so a mid-write crash never leaves a torn key file.
+            val secretFile = File(hiddenServiceDir, "hs_ed25519_secret_key")
+            val publicFile = File(hiddenServiceDir, "hs_ed25519_public_key")
+            val hostnameFile = File(hiddenServiceDir, "hostname")
             val secretTmp = File(hiddenServiceDir, "hs_ed25519_secret_key.tmp")
             val publicTmp = File(hiddenServiceDir, "hs_ed25519_public_key.tmp")
             val hostnameTmp = File(hiddenServiceDir, "hostname.tmp")
             try {
-                secretTmp.writeBytes(secret)
-                publicTmp.writeBytes(public)
-                hostnameTmp.writeText(hostname)
-                if (!secretTmp.renameTo(File(hiddenServiceDir, "hs_ed25519_secret_key"))) return false
-                if (!publicTmp.renameTo(File(hiddenServiceDir, "hs_ed25519_public_key"))) return false
-                if (!hostnameTmp.renameTo(File(hiddenServiceDir, "hostname"))) return false
-            } finally {
+                try {
+                    secretTmp.writeBytes(secret)
+                    publicTmp.writeBytes(public)
+                    hostnameTmp.writeText(hostname)
+                } catch (e: Exception) {
+                    // Staging failed before any rename: live keys untouched.
+                    secretTmp.delete()
+                    publicTmp.delete()
+                    hostnameTmp.delete()
+                    return false
+                }
+                val committed = secretTmp.renameTo(secretFile) &&
+                    publicTmp.renameTo(publicFile) &&
+                    hostnameTmp.renameTo(hostnameFile)
                 secretTmp.delete()
                 publicTmp.delete()
                 hostnameTmp.delete()
+                if (!committed || !hsTripletPresent(secretFile, publicFile, hostnameFile)) {
+                    // Mixed or incomplete: roll back to no keys so the caller
+                    // falls back to a fresh onion instead of a torn identity.
+                    secretFile.delete()
+                    publicFile.delete()
+                    hostnameFile.delete()
+                    return false
+                }
+            } catch (e: Exception) {
+                // Unexpected failure at/after promote: assume mixed, roll back.
+                secretFile.delete()
+                publicFile.delete()
+                hostnameFile.delete()
+                secretTmp.delete()
+                publicTmp.delete()
+                hostnameTmp.delete()
+                throw e
             }
             return true
         } catch (e: Exception) {
@@ -239,14 +266,30 @@ class TorController(private val context: Context) {
     fun clearHsKeys(): Boolean {
         try {
             if (!hiddenServiceDir.exists()) return true
-            hiddenServiceDir.deleteRecursively()
-            hiddenServiceDir.mkdirs()
+            if (!hiddenServiceDir.deleteRecursively()) {
+                Log.e("TorController", "clearHsKeys: deleteRecursively failed")
+                return false
+            }
+            if (!hiddenServiceDir.mkdirs() && !hiddenServiceDir.isDirectory) {
+                Log.e("TorController", "clearHsKeys: mkdirs failed")
+                return false
+            }
+            val cleared = !File(hiddenServiceDir, "hs_ed25519_secret_key").exists() &&
+                !File(hiddenServiceDir, "hs_ed25519_public_key").exists() &&
+                !File(hiddenServiceDir, "hostname").exists()
+            if (!cleared) {
+                Log.e("TorController", "clearHsKeys: key files still present")
+                return false
+            }
             return true
         } catch (e: Exception) {
             Log.e("TorController", "Error clearing HS keys", e)
             return false
         }
     }
+
+    private fun hsTripletPresent(vararg files: File): Boolean =
+        files.all { it.exists() && it.length() > 0 }
 
     private fun readOnionAddressFromFile(): String? {
         try {

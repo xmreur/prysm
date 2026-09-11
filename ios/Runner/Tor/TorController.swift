@@ -253,22 +253,50 @@ actor PrysmTorController {
                 at: hs, withIntermediateDirectories: true,
                 attributes: [.posixPermissions: Self.dirPermissions]
             )
-            try secret.write(to: hs.appendingPathComponent("hs_ed25519_secret_key"), options: .atomic)
-            try publicKey.write(to: hs.appendingPathComponent("hs_ed25519_public_key"), options: .atomic)
-            try hostnameData.write(to: hs.appendingPathComponent("hostname"), options: .atomic)
+            let secretURL = hs.appendingPathComponent("hs_ed25519_secret_key")
+            let publicURL = hs.appendingPathComponent("hs_ed25519_public_key")
+            let hostnameURL = hs.appendingPathComponent("hostname")
+            do {
+                try secret.write(to: secretURL, options: .atomic)
+                try publicKey.write(to: publicURL, options: .atomic)
+                try hostnameData.write(to: hostnameURL, options: .atomic)
+            } catch {
+                // A mixed key set is worse than none: roll back to no keys
+                // so the caller falls back to a fresh onion.
+                try? fm.removeItem(at: secretURL)
+                try? fm.removeItem(at: publicURL)
+                try? fm.removeItem(at: hostnameURL)
+                throw error
+            }
+            guard Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
+                try? fm.removeItem(at: secretURL)
+                try? fm.removeItem(at: publicURL)
+                try? fm.removeItem(at: hostnameURL)
+                return false
+            }
             try fm.setAttributes(
                 [.posixPermissions: 0o600],
-                ofItemAtPath: hs.appendingPathComponent("hs_ed25519_secret_key").path
+                ofItemAtPath: secretURL.path
             )
             try fm.setAttributes(
                 [.posixPermissions: 0o600],
-                ofItemAtPath: hs.appendingPathComponent("hs_ed25519_public_key").path
+                ofItemAtPath: publicURL.path
             )
             return true
         } catch {
             NSLog("PrysmTor setHsKeys failed: \(error)")
             return false
         }
+    }
+
+    private static func hsTripletPresent(_ urls: URL...) -> Bool {
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = values.fileSize, size > 0 else {
+                return false
+            }
+        }
+        return true
     }
 
     /// Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion.
@@ -283,6 +311,17 @@ actor PrysmTorController {
                 at: hs, withIntermediateDirectories: true,
                 attributes: [.posixPermissions: Self.dirPermissions]
             )
+            let cleared = !fm.fileExists(
+                atPath: hs.appendingPathComponent("hs_ed25519_secret_key").path
+            ) && !fm.fileExists(
+                atPath: hs.appendingPathComponent("hs_ed25519_public_key").path
+            ) && !fm.fileExists(
+                atPath: hs.appendingPathComponent("hostname").path
+            )
+            if (!cleared) {
+                NSLog("PrysmTor clearHsKeys: key files still present")
+                return false
+            }
             return true
         } catch {
             NSLog("PrysmTor clearHsKeys failed: \(error)")

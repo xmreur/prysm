@@ -3194,11 +3194,11 @@ abstract class AppLocalizations {
   /// **'Passphrases do not match'**
   String get passphrasesDoNotMatch;
 
-  /// No description provided for @passwordMustBeAtLeast4Characters.
+  /// No description provided for @passwordMustBeAtLeast8Characters.
   ///
   /// In en, this message translates to:
-  /// **'Password must be at least 4 characters'**
-  String get passwordMustBeAtLeast4Characters;
+  /// **'Password must be at least 8 characters'**
+  String get passwordMustBeAtLeast8Characters;
 
   /// No description provided for @paste.
   ///
@@ -4507,6 +4507,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Backup created, but this device could not be deactivated (Tor still running or address keys not removed). Do not use both devices — retry the transfer.'**
   String get transferDeactivateFailed;
+
+  /// No description provided for @transferCompletedDeactivated.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer completed. This device has been deactivated; restart or close the app.'**
+  String get transferCompletedDeactivated;
 
   /// No description provided for @transferOwnership.
   ///

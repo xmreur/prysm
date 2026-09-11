@@ -26,9 +26,9 @@ Future<void> _writeRawManifest(
     utf8.encode(jsonEncode(manifest)),
     key: aeadKey,
   );
-  await File(path).writeAsBytes(
-    Uint8List.fromList(salt + enc.nonce + enc.ciphertext),
-  );
+  await File(
+    path,
+  ).writeAsBytes(Uint8List.fromList(salt + enc.nonce + enc.ciphertext));
 }
 
 void main() {
@@ -74,8 +74,10 @@ void main() {
       isNull,
     );
 
-    final restored =
-        await BackupService.restoreBackup(backupPath, 'backup-test-passphrase');
+    final restored = await BackupService.restoreBackup(
+      backupPath,
+      'backup-test-passphrase',
+    );
     expect(restored, isTrue);
     expect(
       await CryptoKeyStore.read(PrekeyBundle.storageSignedPreKeyPrivate),
@@ -102,13 +104,12 @@ void main() {
     await CryptoKeyStore.delete(CryptoKeyStore.databaseKeyName);
     expect(await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName), isNull);
 
-    final restored =
-        await BackupService.restoreBackup(backupPath, 'backup-test-passphrase');
-    expect(restored, isTrue);
-    expect(
-      await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName),
-      dbKey,
+    final restored = await BackupService.restoreBackup(
+      backupPath,
+      'backup-test-passphrase',
     );
+    expect(restored, isTrue);
+    expect(await CryptoKeyStore.read(CryptoKeyStore.databaseKeyName), dbKey);
 
     await File(backupPath).delete();
   });
@@ -118,12 +119,8 @@ void main() {
         '${Directory.systemTemp.path}/prysm_hs_src_${DateTime.now().microsecondsSinceEpoch}';
     await Directory(hsDir).create(recursive: true);
     await File('$hsDir/hostname').writeAsString('${'z' * 56}.onion');
-    await File(
-      '$hsDir/hs_ed25519_secret_key',
-    ).writeAsBytes(List.filled(96, 7));
-    await File(
-      '$hsDir/hs_ed25519_public_key',
-    ).writeAsBytes(List.filled(32, 9));
+    await File('$hsDir/hs_ed25519_secret_key').writeAsBytes(List.filled(96, 7));
+    await File('$hsDir/hs_ed25519_public_key').writeAsBytes(List.filled(32, 9));
 
     final hsKeys = await HsTransferKeys.collectFromDirectory(hsDir);
     expect(hsKeys, isNotNull);
@@ -160,9 +157,7 @@ void main() {
     // A live target leaves -wal/-shm next to our DBs: restoring a manifest
     // without sidecars must drop them, or foreign pages replay into the
     // fresh base file (SQLCipher HMAC failure, seen live).
-    final staleWal = File(
-      '${Directory.systemTemp.path}/prysm/messages.db-wal',
-    );
+    final staleWal = File('${Directory.systemTemp.path}/prysm/messages.db-wal');
     await staleWal.parent.create(recursive: true);
     await staleWal.writeAsString('foreign wal pages');
     final backupPath =
@@ -224,60 +219,67 @@ void main() {
     );
   });
 
-  test('installToDirectory rejects invalid keys without partial writes', () async {
-    final dir =
-        '${Directory.systemTemp.path}/prysm_hs_reject_${DateTime.now().microsecondsSinceEpoch}';
-    String b64(List<int> bytes) => base64Encode(bytes);
+  test(
+    'installToDirectory rejects invalid keys without partial writes',
+    () async {
+      final dir =
+          '${Directory.systemTemp.path}/prysm_hs_reject_${DateTime.now().microsecondsSinceEpoch}';
+      String b64(List<int> bytes) => base64Encode(bytes);
 
-    // Seed valid keys first: bad input must not clobber or half-replace them.
-    final good = {
-      'hostname': b64(utf8.encode('${'z' * 56}.onion')),
-      'hs_ed25519_secret_key': b64(List.filled(96, 7)),
-      'hs_ed25519_public_key': b64(List.filled(32, 9)),
-    };
-    expect(await HsTransferKeys.installToDirectory(dir, good), isTrue);
-    final before = <String, List<int>>{
-      for (final name in [
-        'hostname',
-        'hs_ed25519_secret_key',
-        'hs_ed25519_public_key',
-      ])
-        name: await File('$dir/$name').readAsBytes(),
-    };
+      // Seed valid keys first: bad input must not clobber or half-replace them.
+      final good = {
+        'hostname': b64(utf8.encode('${'z' * 56}.onion')),
+        'hs_ed25519_secret_key': b64(List.filled(96, 7)),
+        'hs_ed25519_public_key': b64(List.filled(32, 9)),
+      };
+      expect(await HsTransferKeys.installToDirectory(dir, good), isTrue);
+      final before = <String, List<int>>{
+        for (final name in [
+          'hostname',
+          'hs_ed25519_secret_key',
+          'hs_ed25519_public_key',
+        ])
+          name: await File('$dir/$name').readAsBytes(),
+      };
 
-    final badCases = [
-      // Not base64 at all.
-      {
-        'hostname': '!!!',
-        'hs_ed25519_secret_key': '!!!',
-        'hs_ed25519_public_key': '!!!',
-      },
-      // Missing fields.
-      {'hostname': b64(utf8.encode('x.onion'))},
-      // Empty strings.
-      {'hostname': '', 'hs_ed25519_secret_key': '', 'hs_ed25519_public_key': ''},
-      // Valid base64, empty after decode.
-      {
-        'hostname': b64(utf8.encode('   ')),
-        'hs_ed25519_secret_key': b64([]),
-        'hs_ed25519_public_key': b64([]),
-      },
-    ];
-    for (final bad in badCases) {
-      expect(await HsTransferKeys.installToDirectory(dir, bad), isFalse);
-    }
+      final badCases = [
+        // Not base64 at all.
+        {
+          'hostname': '!!!',
+          'hs_ed25519_secret_key': '!!!',
+          'hs_ed25519_public_key': '!!!',
+        },
+        // Missing fields.
+        {'hostname': b64(utf8.encode('x.onion'))},
+        // Empty strings.
+        {
+          'hostname': '',
+          'hs_ed25519_secret_key': '',
+          'hs_ed25519_public_key': '',
+        },
+        // Valid base64, empty after decode.
+        {
+          'hostname': b64(utf8.encode('   ')),
+          'hs_ed25519_secret_key': b64([]),
+          'hs_ed25519_public_key': b64([]),
+        },
+      ];
+      for (final bad in badCases) {
+        expect(await HsTransferKeys.installToDirectory(dir, bad), isFalse);
+      }
 
-    // Originals untouched, no .tmp leftovers.
-    for (final entry in before.entries) {
-      expect(await File('$dir/${entry.key}').readAsBytes(), entry.value);
-    }
-    expect(
-      Directory(dir).listSync().where((e) => e.path.endsWith('.tmp')).isEmpty,
-      isTrue,
-    );
+      // Originals untouched, no .tmp leftovers.
+      for (final entry in before.entries) {
+        expect(await File('$dir/${entry.key}').readAsBytes(), entry.value);
+      }
+      expect(
+        Directory(dir).listSync().where((e) => e.path.endsWith('.tmp')).isEmpty,
+        isTrue,
+      );
 
-    await Directory(dir).delete(recursive: true);
-  });
+      await Directory(dir).delete(recursive: true);
+    },
+  );
 
   test('deleteDirectory removes the dir and is true when absent', () async {
     final stamp = DateTime.now().microsecondsSinceEpoch;
@@ -287,8 +289,7 @@ void main() {
       ),
       isTrue,
     );
-    final dir =
-        '${Directory.systemTemp.path}/prysm_hs_del_$stamp';
+    final dir = '${Directory.systemTemp.path}/prysm_hs_del_$stamp';
     String b64(List<int> bytes) => base64Encode(bytes);
     final keys = {
       'hostname': b64(utf8.encode("${'z' * 56}.onion")),
@@ -296,6 +297,15 @@ void main() {
       'hs_ed25519_public_key': b64(List.filled(32, 9)),
     };
     expect(await HsTransferKeys.installToDirectory(dir, keys), isTrue);
+    for (final name in [
+      'hostname',
+      'hs_ed25519_secret_key',
+      'hs_ed25519_public_key',
+    ]) {
+      final file = File('$dir/$name');
+      expect(await file.exists(), isTrue, reason: '$name installed');
+      expect(await file.length() > 0, isTrue, reason: '$name non-empty');
+    }
     expect(await HsTransferKeys.deleteDirectory(dir), isTrue);
     expect(await Directory(dir).exists(), isFalse);
   });

@@ -65,8 +65,11 @@ class TorController(private val context: Context) {
 
     suspend fun startTor() {
         // A process death mid-install leaves a possibly-mixed HS triplet;
-        // purge it before Tor can read the directory.
-        repairInterruptedHsInstall()
+        // purge it before Tor can read the directory. Fail closed when the
+        // purge cannot be verified: the marker stays and the next start retries.
+        if (!repairInterruptedHsInstall()) {
+            throw IllegalStateException("interrupted HS install could not be purged")
+        }
         val restarting = isBound
         if (restarting) {
             stopTor()
@@ -253,22 +256,19 @@ class TorController(private val context: Context) {
                 if (!committed || !hsTripletPresent(secretFile, publicFile, hostnameFile)) {
                     // Mixed or incomplete: roll back to no keys so the caller
                     // falls back to a fresh onion instead of a torn identity.
-                    secretFile.delete()
-                    publicFile.delete()
-                    hostnameFile.delete()
-                    marker.delete()
+                    rollbackHsInstall(marker)
                     return false
                 }
-                marker.delete()
+                // Marker last. If it survives, the next start purges this
+                // valid triplet, so report failure rather than a success the
+                // restart undoes.
+                if (!marker.absentAfterDelete()) {
+                    Log.e("TorController", "setHsKeys: pending marker could not be removed")
+                    return false
+                }
             } catch (e: Exception) {
                 // Unexpected failure at/after promote: assume mixed, roll back.
-                secretFile.delete()
-                publicFile.delete()
-                hostnameFile.delete()
-                secretTmp.delete()
-                publicTmp.delete()
-                hostnameTmp.delete()
-                marker.delete()
+                rollbackHsInstall(marker)
                 throw e
             }
             return true
@@ -307,23 +307,47 @@ class TorController(private val context: Context) {
     private fun hsTripletPresent(vararg files: File): Boolean =
         files.all { it.exists() && it.length() > 0 }
 
+    private fun File.absentAfterDelete(): Boolean = delete() || !exists()
+
+    /** Deletes live and staged HS files; true only when all are verified absent. */
+    private fun purgeHsTriplet(): Boolean {
+        var purged = true
+        for (name in HS_FILES) {
+            purged = File(hiddenServiceDir, name).absentAfterDelete() && purged
+            purged = File(hiddenServiceDir, "$name.tmp").absentAfterDelete() && purged
+        }
+        return purged
+    }
+
+    /**
+     * Rolls back to no keys. The marker goes only once every file is verified
+     * gone, so a surviving file makes the next start retry the purge instead
+     * of reading a mixed set.
+     */
+    private fun rollbackHsInstall(marker: File) {
+        if (purgeHsTriplet()) marker.delete()
+    }
+
     /**
      * Purges a possibly-mixed HS triplet left by a process death during
-     * setHsKeys(); the next start mints a fresh onion (the user can restore
-     * the backup again). No-op without the marker.
+     * setHsKeys() and reports whether the directory is safe for Tor to read:
+     * true without a marker or once every file is verified absent (the next
+     * start mints a fresh onion; the user can restore the backup again).
+     * False when a file survived: the marker is kept and Tor must not start.
      */
-    private fun repairInterruptedHsInstall() {
+    private fun repairInterruptedHsInstall(): Boolean {
         try {
             val marker = File(hiddenServiceDir, PENDING_MARKER)
-            if (!marker.exists()) return
+            if (!marker.exists()) return true
             Log.w("TorController", "interrupted HS install detected: purging triplet")
-            for (name in HS_FILES) {
-                File(hiddenServiceDir, name).delete()
-                File(hiddenServiceDir, "$name.tmp").delete()
+            if (!purgeHsTriplet()) {
+                Log.e("TorController", "repairInterruptedHsInstall: key files still present, keeping marker")
+                return false
             }
-            marker.delete()
+            return marker.absentAfterDelete()
         } catch (e: Exception) {
             Log.e("TorController", "repairInterruptedHsInstall failed", e)
+            return false
         }
     }
 

@@ -114,9 +114,7 @@ class TorManager {
         await _startNativeTorService();
         return;
       }
-      // A process death mid-install leaves a possibly-mixed HS triplet;
-      // purge it before Tor can read the directory.
-      await HsTransferKeys.repairInterruptedInstall('$dataDir/hidden_service');
+      await _repairInterruptedHsInstallOrThrow();
       await _cleanupOrphanTorBeforeStart();
       await _startDesktopTorBinary();
     });
@@ -315,8 +313,23 @@ class TorManager {
         await _startNativeTorService();
         return;
       }
+      await _repairInterruptedHsInstallOrThrow();
       await _startDesktopTorBinary();
     });
+  }
+
+  /// A process death mid-install leaves a possibly-mixed HS triplet; purge
+  /// it before Tor can read the directory. Fails closed when the purge
+  /// cannot be verified: the marker stays and the next start retries.
+  Future<void> _repairInterruptedHsInstallOrThrow() async {
+    if (!await HsTransferKeys.repairInterruptedInstall(
+      '$dataDir/hidden_service',
+    )) {
+      throw StateError(
+        'Interrupted hidden-service install could not be purged; '
+        'refusing to start Tor over a possibly mixed key set.',
+      );
+    }
   }
 
   Future<void> _stopTorUnlocked() async {

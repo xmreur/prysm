@@ -49,8 +49,9 @@ actor PrysmTorController {
 
     func startTor() async throws {
         // A process death mid-install leaves a possibly-mixed HS triplet;
-        // purge it before Tor can read the directory.
-        repairInterruptedHsInstall()
+        // purge it before Tor can read the directory. Fail closed when the
+        // purge cannot be verified: the marker stays and the next start retries.
+        try repairInterruptedHsInstall()
         if isRunning, Self.isTcpPortOpen(Self.controlPort) {
             NSLog("PrysmTor: Tor already running")
             return
@@ -276,17 +277,11 @@ actor PrysmTorController {
             } catch {
                 // A mixed key set is worse than none: roll back to no keys
                 // so the caller falls back to a fresh onion.
-                try? fm.removeItem(at: secretURL)
-                try? fm.removeItem(at: publicURL)
-                try? fm.removeItem(at: hostnameURL)
-                try? fm.removeItem(at: marker)
+                rollbackHsInstall(marker: marker)
                 throw error
             }
             guard Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
-                try? fm.removeItem(at: secretURL)
-                try? fm.removeItem(at: publicURL)
-                try? fm.removeItem(at: hostnameURL)
-                try? fm.removeItem(at: marker)
+                rollbackHsInstall(marker: marker)
                 return false
             }
             try fm.setAttributes(
@@ -297,7 +292,10 @@ actor PrysmTorController {
                 [.posixPermissions: 0o600],
                 ofItemAtPath: publicURL.path
             )
-            try? fm.removeItem(at: marker)
+            // Marker last. If it survives, the next start purges this valid
+            // triplet, so report failure rather than a success the restart
+            // undoes.
+            try fm.removeItem(at: marker)
             return true
         } catch {
             NSLog("PrysmTor setHsKeys failed: \(error)")
@@ -315,19 +313,48 @@ actor PrysmTorController {
         return true
     }
 
+    /// Deletes the live HS files; true only when all are verified absent.
+    private func purgeHsTriplet() -> Bool {
+        let fm = FileManager.default
+        var purged = true
+        for name in Self.hsFileNames {
+            let url = hiddenServiceDirectory.appendingPathComponent(name)
+            try? fm.removeItem(at: url)
+            if fm.fileExists(atPath: url.path) { purged = false }
+        }
+        return purged
+    }
+
+    /// Rolls back to no keys. The marker goes only once every file is
+    /// verified gone, so a surviving file makes the next start retry the
+    /// purge instead of reading a mixed set.
+    private func rollbackHsInstall(marker: URL) {
+        if purgeHsTriplet() {
+            try? FileManager.default.removeItem(at: marker)
+        }
+    }
+
     /// Purges a possibly-mixed HS triplet left by a process death during
     /// setHsKeys(); the next start mints a fresh onion (the user can
-    /// restore the backup again). No-op without the marker.
-    private func repairInterruptedHsInstall() {
+    /// restore the backup again). No-op without the marker. Throws when a
+    /// file survives the purge: the marker is kept so the next start
+    /// retries, and Tor must not read the mixed set.
+    private func repairInterruptedHsInstall() throws {
         let fm = FileManager.default
-        let hs = hiddenServiceDirectory
-        let marker = hs.appendingPathComponent(Self.pendingMarkerName)
+        let marker = hiddenServiceDirectory.appendingPathComponent(Self.pendingMarkerName)
         guard fm.fileExists(atPath: marker.path) else { return }
         NSLog("PrysmTor: interrupted HS install detected, purging triplet")
-        for name in Self.hsFileNames {
-            try? fm.removeItem(at: hs.appendingPathComponent(name))
+        guard purgeHsTriplet() else {
+            throw NSError(
+                domain: "PrysmTor",
+                code: 5,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Interrupted hidden-service install could not be purged",
+                ]
+            )
         }
-        try? fm.removeItem(at: marker)
+        try fm.removeItem(at: marker)
     }
 
     /// Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion.

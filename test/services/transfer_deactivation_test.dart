@@ -60,12 +60,12 @@ void main() {
         await HsTransferKeys.installToDirectory(hsDir, validHsTriplet()),
         isTrue,
       );
-      // A clean install leaves no marker.
+      // A clean install leaves no marker, and a marker-less dir is safe.
       expect(
         File('$hsDir/${HsTransferKeys.pendingMarkerFile}').existsSync(),
         isFalse,
       );
-      expect(await HsTransferKeys.repairInterruptedInstall(hsDir), isFalse);
+      expect(await HsTransferKeys.repairInterruptedInstall(hsDir), isTrue);
       expect(File('$hsDir/hostname').existsSync(), isTrue);
 
       // Simulate a process death between promotes: marker plus a half-new set.
@@ -85,6 +85,48 @@ void main() {
       Directory(dataDir).deleteSync(recursive: true);
     },
   );
+
+  test('repair keeps the marker and refuses to start Tor when a key file '
+      'cannot be deleted', () async {
+    final dataDir = Directory.systemTemp
+        .createTempSync('hs_repair_fail_test')
+        .path;
+    final hsDir = '$dataDir/hidden_service';
+    final marker = File('$hsDir/${HsTransferKeys.pendingMarkerFile}');
+    expect(
+      await HsTransferKeys.installToDirectory(hsDir, validHsTriplet()),
+      isTrue,
+    );
+    marker.writeAsStringSync('installing');
+    // A read-only dir makes unlink fail (EACCES) for a non-root user.
+    await Process.run('chmod', ['500', hsDir]);
+    addTearDown(() async {
+      await Process.run('chmod', ['700', hsDir]);
+      Directory(dataDir).deleteSync(recursive: true);
+    });
+    if (!File('$hsDir/hostname').existsSync()) fail('fixture missing');
+    try {
+      File('$hsDir/hostname').deleteSync();
+      markTestSkipped('running as root: unlink cannot be made to fail');
+      return;
+    } on FileSystemException {
+      // Expected: deletion is blocked, which is what we are testing.
+    }
+
+    expect(await HsTransferKeys.repairInterruptedInstall(hsDir), isFalse);
+    expect(marker.existsSync(), isTrue, reason: 'marker must survive');
+    expect(File('$hsDir/hs_ed25519_secret_key').existsSync(), isTrue);
+
+    final manager = TorManager(
+      torPath: '/nonexistent/tor',
+      dataDir: dataDir,
+      controlPort: 19877,
+      controlPassword: 'test-password',
+    );
+    await expectLater(manager.startTor(), throwsStateError);
+    await expectLater(manager.restartTor(), throwsStateError);
+    expect(marker.existsSync(), isTrue);
+  }, skip: Platform.isWindows ? 'POSIX permissions only' : false);
 
   test('malformed-but-decodable key material is rejected', () async {
     final dir = Directory.systemTemp.createTempSync('hs_validate_test').path;

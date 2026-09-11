@@ -160,9 +160,10 @@ class HsTransferKeys {
   /// Writes HS files into [hsDir] (created when missing). Must run before
   /// the first Tor start so Tor reuses the keys instead of generating new
   /// ones. False on any failure: the caller falls back to a fresh onion.
-  /// Every field is validated before anything lands on disk, and files go
-  /// through .tmp + rename, so bad input never leaves partial writes and a
-  /// mid-write crash never leaves a torn key file.
+  /// Every field is validated before anything lands on disk, the dir is
+  /// locked to 0700 before staging, and files go through .tmp + rename, so
+  /// bad input never leaves partial writes and a mid-write crash never
+  /// leaves a torn key file.
   static Future<bool> installToDirectory(
     String hsDir,
     Map<String, String> keys,
@@ -184,23 +185,18 @@ class HsTransferKeys {
     });
   }
 
-  /// Purges a possibly-mixed triplet left by a process death mid-install.
-  /// Must run before Tor reads [hsDir]; the next start mints a fresh onion
-  /// (recoverable: the user restores the backup again). No-op without the
-  /// marker. Returns true when a repair was performed.
+  /// Purges a possibly-mixed triplet left by a process death mid-install
+  /// and reports whether [hsDir] is safe for Tor to read: true without a
+  /// marker or once every key/tmp file is verified absent (the next start
+  /// mints a fresh onion; the user restores the backup again). False when a
+  /// file survived: the marker is kept so the next start retries, and the
+  /// caller must not start Tor over the mixed set.
   static Future<bool> repairInterruptedInstall(String hsDir) async {
     return opMutex.protect(() async {
       final marker = File(p.join(hsDir, pendingMarkerFile));
       try {
-        if (!await marker.exists()) return false;
-        await _deleteQuietly(File(p.join(hsDir, secretKeyFile)));
-        await _deleteQuietly(File(p.join(hsDir, publicKeyFile)));
-        await _deleteQuietly(File(p.join(hsDir, hostnameFile)));
-        await _deleteQuietly(File(p.join(hsDir, '$secretKeyFile.tmp')));
-        await _deleteQuietly(File(p.join(hsDir, '$publicKeyFile.tmp')));
-        await _deleteQuietly(File(p.join(hsDir, '$hostnameFile.tmp')));
-        await _deleteQuietly(marker);
-        return true;
+        if (!await marker.exists()) return true;
+        return await _purgeTriplet(hsDir) && await _deleteQuietly(marker);
       } catch (_) {
         return false;
       }
@@ -231,6 +227,9 @@ class HsTransferKeys {
       }
       final dir = Directory(hsDir);
       await dir.create(recursive: true);
+      // Lock the dir down before any secret byte lands in it: a 0700 dir
+      // shields the staged files whatever mode the umask gives them.
+      if (!await _lockDown([hsDir], '700')) return false;
       final secretFile = File(p.join(hsDir, secretKeyFile));
       final publicFile = File(p.join(hsDir, publicKeyFile));
       final hostnameFile_ = File(p.join(hsDir, hostnameFile));
@@ -264,18 +263,17 @@ class HsTransferKeys {
         await _deleteQuietly(hostnameTmp);
       }
       if (!committed ||
-          !await _tripletPresent(secretFile, publicFile, hostnameFile_)) {
-        // Mixed or incomplete: roll back to no keys so the caller falls
-        // back to a fresh onion instead of a torn identity.
-        await _deleteQuietly(secretFile);
-        await _deleteQuietly(publicFile);
-        await _deleteQuietly(hostnameFile_);
-        await _deleteQuietly(marker);
+          !await _tripletPresent(secretFile, publicFile, hostnameFile_) ||
+          !await _lockDown([secretFile.path, publicFile.path], '600')) {
+        // Mixed, incomplete or not private: roll back to no keys. The
+        // marker goes only once every file is verified gone, so a surviving
+        // file makes the next start retry the purge instead of reading it.
+        if (await _purgeTriplet(hsDir)) await _deleteQuietly(marker);
         return false;
       }
-      await _deleteQuietly(marker);
-      await _lockDown(hsDir);
-      return true;
+      // Marker last. If it survives, the next start purges this valid
+      // triplet, so report failure rather than a success the restart undoes.
+      return await _deleteQuietly(marker);
     } catch (_) {
       return false;
     }
@@ -301,47 +299,58 @@ class HsTransferKeys {
     return true;
   }
 
-  static Future<void> _deleteQuietly(File file) async {
+  /// Deletes live and staged key files; true only when all are verified
+  /// absent afterwards.
+  static Future<bool> _purgeTriplet(String hsDir) async {
+    var purged = true;
+    for (final name in [secretKeyFile, publicKeyFile, hostnameFile]) {
+      purged = await _deleteQuietly(File(p.join(hsDir, name))) && purged;
+      purged = await _deleteQuietly(File(p.join(hsDir, '$name.tmp'))) && purged;
+    }
+    return purged;
+  }
+
+  /// Best-effort delete; true when [file] is absent afterwards.
+  static Future<bool> _deleteQuietly(File file) async {
     try {
       if (await file.exists()) await file.delete();
-    } catch (_) {}
+      return !await file.exists();
+    } catch (_) {
+      return false;
+    }
   }
 
-  /// Tor refuses overly-permissive key material. POSIX: best-effort 0700/0600.
-  /// Windows: best-effort `icacls` (strip inheritance, current user only) —
-  /// Dart has no ACL API, so a locked-down host account remains the real
-  /// guarantee. Mobile: no-op, keys live in plugin-private storage.
-  /// Failures are ignored (install still reports success; Tor logs the
-  /// complaint itself).
-  static Future<void> _lockDown(String hsDir) async {
-    if (Platform.isAndroid || Platform.isIOS) return;
+  /// Tor refuses an HS dir that is not 0700, and a secret in a traversable
+  /// dir is readable by other local accounts, so on POSIX the chmod result
+  /// and the resulting mode are both checked and a failure fails the
+  /// install. Windows: best-effort `icacls` (strip inheritance, current user
+  /// only) — Dart has no ACL API to verify, and %APPDATA% is already
+  /// user-private by inheritance. Mobile: no-op, keys live in
+  /// plugin-private storage.
+  static Future<bool> _lockDown(List<String> paths, String mode) async {
+    if (Platform.isAndroid || Platform.isIOS) return true;
     if (Platform.isWindows) {
-      await _lockDownWindows(hsDir);
-      return;
+      await _lockDownWindows(paths);
+      return true;
     }
     try {
-      await Process.run('chmod', ['700', hsDir]);
-      await Process.run('chmod', [
-        '600',
-        p.join(hsDir, secretKeyFile),
-        p.join(hsDir, publicKeyFile),
-      ]);
+      final result = await Process.run('chmod', [mode, ...paths]);
+      if (result.exitCode != 0) return false;
+      final want = int.parse(mode, radix: 8);
+      for (final path in paths) {
+        if (((await FileStat.stat(path)).mode & 0x1ff) != want) return false;
+      }
+      return true;
     } catch (_) {
-      // Best effort only.
+      return false;
     }
   }
 
-  /// Best-effort Windows ACL lockdown: strip inheritance, grant the current
-  /// user full control on the HS dir and both key files.
-  static Future<void> _lockDownWindows(String hsDir) async {
+  static Future<void> _lockDownWindows(List<String> paths) async {
     try {
       final user = Platform.environment['USERNAME'];
       if (user == null || user.isEmpty) return;
-      for (final path in [
-        hsDir,
-        p.join(hsDir, secretKeyFile),
-        p.join(hsDir, publicKeyFile),
-      ]) {
+      for (final path in paths) {
         await Process.run('icacls', [
           path,
           '/inheritance:r',

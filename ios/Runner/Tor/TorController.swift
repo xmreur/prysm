@@ -267,20 +267,35 @@ actor PrysmTorController {
             let publicURL = hs.appendingPathComponent("hs_ed25519_public_key")
             let hostnameURL = hs.appendingPathComponent("hostname")
             let marker = hs.appendingPathComponent(Self.pendingMarkerName)
-            // Marker first: a process death mid-write leaves it behind and
-            // startTor()'s repair purges the mixed set.
-            try Data("installing".utf8).write(to: marker, options: .atomic)
+            // Deterministic .tmp names (like Android and desktop) so an
+            // interrupted write never leaves secret bytes under a name the
+            // repair cannot purge; Foundation's `.atomic` temp names would.
+            let staged: [(tmp: URL, final: URL, data: Data)] = [
+                (hs.appendingPathComponent("hs_ed25519_secret_key.tmp"), secretURL, secret),
+                (hs.appendingPathComponent("hs_ed25519_public_key.tmp"), publicURL, publicKey),
+                (hs.appendingPathComponent("hostname.tmp"), hostnameURL, hostnameData),
+            ]
             do {
-                try secret.write(to: secretURL, options: .atomic)
-                try publicKey.write(to: publicURL, options: .atomic)
-                try hostnameData.write(to: hostnameURL, options: .atomic)
+                for entry in staged { try entry.data.write(to: entry.tmp) }
+                // Marker first: a process death mid-rename leaves it behind
+                // and startTor()'s repair purges the mixed set.
+                try Data("installing".utf8).write(to: marker)
             } catch {
-                // A mixed key set is worse than none: roll back to no keys
-                // so the caller falls back to a fresh onion.
-                rollbackHsInstall(marker: marker)
+                // Staging failed before any rename: live keys untouched, so
+                // a partial marker must not make the next start purge them.
+                for entry in staged { try? fm.removeItem(at: entry.tmp) }
+                try? fm.removeItem(at: marker)
                 throw error
             }
-            guard Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
+            // POSIX rename(2): atomic replace over an existing final file,
+            // which FileManager.moveItem refuses.
+            let committed = staged.allSatisfy {
+                Darwin.rename($0.tmp.path, $0.final.path) == 0
+            }
+            for entry in staged { try? fm.removeItem(at: entry.tmp) }
+            guard committed, Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
+                // Mixed or incomplete: roll back to no keys so the caller
+                // falls back to a fresh onion instead of a torn identity.
                 rollbackHsInstall(marker: marker)
                 return false
             }
@@ -313,14 +328,17 @@ actor PrysmTorController {
         return true
     }
 
-    /// Deletes the live HS files; true only when all are verified absent.
+    /// Deletes live and staged HS files; true only when all are verified
+    /// absent.
     private func purgeHsTriplet() -> Bool {
         let fm = FileManager.default
+        let hs = hiddenServiceDirectory
         var purged = true
         for name in Self.hsFileNames {
-            let url = hiddenServiceDirectory.appendingPathComponent(name)
-            try? fm.removeItem(at: url)
-            if fm.fileExists(atPath: url.path) { purged = false }
+            for url in [hs.appendingPathComponent(name), hs.appendingPathComponent("\(name).tmp")] {
+                try? fm.removeItem(at: url)
+                if fm.fileExists(atPath: url.path) { purged = false }
+            }
         }
         return purged
     }

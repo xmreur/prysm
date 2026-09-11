@@ -27,6 +27,12 @@ class TorController(private val context: Context) {
         private const val RESTART_SETTLE_MS = 800L
         private const val PORT_POLL_MS = 100L
         private const val PORT_POLL_TIMEOUT_MS = 3000L
+        private const val PENDING_MARKER = ".hs_install_pending"
+        private val HS_FILES = listOf(
+            "hs_ed25519_secret_key",
+            "hs_ed25519_public_key",
+            "hostname"
+        )
     }
 
     init {
@@ -58,6 +64,9 @@ class TorController(private val context: Context) {
     }
 
     suspend fun startTor() {
+        // A process death mid-install leaves a possibly-mixed HS triplet;
+        // purge it before Tor can read the directory.
+        repairInterruptedHsInstall()
         val restarting = isBound
         if (restarting) {
             stopTor()
@@ -219,6 +228,7 @@ class TorController(private val context: Context) {
             val secretTmp = File(hiddenServiceDir, "hs_ed25519_secret_key.tmp")
             val publicTmp = File(hiddenServiceDir, "hs_ed25519_public_key.tmp")
             val hostnameTmp = File(hiddenServiceDir, "hostname.tmp")
+            val marker = File(hiddenServiceDir, PENDING_MARKER)
             try {
                 try {
                     secretTmp.writeBytes(secret)
@@ -231,6 +241,9 @@ class TorController(private val context: Context) {
                     hostnameTmp.delete()
                     return false
                 }
+                // Marker first: a process death mid-rename leaves it behind
+                // and startTor()'s repair purges the mixed set.
+                marker.writeText("installing")
                 val committed = secretTmp.renameTo(secretFile) &&
                     publicTmp.renameTo(publicFile) &&
                     hostnameTmp.renameTo(hostnameFile)
@@ -243,8 +256,10 @@ class TorController(private val context: Context) {
                     secretFile.delete()
                     publicFile.delete()
                     hostnameFile.delete()
+                    marker.delete()
                     return false
                 }
+                marker.delete()
             } catch (e: Exception) {
                 // Unexpected failure at/after promote: assume mixed, roll back.
                 secretFile.delete()
@@ -253,6 +268,7 @@ class TorController(private val context: Context) {
                 secretTmp.delete()
                 publicTmp.delete()
                 hostnameTmp.delete()
+                marker.delete()
                 throw e
             }
             return true
@@ -290,6 +306,26 @@ class TorController(private val context: Context) {
 
     private fun hsTripletPresent(vararg files: File): Boolean =
         files.all { it.exists() && it.length() > 0 }
+
+    /**
+     * Purges a possibly-mixed HS triplet left by a process death during
+     * setHsKeys(); the next start mints a fresh onion (the user can restore
+     * the backup again). No-op without the marker.
+     */
+    private fun repairInterruptedHsInstall() {
+        try {
+            val marker = File(hiddenServiceDir, PENDING_MARKER)
+            if (!marker.exists()) return
+            Log.w("TorController", "interrupted HS install detected: purging triplet")
+            for (name in HS_FILES) {
+                File(hiddenServiceDir, name).delete()
+                File(hiddenServiceDir, "$name.tmp").delete()
+            }
+            marker.delete()
+        } catch (e: Exception) {
+            Log.e("TorController", "repairInterruptedHsInstall failed", e)
+        }
+    }
 
     private fun readOnionAddressFromFile(): String? {
         try {

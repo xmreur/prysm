@@ -12,6 +12,8 @@ import 'package:prysm/services/backup_service.dart';
 import 'package:prysm/util/hs_transfer_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/hs_fixtures.dart';
+
 /// Writes a raw manifest envelope like [BackupService.createBackup] does,
 /// so tests can craft legacy/future versions the current writer never emits.
 Future<void> _writeRawManifest(
@@ -118,9 +120,17 @@ void main() {
     final hsDir =
         '${Directory.systemTemp.path}/prysm_hs_src_${DateTime.now().microsecondsSinceEpoch}';
     await Directory(hsDir).create(recursive: true);
-    await File('$hsDir/hostname').writeAsString('${'z' * 56}.onion');
-    await File('$hsDir/hs_ed25519_secret_key').writeAsBytes(List.filled(96, 7));
-    await File('$hsDir/hs_ed25519_public_key').writeAsBytes(List.filled(32, 9));
+    final fixture = validHsTriplet();
+    final expectedHostname = utf8.decode(
+      base64Decode(fixture[HsTransferKeys.hostnameFile]!),
+    );
+    await File('$hsDir/hostname').writeAsString(expectedHostname);
+    await File(
+      '$hsDir/hs_ed25519_secret_key',
+    ).writeAsBytes(base64Decode(fixture[HsTransferKeys.secretKeyFile]!));
+    await File(
+      '$hsDir/hs_ed25519_public_key',
+    ).writeAsBytes(base64Decode(fixture[HsTransferKeys.publicKeyFile]!));
 
     final hsKeys = await HsTransferKeys.collectFromDirectory(hsDir);
     expect(hsKeys, isNotNull);
@@ -144,7 +154,7 @@ void main() {
     final installedHostname = File(
       '${Directory.systemTemp.path}/prysm/tor_executable/tor_data/hidden_service/hostname',
     );
-    expect(await installedHostname.readAsString(), '${'z' * 56}.onion');
+    expect(await installedHostname.readAsString(), expectedHostname);
 
     await Directory(hsDir).delete(recursive: true);
     await File(backupPath).delete();
@@ -227,11 +237,7 @@ void main() {
       String b64(List<int> bytes) => base64Encode(bytes);
 
       // Seed valid keys first: bad input must not clobber or half-replace them.
-      final good = {
-        'hostname': b64(utf8.encode('${'z' * 56}.onion')),
-        'hs_ed25519_secret_key': b64(List.filled(96, 7)),
-        'hs_ed25519_public_key': b64(List.filled(32, 9)),
-      };
+      final good = validHsTriplet();
       expect(await HsTransferKeys.installToDirectory(dir, good), isTrue);
       final before = <String, List<int>>{
         for (final name in [
@@ -263,6 +269,17 @@ void main() {
           'hs_ed25519_secret_key': b64([]),
           'hs_ed25519_public_key': b64([]),
         },
+        // Non-empty and base64-clean, but not Tor key files.
+        {
+          'hostname': b64(utf8.encode('${'z' * 56}.onion')),
+          'hs_ed25519_secret_key': b64(List.filled(96, 7)),
+          'hs_ed25519_public_key': b64(List.filled(32, 9)),
+        },
+        // Correct formats, hostname of a different identity.
+        {
+          ...validHsTriplet(seed: 2),
+          'hostname': validHsTriplet(seed: 3)[HsTransferKeys.hostnameFile]!,
+        },
       ];
       for (final bad in badCases) {
         expect(await HsTransferKeys.installToDirectory(dir, bad), isFalse);
@@ -290,13 +307,10 @@ void main() {
       isTrue,
     );
     final dir = '${Directory.systemTemp.path}/prysm_hs_del_$stamp';
-    String b64(List<int> bytes) => base64Encode(bytes);
-    final keys = {
-      'hostname': b64(utf8.encode("${'z' * 56}.onion")),
-      'hs_ed25519_secret_key': b64(List.filled(96, 7)),
-      'hs_ed25519_public_key': b64(List.filled(32, 9)),
-    };
-    expect(await HsTransferKeys.installToDirectory(dir, keys), isTrue);
+    expect(
+      await HsTransferKeys.installToDirectory(dir, validHsTriplet()),
+      isTrue,
+    );
     for (final name in [
       'hostname',
       'hs_ed25519_secret_key',

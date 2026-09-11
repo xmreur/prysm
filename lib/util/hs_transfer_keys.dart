@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:mutex/mutex.dart';
 import 'package:path/path.dart' as p;
+import 'package:pointycastle/digests/sha3.dart';
 
 /// Hidden-service key transfer: raw Tor `hidden_service` files as base64.
 ///
@@ -24,6 +26,109 @@ class HsTransferKeys {
   static const String hostnameFile = 'hostname';
   static const String secretKeyFile = 'hs_ed25519_secret_key';
   static const String publicKeyFile = 'hs_ed25519_public_key';
+
+  /// Pending-install marker: present only between the first promote and a
+  /// verified complete triplet. A process death in that window leaves it
+  /// behind, and [repairInterruptedInstall] purges the possibly-mixed set
+  /// before Tor can read it.
+  static const String pendingMarkerFile = '.hs_install_pending';
+
+  static const String _secretHeader = '== ed25519v1-secret: type0 ==';
+  static const String _publicHeader = '== ed25519v1-public: type0 ==';
+  static const int _secretFileLength = 96;
+  static const int _publicFileLength = 64;
+  static const int _headerLength = 32;
+
+  /// True when the decoded triplet is a real Tor v3 identity: both key files
+  /// carry their Tor header and length, and the hostname is the onion
+  /// address derived from the public key. Base64-clean but malformed input
+  /// would otherwise install an unusable onion and report success.
+  static bool isValidTriplet({
+    required List<int> secret,
+    required List<int> public,
+    required String hostname,
+  }) {
+    if (secret.length != _secretFileLength ||
+        public.length != _publicFileLength) {
+      return false;
+    }
+    if (!_hasHeader(secret, _secretHeader) ||
+        !_hasHeader(public, _publicHeader)) {
+      return false;
+    }
+    final pubKey = public.sublist(_headerLength);
+    return hostname.trim().toLowerCase() == onionFromPublicKey(pubKey);
+  }
+
+  /// Tor v3 address: base32(pubkey ‖ checksum ‖ version) + '.onion', with
+  /// checksum = SHA3-256('.onion checksum' ‖ pubkey ‖ version)[0..1].
+  static String onionFromPublicKey(List<int> pubKey) {
+    const version = 0x03;
+    final digestInput = <int>[
+      ...utf8.encode('.onion checksum'),
+      ...pubKey,
+      version,
+    ];
+    final digest = SHA3Digest(256).process(Uint8List.fromList(digestInput));
+    final payload = <int>[...pubKey, digest[0], digest[1], version];
+    return '${_base32Encode(payload)}.onion';
+  }
+
+  static bool _hasHeader(List<int> bytes, String header) {
+    final expected = utf8.encode(header);
+    for (var i = 0; i < expected.length; i++) {
+      if (bytes[i] != expected[i]) return false;
+    }
+    // Header field is zero-padded to 32 bytes.
+    for (var i = expected.length; i < _headerLength; i++) {
+      if (bytes[i] != 0) return false;
+    }
+    return true;
+  }
+
+  /// [isValidTriplet] for the base64 map shape used by the backup manifest
+  /// and the native channel.
+  static bool isValidEncodedTriplet(Map<String, String> keys) {
+    try {
+      final hostnameB64 = keys[hostnameFile];
+      final secretB64 = keys[secretKeyFile];
+      final publicB64 = keys[publicKeyFile];
+      if (hostnameB64 == null ||
+          secretB64 == null ||
+          publicB64 == null ||
+          hostnameB64.isEmpty ||
+          secretB64.isEmpty ||
+          publicB64.isEmpty) {
+        return false;
+      }
+      return isValidTriplet(
+        secret: base64Decode(secretB64),
+        public: base64Decode(publicB64),
+        hostname: utf8.decode(base64Decode(hostnameB64)),
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static String _base32Encode(List<int> bytes) {
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+    final out = StringBuffer();
+    var buffer = 0;
+    var bits = 0;
+    for (final byte in bytes) {
+      buffer = (buffer << 8) | byte;
+      bits += 8;
+      while (bits >= 5) {
+        out.write(alphabet[(buffer >> (bits - 5)) & 31]);
+        bits -= 5;
+      }
+    }
+    if (bits > 0) {
+      out.write(alphabet[(buffer << (5 - bits)) & 31]);
+    }
+    return out.toString();
+  }
 
   static String hsDirForDocuments(String documentsDir) => p.join(
     documentsDir,
@@ -79,6 +184,29 @@ class HsTransferKeys {
     });
   }
 
+  /// Purges a possibly-mixed triplet left by a process death mid-install.
+  /// Must run before Tor reads [hsDir]; the next start mints a fresh onion
+  /// (recoverable: the user restores the backup again). No-op without the
+  /// marker. Returns true when a repair was performed.
+  static Future<bool> repairInterruptedInstall(String hsDir) async {
+    return opMutex.protect(() async {
+      final marker = File(p.join(hsDir, pendingMarkerFile));
+      try {
+        if (!await marker.exists()) return false;
+        await _deleteQuietly(File(p.join(hsDir, secretKeyFile)));
+        await _deleteQuietly(File(p.join(hsDir, publicKeyFile)));
+        await _deleteQuietly(File(p.join(hsDir, hostnameFile)));
+        await _deleteQuietly(File(p.join(hsDir, '$secretKeyFile.tmp')));
+        await _deleteQuietly(File(p.join(hsDir, '$publicKeyFile.tmp')));
+        await _deleteQuietly(File(p.join(hsDir, '$hostnameFile.tmp')));
+        await _deleteQuietly(marker);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+
   static Future<bool> _installUnlocked(
     String hsDir,
     Map<String, String> keys,
@@ -98,7 +226,7 @@ class HsTransferKeys {
       final hostname = utf8.decode(base64Decode(hostnameB64));
       final secret = base64Decode(secretB64);
       final public = base64Decode(publicB64);
-      if (hostname.trim().isEmpty || secret.isEmpty || public.isEmpty) {
+      if (!isValidTriplet(secret: secret, public: public, hostname: hostname)) {
         return false;
       }
       final dir = Directory(hsDir);
@@ -120,8 +248,12 @@ class HsTransferKeys {
         await _deleteQuietly(hostnameTmp);
         return false;
       }
+      final marker = File(p.join(hsDir, pendingMarkerFile));
       bool committed = false;
       try {
+        // Marker first: a process death mid-promote leaves it behind and
+        // repairInterruptedInstall() purges the mixed set before Tor runs.
+        await marker.writeAsString('installing');
         committed =
             await _promote(secretTmp, secretFile) &&
             await _promote(publicTmp, publicFile) &&
@@ -138,8 +270,10 @@ class HsTransferKeys {
         await _deleteQuietly(secretFile);
         await _deleteQuietly(publicFile);
         await _deleteQuietly(hostnameFile_);
+        await _deleteQuietly(marker);
         return false;
       }
+      await _deleteQuietly(marker);
       await _lockDown(hsDir);
       return true;
     } catch (_) {

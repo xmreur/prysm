@@ -106,11 +106,17 @@ class TorManager {
       'be started from them',
     );
     return _controlWriteMutex.protect(() async {
+      // Re-check under the lock: the outer guard can pass while a
+      // deactivation is still queued for this same mutex.
+      if (_deactivatedForTransfer) throw _deactivatedError();
       TorBootstrapNotifier.instance.reset();
       if (_usesNativeTorChannel) {
         await _startNativeTorService();
         return;
       }
+      // A process death mid-install leaves a possibly-mixed HS triplet;
+      // purge it before Tor can read the directory.
+      await HsTransferKeys.repairInterruptedInstall('$dataDir/hidden_service');
       await _cleanupOrphanTorBeforeStart();
       await _startDesktopTorBinary();
     });
@@ -181,6 +187,10 @@ class TorManager {
 
   Future<bool> _setHsKeysUnlocked(Map<String, String> keys) async {
     if (_usesNativeTorChannel) {
+      // Native setters only check "non-empty": validate the Tor formats and
+      // the hostname/public-key relationship here, or a malformed triplet
+      // installs an unusable onion and restore still reports success.
+      if (!HsTransferKeys.isValidEncodedTriplet(keys)) return false;
       try {
         return await _channel.invokeMethod<bool>('setHsKeys', keys) ?? false;
       } catch (_) {
@@ -213,6 +223,9 @@ class TorManager {
   /// verifies it is dead, deletes the HS keys and verifies their absence —
   /// all under the control mutex. True only when every step is confirmed.
   Future<bool> deactivateForTransfer() {
+    // Set before queueing: a start/restart that already passed its outer
+    // guard must still fail its in-lock re-check.
+    _deactivatedForTransfer = true;
     return _controlWriteMutex.protect(_deactivateUnlocked);
   }
 
@@ -283,6 +296,7 @@ class TorManager {
   Future<void> restartTor() {
     if (_deactivatedForTransfer) throw _deactivatedError();
     return _controlWriteMutex.protect(() async {
+      if (_deactivatedForTransfer) throw _deactivatedError();
       TorBootstrapNotifier.instance.reset();
       if (Platform.isIOS) {
         await _channel.invokeMethod('restartTor');

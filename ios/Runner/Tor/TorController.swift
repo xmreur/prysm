@@ -6,6 +6,12 @@ actor PrysmTorController {
     static let controlPort: UInt16 = 9051
     static let socksPort: UInt = 9050
     private static let dirPermissions: Int = 0o700
+    private static let pendingMarkerName = ".hs_install_pending"
+    private static let hsFileNames = [
+        "hs_ed25519_secret_key",
+        "hs_ed25519_public_key",
+        "hostname",
+    ]
 
     private static let stopSettleMs: UInt64 = 500
     private static let portPollMs: UInt64 = 100
@@ -42,6 +48,9 @@ actor PrysmTorController {
     }
 
     func startTor() async throws {
+        // A process death mid-install leaves a possibly-mixed HS triplet;
+        // purge it before Tor can read the directory.
+        repairInterruptedHsInstall()
         if isRunning, Self.isTcpPortOpen(Self.controlPort) {
             NSLog("PrysmTor: Tor already running")
             return
@@ -256,6 +265,10 @@ actor PrysmTorController {
             let secretURL = hs.appendingPathComponent("hs_ed25519_secret_key")
             let publicURL = hs.appendingPathComponent("hs_ed25519_public_key")
             let hostnameURL = hs.appendingPathComponent("hostname")
+            let marker = hs.appendingPathComponent(Self.pendingMarkerName)
+            // Marker first: a process death mid-write leaves it behind and
+            // startTor()'s repair purges the mixed set.
+            try Data("installing".utf8).write(to: marker, options: .atomic)
             do {
                 try secret.write(to: secretURL, options: .atomic)
                 try publicKey.write(to: publicURL, options: .atomic)
@@ -266,12 +279,14 @@ actor PrysmTorController {
                 try? fm.removeItem(at: secretURL)
                 try? fm.removeItem(at: publicURL)
                 try? fm.removeItem(at: hostnameURL)
+                try? fm.removeItem(at: marker)
                 throw error
             }
             guard Self.hsTripletPresent(secretURL, publicURL, hostnameURL) else {
                 try? fm.removeItem(at: secretURL)
                 try? fm.removeItem(at: publicURL)
                 try? fm.removeItem(at: hostnameURL)
+                try? fm.removeItem(at: marker)
                 return false
             }
             try fm.setAttributes(
@@ -282,6 +297,7 @@ actor PrysmTorController {
                 [.posixPermissions: 0o600],
                 ofItemAtPath: publicURL.path
             )
+            try? fm.removeItem(at: marker)
             return true
         } catch {
             NSLog("PrysmTor setHsKeys failed: \(error)")
@@ -297,6 +313,21 @@ actor PrysmTorController {
             }
         }
         return true
+    }
+
+    /// Purges a possibly-mixed HS triplet left by a process death during
+    /// setHsKeys(); the next start mints a fresh onion (the user can
+    /// restore the backup again). No-op without the marker.
+    private func repairInterruptedHsInstall() {
+        let fm = FileManager.default
+        let hs = hiddenServiceDirectory
+        let marker = hs.appendingPathComponent(Self.pendingMarkerName)
+        guard fm.fileExists(atPath: marker.path) else { return }
+        NSLog("PrysmTor: interrupted HS install detected, purging triplet")
+        for name in Self.hsFileNames {
+            try? fm.removeItem(at: hs.appendingPathComponent(name))
+        }
+        try? fm.removeItem(at: marker)
     }
 
     /// Deletes local hidden-service keys (source deactivation). Next start mints a fresh onion.

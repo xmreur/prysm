@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prysm/services/panic_wipe_service.dart';
 import 'package:prysm/util/hs_transfer_keys.dart';
 import 'package:prysm/util/tor_service.dart';
+
+import '../support/hs_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeTorManager {
@@ -22,13 +24,7 @@ class _FakeTorManager {
   }
 }
 
-String _b64(List<int> bytes) => base64Encode(bytes);
-
-Map<String, String> _goodKeys() => {
-  'hostname': _b64(utf8.encode("${'z' * 56}.onion")),
-  'hs_ed25519_secret_key': _b64(List.filled(96, 7)),
-  'hs_ed25519_public_key': _b64(List.filled(32, 9)),
-};
+Map<String, String> _goodKeys() => validHsTriplet();
 
 void main() {
   test('deactivateForTransfer removes HS keys, verifies absence, '
@@ -51,6 +47,74 @@ void main() {
     expect(() => manager.restartTor(), throwsStateError);
 
     Directory(dataDir).deleteSync(recursive: true);
+  });
+
+  test(
+    'interrupted install is repaired before Tor can read the keys',
+    () async {
+      final dataDir = Directory.systemTemp
+          .createTempSync('hs_repair_test')
+          .path;
+      final hsDir = '$dataDir/hidden_service';
+      expect(
+        await HsTransferKeys.installToDirectory(hsDir, validHsTriplet()),
+        isTrue,
+      );
+      // A clean install leaves no marker.
+      expect(
+        File('$hsDir/${HsTransferKeys.pendingMarkerFile}').existsSync(),
+        isFalse,
+      );
+      expect(await HsTransferKeys.repairInterruptedInstall(hsDir), isFalse);
+      expect(File('$hsDir/hostname').existsSync(), isTrue);
+
+      // Simulate a process death between promotes: marker plus a half-new set.
+      File(
+        '$hsDir/${HsTransferKeys.pendingMarkerFile}',
+      ).writeAsStringSync('installing');
+      expect(await HsTransferKeys.repairInterruptedInstall(hsDir), isTrue);
+      for (final name in [
+        'hostname',
+        'hs_ed25519_secret_key',
+        'hs_ed25519_public_key',
+        HsTransferKeys.pendingMarkerFile,
+      ]) {
+        expect(File('$hsDir/$name').existsSync(), isFalse, reason: name);
+      }
+
+      Directory(dataDir).deleteSync(recursive: true);
+    },
+  );
+
+  test('malformed-but-decodable key material is rejected', () async {
+    final dir = Directory.systemTemp.createTempSync('hs_validate_test').path;
+    // Right lengths, wrong Tor headers.
+    expect(
+      await HsTransferKeys.installToDirectory(dir, {
+        HsTransferKeys.hostnameFile: base64Encode(
+          utf8.encode('${'z' * 56}.onion'),
+        ),
+        HsTransferKeys.secretKeyFile: base64Encode(List.filled(96, 7)),
+        HsTransferKeys.publicKeyFile: base64Encode(List.filled(64, 9)),
+      }),
+      isFalse,
+    );
+    // Valid files, hostname of another identity.
+    expect(
+      await HsTransferKeys.installToDirectory(dir, {
+        ...validHsTriplet(seed: 4),
+        HsTransferKeys.hostnameFile: validHsTriplet(
+          seed: 5,
+        )[HsTransferKeys.hostnameFile]!,
+      }),
+      isFalse,
+    );
+    expect(File('$dir/hostname').existsSync(), isFalse);
+    expect(
+      HsTransferKeys.isValidEncodedTriplet(validHsTriplet(seed: 6)),
+      isTrue,
+    );
+    Directory(dir).deleteSync(recursive: true);
   });
 
   test('concurrent install and delete never leave a mixed key set', () async {

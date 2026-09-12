@@ -5,6 +5,11 @@ on:
     branches: [main, master]
   pull_request:
 
+# The default token is read-write on a repository that has none of it here:
+# this job only checks out and runs tests.
+permissions:
+  contents: read
+
 # Pinned, not tracked: an unpinned `stable` moved 3.44.9 -> 3.47.0 under an
 # unchanged main and broke it. Matches both Containerfiles. Bump deliberately.
 env:

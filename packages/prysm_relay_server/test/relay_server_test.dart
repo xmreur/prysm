@@ -61,6 +61,7 @@ Future<_Harness> _server({
   RelayTenancy tenancy = RelayTenancy.private,
   RelayAdmission admission = RelayAdmission.invite,
   List<String> allowedOwners = const [],
+  Future<RelayStore> Function(String dataDir)? openStore,
 }) async {
   final dir = await Directory.systemTemp.createTemp('relay-test-');
   // One data dir per case, so one removal per case: without this the suite
@@ -85,7 +86,7 @@ Future<_Harness> _server({
       terms: '',
     ),
     keys: keys,
-    store: await RelayStore.open(dir.path),
+    store: await (openStore ?? RelayStore.open)(dir.path),
     log: RelayLog(debug: false),
     clock: box.clock,
   );
@@ -119,6 +120,30 @@ Future<_Harness> _restart(_Harness h, {List<String>? allowedOwners}) async {
     h.dir,
     h.box,
   );
+}
+
+/// Records every contract handed to [putTenant], to prove the relay never
+/// writes one the owner could not verify.
+class _RecordingStore extends RelayStore {
+  _RecordingStore(super.dataDir);
+
+  final List<Map<String, dynamic>> persisted = [];
+
+  @override
+  Future<void> putTenant(
+    String ownerFpr,
+    Map<String, dynamic> contractJson,
+    List<int> ownerSignPublic,
+    List<int> ownerAgreePublic,
+  ) {
+    persisted.add(Map<String, dynamic>.from(contractJson));
+    return super.putTenant(
+      ownerFpr,
+      contractJson,
+      ownerSignPublic,
+      ownerAgreePublic,
+    );
+  }
 }
 
 class _Owner {
@@ -446,6 +471,33 @@ void main() {
       expect(r.body['error'], 'admission_closed');
       // The refusal must not have spent the token either.
       expect(revoked.server.store.findToken(token.token)!.used, isFalse);
+    });
+
+    test('no contract is ever persisted without its signature', () async {
+      late _RecordingStore recorder;
+      final h = await _server(openStore: (dataDir) async {
+        recorder = _RecordingStore(dataDir);
+        return recorder;
+      });
+      final owner = await _Owner.create();
+      await _pair(h, owner);
+      h.nowMs++;
+      await _pair(h, owner);
+
+      // One write per pairing, each already signed: a crash between two writes
+      // cannot leave an unverifiable contract on disk.
+      expect(recorder.persisted, hasLength(2));
+      expect(
+        recorder.persisted.map((c) => c['sig']).whereType<String>(),
+        hasLength(2),
+      );
+      final onDisk = RelayContract.fromJson(
+        jsonDecode(
+          File('${h.dir.path}/tenants/${owner.fpr}/contract.json')
+              .readAsStringSync(),
+        ) as Map<String, dynamic>,
+      );
+      expect(await onDisk.verify(h.server.keys.signPublic), isTrue);
     });
   });
 

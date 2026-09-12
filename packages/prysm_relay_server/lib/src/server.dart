@@ -249,77 +249,53 @@ class RelayServer {
           'this private relay already serves an owner',
         );
       }
-      if (!pairLimiter.allow('pair:$ownerFpr')) {
-        throw const RelayError(
-          RelayErrorCode.rateLimited,
-          'too many pair attempts; try again later',
-        );
-      }
-      if (config.admission == RelayAdmission.invite) {
-        _consumeToken(req.token, ownerFpr);
-      }
-      await store.putTenant(
-        ownerFpr,
-        _unsignedContract(
-          version: 1,
-          ownerFingerprint: ownerFpr,
-          ownerOnion: req.ownerOnion,
-          requested: req.requested,
-        ),
-        ownerIdentity.signPublic,
-        ownerIdentity.agreePublic,
-      );
-      log.event('pair: new tenant ${RelayLog.shortId(ownerFpr, 8)}');
-    } else {
-      // Re-pairing the same identity is idempotent: same tenant, version + 1.
-      // Invite relays still require a fresh token; closed relays let an
-      // existing owner renew on signature alone.
-      if (!pairLimiter.allow('pair:$ownerFpr')) {
-        throw const RelayError(
-          RelayErrorCode.rateLimited,
-          'too many pair attempts; try again later',
-        );
-      }
-      if (config.admission == RelayAdmission.invite) {
-        _consumeToken(req.token, ownerFpr);
-      }
-      final prev =
-          RelayContract.fromJson(Map<String, dynamic>.from(existing.contractJson));
-      await store.putTenant(
-        ownerFpr,
-        _unsignedContract(
-          version: prev.version + 1,
-          ownerFingerprint: ownerFpr,
-          ownerOnion: req.ownerOnion,
-          requested: req.requested,
-        ),
-        ownerIdentity.signPublic,
-        ownerIdentity.agreePublic,
-      );
-      log.event(
-        'pair: renewed tenant ${RelayLog.shortId(ownerFpr, 8)} '
-        'version=${prev.version + 1}',
+    }
+    if (!pairLimiter.allow('pair:$ownerFpr')) {
+      throw const RelayError(
+        RelayErrorCode.rateLimited,
+        'too many pair attempts; try again later',
       );
     }
-    await store.saveTokens();
+    // Invite relays require a fresh token for a renewal too; closed relays let
+    // an existing owner renew on signature alone.
+    if (config.admission == RelayAdmission.invite) {
+      _consumeToken(req.token, ownerFpr);
+    }
 
-    final tenant = store.tenants[ownerFpr]!;
-    final contract = RelayContract.fromJson(
-      Map<String, dynamic>.from(tenant.contractJson),
+    // Re-pairing the same identity is idempotent: same tenant, version + 1.
+    final version = existing == null
+        ? 1
+        : RelayContract.fromJson(
+              Map<String, dynamic>.from(existing.contractJson),
+            ).version +
+            1;
+    // Signed *before* it is stored: a crash between two writes used to leave
+    // `contract.json` without its signature, and a tenant reloaded from that
+    // file hands the owner a contract that can never verify.
+    final contract = _contractFor(
+      version: version,
+      ownerFingerprint: ownerFpr,
+      ownerOnion: req.ownerOnion,
+      requested: req.requested,
     );
-    final sig = await keys.sign(contract.signingBytes());
-    final signed = contract.withSignature(sig);
-    tenant.contractJson = signed.toJson();
+    final signed = contract.withSignature(await keys.sign(contract.signingBytes()));
     await store.putTenant(
       ownerFpr,
       signed.toJson(),
-      tenant.ownerSignPublic,
-      tenant.ownerAgreePublic,
+      ownerIdentity.signPublic,
+      ownerIdentity.agreePublic,
+    );
+    await store.saveTokens();
+    log.event(
+      existing == null
+          ? 'pair: new tenant ${RelayLog.shortId(ownerFpr, 8)}'
+          : 'pair: renewed tenant ${RelayLog.shortId(ownerFpr, 8)} '
+              'version=$version',
     );
     return _json(200, signed.toJson());
   }
 
-  Map<String, dynamic> _unsignedContract({
+  RelayContract _contractFor({
     required int version,
     required String ownerFingerprint,
     required String ownerOnion,
@@ -334,7 +310,7 @@ class RelayServer {
         tenancy: config.tenancy,
         limits: config.limits.clamp(requested),
         issuedAt: _nowMs,
-      ).toJson();
+      );
 
   void _consumeToken(String token, String ownerFpr) {
     final entry = store.findToken(token);

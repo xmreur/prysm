@@ -163,12 +163,19 @@ class _ServeCommand extends Command<void> {
       'fingerprint=${keys.fingerprint}',
     );
     server.startSweeper();
-    await Future.any([
+    final signal = await Future.any([
       ProcessSignal.sigint.watch().first,
       ProcessSignal.sigterm.watch().first,
     ]);
+    log.event('received $signal: shutting down');
     server.stopSweeper();
     await http.close(force: true);
+    // The signal that did NOT arrive still holds a live stream subscription,
+    // and that alone keeps the isolate alive after `run` returns: the relay
+    // used to close its listener on SIGTERM and then sit there forever, so
+    // `docker stop` waited out its grace period and a supervisor's restart
+    // left two relays on one data dir. Leave deliberately.
+    exit(0);
   }
 }
 

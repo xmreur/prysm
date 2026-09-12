@@ -402,8 +402,10 @@ CONFIG_CHANGED=0
 
 if docker exec "$NAME" sh -c "test -f $CONFIG"; then
   log "relay already initialised, keeping its identity"
-  # A recreated container with persisted volumes gets a new onion: the stored
-  # config must follow, or `serve` would advertise an address nobody answers.
+  # The onion Tor publishes is the truth: a recreated `-hs` volume, a restored
+  # data dir or a hand-written config can leave `config.json` naming a
+  # different one, and `serve` would then advertise an address nobody answers.
+  # (With --persist the `-hs` volume keeps the key, so the onion is stable.)
   if ! docker exec "$NAME" grep -q "\"onion\": \"$ONION\"" "$CONFIG"; then
     log "updating the onion in $CONFIG"
     docker exec "$NAME" sed -i "s|\"onion\": \"[^\"]*\"|\"onion\": \"$ONION\"|" "$CONFIG"

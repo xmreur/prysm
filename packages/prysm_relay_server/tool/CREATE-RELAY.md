@@ -99,11 +99,29 @@ tool/create_relay.sh -i
 | `-n`, `--dry-run` | print the plan and exit | off |
 
 Re-running is safe: an existing container is reused, an existing relay keeps
-its identity, and you simply get a fresh token. With `--persist`, recreating
-the container also means a **new onion**, so the script rewrites the `onion`
-field in `config.json` to match — otherwise `serve` would advertise an address
-nobody answers. `--admission` is applied the same way, because `init` always
-writes `invite`.
+its identity, and you simply get a fresh token.
+
+Persistence decides what survives `docker rm`:
+
+- **`--persist`** puts the data dir and the hidden-service key in the volumes
+  `<name>-data` and `<name>-hs`, so the **identity, the onion and the tenants
+  all survive** recreating the container. Destroy them explicitly
+  (`docker volume rm …`) when you mean to retire the relay.
+- **`--no-persist`** (default) keeps both inside the container's writable
+  layer: `docker rm` takes the identity *and* the onion with it, which
+  invalidates every Contract already signed against them.
+
+When the onion Tor publishes differs from the one in `config.json` — a
+recreated `-hs` volume, a hand-written config, a restored data dir — the
+script rewrites the `onion` field, because otherwise `serve` would advertise
+an address nobody answers. `port` is rewritten the same way (the torrc the
+script writes is what maps the hidden service to it), and so is `admission`,
+because `init` always writes `invite`.
+
+Those three only take effect at startup, so the script also applies them:
+`tor` gets a SIGHUP when its torrc changed, and a running `serve` is stopped
+and restarted when the config changed (SIGKILL if it ignores SIGTERM). With
+`--no-serve` nothing is stopped and the script says so.
 
 ## What it does, in order
 
@@ -120,12 +138,15 @@ writes `invite`.
    `/var/lib/tor` to `debian-tor` and Tor as root then refuses to start.
 6. **Validates it** with `tor --verify-config` *before* starting anything.
 7. **Starts Tor** and polls for `/opt/relay/hs/hostname` (default 180 s). On
-   timeout it prints the tail of `tor.log` instead of failing mutely.
+   timeout it prints the tail of `tor.log` instead of failing mutely. If Tor is
+   already running and the torrc changed, it gets a SIGHUP instead.
 8. **Initialises the relay** with the onion it just read, parsing the
    fingerprint and the setup token out of `init`'s output. If `config.json`
-   already exists it keeps the identity and mints a token instead.
+   already exists it keeps the identity, reconciles `onion`/`port`/`admission`
+   and mints a token instead.
 9. **Starts `serve`** detached and waits for its `listening on` line, unless
-   `--no-serve`.
+   `--no-serve`. A relay already running with a config the script just changed
+   is stopped first, so exactly one relay serves the data dir.
 10. **Prints the summary**: the three pairing values, the commands to mint
     another token, to read status and logs, and to tear the node down.
 

@@ -147,20 +147,26 @@ class RelayClient {
             'Content-Type': 'application/json',
             ...?headers,
           };
-          final HttpClientResponse response;
-          if (method == 'GET') {
-            response = await client.get(uri, requestHeaders).timeout(timeout);
-          } else {
-            response = await client
-                .post(
-                  uri,
-                  requestHeaders,
-                  preEncodedBody ?? jsonEncode(body ?? const {}),
-                )
-                .timeout(timeout);
+          // One deadline for the whole exchange. The body read used to sit
+          // outside the timeout, so a relay that answered its headers and
+          // then stalled held the caller forever — and `pickupNow` runs
+          // inside `flushAllPending`, which would never finish either.
+          Future<Map<String, dynamic>> exchange() async {
+            final HttpClientResponse response;
+            if (method == 'GET') {
+              response = await client.get(uri, requestHeaders);
+            } else {
+              response = await client.post(
+                uri,
+                requestHeaders,
+                preEncodedBody ?? jsonEncode(body ?? const {}),
+              );
+            }
+            final text = await client.readUtf8Body(response);
+            return decodeResponse(response.statusCode, text);
           }
-          final text = await client.readUtf8Body(response);
-          return decodeResponse(response.statusCode, text);
+
+          return await exchange().timeout(timeout);
         } finally {
           await client.close();
         }

@@ -16,13 +16,20 @@ Prysm funziona come un messenger peer-to-peer diretto su servizi hidden Tor.
 
 Su desktop, Tor viene avviato come processo child. Su Android, è avviato tramite un servizio nativo. L'app espone anche un server HTTP locale con `shelf`, in ascolto sulla porta `12345`, che Tor rende disponibile come `your-address.onion:80`. I messaggi in uscita sono inviati tramite il proxy SOCKS5 di Tor verso `peer-address.onion:80/message`. `shelf` è una libreria Dart per middleware HTTP, spesso usata per costruire server leggeri e compositi, che si adatta bene a questo modello di trasporto locale.
 
-Non ci sono server relay al momento. Le impostazioni relay esistono nell'UI, ma sono placeholder e non implementate.
+Il supporto Relay è opzionale: un Relay standalone, solo-onion e solo-inbound può
+conservare buste sigillate in una Mailbox per contatto quando il destinatario è offline.
+Il Relay non vede mai mittente, destinatario, tipo, `groupId`, nomi o dimensioni dei file,
+né il contenuto, e l'app resta pienamente usabile senza alcun Relay. Vedi `docs/RELAY.md`
+(come funziona), `docs/RELAY-USER.md` (configurazione dall'app) e
+`packages/prysm_relay_server/README.md` (come ospitarne uno).
 
 ## Flusso dei messaggi
 
 Se entrambi i peer sono online, i messaggi arrivano in genere entro pochi secondi.
 
 Se il destinatario è offline o irraggiungibile, Prysm salva il messaggio localmente in SQLite e riprova con backoff esponenziale. Questo permette all'app di comportarsi come un messenger asincrono senza introdurre infrastrutture centralizzate.
+Quando il destinatario è offline, il mittente può depositare una busta sigillata presso il
+Relay del destinatario, da cui il destinatario esegue poi il Pickup.
 
 ## Crittografia
 
@@ -67,8 +74,9 @@ Gli indirizzi onion Tor sono separati dalle chiavi di identità di Prysm. Tor ge
 
 ## Non implementato
 
-- Relay / proxy forwarding  
-  Le impostazioni esistono nell'UI, ma non c'è nessun backend relay al momento.
+- Limiti della v1 del Relay: il primo contatto richiede ancora che entrambi i peer siano
+  online una volta, gli allegati grandi restano in Direct Delivery e non ci sono delivery
+  receipt (vedi `docs/RELAY.md`).
 
 ## Piattaforme
 
@@ -135,7 +143,6 @@ Se vuoi supportare lo sviluppo, le donazioni sono benvenute.
 
 ## Roadmap
 
-- Implementare relay / proxy forwarding
 - Aggiungere riconoscimenti di consegna oltre "POST succeeded"
 - Migliorare la latenza di startup di Tor su mobile
 - Pulire il protocollo di trasporto e la gestione degli errori

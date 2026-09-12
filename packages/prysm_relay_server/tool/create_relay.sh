@@ -59,7 +59,7 @@ Run it with no options on a terminal and it walks you through every choice.
                      survive `docker rm`
   --no-persist       opposite of --persist (default)
   --serve            start the relay once provisioned (default)
-  --no-serve         provision and initialise, but do not start the relay
+  --no-serve         provision and initialise, but never start or stop `serve`
   --force            recreate the container if it already exists
   -i, --interactive  ask, even when not on a terminal
   -y, --yes          never ask: take the flags and the defaults

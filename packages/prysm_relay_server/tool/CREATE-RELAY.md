@@ -121,9 +121,10 @@ because `init` always writes `invite`.
 Those three only take effect at startup, so the script also applies them:
 `tor` gets a SIGHUP when its torrc changed, and a running `serve` is stopped
 and restarted when the config changed (SIGKILL if it ignores SIGTERM). With
-`--no-serve` nothing is started and nothing is stopped: the script then reports
-what is actually there — a relay left running with the config it started with,
-a relay running with the current one, or none at all.
+`--no-serve` the script still provisions the node and still starts (or SIGHUPs)
+Tor — it only never starts and never stops `serve`, and then reports what is
+actually serving: a relay left running with the config it started with, a relay
+running with the current one, or nothing.
 
 ## What it does, in order
 
@@ -146,10 +147,11 @@ a relay running with the current one, or none at all.
    fingerprint and the setup token out of `init`'s output. If `config.json`
    already exists it keeps the identity, reconciles `onion`/`port`/`admission`
    and mints a token instead.
-9. **Starts `serve`** detached and waits for its `listening on` line, unless
-   `--no-serve`, which reports the state of the relay instead of changing it.
-   A relay already running with a config the script just changed is stopped
-   first, so exactly one relay serves the data dir.
+9. **Starts `serve`** detached and waits for its `listening on` line. With
+   `--serve`, a relay already running with a config the script just changed is
+   stopped first, so exactly one relay serves the data dir. With `--no-serve`
+   the `serve` process is neither started nor stopped, and the script reports
+   its real state instead.
 10. **Prints the summary**: the three pairing values, the commands to mint
     another token, to read status and logs, and to tear the node down.
 

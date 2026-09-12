@@ -477,10 +477,11 @@ fi
 # ------------------------------------------------------------------ serve ----
 
 if [ "$SERVE" -eq 0 ]; then
-  # `--no-serve` starts nothing *and* stops nothing, so the state has to be
-  # read, not assumed: a reused container can already be serving — with the
-  # config it started with, if this run edited it (the warning above). Saying
-  # "stopped" there sent the operator away believing no relay was answering.
+  # `--no-serve` neither starts nor stops the `serve` process (provisioning and
+  # Tor still run above), so its state has to be read, not assumed: a reused
+  # container can already be serving — with the config it started with, if this
+  # run edited it (the warning above). Saying "stopped" there sent the operator
+  # away believing no relay was answering.
   if docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1'; then
     if [ "$CONFIG_CHANGED" -eq 1 ]; then
       log "leaving the relay running with the config it started with"

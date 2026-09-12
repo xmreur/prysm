@@ -3179,5 +3179,5 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get relayWhatItSees =>
-      'It only sees a per-contact address, the size of each encrypted message and when it arrived. It never sees who sent it, who receives it, the message type, group names or file names.';
+      'It sees that a message arrived for your account, at which per-contact address, how big it was and when. It never sees who sent it, the text, the message type, group names or file names, and it cannot tell which of your contacts an address belongs to.';
 }

@@ -124,17 +124,20 @@ storage) live only in the
 
 ## Threat model
 
-The Relay **sees**: the deposit address, the ciphertext length, arrival
-times, how many addresses a tenant holds (≈ contact count), and — because
-Pickup is authenticated — which Identity collects and when. It **does not
-see**: sender, recipient, message type, `groupId`, file names or sizes,
-message ids, or any plaintext (audited on a stored blob: only the keys
-`alg, ciphertext, crypto, ephemeralPub, nonce, scheme`). It **can** drop,
-duplicate or delay — indistinguishable from an offline peer, and harmless:
-`messages.id` is a primary key with tombstone-wins, so client-side
-duplicates collapse. It **cannot** forge or undetectably reorder, read
-content, or link a deposit to a human without already knowing that
-contact's address.
+The Relay **sees**: which account each item belongs to — `index.json` maps
+every deposit address to an `ownerFingerprint`, the Contract carries that
+owner's onion, and Pickup is authenticated — plus the deposit address, the
+ciphertext length, arrival and collection times, and how many addresses a
+tenant holds (≈ contact count). So for every stored item it knows *who it is
+for*. It **does not see**: the sender, the message type, `groupId`, file
+names or sizes, message ids, or any plaintext (audited on a stored blob: only
+the keys `alg, ciphertext, crypto, ephemeralPub, nonce, scheme`), and it
+cannot tell **which contact** a deposit address was handed to — that mapping
+never leaves the owner's device. It **can** drop, duplicate or delay —
+indistinguishable from an offline peer, and harmless: `messages.id` is a
+primary key with tombstone-wins, so client-side duplicates collapse. It
+**cannot** forge or undetectably reorder, read content, or link a deposit to a
+human without already knowing that contact's address.
 
 One honest consequence, from the
 [ADR](adr/0001-relay-sealed-mailbox.md): the outer seal has **no forward

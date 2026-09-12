@@ -17,11 +17,12 @@ Prysm runs as a direct peer-to-peer messenger over Tor hidden services.
 On desktop, Tor is started as a child process. On Android, it is started through a native service. The app also runs a local HTTP server with `shelf`, listening on port `12345`, which Tor exposes as `your-address.onion:80`. Outbound messages are sent through Tor's SOCKS5 proxy to `peer-address.onion:80/message`. `shelf` is a Dart server middleware library commonly used to compose lightweight HTTP servers, which matches this local transport model well [web:71][web:77].
 
 Relay support is optional: a standalone, onion-only, inbound-only Relay can hold sealed
-envelopes in a per-contact Mailbox when the recipient is offline. The Relay never sees
-sender, recipient, type, `groupId`, file names or sizes, or content, and the app stays
-fully usable without any Relay. See `docs/RELAY.md` (how it works),
-`docs/RELAY-USER.md` (app setup), and `packages/prysm_relay_server/README.md`
-(self-hosting).
+envelopes in a per-contact Mailbox when the recipient is offline. The Relay does know
+which account each Mailbox and each stored envelope belongs to — Pickup is
+authenticated — but never the sender, the content, the type, `groupId`, file names or
+sizes, nor which contact an address was given to. The app stays fully usable without any
+Relay. See `docs/RELAY.md` (how it works), `docs/RELAY-USER.md` (app setup), and
+`packages/prysm_relay_server/README.md` (self-hosting).
 
 ## Message flow
 

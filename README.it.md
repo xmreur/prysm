@@ -18,9 +18,11 @@ Su desktop, Tor viene avviato come processo child. Su Android, è avviato tramit
 
 Il supporto Relay è opzionale: un Relay standalone, solo-onion e solo-inbound può
 conservare buste sigillate in una Mailbox per contatto quando il destinatario è offline.
-Il Relay non vede mai mittente, destinatario, tipo, `groupId`, nomi o dimensioni dei file,
-né il contenuto, e l'app resta pienamente usabile senza alcun Relay. Vedi `docs/RELAY.md`
-(come funziona), `docs/RELAY-USER.md` (configurazione dall'app) e
+Il Relay sa a quale account appartengono ogni Mailbox e ogni busta che conserva — il
+Pickup è autenticato — ma non vede mai il mittente, il contenuto, il tipo, `groupId`,
+i nomi o le dimensioni dei file, né a quale contatto è stato dato un indirizzo. L'app
+resta pienamente usabile senza alcun Relay. Vedi `docs/RELAY.md` (come funziona),
+`docs/RELAY-USER.md` (configurazione dall'app) e
 `packages/prysm_relay_server/README.md` (come ospitarne uno).
 
 ## Flusso dei messaggi

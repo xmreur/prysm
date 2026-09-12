@@ -6,7 +6,9 @@ decision tickets in `.scratch/relay/issues/`.
 
 Design in one paragraph: a **Relay** stores **sealed** blobs in a **Mailbox** until the owner picks
 them up. Each contact of the owner deposits at its **own opaque address**, so the Relay learns
-neither who sends nor who receives; the sealed payload is the *original, unmodified* Prysm message
+neither who sends nor which contact an address belongs to — it does know which **owner** every
+address and item belongs to, because pickup is authenticated and `index.json` maps
+`deposit -> ownerFingerprint`. The sealed payload is the *original, unmodified* Prysm message
 envelope, so on pickup the client feeds it to `InboundMessageRouter.handleMessage` byte-identical and
 the whole inbound pipeline (auth, dedup, `pending_auth`, FTS, notifications) runs unchanged.
 
@@ -312,11 +314,13 @@ Relay is `sent`, as it is today when a peer's HTTP returns 2xx), no delivery rec
 
 ## 7. What the Relay learns, stated plainly
 
-Sees: the deposit address, the ciphertext length, the arrival time, how many addresses a tenant has
-(≈ how many contacts), and — because pickup is authenticated — which identity collects and when.
+Sees: **which owner every item is for** — `index.json` maps `deposit -> ownerFingerprint`, the
+Contract carries that owner's onion, and pickup is authenticated — the deposit address, the
+ciphertext length, the arrival time, when the owner collects, and how many addresses a tenant has
+(≈ how many contacts).
 
-Does not see: sender, recipient, message type, `groupId`, file name or size, message id, or any
-plaintext.
+Does not see: sender, message type, `groupId`, file name or size, message id, or any plaintext; nor
+**which contact** a deposit address was handed to (that mapping stays on the owner's device).
 
 Can: drop, duplicate, delay (indistinguishable from an offline peer). Client-side duplicates are
 harmless: `messages.id` is a primary key with tombstone-wins, and group messages additionally gate

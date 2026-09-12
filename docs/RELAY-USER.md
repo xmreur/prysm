@@ -118,7 +118,10 @@ the sender's local queue, so nothing is lost.
 
 ## What your Relay operator can see
 
-An operator sees per-contact addresses, the size of each sealed message, and
-when it arrived or was collected. They never see who talks to whom, the text,
-the message type, group names or file names. The full picture is in
+An operator sees that a message arrived for your account (Pickup is
+authenticated, so your Relay account is never anonymous to them), at which
+per-contact address, how big the sealed message was, and when it arrived or
+was collected. They never see who sent it, the text, the message type, group
+names or file names, and they cannot tell which of your contacts an address
+belongs to. The full picture is in
 [docs/RELAY.md#threat-model](RELAY.md#threat-model).

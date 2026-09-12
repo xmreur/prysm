@@ -3212,5 +3212,5 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get relayWhatItSees =>
-      'Vede solo un indirizzo diverso per ogni contatto, la dimensione di ogni messaggio cifrato e l\'ora di arrivo. Non vede mai chi lo ha inviato, chi lo riceve, il tipo di messaggio, i nomi dei gruppi o dei file.';
+      'Vede che è arrivato un messaggio per il tuo account, a quale indirizzo (uno diverso per ogni contatto), quanto era grande e quando. Non vede mai chi lo ha inviato, il testo, il tipo di messaggio, i nomi dei gruppi o dei file, e non può sapere a quale dei tuoi contatti appartenga un indirizzo.';
 }

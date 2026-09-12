@@ -92,6 +92,35 @@ Future<_Harness> _server({
   return _Harness(server, dir, box);
 }
 
+/// A restart with an edited config: same identity and data dir, new policy.
+/// This is how an operator revokes an owner - edit `config.json`, restart.
+Future<_Harness> _restart(_Harness h, {List<String>? allowedOwners}) async {
+  final old = h.server.config;
+  return _Harness(
+    RelayServer(
+      config: RelayConfig(
+        onion: old.onion,
+        bind: old.bind,
+        port: old.port,
+        dataDir: old.dataDir,
+        tenancy: old.tenancy,
+        admission: old.admission,
+        allowedOwners: allowedOwners ?? old.allowedOwners,
+        limits: old.limits,
+        rate: old.rate,
+        logLevel: old.logLevel,
+        terms: old.terms,
+      ),
+      keys: h.server.keys,
+      store: await RelayStore.open(old.dataDir),
+      log: RelayLog(debug: false),
+      clock: h.box.clock,
+    ),
+    h.dir,
+    h.box,
+  );
+}
+
 class _Owner {
   _Owner({
     required this.sign,
@@ -398,6 +427,25 @@ void main() {
       expect(h.server.store.findToken(fresh.token), isNull);
       final contract = await _pair(h, owner, tokenOverride: fresh.token);
       expect(RelayContract.fromJson(contract).version, 1);
+    });
+
+    test('an owner dropped from allowedOwners cannot renew', () async {
+      final owner = await _Owner.create();
+      final h = await _server(allowedOwners: [owner.fpr]);
+      await _pair(h, owner);
+      final revoked = await _restart(h, allowedOwners: ['0' * 64]);
+      final token =
+          revoked.server.store.addToken(ttlHours: 24, nowMs: revoked.nowMs);
+      final body = await owner.pairBody(
+        revoked.server.keys.fingerprint,
+        token.token,
+        timestampMs: revoked.nowMs,
+      );
+      final r = await _post(revoked.server, RelayProtocol.pathPair, body);
+      expect(r.status, 403);
+      expect(r.body['error'], 'admission_closed');
+      // The refusal must not have spent the token either.
+      expect(revoked.server.store.findToken(token.token)!.used, isFalse);
     });
   });
 

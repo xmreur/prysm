@@ -221,6 +221,17 @@ class RelayServer {
       );
     }
 
+    // `allowedOwners` is a whitelist *and* a revocation list: an operator who
+    // takes a fingerprint out of it means "not this owner any more", so it
+    // gates renewals too, not only first contracts.
+    if (config.allowedOwners.isNotEmpty &&
+        !config.allowedOwners.contains(ownerFpr)) {
+      throw const RelayError(
+        RelayErrorCode.admissionClosed,
+        'this relay is not accepting this owner',
+      );
+    }
+
     // Tokens minted by `token new` while the relay runs land on disk first;
     // pick them up here so the operator never restarts for a token.
     await store.reloadTokens();
@@ -230,13 +241,6 @@ class RelayServer {
         throw const RelayError(
           RelayErrorCode.admissionClosed,
           'this relay is not accepting new contracts',
-        );
-      }
-      if (config.allowedOwners.isNotEmpty &&
-          !config.allowedOwners.contains(ownerFpr)) {
-        throw const RelayError(
-          RelayErrorCode.admissionClosed,
-          'this relay is not accepting this owner',
         );
       }
       if (config.tenancy == RelayTenancy.private && store.tenants.isNotEmpty) {

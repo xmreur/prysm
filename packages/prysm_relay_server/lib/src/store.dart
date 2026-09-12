@@ -229,8 +229,30 @@ class RelayStore {
   /// The lock is advisory and per-process (`fcntl`), which is exactly the
   /// boundary that matters: inside one process the token list is a single
   /// shared object, so an interleaving of two handlers cannot lose an entry.
-  Future<T> withTokenLock<T>(Future<T> Function() body) async {
-    final lock = await File('$_tokensPath.lock').open(mode: FileMode.write);
+  Future<T> withTokenLock<T>(Future<T> Function() body) =>
+      _withFileLock('$_tokensPath.lock', body);
+
+  /// Serialises a whole `init` of [dataDir] against other processes: the
+  /// conflict checks (`config.json`, `identity.json`) and the writes that
+  /// follow them are one critical section. Two `init` runs used to pass both
+  /// checks and then overwrite each other's identity, each printing the
+  /// fingerprint it had generated - only one of which stayed on disk.
+  ///
+  /// Per-process like [withTokenLock], which is the boundary that matters:
+  /// `init` is a CLI command, one per process.
+  static Future<T> withInitLock<T>(
+    String dataDir,
+    Future<T> Function() body,
+  ) async {
+    await Directory(dataDir).create(recursive: true);
+    return _withFileLock(p.join(dataDir, 'init.lock'), body);
+  }
+
+  static Future<T> _withFileLock<T>(
+    String lockPath,
+    Future<T> Function() body,
+  ) async {
+    final lock = await File(lockPath).open(mode: FileMode.write);
     try {
       await lock.lock(FileLock.blockingExclusive);
       return await body();

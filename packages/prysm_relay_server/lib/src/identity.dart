@@ -39,6 +39,10 @@ class RelayKeyPair {
   static final X25519 _x25519 = X25519();
   static final Random _random = Random.secure();
 
+  /// Process-wide, not per call: two writers inside one process must not
+  /// derive the same temp name either.
+  static int _tmpSeq = 0;
+
   static Uint8List _seed() =>
       Uint8List.fromList(List<int>.generate(32, (_) => _random.nextInt(256)));
 
@@ -89,11 +93,19 @@ class RelayKeyPair {
     };
     // The mode is tightened on an empty file, *before* the seeds land in it:
     // a chmod that fails must not leave a readable copy of the private key.
-    final tmp = File('$path.tmp');
-    await tmp.create(recursive: true);
-    await restrictPath(tmp.path, '600');
-    await tmp.writeAsString(jsonEncode(doc), flush: true);
-    await tmp.rename(path);
+    // The name carries the pid and a process-wide counter for the same reason
+    // `RelayStore._writeJson` does: a fixed `identity.json.tmp` is shared
+    // state, and a second writer's `rename` died on it with
+    // `PathNotFoundException` once the first had moved the file away.
+    final tmp = File('$path.$pid.${_tmpSeq++}.tmp');
+    try {
+      await tmp.create(recursive: true);
+      await restrictPath(tmp.path, '600');
+      await tmp.writeAsString(jsonEncode(doc), flush: true);
+      await tmp.rename(path);
+    } finally {
+      if (tmp.existsSync()) await tmp.delete();
+    }
     await restrictPath(path, '600');
     return keys;
   }

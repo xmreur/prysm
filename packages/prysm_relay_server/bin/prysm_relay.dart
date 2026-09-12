@@ -79,7 +79,6 @@ class _InitCommand extends Command<void> {
     // Rejected here, not at the first `serve`: a config `serve` will refuse to
     // load is not a config worth writing.
     RelayConfig.requireLoopbackBind(r['bind'] as String);
-    await Directory(dataDir).create(recursive: true);
     final config = RelayConfig.defaults(
       dataDir: Directory(dataDir).absolute.path,
       tenancy: RelayTenancy.parse(r['tenancy']),
@@ -88,36 +87,44 @@ class _InitCommand extends Command<void> {
       port: int.parse(r['port'] as String),
     );
     final configPath = '${config.dataDir}/config.json';
-    // Every conflict is checked before anything is written: generating the
-    // identity first left a brand-new fingerprint (and a half-initialised data
-    // dir) behind whenever the config turned out to exist already.
-    if (File(configPath).existsSync()) {
-      throw StateError('config already exists at $configPath');
-    }
-    final keys = await RelayKeyPair.generateAndSave(config.dataDir);
-    File(configPath)
-        .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(config.toJson()));
-    final store = await RelayStore.open(config.dataDir);
-    final token = await store.mintToken(
-      ttlHours: 168,
-      nowMs: DateTime.now().millisecondsSinceEpoch,
-    );
-    // ignore: avoid_print
-    print('relay initialised');
-    // ignore: avoid_print
-    print('  dataDir:     ${config.dataDir}');
-    // ignore: avoid_print
-    print('  config:      $configPath');
-    // ignore: avoid_print
-    print('  fingerprint: ${keys.fingerprint}');
-    // ignore: avoid_print
-    print('  setup token: ${token.token} (expires in 168h)');
-    if (config.onion.isEmpty) {
+    // The conflict checks and everything they guard are one critical section.
+    // Two `init` on the same data dir both passed the checks and then
+    // overwrote each other's identity, each printing the fingerprint it had
+    // generated; only one of those survived, so an operator could advertise a
+    // fingerprint no client can verify.
+    await RelayStore.withInitLock(config.dataDir, () async {
+      // Every conflict is checked before anything is written: generating the
+      // identity first left a brand-new fingerprint (and a half-initialised
+      // data dir) behind whenever the config turned out to exist already.
+      if (File(configPath).existsSync()) {
+        throw StateError('config already exists at $configPath');
+      }
+      final keys = await RelayKeyPair.generateAndSave(config.dataDir);
+      File(configPath).writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert(config.toJson()),
+      );
+      final store = await RelayStore.open(config.dataDir);
+      final token = await store.mintToken(
+        ttlHours: 168,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
       // ignore: avoid_print
-      print('  next: put your .onion address in "onion" inside $configPath,');
+      print('relay initialised');
       // ignore: avoid_print
-      print('  then configure Tor (see README) and run `serve`.');
-    }
+      print('  dataDir:     ${config.dataDir}');
+      // ignore: avoid_print
+      print('  config:      $configPath');
+      // ignore: avoid_print
+      print('  fingerprint: ${keys.fingerprint}');
+      // ignore: avoid_print
+      print('  setup token: ${token.token} (expires in 168h)');
+      if (config.onion.isEmpty) {
+        // ignore: avoid_print
+        print('  next: put your .onion address in "onion" inside $configPath,');
+        // ignore: avoid_print
+        print('  then configure Tor (see README) and run `serve`.');
+      }
+    });
   }
 }
 

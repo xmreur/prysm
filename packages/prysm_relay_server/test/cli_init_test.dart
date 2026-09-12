@@ -51,4 +51,41 @@ void main() {
     expect(second.exitCode, isNot(0));
     expect(File('${dir.path}/identity.json').readAsStringSync(), identity);
   });
+
+  test('concurrent init runs leave one identity, the one they printed',
+      () async {
+    // Four `init` on the same data dir: a retried provisioning script, or two
+    // operators. Only one may win, and the fingerprint the winner printed must
+    // be the one `fingerprint --config` reads back - a loser that replaced the
+    // identity afterwards would leave the operator advertising a fingerprint
+    // clients cannot verify.
+    final runs = await Future.wait([
+      for (var i = 0; i < 4; i++) _init(dir.path),
+    ]);
+
+    final winners = runs.where((r) => r.exitCode == 0).toList();
+    expect(
+      winners,
+      hasLength(1),
+      reason: runs
+          .map((r) => 'exit ${r.exitCode}\n${r.stdout}${r.stderr}')
+          .join('\n---\n'),
+    );
+    final printed = RegExp(r'fingerprint:\s+(\S+)')
+        .firstMatch(winners.single.stdout as String)
+        ?.group(1);
+    expect(printed, isNotNull, reason: '${winners.single.stdout}');
+    final readBack = await Process.run(
+      Platform.resolvedExecutable,
+      [
+        'run',
+        'bin/prysm_relay.dart',
+        'fingerprint',
+        '--config',
+        '${dir.path}/config.json',
+      ],
+    );
+    expect(readBack.exitCode, 0, reason: '${readBack.stderr}');
+    expect((readBack.stdout as String).trim(), printed);
+  });
 }

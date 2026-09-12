@@ -77,7 +77,6 @@ class _InitCommand extends Command<void> {
     final r = argResults!;
     final dataDir = r['data-dir'] as String;
     await Directory(dataDir).create(recursive: true);
-    final keys = await RelayKeyPair.generateAndSave(dataDir);
     final config = RelayConfig.defaults(
       dataDir: Directory(dataDir).absolute.path,
       tenancy: RelayTenancy.parse(r['tenancy']),
@@ -86,9 +85,13 @@ class _InitCommand extends Command<void> {
       port: int.parse(r['port'] as String),
     );
     final configPath = '${config.dataDir}/config.json';
+    // Every conflict is checked before anything is written: generating the
+    // identity first left a brand-new fingerprint (and a half-initialised data
+    // dir) behind whenever the config turned out to exist already.
     if (File(configPath).existsSync()) {
       throw StateError('config already exists at $configPath');
     }
+    final keys = await RelayKeyPair.generateAndSave(config.dataDir);
     File(configPath)
         .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(config.toJson()));
     final store = await RelayStore.open(config.dataDir);

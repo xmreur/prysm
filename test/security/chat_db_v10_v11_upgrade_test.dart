@@ -263,21 +263,26 @@ void main() {
       expect(File(path).existsSync(), isTrue);
 
       // The real open path: DatabaseCipher.prepare encrypts the plaintext
-      // fixture in place, then openDatabase(version: 18, onUpgrade) runs the
+      // fixture in place, then openDatabase(version: 19, onUpgrade) runs the
       // oldVersion < 11 and oldVersion < 13 steps that create
       // group_inbound_seen and group_inbound_floor. The handle is closed by
       // DBHelper.closeForWipe() in tearDown.
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 18);
-      // The v15/v16 steps must add the users.ratchetScheme cache and
-      // identity-verification columns, not just bump the version: a step
-      // that skipped the ALTER would pass a version-only assertion.
+      expect(uv.first.values.single, 19);
+      // The v15/v16/v19 steps must add the users.ratchetScheme cache, the
+      // identity-verification column and the cached relay advertisement, not
+      // just bump the version: a step that skipped the ALTER would pass a
+      // version-only assertion.
       final usersCols = await db.rawQuery('PRAGMA table_info(users)');
       expect(
         usersCols.map((c) => c['name']),
-        containsAll(['ratchetScheme', 'verifiedFingerprint']),
+        containsAll([
+          'ratchetScheme',
+          'verifiedFingerprint',
+          'relayAdvertisement',
+        ]),
       );
 
       final inbound = await db.rawQuery(
@@ -374,14 +379,19 @@ void main() {
       final db = await DBHelper.database;
 
       final uv = await db.rawQuery('PRAGMA user_version');
-      expect(uv.first.values.single, 18);
-      // The v15/v16 steps must add the users.ratchetScheme cache and
-      // identity-verification columns, not just bump the version: a step
-      // that skipped the ALTER would pass a version-only assertion.
+      expect(uv.first.values.single, 19);
+      // The v15/v16/v19 steps must add the users.ratchetScheme cache, the
+      // identity-verification column and the cached relay advertisement, not
+      // just bump the version: a step that skipped the ALTER would pass a
+      // version-only assertion.
       final usersCols = await db.rawQuery('PRAGMA table_info(users)');
       expect(
         usersCols.map((c) => c['name']),
-        containsAll(['ratchetScheme', 'verifiedFingerprint']),
+        containsAll([
+          'ratchetScheme',
+          'verifiedFingerprint',
+          'relayAdvertisement',
+        ]),
       );
 
       final cols = await db.rawQuery('PRAGMA table_info(group_inbound_seen)');

@@ -39,7 +39,8 @@ Future<Database> _openTestDb() async {
       publicKeyPem TEXT,
       identityJson TEXT,
       ratchetScheme TEXT,
-      verifiedFingerprint TEXT
+      verifiedFingerprint TEXT,
+      relayAdvertisement TEXT
     )
   ''');
   await db.execute('''

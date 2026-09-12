@@ -180,14 +180,16 @@ void main() {
     expect(File(path).existsSync(), isTrue);
 
     // The real open path: DatabaseCipher.prepare encrypts the plaintext
-    // fixture in place, then openDatabase(version: 18, onUpgrade) runs the
+    // fixture in place, then openDatabase(version: 19, onUpgrade) runs the
     // oldVersion < 14 step that creates group_pending_invites, the
     // oldVersion < 15 step that adds users.ratchetScheme and the
-    // oldVersion < 16 step that adds users.verifiedFingerprint. The handle
-    // is closed by DBHelper.closeForWipe() in tearDown.
+    // oldVersion < 16 step that adds users.verifiedFingerprint and the
+    // oldVersion < 19 step that adds users.relayAdvertisement plus
+    // relay_mailboxes. The handle is closed by DBHelper.closeForWipe() in
+    // tearDown.
     final db = await DBHelper.database;
 
-    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 18);
+    expect(Sqflite.firstIntValue(await db.rawQuery('PRAGMA user_version')), 19);
     expect(
       await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -195,12 +197,24 @@ void main() {
       ),
       hasLength(1),
     );
-    // The v15 step adds the ratchet-scheme cache column to users, and the
-    // v16 step adds the identity-verification column.
+    // The v15 step adds the ratchet-scheme cache column to users, the v16
+    // step adds the identity-verification column, and the v19 step adds the
+    // cached relay advertisement.
     final usersCols = await db.rawQuery('PRAGMA table_info(users)');
     expect(
       usersCols.map((c) => c['name']),
-      containsAll(['ratchetScheme', 'verifiedFingerprint']),
+      containsAll([
+        'ratchetScheme',
+        'verifiedFingerprint',
+        'relayAdvertisement',
+      ]),
+    );
+    expect(
+      await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        ['relay_mailboxes'],
+      ),
+      hasLength(1),
     );
     final groupCols = await db.rawQuery('PRAGMA table_info(groups)');
     expect(groupCols.map((c) => c['name']), contains('onlyAdminsCanAdd'));
@@ -216,6 +230,7 @@ void main() {
     expect(users.single['name'], 'Local');
     expect(users.single['ratchetScheme'], isNull);
     expect(users.single['verifiedFingerprint'], isNull);
+    expect(users.single['relayAdvertisement'], isNull);
     expect(
       (await db.query('group_sender_index')).single['nextIndex'],
       7,

@@ -420,8 +420,13 @@ fi
 if [ "$SERVE" -eq 0 ]; then
   log "leaving the relay stopped"
   log "start it later: docker exec -d $NAME sh -c 'prysm-relay serve --config $CONFIG >> $SERVE_LOG 2>&1'"
-elif docker exec "$NAME" sh -c 'pgrep -f "prysm-relay serve" >/dev/null 2>&1'; then
-  log "relay already serving"
+# `pgrep -f "prysm-relay serve"` would match the command line of the very
+# `sh -c` running it, so it always answers yes and the relay never gets
+# started on a reused container. The bracket makes the pattern unable to match
+# itself; the /proc check then proves it is really listening, not just alive.
+elif docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1' &&
+     docker exec "$NAME" bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" 2>/dev/null; then
+  log "relay already serving on 127.0.0.1:$PORT"
 else
   log "starting the relay"
   docker exec -d "$NAME" sh -c \

@@ -390,6 +390,13 @@ if docker exec "$NAME" sh -c "test -f $CONFIG"; then
     log "updating the onion in $CONFIG"
     docker exec "$NAME" sed -i "s|\"onion\": \"[^\"]*\"|\"onion\": \"$ONION\"|" "$CONFIG"
   fi
+  # Same for the port: the torrc written above maps the hidden service to
+  # 127.0.0.1:$PORT, so a stored config still holding the old port makes
+  # `serve` listen where Tor does not forward — an onion that answers nothing.
+  if ! docker exec "$NAME" grep -qE "\"port\": $PORT([,}]|\$)" "$CONFIG"; then
+    log "updating the port in $CONFIG to $PORT"
+    docker exec "$NAME" sed -i "s|\"port\": [0-9]*|\"port\": $PORT|" "$CONFIG"
+  fi
   FINGERPRINT="$(docker exec "$NAME" prysm-relay fingerprint --config "$CONFIG" | tr -d '\r\n')"
   TOKEN="$(docker exec "$NAME" prysm-relay token new --config "$CONFIG" --ttl "$TTL" | tr -d '\r\n')"
 else

@@ -59,7 +59,7 @@ Run it with no options on a terminal and it walks you through every choice.
                      survive `docker rm`
   --no-persist       opposite of --persist (default)
   --serve            start the relay once provisioned (default)
-  --no-serve         provision and initialise, but leave the relay stopped
+  --no-serve         provision and initialise, but do not start the relay
   --force            recreate the container if it already exists
   -i, --interactive  ask, even when not on a terminal
   -y, --yes          never ask: take the flags and the defaults
@@ -477,7 +477,20 @@ fi
 # ------------------------------------------------------------------ serve ----
 
 if [ "$SERVE" -eq 0 ]; then
-  log "leaving the relay stopped"
+  # `--no-serve` starts nothing *and* stops nothing, so the state has to be
+  # read, not assumed: a reused container can already be serving — with the
+  # config it started with, if this run edited it (the warning above). Saying
+  # "stopped" there sent the operator away believing no relay was answering.
+  if docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1'; then
+    if [ "$CONFIG_CHANGED" -eq 1 ]; then
+      log "leaving the relay running with the config it started with"
+    else
+      log "leaving the relay running on 127.0.0.1:$PORT"
+    fi
+    log "stop it: docker exec $NAME sh -c 'pkill -f \"[p]rysm-relay serve\"'"
+  else
+    log "leaving the relay stopped"
+  fi
   log "start it later: docker exec -d $NAME sh -c 'prysm-relay serve --config $CONFIG >> $SERVE_LOG 2>&1'"
 # `pgrep -f "prysm-relay serve"` would match the command line of the very
 # `sh -c` running it, so it always answers yes and the relay never gets

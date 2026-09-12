@@ -98,10 +98,13 @@ All writes are write-to-`<file>.<pid>.<n>.tmp` + `rename` (atomic, and the
 temp name is unique so two writers cannot rename each other's file away).
 `tokens.json` is additionally read-modify-written under `tokens.json.lock`,
 because `token new` runs in a second process while `serve` holds the list in
-memory, and `init` holds `init.lock` from its conflict checks through the
-identity, the config and the first token, so two `init` on one data dir cannot
-both pass the checks and overwrite each other's identity. The deposit index
-lives in memory, is rebuilt from disk at boot, and is persisted on change.
+memory; both locks also queue their work *inside* the relay process, because
+an `fcntl` lock belongs to the process and would let two `/pair` handlers
+write the file at once. `init` holds `init.lock` from its conflict checks
+through the identity, the config and the first token, so two `init` on one
+data dir cannot both pass the checks and overwrite each other's identity. The
+deposit index lives in memory, is rebuilt from disk at boot, and is persisted
+on change.
 `delete` removes the address, its items and its index entry, so a deleted
 address answers exactly like a never-existing one (`404 mailbox_unknown`);
 a registered-but-suspended address answers `403 mailbox_disabled`.

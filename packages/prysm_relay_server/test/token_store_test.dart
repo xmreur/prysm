@@ -53,6 +53,40 @@ void main() {
     expect(serving.findToken(fresh.token), isNotNull);
   });
 
+  test('the token lock also serialises two consumptions inside one process',
+      () async {
+    // Two `/pair` handlers inside one `serve`: a POSIX file lock is per
+    // *process*, so a second `lock()` on the same file returns immediately and
+    // both bodies used to run at once. Each writes `tokens.json` wholesale
+    // from a snapshot, so two overlapping writes can rename the staler one
+    // last and drop a `usedBy` - a single-use token reusable after a restart.
+    final store = await RelayStore.open(dir.path);
+    final a = await store.mintToken(ttlHours: 1, nowMs: 1000);
+    final b = await store.mintToken(ttlHours: 1, nowMs: 1000);
+    var inside = 0;
+    var maxInside = 0;
+
+    await Future.wait([
+      for (final (token, owner) in [(a.token, 'ownerA'), (b.token, 'ownerB')])
+        store.withTokenLock(() async {
+          inside++;
+          maxInside = inside > maxInside ? inside : maxInside;
+          await store.reloadTokens();
+          store.findToken(token)!.usedBy = owner;
+          // The real pair handler signs and stores the tenant here, so the
+          // snapshot `saveTokens` takes is far from the consumption above.
+          await Future<void>.delayed(Duration.zero);
+          await store.saveTokens();
+          inside--;
+        }),
+    ]);
+
+    expect(maxInside, 1, reason: 'the lock must exclude, not just advise');
+    final reopened = await RelayStore.open(dir.path);
+    expect(reopened.findToken(a.token)?.usedBy, 'ownerA');
+    expect(reopened.findToken(b.token)?.usedBy, 'ownerB');
+  });
+
   test('concurrent `token new` processes all land in the file', () async {
     // The cross-process guarantee, end to end: four CLIs minting at once.
     await RelayStore.open(dir.path);

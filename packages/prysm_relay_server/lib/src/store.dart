@@ -3,6 +3,7 @@
 /// memory, is rebuilt from disk at boot, and is persisted on change.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -226,9 +227,8 @@ class RelayStore {
   /// against a running relay can lose the token it just printed (or resurrect
   /// a consumed one), because each side writes what it believes the file is.
   ///
-  /// The lock is advisory and per-process (`fcntl`), which is exactly the
-  /// boundary that matters: inside one process the token list is a single
-  /// shared object, so an interleaving of two handlers cannot lose an entry.
+  /// Both boundaries are covered: [_withFileLock] takes the `fcntl` lock for
+  /// the other processes and queues the bodies for this one.
   Future<T> withTokenLock<T>(Future<T> Function() body) =>
       _withFileLock('$_tokensPath.lock', body);
 
@@ -238,8 +238,8 @@ class RelayStore {
   /// checks and then overwrite each other's identity, each printing the
   /// fingerprint it had generated - only one of which stayed on disk.
   ///
-  /// Per-process like [withTokenLock], which is the boundary that matters:
-  /// `init` is a CLI command, one per process.
+  /// Serialised in this process too, like [withTokenLock], even though `init`
+  /// is one per CLI process today.
   static Future<T> withInitLock<T>(
     String dataDir,
     Future<T> Function() body,
@@ -248,18 +248,44 @@ class RelayStore {
     return _withFileLock(p.join(dataDir, 'init.lock'), body);
   }
 
+  /// The file lock alone is not exclusion: `fcntl` locks are held by the
+  /// *process*, so a second `lock()` on the same file returns immediately and
+  /// two bodies ran at once. Both then rewrote the same file wholesale, and
+  /// two overlapping writes can rename the staler snapshot last - a `usedBy`
+  /// recorded by a concurrent `/pair` disappears, and a single-use token
+  /// works again after a restart. So bodies also queue per lock path here.
   static Future<T> _withFileLock<T>(
     String lockPath,
     Future<T> Function() body,
-  ) async {
-    final lock = await File(lockPath).open(mode: FileMode.write);
-    try {
-      await lock.lock(FileLock.blockingExclusive);
-      return await body();
-    } finally {
-      await lock.close();
+  ) {
+    Future<T> locked() async {
+      final lock = await File(lockPath).open(mode: FileMode.write);
+      try {
+        await lock.lock(FileLock.blockingExclusive);
+        return await body();
+      } finally {
+        await lock.close();
+      }
     }
+
+    // Registered before the first suspension, so callers queue in call order.
+    final key = p.canonicalize(lockPath);
+    final previous = _queues[key];
+    final released = Completer<void>();
+    _queues[key] = released.future;
+    final result = previous == null ? locked() : previous.then((_) => locked());
+    result.then((_) {}, onError: (_) {}).whenComplete(() {
+      // Only the last caller clears the slot; an error never propagates to the
+      // next body, which must still run.
+      if (_queues[key] == released.future) _queues.remove(key);
+      released.complete();
+    });
+    return result;
   }
+
+  /// One queue per lock path, process-wide: the lock's identity is the file,
+  /// not the [RelayStore] instance that opened it.
+  static final Map<String, Future<void>> _queues = {};
 
   /// Mints, persists and returns a token, all under [withTokenLock], merging
   /// whatever another process wrote first.

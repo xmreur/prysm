@@ -289,7 +289,11 @@ standalone binary:
   temp name MUST be unique per writer (`<file>.<pid>.<n>.tmp`): a shared name makes two concurrent
   writers rename each other's file away.
 - `tokens.json` MUST be read-modify-written under an exclusive `tokens.json.lock`: `token new` runs
-  in a different process from `serve`, and both rewrite the whole file.
+  in a different process from `serve`, and both rewrite the whole file. The lock MUST also exclude
+  *inside* the process: `fcntl` locks belong to the process, so two `/pair` handlers (or a handler
+  and the sweeper) otherwise run the read-modify-write at once and the staler of two overlapping
+  writes can be renamed last, dropping a `usedBy` and making a single-use token work again after a
+  restart. Same for `init.lock`.
 - `init` MUST hold an exclusive `init.lock` across its conflict checks (`config.json`,
   `identity.json`) *and* the writes that follow them: two concurrent `init` otherwise both pass the
   checks and overwrite each other's identity, leaving an operator advertising a fingerprint that is

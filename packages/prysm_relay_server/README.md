@@ -152,6 +152,11 @@ prysm_relay serve --config /var/lib/prysm-relay/config.json
 prysm_relay token new --config /var/lib/prysm-relay/config.json --ttl 72
 ```
 
+`tool/create_relay.sh` does all four steps in a container — compile, Tor,
+hidden service, `init`, `serve` — and prints the onion, the fingerprint and
+the setup token pairing needs. See
+[`tool/CREATE-RELAY.md`](tool/CREATE-RELAY.md).
+
 ## Notes / interpretations
 
 - The relay never validates that a deposit payload decrypts — it cannot; it

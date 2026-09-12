@@ -503,9 +503,26 @@ class RelayStore {
 
   // -- io ----------------------------------------------------------------------
 
+  /// Write-to-temp + `rename`, the atomic write this whole store is built on.
+  ///
+  /// The temp name carries the process id and a per-process counter: a fixed
+  /// `<path>.tmp` is shared state, and two writers of the same file (two
+  /// `prysm-relay` processes, or two concurrent handlers) raced on it - the
+  /// first `rename` moved the file out from under the second, which then died
+  /// with `PathNotFoundException`. Each writer now renames its own file, so
+  /// the loser of a race simply loses, atomically.
   Future<void> _writeJson(String path, Object? value) async {
-    final tmp = File('$path.tmp');
-    await tmp.writeAsString(jsonEncode(value), flush: true);
-    await tmp.rename(path);
+    final tmp = File('$path.$pid.${_writeSeq++}.tmp');
+    try {
+      await tmp.writeAsString(jsonEncode(value), flush: true);
+      await tmp.rename(path);
+    } finally {
+      if (tmp.existsSync()) await tmp.delete();
+    }
   }
+
+  /// Process-wide, not per store: two `RelayStore` instances in one process
+  /// open the same data dir (a CLI command next to a test, `open` twice), and
+  /// a per-instance counter hands them both the same temp name.
+  static int _writeSeq = 0;
 }

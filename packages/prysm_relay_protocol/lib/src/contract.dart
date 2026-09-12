@@ -135,10 +135,25 @@ class RelayContract {
   /// Only `reject` exists in v1: a full mailbox refuses the new deposit rather
   /// than dropping the oldest one, because losing the newest message is
   /// visible to its sender while losing the oldest is visible to nobody.
+  ///
+  /// An unknown value is refused rather than silently read as `reject`: a
+  /// relay announcing `drop-oldest` would be promising a policy the client
+  /// cannot enforce, and the owner must see that as a broken contract.
   final String overflow;
+
   final int issuedAt;
   final int? expiresAt;
   final String? sig;
+
+  static const String overflowReject = 'reject';
+
+  static String _parseOverflow(Object? raw) {
+    if (raw == null) return overflowReject;
+    if (raw == overflowReject) return overflowReject;
+    throw RelayError.badRequest(
+      'overflow must be "$overflowReject" in ${RelayProtocol.id}, not "$raw"',
+    );
+  }
 
   const RelayContract({
     required this.version,
@@ -149,7 +164,7 @@ class RelayContract {
     required this.tenancy,
     required this.limits,
     required this.issuedAt,
-    this.overflow = 'reject',
+    this.overflow = overflowReject,
     this.expiresAt,
     this.sig,
   });
@@ -217,7 +232,7 @@ class RelayContract {
       limits: RelayLimits.fromJson(
         RelayFields.object(json['limits'], field: 'limits'),
       ),
-      overflow: json['overflow'] is String ? json['overflow'] as String : 'reject',
+      overflow: _parseOverflow(json['overflow']),
       issuedAt: RelayFields.timestamp(json['issuedAt'], field: 'issuedAt'),
       expiresAt: expires as int?,
       sig: json['sig'] as String?,

@@ -239,7 +239,9 @@ paired against.
 
 `overflow:"reject"` is the only v1 policy: a full Mailbox refuses new deposits (`mailbox_full`,
 retryable) rather than silently dropping the oldest message. Losing the newest message is visible to
-the sender; losing the oldest is visible to nobody.
+the sender; losing the oldest is visible to nobody. A Contract carrying any other value MUST be
+refused (`bad_request`), never read as `reject`: a relay that announces `drop-oldest` is promising a
+policy the client cannot enforce.
 
 ## 5. Server config and storage
 

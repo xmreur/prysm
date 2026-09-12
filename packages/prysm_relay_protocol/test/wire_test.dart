@@ -78,6 +78,16 @@ void main() {
       (json['limits'] as Map<String, dynamic>)['someFutureKnob'] = 7;
       expect(RelayContract.fromJson(json).limits, RelayLimits.privateDefaults);
     });
+
+    test('an unsupported overflow policy is refused', () {
+      final json = build().toJson()..['overflow'] = 'drop-oldest';
+      expect(() => RelayContract.fromJson(json), throwsA(isA<RelayError>()));
+    });
+
+    test('a missing overflow reads as reject', () {
+      final json = build().toJson()..remove('overflow');
+      expect(RelayContract.fromJson(json).overflow, 'reject');
+    });
   });
 
   group('advertisement', () {

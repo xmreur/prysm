@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # create_relay.sh — provision a Prysm Relay node inside a container.
 #
+# Interactive by default on a terminal: it asks for every choice, pre-filled
+# with the current value, so Enter accepts and typing overrides. Flags act as
+# pre-answers, `--yes` skips the questions, and `--dry-run` prints the plan
+# without touching anything.
+#
 # Compiles the relay binary, creates the container, installs Tor, writes a
 # valid torrc, waits for the hidden service, initialises the relay and (unless
-# --no-serve) starts it. Prints the three values pairing needs: onion,
+# you say otherwise) starts it. Prints the three values pairing needs: onion,
 # fingerprint, setup token.
 #
 # Idempotent: re-running against an existing container reuses it, keeps the
@@ -17,6 +22,7 @@ NAME="prysm-relay"
 IMAGE="ubuntu:24.04"
 PORT="8443"
 TENANCY="private"
+ADMISSION="invite"
 DATA_DIR="/var/lib/prysm-relay"
 RELAY_DIR="/opt/relay"
 BINARY=""
@@ -27,6 +33,9 @@ PERSIST=0
 SERVE=1
 FORCE=0
 
+INTERACTIVE="auto"   # auto | yes | no
+DRY_RUN=0
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname -- "$SCRIPT_DIR")"
 TMP_BINARY=""
@@ -35,24 +44,39 @@ usage() {
   cat <<'USAGE'
 usage: create_relay.sh [options]
 
+Run it with no options on a terminal and it walks you through every choice.
+
   --name NAME        container name (default: prysm-relay)
   --image IMAGE      base image (default: ubuntu:24.04)
   --port PORT        relay port on container loopback (default: 8443)
-  --tenancy WHICH    private (one owner) or public (default: private)
+  --tenancy WHICH    private (one owner) | public (default: private)
+  --admission WHICH  invite (single-use tokens) | open | closed (default: invite)
   --data-dir PATH    relay data dir inside the container (default: /var/lib/prysm-relay)
   --binary PATH      use a prebuilt relay binary instead of compiling
   --ttl HOURS        setup token lifetime (default: 168)
+  --timeout SECONDS  how long to wait for the onion (default: 180)
   --persist          keep identity and onion in docker volumes, so they
                      survive `docker rm`
+  --no-persist       opposite of --persist (default)
+  --serve            start the relay once provisioned (default)
   --no-serve         provision and initialise, but leave the relay stopped
   --force            recreate the container if it already exists
-  --timeout SECONDS  how long to wait for the onion (default: 180)
+  -i, --interactive  ask, even when not on a terminal
+  -y, --yes          never ask: take the flags and the defaults
+  -n, --dry-run      print the plan and exit
   -h, --help         this text
 
 Everything runs inside the container: the relay listens on loopback only and
-Tor is its single ingress. Run this on a host that is NOT running the Prysm
-app, or keep it in a container as it is here — the app's Tor cleanup issues a
-broad `pkill -9 tor` and would kill a relay's Tor sharing its PID namespace.
+Tor is its single ingress. Keep it in a container (or on another machine) —
+the Prysm app's Tor cleanup issues a broad `pkill -9 tor` and would kill a
+relay's Tor sharing its PID namespace.
+
+examples
+  create_relay.sh                                  # ask me everything
+  create_relay.sh -y                               # private relay, defaults
+  create_relay.sh -y --persist --tenancy public    # public, survives docker rm
+  create_relay.sh -y --binary /tmp/prysm-relay     # skip dart, reuse a build
+  create_relay.sh --dry-run                        # show the plan only
 USAGE
 }
 
@@ -67,28 +91,179 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ------------------------------------------------------------------ flags ----
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --name)     NAME="${2:?--name needs a value}"; shift 2 ;;
-    --image)    IMAGE="${2:?--image needs a value}"; shift 2 ;;
-    --port)     PORT="${2:?--port needs a value}"; shift 2 ;;
-    --tenancy)  TENANCY="${2:?--tenancy needs a value}"; shift 2 ;;
-    --data-dir) DATA_DIR="${2:?--data-dir needs a value}"; shift 2 ;;
-    --binary)   BINARY="${2:?--binary needs a value}"; shift 2 ;;
-    --ttl)      TTL="${2:?--ttl needs a value}"; shift 2 ;;
-    --timeout)  ONION_TIMEOUT="${2:?--timeout needs a value}"; shift 2 ;;
-    --persist)  PERSIST=1; shift ;;
-    --no-serve) SERVE=0; shift ;;
-    --force)    FORCE=1; shift ;;
-    -h|--help)  usage; exit 0 ;;
-    *)          die "unknown option: $1 (try --help)" ;;
+    --name)        NAME="${2:?--name needs a value}"; shift 2 ;;
+    --image)       IMAGE="${2:?--image needs a value}"; shift 2 ;;
+    --port)        PORT="${2:?--port needs a value}"; shift 2 ;;
+    --tenancy)     TENANCY="${2:?--tenancy needs a value}"; shift 2 ;;
+    --admission)   ADMISSION="${2:?--admission needs a value}"; shift 2 ;;
+    --data-dir)    DATA_DIR="${2:?--data-dir needs a value}"; shift 2 ;;
+    --binary)      BINARY="${2:?--binary needs a value}"; shift 2 ;;
+    --ttl)         TTL="${2:?--ttl needs a value}"; shift 2 ;;
+    --timeout)     ONION_TIMEOUT="${2:?--timeout needs a value}"; shift 2 ;;
+    --persist)     PERSIST=1; shift ;;
+    --no-persist)  PERSIST=0; shift ;;
+    --serve)       SERVE=1; shift ;;
+    --no-serve)    SERVE=0; shift ;;
+    --force)       FORCE=1; shift ;;
+    -i|--interactive)          INTERACTIVE="yes"; shift ;;
+    -y|--yes|--non-interactive) INTERACTIVE="no"; shift ;;
+    -n|--dry-run)  DRY_RUN=1; shift ;;
+    -h|--help)     usage; exit 0 ;;
+    *)             die "unknown option: $1 (try --help)" ;;
   esac
 done
+
+if [ "$INTERACTIVE" = "auto" ]; then
+  if [ -t 0 ]; then INTERACTIVE="yes"; else INTERACTIVE="no"; fi
+fi
+
+# -------------------------------------------------------------- questions ----
+
+# ask VAR "prompt" — Enter keeps the current value of VAR.
+ask() {
+  local var="$1" prompt="$2" current reply
+  current="${!var}"
+  read -r -p "  $prompt [$current]: " reply || reply=""
+  if [ -n "$reply" ]; then printf -v "$var" '%s' "$reply"; fi
+}
+
+# ask_opt VAR "prompt" opt1 opt2 … — numbered menu, Enter keeps the current.
+ask_opt() {
+  local var="$1" prompt="$2"; shift 2
+  local -a opts=("$@")
+  local current="${!var}" reply i
+  printf '  %s\n' "$prompt"
+  for i in "${!opts[@]}"; do
+    if [ "${opts[$i]}" = "$current" ]; then
+      printf '    %d) %s  (current)\n' "$((i + 1))" "${opts[$i]}"
+    else
+      printf '    %d) %s\n' "$((i + 1))" "${opts[$i]}"
+    fi
+  done
+  read -r -p "  choice [$current]: " reply || reply=""
+  [ -n "$reply" ] || return 0
+  case "$reply" in
+    ''|*[!0-9]*)
+      ;;
+    *)
+      if [ "$reply" -ge 1 ] && [ "$reply" -le "${#opts[@]}" ]; then
+        printf -v "$var" '%s' "${opts[$((reply - 1))]}"
+        return 0
+      fi
+      ;;
+  esac
+  for i in "${!opts[@]}"; do
+    if [ "$reply" = "${opts[$i]}" ]; then
+      printf -v "$var" '%s' "$reply"
+      return 0
+    fi
+  done
+  warn "not one of the choices: $reply — keeping $current"
+}
+
+# ask_yn VAR "prompt" — VAR is 0/1.
+ask_yn() {
+  local var="$1" prompt="$2" current reply hint
+  current="${!var}"
+  if [ "$current" -eq 1 ]; then hint="Y/n"; else hint="y/N"; fi
+  read -r -p "  $prompt [$hint]: " reply || reply=""
+  case "$reply" in
+    y|Y|yes|YES|s|S|si|SI) printf -v "$var" '%s' 1 ;;
+    n|N|no|NO)             printf -v "$var" '%s' 0 ;;
+    "")                    ;;
+    *) warn "answer y or n — keeping the current choice" ;;
+  esac
+}
+
+if [ "$INTERACTIVE" = "yes" ]; then
+  printf '\n\033[1mPrysm Relay — provisioning\033[0m\n'
+  printf 'Enter keeps the value in brackets.\n\n'
+
+  ask NAME "container name"
+  ask_opt TENANCY "who may hold a Contract on this relay?" private public
+  ask_opt ADMISSION "how are new Contracts admitted?" invite open closed
+  ask PORT "relay port on the container's loopback"
+  ask_yn PERSIST "keep identity and onion in docker volumes (survive docker rm)?"
+  ask_yn SERVE "start serving once provisioned?"
+
+  ADVANCED=0
+  printf '\n'
+  ask_yn ADVANCED "change the advanced settings (image, data dir, binary, timeouts)?"
+  if [ "$ADVANCED" -eq 1 ]; then
+    printf '\n'
+    ask IMAGE "base image"
+    ask DATA_DIR "relay data dir inside the container"
+    ask BINARY "prebuilt relay binary (empty = compile it here)"
+    ask TTL "setup token lifetime, in hours"
+    ask ONION_TIMEOUT "seconds to wait for the onion"
+  fi
+  printf '\n'
+fi
+
+# ------------------------------------------------------------ validation ----
 
 case "$TENANCY" in
   private|public) ;;
   *) die "--tenancy must be private or public" ;;
 esac
+case "$ADMISSION" in
+  invite|open|closed) ;;
+  *) die "--admission must be invite, open or closed" ;;
+esac
+case "$PORT" in
+  ''|*[!0-9]*) die "--port must be a number" ;;
+esac
+case "$TTL" in
+  ''|*[!0-9]*) die "--ttl must be a number of hours" ;;
+esac
+case "$ONION_TIMEOUT" in
+  ''|*[!0-9]*) die "--timeout must be a number of seconds" ;;
+esac
+[ -n "$NAME" ] || die "the container name cannot be empty"
+[ -n "$DATA_DIR" ] || die "the data dir cannot be empty"
+if [ -n "$BINARY" ] && [ ! -f "$BINARY" ]; then
+  die "no such binary: $BINARY"
+fi
+
+CONFIG="$DATA_DIR/config.json"
+SERVE_LOG="$DATA_DIR/serve.log"
+
+plan() {
+  cat <<PLAN
+  container      $NAME  (image $IMAGE)
+  tenancy        $TENANCY
+  admission      $ADMISSION
+  relay port     127.0.0.1:$PORT  (Tor is the only ingress)
+  data dir       $DATA_DIR
+  tor dir        $RELAY_DIR
+  binary         $([ -n "$BINARY" ] && echo "$BINARY" || echo "compiled from $PACKAGE_DIR")
+  token ttl      ${TTL}h
+  onion wait     up to ${ONION_TIMEOUT}s
+  persistence    $([ "$PERSIST" -eq 1 ] && echo "docker volumes ${NAME}-data, ${NAME}-hs" || echo "none: identity and onion die with the container")
+  after provisioning  $([ "$SERVE" -eq 1 ] && echo "start serving" || echo "leave stopped")
+  existing container  $([ "$FORCE" -eq 1 ] && echo "recreate (--force)" || echo "reuse")
+PLAN
+}
+
+printf '\033[1mplan\033[0m\n'
+plan
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '\ndry run: nothing was created.\n'
+  exit 0
+fi
+
+if [ "$INTERACTIVE" = "yes" ]; then
+  GO=1
+  printf '\n'
+  ask_yn GO "go ahead?"
+  [ "$GO" -eq 1 ] || { printf 'aborted, nothing was created.\n'; exit 0; }
+fi
+printf '\n'
 
 command -v docker >/dev/null 2>&1 || die "docker not found in PATH"
 docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon"
@@ -96,7 +271,6 @@ docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon"
 # ---------------------------------------------------------------- binary ----
 
 if [ -n "$BINARY" ]; then
-  [ -f "$BINARY" ] || die "no such binary: $BINARY"
   log "using prebuilt binary $BINARY"
 else
   command -v dart >/dev/null 2>&1 ||
@@ -205,7 +379,6 @@ log "onion: $ONION"
 
 # ------------------------------------------------------------------ relay ----
 
-CONFIG="$DATA_DIR/config.json"
 FINGERPRINT=""
 TOKEN=""
 
@@ -231,14 +404,22 @@ else
   fi
 fi
 
+# `init` always writes admission: invite. Anything else is a config edit, and
+# `serve` fails loudly at load on a value it does not know.
+if ! docker exec "$NAME" grep -q "\"admission\": \"$ADMISSION\"" "$CONFIG"; then
+  log "setting admission=$ADMISSION"
+  docker exec "$NAME" sed -i \
+    "s|\"admission\": \"[^\"]*\"|\"admission\": \"$ADMISSION\"|" "$CONFIG"
+fi
+
 [ -n "$FINGERPRINT" ] || die "could not read the relay fingerprint"
 [ -n "$TOKEN" ] || die "could not obtain a setup token"
 
 # ------------------------------------------------------------------ serve ----
 
-SERVE_LOG="$DATA_DIR/serve.log"
 if [ "$SERVE" -eq 0 ]; then
-  log "leaving the relay stopped (--no-serve)"
+  log "leaving the relay stopped"
+  log "start it later: docker exec -d $NAME sh -c 'prysm-relay serve --config $CONFIG >> $SERVE_LOG 2>&1'"
 elif docker exec "$NAME" sh -c 'pgrep -f "prysm-relay serve" >/dev/null 2>&1'; then
   log "relay already serving"
 else

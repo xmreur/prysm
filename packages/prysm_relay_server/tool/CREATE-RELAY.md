@@ -16,33 +16,94 @@ bringing one up.
 packages/prysm_relay_server/tool/create_relay.sh
 ```
 
-That is the whole happy path: compile, container, Tor, hidden service,
-`init`, `serve`. Expect ~1 minute, most of it Tor publishing the service.
+On a terminal that asks you every choice, one at a time, pre-filled with the
+current value: Enter accepts, typing overrides, menus take a number or the
+word. It then prints the plan and waits for a final confirmation before
+touching anything. Expect ~1 minute, most of it Tor publishing the service.
 
-```sh
-# keep the identity and the onion across `docker rm`
-tool/create_relay.sh --persist
+```
+Prysm Relay — provisioning
+Enter keeps the value in brackets.
 
-# provision and initialise, but do not start serving yet
-tool/create_relay.sh --no-serve
+  container name [prysm-relay]:
+  who may hold a Contract on this relay?
+    1) private  (current)
+    2) public
+  choice [private]:
+  how are new Contracts admitted?
+    1) invite  (current)
+    2) open
+    3) closed
+  choice [invite]:
+  relay port on the container's loopback [8443]:
+  keep identity and onion in docker volumes (survive docker rm)? [y/N]:
+  start serving once provisioned? [Y/n]:
 
-# a public relay on another port, with a 72 h token
-tool/create_relay.sh --tenancy public --port 9443 --ttl 72
-
-# reuse a binary you already compiled, skip dart entirely
-tool/create_relay.sh --binary /tmp/prysm-relay
-
-# start over from scratch
-tool/create_relay.sh --force
+  change the advanced settings (image, data dir, binary, timeouts)? [y/N]:
 ```
 
-`--help` lists every option.
+Say yes to the last one and it also asks for the base image, the data dir, a
+prebuilt binary, the token lifetime and the onion timeout. Every answer is
+validated: a menu answer outside the list keeps the current value and warns, a
+non-numeric port or a missing binary stops the run before anything is created.
+
+### Or pass it all as flags
+
+Flags are pre-answers: give some and the wizard asks only about the rest, or
+add `-y` to skip the questions entirely.
+
+```sh
+# no questions, defaults: private relay, invite-only, ephemeral, serving
+tool/create_relay.sh -y
+
+# show the plan and exit, create nothing
+tool/create_relay.sh --dry-run
+
+# keep the identity and the onion across `docker rm`
+tool/create_relay.sh -y --persist
+
+# provision and initialise, but do not start serving yet
+tool/create_relay.sh -y --no-serve
+
+# a public, openly admitting relay on another port, with a 24 h token
+tool/create_relay.sh -y --tenancy public --admission open --port 9443 --ttl 24
+
+# reuse a binary you already compiled, skip dart entirely
+tool/create_relay.sh -y --binary /tmp/prysm-relay
+
+# a second relay beside the first, on its own container and volumes
+tool/create_relay.sh -y --name relay-b --port 9443 --persist
+
+# start over from scratch
+tool/create_relay.sh -y --force
+
+# ask even when stdin is not a terminal
+tool/create_relay.sh -i
+```
+
+| Option | Choices | Default |
+|---|---|---|
+| `--name` | any container name | `prysm-relay` |
+| `--image` | any Debian-family image | `ubuntu:24.04` |
+| `--port` | the loopback port Tor maps to | `8443` |
+| `--tenancy` | `private` (one owner) \| `public` | `private` |
+| `--admission` | `invite` (single-use tokens) \| `open` \| `closed` | `invite` |
+| `--data-dir` | data dir inside the container | `/var/lib/prysm-relay` |
+| `--binary` | a prebuilt relay exe | compile from this package |
+| `--ttl` | token lifetime, hours | `168` |
+| `--timeout` | seconds to wait for the onion | `180` |
+| `--persist` / `--no-persist` | identity and onion in docker volumes | `--no-persist` |
+| `--serve` / `--no-serve` | start serving when done | `--serve` |
+| `--force` | recreate an existing container | reuse it |
+| `-i` / `-y` | always ask / never ask | ask on a terminal |
+| `-n`, `--dry-run` | print the plan and exit | off |
 
 Re-running is safe: an existing container is reused, an existing relay keeps
 its identity, and you simply get a fresh token. With `--persist`, recreating
 the container also means a **new onion**, so the script rewrites the `onion`
 field in `config.json` to match — otherwise `serve` would advertise an address
-nobody answers.
+nobody answers. `--admission` is applied the same way, because `init` always
+writes `invite`.
 
 ## What it does, in order
 

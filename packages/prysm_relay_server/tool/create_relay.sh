@@ -337,7 +337,7 @@ docker exec "$NAME" mkdir -p "$RELAY_DIR/tordata" "$RELAY_DIR/hs" "$DATA_DIR"
 # readable, and the Debian package owns /var/lib/tor as debian-tor — which is
 # why both live under $RELAY_DIR, owned by root, instead.
 docker exec "$NAME" chmod 700 "$RELAY_DIR/tordata" "$RELAY_DIR/hs"
-docker exec -i "$NAME" tee "$RELAY_DIR/torrc" >/dev/null <<TORRC
+docker exec -i "$NAME" tee "$RELAY_DIR/torrc.new" >/dev/null <<TORRC
 SocksPort 0
 DataDirectory $RELAY_DIR/tordata
 HiddenServiceDir $RELAY_DIR/hs
@@ -348,6 +348,18 @@ HiddenServiceEnableIntroDoSDefense 1
 Log notice file $RELAY_DIR/tor.log
 TORRC
 
+# A running tor keeps serving the torrc it started with, so a changed one
+# (typically a new --port) has to be handed to it explicitly. Compare with
+# the shell alone: no assumption about cmp/diff being in the image.
+TORRC_CHANGED=0
+if docker exec "$NAME" sh -c \
+     "[ -f $RELAY_DIR/torrc ] && [ \"\$(cat $RELAY_DIR/torrc)\" = \"\$(cat $RELAY_DIR/torrc.new)\" ]"; then
+  docker exec "$NAME" rm -f "$RELAY_DIR/torrc.new"
+else
+  docker exec "$NAME" mv "$RELAY_DIR/torrc.new" "$RELAY_DIR/torrc"
+  TORRC_CHANGED=1
+fi
+
 # A torrc broken by a bad paste is the classic failure here, and a detached
 # `docker exec -d` swallows the parse error: validate before starting.
 docker exec "$NAME" tor -f "$RELAY_DIR/torrc" --verify-config >/dev/null ||
@@ -355,7 +367,12 @@ docker exec "$NAME" tor -f "$RELAY_DIR/torrc" --verify-config >/dev/null ||
 log "torrc validated"
 
 if docker exec "$NAME" sh -c 'pgrep -x tor >/dev/null 2>&1'; then
-  log "tor already running"
+  if [ "$TORRC_CHANGED" -eq 1 ]; then
+    log "torrc changed: reloading tor"
+    docker exec "$NAME" pkill -HUP -x tor || true
+  else
+    log "tor already running"
+  fi
 else
   log "starting tor"
   docker exec -d "$NAME" tor -f "$RELAY_DIR/torrc"
@@ -381,6 +398,7 @@ log "onion: $ONION"
 
 FINGERPRINT=""
 TOKEN=""
+CONFIG_CHANGED=0
 
 if docker exec "$NAME" sh -c "test -f $CONFIG"; then
   log "relay already initialised, keeping its identity"
@@ -389,6 +407,7 @@ if docker exec "$NAME" sh -c "test -f $CONFIG"; then
   if ! docker exec "$NAME" grep -q "\"onion\": \"$ONION\"" "$CONFIG"; then
     log "updating the onion in $CONFIG"
     docker exec "$NAME" sed -i "s|\"onion\": \"[^\"]*\"|\"onion\": \"$ONION\"|" "$CONFIG"
+    CONFIG_CHANGED=1
   fi
   # Same for the port: the torrc written above maps the hidden service to
   # 127.0.0.1:$PORT, so a stored config still holding the old port makes
@@ -396,6 +415,7 @@ if docker exec "$NAME" sh -c "test -f $CONFIG"; then
   if ! docker exec "$NAME" grep -qE "\"port\": $PORT([,}]|\$)" "$CONFIG"; then
     log "updating the port in $CONFIG to $PORT"
     docker exec "$NAME" sed -i "s|\"port\": [0-9]*|\"port\": $PORT|" "$CONFIG"
+    CONFIG_CHANGED=1
   fi
   FINGERPRINT="$(docker exec "$NAME" prysm-relay fingerprint --config "$CONFIG" | tr -d '\r\n')"
   TOKEN="$(docker exec "$NAME" prysm-relay token new --config "$CONFIG" --ttl "$TTL" | tr -d '\r\n')"
@@ -417,10 +437,40 @@ if ! docker exec "$NAME" grep -q "\"admission\": \"$ADMISSION\"" "$CONFIG"; then
   log "setting admission=$ADMISSION"
   docker exec "$NAME" sed -i \
     "s|\"admission\": \"[^\"]*\"|\"admission\": \"$ADMISSION\"|" "$CONFIG"
+  CONFIG_CHANGED=1
 fi
 
 [ -n "$FINGERPRINT" ] || die "could not read the relay fingerprint"
 [ -n "$TOKEN" ] || die "could not obtain a setup token"
+
+# `serve` reads the config exactly once, at startup. A relay left running
+# across a config edit keeps the old rules: `--admission closed` would still
+# hand out Contracts, and a rewritten port would still listen where Tor no
+# longer forwards.
+if [ "$CONFIG_CHANGED" -eq 1 ] &&
+   docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1'; then
+  if [ "$SERVE" -eq 1 ]; then
+    log "config changed: stopping the running relay so it restarts with it"
+    docker exec "$NAME" sh -c 'pkill -f "[p]rysm-relay serve"' || true
+    waited=0
+    while [ "$waited" -lt 10 ] &&
+          docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1'; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    # Two relays on one data dir is worse than a hard kill: everything the
+    # relay owns is already on disk (atomic writes), so an old binary that
+    # ignores SIGTERM gets SIGKILL rather than keeping the old port.
+    if docker exec "$NAME" sh -c 'pgrep -f "[p]rysm-relay serve" >/dev/null 2>&1'; then
+      warn "the running relay ignored SIGTERM after ${waited}s; sending SIGKILL"
+      docker exec "$NAME" sh -c 'pkill -KILL -f "[p]rysm-relay serve"' || true
+      sleep 1
+    fi
+  else
+    warn "a relay is running with the previous config and --no-serve was given:"
+    warn "restart it yourself to apply the change"
+  fi
+fi
 
 # ------------------------------------------------------------------ serve ----
 

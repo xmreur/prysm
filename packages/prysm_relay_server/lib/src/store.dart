@@ -10,6 +10,8 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 
+import 'permissions.dart';
+
 class MailboxPolicy {
   MailboxPolicy({
     this.label,
@@ -162,7 +164,7 @@ class RelayStore {
   static Future<RelayStore> open(String dataDir) async {
     final store = RelayStore(dataDir);
     await Directory(dataDir).create(recursive: true);
-    await store._restrict(dataDir, '700');
+    await restrictPath(dataDir, '700');
     await Directory(p.join(dataDir, 'tenants')).create(recursive: true);
     await store._loadTokens();
     await store._loadTenants();
@@ -505,14 +507,5 @@ class RelayStore {
     final tmp = File('$path.tmp');
     await tmp.writeAsString(jsonEncode(value), flush: true);
     await tmp.rename(path);
-  }
-
-  Future<void> _restrict(String path, String mode) async {
-    if (Platform.isWindows) return;
-    try {
-      await Process.run('chmod', [mode, path]);
-    } catch (_) {
-      // Best effort; the atomic rename is the guarantee.
-    }
   }
 }

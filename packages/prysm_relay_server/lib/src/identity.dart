@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 
+import 'permissions.dart';
+
 class RelayKeyPair {
   RelayKeyPair({
     required SimpleKeyPair signKeyPair,
@@ -85,11 +87,14 @@ class RelayKeyPair {
       'agreePublic': base64Encode(keys.agreePublic),
       'fingerprint': keys.fingerprint,
     };
+    // The mode is tightened on an empty file, *before* the seeds land in it:
+    // a chmod that fails must not leave a readable copy of the private key.
     final tmp = File('$path.tmp');
+    await tmp.create(recursive: true);
+    await restrictPath(tmp.path, '600');
     await tmp.writeAsString(jsonEncode(doc), flush: true);
-    await _restrict(tmp.path, '600');
     await tmp.rename(path);
-    await _restrict(path, '600');
+    await restrictPath(path, '600');
     return keys;
   }
 
@@ -133,13 +138,4 @@ class RelayKeyPair {
 
   Future<String> sign(List<int> message) =>
       RelaySigning.sign(message, _signKeyPair);
-
-  static Future<void> _restrict(String path, String mode) async {
-    if (Platform.isWindows) return;
-    try {
-      await Process.run('chmod', [mode, path]);
-    } catch (_) {
-      // Best effort: the atomic rename is the guarantee, the mode is hygiene.
-    }
-  }
 }

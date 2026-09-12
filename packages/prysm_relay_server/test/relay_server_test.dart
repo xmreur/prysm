@@ -482,6 +482,44 @@ void main() {
       expect(h.server.store.usageOf(victim.fpr).items, 1);
       expect(h.server.store.usageOf(attacker.fpr).items, 0);
     });
+
+    test('a per-mailbox quota above the contract is refused', () async {
+      final h = await _server(limits: _limits(maxMailboxItems: 2));
+      final owner = await _Owner.create();
+      await _pair(h, owner);
+      final deposit = _deposit();
+      final r = await _post(
+        h.server,
+        RelayProtocol.pathMailbox,
+        {
+          'protocol': RelayProtocol.id,
+          'op': 'put',
+          'deposit': deposit,
+          'maxItems': 1000,
+        },
+        owner: owner,
+        timestampMs: h.nowMs,
+      );
+      expect(r.status, 400);
+      expect(r.body['error'], 'bad_request');
+      expect(h.server.store.tenants[owner.fpr]!.mailboxes, isEmpty);
+
+      // Tightening is the point of the field, so it still works.
+      h.nowMs++;
+      await _mailbox(h, owner, {
+        'op': 'put',
+        'deposit': deposit,
+        'maxItems': 1,
+      });
+      for (var i = 0; i < 2; i++) {
+        final stored = await _post(h.server, RelayProtocol.pathDeposit, {
+          'protocol': RelayProtocol.id,
+          'deposit': deposit,
+          'payload': await _sealed(owner, 'm$i'),
+        });
+        expect(stored.status, i == 0 ? 200 : 507);
+      }
+    });
   });
 
   group('deposit', () {

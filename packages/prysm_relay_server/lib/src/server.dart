@@ -353,9 +353,19 @@ class RelayServer {
     switch (cmd.op) {
       case RelayMailboxOp.put:
         final deposit = cmd.deposit!;
+        final limits = tenant.limits();
         if (!tenant.mailboxes.containsKey(deposit) &&
-            tenant.mailboxes.length >= tenant.limits().maxMailboxes) {
+            tenant.mailboxes.length >= limits.maxMailboxes) {
           throw RelayError.badRequest('mailbox limit reached');
+        }
+        // A per-mailbox quota may only tighten what the relay signed: the
+        // deposit path reads `policy.maxItems ?? limits.maxMailboxItems`, so
+        // accepting a larger value would let the owner raise its own ceiling.
+        if ((cmd.maxItems ?? 0) > limits.maxMailboxItems ||
+            (cmd.maxBytes ?? 0) > limits.maxTenantBytes) {
+          throw RelayError.badRequest(
+            'maxItems/maxBytes must not exceed the contract limits',
+          );
         }
         final prev = tenant.mailboxes[deposit];
         await store.putMailbox(

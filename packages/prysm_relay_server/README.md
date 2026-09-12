@@ -84,6 +84,7 @@ Single JSON file (no YAML parser on the server by design):
   config.json                     (written by init; live where you put it)
   tokens.json                     [{token, createdAt, expiresAt, usedBy?}]
   tokens.json.lock                held while tokens.json is read-modify-written
+  init.lock                       held by `init` for the whole of its work
   index.json                      {depositHex: ownerFingerprint}
   tenants/<ownerFingerprint>/
     contract.json                 signed contract (served verbatim)
@@ -97,8 +98,10 @@ All writes are write-to-`<file>.<pid>.<n>.tmp` + `rename` (atomic, and the
 temp name is unique so two writers cannot rename each other's file away).
 `tokens.json` is additionally read-modify-written under `tokens.json.lock`,
 because `token new` runs in a second process while `serve` holds the list in
-memory. The deposit index lives in memory, is rebuilt from disk at boot, and
-is persisted on change.
+memory, and `init` holds `init.lock` from its conflict checks through the
+identity, the config and the first token, so two `init` on one data dir cannot
+both pass the checks and overwrite each other's identity. The deposit index
+lives in memory, is rebuilt from disk at boot, and is persisted on change.
 `delete` removes the address, its items and its index entry, so a deleted
 address answers exactly like a never-existing one (`404 mailbox_unknown`);
 a registered-but-suspended address answers `403 mailbox_disabled`.
@@ -115,8 +118,9 @@ Semantics worth knowing:
   error. Unpair needs `{"confirm": true}` and reports `deletedItems`.
 - `mailbox put` preserves the `enabled` flag of an existing mailbox (a new
   address starts enabled); `maxItems`/`maxBytes` narrow the contract
-  ceilings per address. `list` returns per-mailbox items/bytes/enabled/
-  oldestExpiresAt.
+  ceilings per address and cannot outlive them: a renewal that lowers
+  `maxMailboxItems` clamps a wider stored cap at deposit time. `list` returns
+  per-mailbox items/bytes/enabled/oldestExpiresAt.
 - Rate limits are fixed windows keyed `deposit:<hex>` (deposit),
   `owner:<fpr>` (pickup) and `pair:<fpr>` (pair) — never an IP.
 - The sweeper (every 60 s) deletes expired items and drops used/expired

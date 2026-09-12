@@ -1,0 +1,9 @@
+# Pure Dart package: no Flutter lints, no Flutter dependency.
+linter:
+  rules:
+    - avoid_empty_else
+    - avoid_relative_lib_imports
+    - await_only_futures
+    - cancel_subscriptions
+    - prefer_final_locals
+    - unnecessary_brace_in_string_interps

@@ -1,0 +1,23 @@
+name: prysm_relay_server
+description: Standalone store-and-forward Relay for Prysm (prysm-relay/1).
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  args: ^2.7.0
+  collection: ^1.19.1
+  crypto: ^3.0.7
+  cryptography: ^2.7.0
+  http: ^1.6.0
+  meta: ^1.18.0
+  path: ^1.9.0
+  prysm_relay_protocol:
+    path: ../prysm_relay_protocol
+  shelf: ^1.4.0
+  uuid: ^4.5.0
+
+dev_dependencies:
+  test: ^1.29.0

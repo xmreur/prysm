@@ -29,17 +29,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
-      # Pure-Dart relay packages: the root `flutter pub get` resolves
-      # prysm_relay_protocol (a path dep of the app) but neither analyzes nor
-      # tests it, and prysm_relay_server must never become an app dependency —
-      # it is a standalone binary, covered here only by analyze+test.
+      # Pure-Dart relay packages, resolved and checked BEFORE the root steps:
+      # the root `flutter pub get` resolves prysm_relay_protocol as a path dep
+      # but writes no `.dart_tool` inside either package, and `flutter analyze`
+      # walks their `test/` directories — without their own `dart pub get` it
+      # cannot see `package:test` and fails with hundreds of undefined_function
+      # errors. prysm_relay_server must never become an app dependency: it is a
+      # standalone binary, covered here only by analyze+test.
       # `dart` is the one bundled in the Flutter SDK above: no second toolchain.
+      # `--offline` is deliberately absent: CI starts with an empty pub cache.
       - name: Analyze and test relay protocol
         working-directory: packages/prysm_relay_protocol
         run: dart pub get && dart analyze && dart test
@@ -47,6 +45,12 @@ jobs:
       - name: Analyze and test relay server
         working-directory: packages/prysm_relay_server
         run: dart pub get && dart analyze && dart test
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
 
       - name: L3 harness coverage notice
         run: |

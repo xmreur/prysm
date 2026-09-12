@@ -8,21 +8,43 @@ import 'dart:convert';
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 import 'package:shelf/shelf.dart';
 
-/// Seen signature digests. Entries older than the replay window are evicted on
-/// every check, so a prober replaying old signatures cannot grow the map
-/// without bound.
+/// Seen signature digests, capped. A digest older than the replay window is
+/// dropped; the happy path touches one entry, and the whole map is only
+/// scanned when the cap is reached.
 class RelayAuthCache {
+  RelayAuthCache({this.maxEntries = 8192});
+
+  /// Ceiling on tracked digests. Reaching it means a paired owner is sending
+  /// faster than the 600 s window retires signatures.
+  // ponytail: one flat cap; per-owner accounting only if a real deployment
+  // shows one tenant starving another.
+  final int maxEntries;
+
   final Map<String, int> _seen = {};
 
   int get tracked => _seen.length;
 
   /// Returns true when [digestHex] was already seen inside the window (and
   /// records nothing); otherwise records it and returns false.
+  ///
+  /// Throws `rate_limited` when the cache is saturated with live digests:
+  /// dropping one to make room would silently turn off replay protection.
   bool checkAndAdd(String digestHex, int nowMs) {
-    _seen.removeWhere(
-      (_, seenAt) => nowMs - seenAt > RelayProtocol.replayWindow.inMilliseconds,
-    );
-    if (_seen.containsKey(digestHex)) return true;
+    final windowMs = RelayProtocol.replayWindow.inMilliseconds;
+    final seenAt = _seen[digestHex];
+    if (seenAt != null) {
+      if (nowMs - seenAt <= windowMs) return true;
+      _seen.remove(digestHex);
+    }
+    if (_seen.length >= maxEntries) {
+      _seen.removeWhere((_, at) => nowMs - at > windowMs);
+      if (_seen.length >= maxEntries) {
+        throw const RelayError(
+          RelayErrorCode.rateLimited,
+          'too many signatures in flight; try again later',
+        );
+      }
+    }
     _seen[digestHex] = nowMs;
     return false;
   }

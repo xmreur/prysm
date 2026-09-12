@@ -350,12 +350,25 @@ class RelayStore {
 
   // -- mailboxes ---------------------------------------------------------------
 
+  /// [depositIndex] is the routing table every deposit is resolved through, so
+  /// a tenant that could write another tenant's entry would take over that
+  /// owner's channel (deposits landing in the wrong mailbox, the real owner
+  /// seeing none). Addresses are 32 random bytes, so a clash is either an
+  /// attack or a lottery win; either way it is refused, never reassigned.
+  void _requireDepositOwner(String ownerFpr, String deposit) {
+    final holder = depositIndex[deposit];
+    if (holder != null && holder != ownerFpr) {
+      throw RelayError.badRequest('deposit address is already registered');
+    }
+  }
+
   Future<void> putMailbox(
     String ownerFpr,
     String deposit,
     MailboxPolicy policy,
   ) async {
     RelayFields.depositAddress(deposit);
+    _requireDepositOwner(ownerFpr, deposit);
     tenants[ownerFpr]?.mailboxes[deposit] = policy;
     await Directory(_itemsDir(ownerFpr, deposit)).create(recursive: true);
     await _writeJson(
@@ -368,6 +381,7 @@ class RelayStore {
 
   /// Deletes the mailbox, its items and its index entry. Returns items died.
   Future<int> removeMailbox(String ownerFpr, String deposit) async {
+    _requireDepositOwner(ownerFpr, deposit);
     final tenant = tenants[ownerFpr];
     var died = 0;
     if (tenant != null) {

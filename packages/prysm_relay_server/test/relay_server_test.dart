@@ -401,6 +401,41 @@ void main() {
     });
   });
 
+  group('mailbox', () {
+    test('a second tenant cannot claim an address already registered',
+        () async {
+      final h = await _server(tenancy: RelayTenancy.public);
+      final victim = await _Owner.create();
+      final attacker = await _Owner.create();
+      await _pair(h, victim);
+      await _pair(h, attacker);
+      final deposit = _deposit();
+      await _mailbox(h, victim, {'op': 'put', 'deposit': deposit});
+
+      final stolen = await _post(
+        h.server,
+        RelayProtocol.pathMailbox,
+        {'protocol': RelayProtocol.id, 'op': 'put', 'deposit': deposit},
+        owner: attacker,
+        timestampMs: h.nowMs,
+      );
+      expect(stolen.status, 400);
+      expect(stolen.body['error'], 'bad_request');
+      expect(h.server.store.depositIndex[deposit], victim.fpr);
+
+      // The channel still belongs to its owner: the deposit lands where the
+      // victim picks up, not in the attacker's mailbox.
+      final stored = await _post(h.server, RelayProtocol.pathDeposit, {
+        'protocol': RelayProtocol.id,
+        'deposit': deposit,
+        'payload': await _sealed(victim, 'still mine'),
+      });
+      expect(stored.status, 200);
+      expect(h.server.store.usageOf(victim.fpr).items, 1);
+      expect(h.server.store.usageOf(attacker.fpr).items, 0);
+    });
+  });
+
   group('deposit', () {
     test('unknown address answers 404 mailbox_unknown', () async {
       final h = await _server();

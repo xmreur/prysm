@@ -256,6 +256,9 @@ the sender; losing the oldest is visible to nobody.
 }
 ```
 
+`bind` MUST be a loopback address: the only reachable surface of a Relay is its hidden service, so
+a routable listener is refused at config load (`init` and `serve` both).
+
 Storage is the filesystem — no SQLite, no native dependency, so `dart compile exe` yields a truly
 standalone binary:
 

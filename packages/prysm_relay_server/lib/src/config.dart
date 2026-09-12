@@ -2,6 +2,8 @@
 /// fails loudly on a bad config.
 library;
 
+import 'dart:io';
+
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 
 /// Fixed-window quotas from spec §5. Keys are always application identities
@@ -108,6 +110,21 @@ class RelayConfig {
         terms: '',
       );
 
+  /// The relay is onion-only: Tor connects to it over loopback, and nothing
+  /// else is supposed to reach it at all. A `0.0.0.0` listener contradicts
+  /// every privacy claim in the docs, so it is refused rather than warned
+  /// about. Split Tor and relay across containers with a shared network
+  /// namespace (`--network container:<tor>`), not with a public listener.
+  static void requireLoopbackBind(String bind) {
+    if (bind == 'localhost') return;
+    final address = InternetAddress.tryParse(bind);
+    if (address != null && address.isLoopback) return;
+    throw RelayError.badRequest(
+      '"bind" must be a loopback address (127.0.0.1, ::1 or localhost), '
+      'not "$bind": the relay is reachable only through its hidden service',
+    );
+  }
+
   factory RelayConfig.fromJson(Map<String, dynamic> json) {
     try {
       return _parse(json);
@@ -136,6 +153,7 @@ class RelayConfig {
     if (bind is! String || bind.isEmpty) {
       throw RelayError.badRequest('"bind" must be a non-empty string');
     }
+    requireLoopbackBind(bind);
     final port = json['port'];
     if (port is! int || port <= 0 || port > 65535) {
       throw RelayError.badRequest('"port" must be 1..65535');

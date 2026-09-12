@@ -64,6 +64,11 @@ Single JSON file (no YAML parser on the server by design):
   loudly at load.
 - `onion` may be empty in the file (init before Tor exists), but `serve`
   refuses to start until it is a real v3 onion.
+- `bind` must be a loopback address (`127.0.0.1`, `::1`, `localhost`);
+  anything routable is refused at load, by `init` and by `serve` alike. The
+  relay is reachable only through its hidden service, and Tor connects to it
+  over loopback. To split Tor and the relay across two containers, share one
+  network namespace (`docker run --network container:<tor> …`).
 - `logLevel: counters` (default) never logs a deposit address beyond its
   first 6 hex chars, never a payload, never an owner onion; owner
   fingerprints are truncated to 8 chars. `debug` relaxes this and prints a

@@ -76,6 +76,9 @@ class _InitCommand extends Command<void> {
   Future<void> run() async {
     final r = argResults!;
     final dataDir = r['data-dir'] as String;
+    // Rejected here, not at the first `serve`: a config `serve` will refuse to
+    // load is not a config worth writing.
+    RelayConfig.requireLoopbackBind(r['bind'] as String);
     await Directory(dataDir).create(recursive: true);
     final config = RelayConfig.defaults(
       dataDir: Directory(dataDir).absolute.path,

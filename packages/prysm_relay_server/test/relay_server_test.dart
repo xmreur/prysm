@@ -95,7 +95,11 @@ Future<_Harness> _server({
 
 /// A restart with an edited config: same identity and data dir, new policy.
 /// This is how an operator revokes an owner - edit `config.json`, restart.
-Future<_Harness> _restart(_Harness h, {List<String>? allowedOwners}) async {
+Future<_Harness> _restart(
+  _Harness h, {
+  List<String>? allowedOwners,
+  RelayLimits? limits,
+}) async {
   final old = h.server.config;
   return _Harness(
     RelayServer(
@@ -107,7 +111,7 @@ Future<_Harness> _restart(_Harness h, {List<String>? allowedOwners}) async {
         tenancy: old.tenancy,
         admission: old.admission,
         allowedOwners: allowedOwners ?? old.allowedOwners,
-        limits: old.limits,
+        limits: limits ?? old.limits,
         rate: old.rate,
         logLevel: old.logLevel,
         terms: old.terms,
@@ -649,6 +653,36 @@ void main() {
       });
       expect(full.status, 507);
       expect(full.body['error'], 'mailbox_full');
+    });
+
+    test('a cap stored under a wider contract cannot outlive it', () async {
+      final h = await _server(limits: _limits(maxMailboxItems: 5));
+      final owner = await _Owner.create();
+      await _pair(h, owner);
+      final deposit = _deposit();
+      await _mailbox(h, owner, {
+        'op': 'put',
+        'deposit': deposit,
+        'maxItems': 5,
+      });
+
+      // The operator tightens `config.json` and restarts; the owner re-pairs.
+      // The new Contract says 2, the mailbox policy on disk still says 5
+      // (re-pair keeps mailboxes), so enforcement must take the smaller one.
+      final tight = await _restart(h, limits: _limits(maxMailboxItems: 2));
+      tight.nowMs++;
+      await _pair(tight, owner);
+
+      final statuses = <int>[];
+      for (var i = 0; i < 3; i++) {
+        final r = await _post(tight.server, RelayProtocol.pathDeposit, {
+          'protocol': RelayProtocol.id,
+          'deposit': deposit,
+          'payload': await _sealed(owner, 'm$i'),
+        });
+        statuses.add(r.status);
+      }
+      expect(statuses, [200, 200, 507]);
     });
 
     test('past maxTenantBytes answers 507 tenant_full', () async {

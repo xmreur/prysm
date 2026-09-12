@@ -5,6 +5,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 import 'package:shelf/shelf.dart';
@@ -446,7 +447,14 @@ class RelayServer {
       boxItems++;
       boxBytes += item.size;
     }
-    final effectiveMaxItems = policy.maxItems ?? limits.maxMailboxItems;
+    // A stored per-mailbox cap can predate a narrower Contract: a renewal
+    // keeps the mailbox policies (`putTenant`) and `mailbox put` carries the
+    // old value forward, so the signed limit wins here even though `put`
+    // already refuses a cap above the one in force.
+    final policyMaxItems = policy.maxItems;
+    final effectiveMaxItems = policyMaxItems == null
+        ? limits.maxMailboxItems
+        : min(policyMaxItems, limits.maxMailboxItems);
     if (boxItems >= effectiveMaxItems) {
       throw const RelayError(
         RelayErrorCode.mailboxFull,

@@ -145,6 +145,27 @@ void main() {
       );
     });
 
+    test('editing maxItemBytes or blockSize breaks the signature', () async {
+      final keyPair = await ed25519.newKeyPair();
+      final publicKey = await keyPair.extractPublicKey();
+      final advert = build();
+      final signed = advert.withSignature(
+        await RelaySigning.sign(advert.signingBytes(_ownerFpr), keyPair),
+      );
+
+      Future<bool> verifyWith(String field, int value) async {
+        final json = signed.toJson();
+        (json['relays'] as List).first[field] = value;
+        return RelayAdvertisement.fromJson(json).verify(
+          ownerFingerprint: _ownerFpr,
+          ownerSignPublicKey: publicKey.bytes,
+        );
+      }
+
+      expect(await verifyWith('maxItemBytes', 1), isFalse);
+      expect(await verifyWith('blockSize', 4096), isFalse);
+    });
+
     test('expiry is evaluated against the reader clock', () {
       final advert = build();
       expect(advert.expiredAt(DateTime.fromMillisecondsSinceEpoch(1789200000001)), isFalse);

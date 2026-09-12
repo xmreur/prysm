@@ -71,10 +71,12 @@ key `relay`. Per-requester is what makes per-contact addresses possible without 
 }
 ```
 
-- `sig` covers `utf8("prysm-relay-advert-1|<ownerFingerprint>|<issuedAt>|<expiresAt>|<relay0.onion>|<relay0.deposit>|…")`
-  (relays in array order, `|`-joined) signed with the owner's Ed25519 identity key. A cached
-  advertisement is therefore verifiable offline, which is the whole point: it is used precisely when
-  the owner is unreachable.
+- `sig` covers
+  `utf8("prysm-relay-advert-1|<ownerFingerprint>|<issuedAt>|<expiresAt>|<relay0.onion>|<relay0.deposit>|<relay0.maxItemBytes>|<relay0.blockSize>|…")`
+  — every field of every endpoint, in wire order, `|`-joined — signed with the owner's Ed25519
+  identity key. A cached advertisement is therefore verifiable offline, which is the whole point:
+  it is used precisely when the owner is unreachable. `maxItemBytes` and `blockSize` are inside the
+  signature because they decide whether the sender relays at all and how it pads.
 - The list is ordered and MAY hold several relays; **v1 clients publish and use exactly one**
   (redundancy is fog). The array exists now because changing it later would break the wire.
 - `blockSize` 0 = no padding in v1; declared now so padding can be switched on without a breaking

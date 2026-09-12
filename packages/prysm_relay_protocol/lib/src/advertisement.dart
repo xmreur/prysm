@@ -39,7 +39,11 @@ class RelayEndpoint {
     );
   }
 
-  String get signingPart => '$onion|$deposit';
+  /// Every field of the endpoint, in wire order: a signature that covered only
+  /// the address left `maxItemBytes` and `blockSize` editable by anything that
+  /// handles the profile document, and those two decide whether the sender
+  /// relays a message at all and how it is padded.
+  String get signingPart => '$onion|$deposit|$maxItemBytes|$blockSize';
 }
 
 /// The `relay` block an owner publishes inside its per-requester `/profile`

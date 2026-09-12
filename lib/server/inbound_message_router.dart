@@ -135,10 +135,18 @@ class InboundMessageRouter {
     // Per-requester by construction: each contact is handed its own deposit
     // address, which is what lets the relay enforce a whitelist while knowing
     // nothing about this address book.
+    //
+    // Contacts only, because building one is not a read: it registers a
+    // mailbox at the relay. A stranger who rotates onions would otherwise
+    // walk us through the Contract's `maxMailboxes` (512) and leave real
+    // contacts with no address to deposit at. Spec §2 says the same: the
+    // advertisement inherits `buildProfile`'s redaction policy, and an
+    // unknown requester is redacted.
     final buildAdvertisement = buildRelayAdvertisement;
     if (buildAdvertisement != null &&
         requesterOnion != null &&
-        requesterOnion.isNotEmpty) {
+        requesterOnion.isNotEmpty &&
+        (await DBHelper.getUserById(requesterOnion)) != null) {
       final advertisement = await buildAdvertisement(requesterOnion);
       if (advertisement != null) {
         body['relay'] = advertisement;

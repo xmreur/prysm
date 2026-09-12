@@ -22,6 +22,7 @@ import 'package:prysm/util/profile_http_uri.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/services/block_service.dart';
 import 'package:prysm/services/peer_identity_resolver.dart';
+import 'package:prysm/services/relay_service.dart';
 import 'package:prysm/services/settings_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
@@ -71,6 +72,7 @@ class PrysmServer {
       localOnionAddress: () => localOnionAddress,
       fetchSenderProfile: _fetchSenderProfile,
       resolvePeerIdentity: _resolvePeerIdentityForIngress,
+      buildRelayAdvertisement: RelayService.instance.buildAdvertisementFor,
     );
   }
 

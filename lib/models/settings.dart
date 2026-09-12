@@ -15,10 +15,14 @@ class Settings {
   final bool minimizeOnMinimizeButton;
   final bool enableBatterySaving;
 
-  // Network/Relay
-  final bool enableRelay;
-  final String? personalRelayAddress;
-  final bool aggressiveRetry;
+  // Relay (store-and-forward mailbox; see CONTEXT.md)
+  final bool relayEnabled;
+
+  /// The signed Contract, verbatim JSON. Stored raw so a future protocol
+  /// version can still be read back and shown to the user.
+  final String? relayContract;
+  final String? relayManifest;
+  final int? relayLastPickupAt;
 
   // Privacy
   final int messageRetentionDays;
@@ -58,9 +62,10 @@ class Settings {
     this.minimizeToTray = true,
     this.minimizeOnMinimizeButton = false,
     this.enableBatterySaving = false,
-    this.enableRelay = false,
-    this.personalRelayAddress,
-    this.aggressiveRetry = true,
+    this.relayEnabled = false,
+    this.relayContract,
+    this.relayManifest,
+    this.relayLastPickupAt,
     this.messageRetentionDays = 30,
     this.panicAction = PanicAction.decoy,
     this.groupInviteMode = GroupInviteMode.holdAsRequest,
@@ -87,9 +92,10 @@ class Settings {
     'minimizeToTray': minimizeToTray,
     'minimizeOnMinimizeButton': minimizeOnMinimizeButton,
     'enableBatterySaving': enableBatterySaving,
-    'enableRelay': enableRelay,
-    'personalRelayAddress': personalRelayAddress,
-    'aggressiveRetry': aggressiveRetry,
+    'relayEnabled': relayEnabled,
+    'relayContract': relayContract,
+    'relayManifest': relayManifest,
+    'relayLastPickupAt': relayLastPickupAt,
     'messageRetentionDays': messageRetentionDays,
     'panicAction': panicAction.name,
     'groupInviteMode': groupInviteMode.name,
@@ -116,9 +122,10 @@ class Settings {
     minimizeToTray: json['minimizeToTray'] ?? true,
     minimizeOnMinimizeButton: json['minimizeOnMinimizeButton'] ?? false,
     enableBatterySaving: json['enableBatterySaving'] ?? false,
-    enableRelay: json['enableRelay'] ?? false,
-    personalRelayAddress: json['personalRelayAddress'],
-    aggressiveRetry: json['aggressiveRetry'] ?? true,
+    relayEnabled: json['relayEnabled'] ?? false,
+    relayContract: json['relayContract'] as String?,
+    relayManifest: json['relayManifest'] as String?,
+    relayLastPickupAt: json['relayLastPickupAt'] as int?,
     messageRetentionDays: json['messageRetentionDays'] ?? 30,
     panicAction: PanicAction.fromJson(json['panicAction'] as String?),
     groupInviteMode: GroupInviteMode.fromJson(
@@ -153,9 +160,10 @@ class Settings {
     bool? minimizeToTray,
     bool? minimizeOnMinimizeButton,
     bool? enableBatterySaving,
-    bool? enableRelay,
-    String? personalRelayAddress,
-    bool? aggressiveRetry,
+    bool? relayEnabled,
+    String? relayContract,
+    String? relayManifest,
+    int? relayLastPickupAt,
     int? messageRetentionDays,
     PanicAction? panicAction,
     GroupInviteMode? groupInviteMode,
@@ -172,6 +180,8 @@ class Settings {
     UnlockType? unlockType,
     bool? biometricsEnabled,
     bool clearCustomDownloadPath = false,
+    bool clearRelayContract = false,
+    bool clearRelayManifest = false,
   }) => Settings(
     enableNotifications: enableNotifications ?? this.enableNotifications,
     showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
@@ -182,9 +192,14 @@ class Settings {
     minimizeOnMinimizeButton:
         minimizeOnMinimizeButton ?? this.minimizeOnMinimizeButton,
     enableBatterySaving: enableBatterySaving ?? this.enableBatterySaving,
-    enableRelay: enableRelay ?? this.enableRelay,
-    personalRelayAddress: personalRelayAddress ?? this.personalRelayAddress,
-    aggressiveRetry: aggressiveRetry ?? this.aggressiveRetry,
+    relayEnabled: relayEnabled ?? this.relayEnabled,
+    relayContract: clearRelayContract
+        ? null
+        : (relayContract ?? this.relayContract),
+    relayManifest: clearRelayManifest
+        ? null
+        : (relayManifest ?? this.relayManifest),
+    relayLastPickupAt: relayLastPickupAt ?? this.relayLastPickupAt,
     messageRetentionDays: messageRetentionDays ?? this.messageRetentionDays,
     panicAction: panicAction ?? this.panicAction,
     groupInviteMode: groupInviteMode ?? this.groupInviteMode,
@@ -210,7 +225,6 @@ class Settings {
         'notifications: $enableNotifications, '
         'onlineStatus: $showOnlineStatus, '
         'readReceipts: $sendReadReceipts, '
-        'relay: $enableRelay, '
         'theme: $themeMode'
         ')';
   }
@@ -227,9 +241,10 @@ class Settings {
         other.minimizeToTray == minimizeToTray &&
         other.minimizeOnMinimizeButton == minimizeOnMinimizeButton &&
         other.enableBatterySaving == enableBatterySaving &&
-        other.enableRelay == enableRelay &&
-        other.personalRelayAddress == personalRelayAddress &&
-        other.aggressiveRetry == aggressiveRetry &&
+        other.relayEnabled == relayEnabled &&
+        other.relayContract == relayContract &&
+        other.relayManifest == relayManifest &&
+        other.relayLastPickupAt == relayLastPickupAt &&
         other.messageRetentionDays == messageRetentionDays &&
         other.panicAction == panicAction &&
         other.groupInviteMode == groupInviteMode &&
@@ -256,9 +271,10 @@ class Settings {
         minimizeToTray.hashCode ^
         minimizeOnMinimizeButton.hashCode ^
         enableBatterySaving.hashCode ^
-        enableRelay.hashCode ^
-        (personalRelayAddress?.hashCode ?? 0) ^
-        aggressiveRetry.hashCode ^
+        relayEnabled.hashCode ^
+        (relayContract?.hashCode ?? 0) ^
+        (relayManifest?.hashCode ?? 0) ^
+        (relayLastPickupAt?.hashCode ?? 0) ^
         messageRetentionDays.hashCode ^
         panicAction.hashCode ^
         groupInviteMode.hashCode ^

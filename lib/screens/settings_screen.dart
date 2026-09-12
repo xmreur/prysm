@@ -11,6 +11,7 @@ import 'package:prysm/services/tray_service.dart';
 import 'package:prysm/services/battery_saver_service.dart';
 import 'package:prysm/services/app_update_service.dart';
 import 'package:prysm/services/settings_service.dart';
+import 'package:prysm/services/relay_service.dart';
 import 'package:prysm/services/call/linux_audio_settings.dart';
 import 'package:prysm_linux_audio/prysm_linux_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -32,6 +33,7 @@ import 'invite_requests_screen.dart';
 import 'call_history_screen.dart';
 import 'data_storage_screen.dart';
 import 'package:prysm/screens/widgets/appearance_settings_section.dart';
+import 'relay_settings_screen.dart';
 import 'package:prysm/theme/prysm_theme.dart';
 import 'package:prysm/theme/prysm_themes.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
@@ -89,7 +91,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
   bool _minimizeToTray = true;
   bool _minimizeOnMinimizeButton = false;
-  bool _enableRelay = false;
   bool _enableFilePreview = false;
   bool _enableLinkUnfurling = false;
   bool _biometricsEnabled = false;
@@ -131,7 +132,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notificationsEnabled = settings.enableNotifications;
       _minimizeToTray = settings.minimizeToTray;
       _minimizeOnMinimizeButton = settings.minimizeOnMinimizeButton;
-      _enableRelay = settings.enableRelay;
       _enableFilePreview = settings.enableFilePreview;
       _enableLinkUnfurling = settings.enableLinkUnfurling;
       _biometricsEnabled = settings.biometricsEnabled;
@@ -981,23 +981,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         context.l10n.requestANewCircuitWhenConnectionsAreStuck,
                   ),
                 ],
-                // if (_enableRelay) ...[
-                //   const PrysmDivider(),
-                //   _buildNavigationTile(
-                //     'Relay Address',
-                //     PrysmIcons.dnsOutlined,
-                //     _showRelayAddressDialog,
-                //     subtitle: _relayAddress ?? 'Not configured',
-                //   ),
-                // ],
-                // const PrysmDivider(),
-                // _buildSwitchTile(
-                //   'Aggressive Retry',
-                //   'Retry sending messages more frequently',
-                //   PrysmIcons.refreshOutlined,
-                //   _aggressiveRetry,
-                //   _onAggressiveRetryToggle,
-                // ),
+                const PrysmDivider(),
+                ValueListenableBuilder<RelayState>(
+                  valueListenable: RelayService.instance.state,
+                  builder: (context, relay, _) {
+                    final onion = relay.contract?.relayOnion;
+                    final status = !relay.isPaired || onion == null
+                        ? context.l10n.relayNotPaired
+                        : context.l10n.relayPairedWith(
+                            onion.length <= 22
+                                ? onion
+                                : '${onion.substring(0, 12)}…${onion.substring(onion.length - 8)}',
+                          );
+                    return PrysmListRow(
+                      leading: const Icon(PrysmIcons.cloudOutlined),
+                      title: context.l10n.relayTitle,
+                      subtitle: context.l10n.relaySubtitle,
+                      trailingSubtitle: status,
+                      trailing: const Icon(
+                        PrysmIcons.arrowForwardIos,
+                        size: 16,
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          PrysmPageRoute(
+                            page: RelaySettingsScreen(
+                              onClose: () => Navigator.of(context).pop(),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ]),
 
               const SizedBox(height: 30),
@@ -1214,16 +1231,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSectionHeader(context.l10n.debugOptions),
                 const SizedBox(height: 12),
                 _buildCard([
-                  _buildSwitchTile(
-                    context.l10n.enableRelayServer,
-                    context.l10n.comingSoonNotWorking,
-                    PrysmIcons.cloudOutlined,
-                    _enableRelay,
-                    (bool value) {
-                      return true;
-                    },
-                  ),
-                  const PrysmDivider(),
                   _buildNavigationTile(
                     context.l10n.previewUpdateDialog,
                     PrysmIcons.codeOutlined,

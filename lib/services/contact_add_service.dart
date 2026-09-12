@@ -10,6 +10,7 @@ import 'package:prysm/services/block_service.dart';
 import 'package:prysm/util/conversation_refresh_notifier.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/relay_store.dart';
 
 enum ContactAddResult {
   success,
@@ -159,6 +160,7 @@ class ContactAddService {
       'verifiedFingerprint': expectedFingerprint != null
           ? keys.fingerprint
           : existing?['verifiedFingerprint'] as String?,
+      'relayAdvertisement': existing?['relayAdvertisement'] as String?,
     });
 
     unawaited(_enrichFromProfile(onionId));
@@ -193,6 +195,14 @@ class ContactAddService {
       );
       if (ratchetScheme != null) {
         updates['ratchetScheme'] = ratchetScheme;
+      }
+      // The peer's Relay Advertisement, learned here because this is the one
+      // moment the peer is guaranteed to be online. Without it the relay path
+      // would only ever work for peers whose profile was fetched for some
+      // other reason, which is not a property anyone could reason about.
+      final advertisement = PeerRelayStore.advertisementFromProfile(profileData);
+      if (advertisement != null) {
+        updates[PeerRelayStore.column] = jsonEncode(advertisement);
       }
       if (updates.isEmpty) {
         return;

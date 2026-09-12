@@ -74,6 +74,7 @@ class InboundMessageRouter {
     required this.localOnionAddress,
     this.fetchSenderProfile,
     this.resolvePeerIdentity,
+    this.buildRelayAdvertisement,
   });
 
   final KeyManager keyManager;
@@ -82,6 +83,12 @@ class InboundMessageRouter {
   final void Function(String senderId)? fetchSenderProfile;
   final Future<IdentityPublicKeys?> Function(String senderId)?
       resolvePeerIdentity;
+
+  /// Builds the signed `relay` block for one requester. Injected rather than
+  /// imported so the router keeps knowing nothing about relays, and so a test
+  /// can publish a fixed advertisement.
+  final Future<Map<String, dynamic>?> Function(String requesterOnion)?
+      buildRelayAdvertisement;
 
   Future<InboundHandleResult> buildPublicKey() async {
     final body = await _publicIdentityBody();
@@ -123,6 +130,18 @@ class InboundMessageRouter {
       final bundle = await PrekeyBundle.loadStored(keyManager.identity);
       if (bundle != null) {
         body['prekeyBundle'] = bundle.toJson();
+      }
+    }
+    // Per-requester by construction: each contact is handed its own deposit
+    // address, which is what lets the relay enforce a whitelist while knowing
+    // nothing about this address book.
+    final buildAdvertisement = buildRelayAdvertisement;
+    if (buildAdvertisement != null &&
+        requesterOnion != null &&
+        requesterOnion.isNotEmpty) {
+      final advertisement = await buildAdvertisement(requesterOnion);
+      if (advertisement != null) {
+        body['relay'] = advertisement;
       }
     }
     return InboundHandleResult.ok(body);

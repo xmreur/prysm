@@ -13,6 +13,7 @@ import 'package:prysm/util/file_transfer_policy.dart';
 import 'package:prysm/util/local_onion_address.dart';
 import 'package:prysm/util/logging.dart';
 import 'package:prysm/util/profile_http_uri.dart';
+import 'package:prysm/transport/relay_outbound_delivery.dart';
 import 'package:prysm/util/tor_delivery.dart';
 import 'package:prysm/util/tor_service.dart';
 
@@ -38,6 +39,11 @@ class TransportProvider implements OutboundTransport {
   }
 
   static bool get isConfigured => _instance != null;
+
+  /// The live Tor SOCKS port, or the default when Tor is not configured yet.
+  /// Relay traffic needs it for the same reason peer traffic does.
+  static int get socksPortOrDefault =>
+      _instance?._torManager.socksPort ?? 9050;
 
   static void configure(
     TorManager torManager, {
@@ -414,6 +420,12 @@ class TransportProvider implements OutboundTransport {
     return true;
   }
 
+  /// Sends [payload] to [peerOnion], falling back to that peer's Relay when the
+  /// peer itself cannot be reached.
+  ///
+  /// The relay attempt only happens for **transport** failures: a peer that
+  /// answered and refused the payload would refuse the relayed copy too, so
+  /// depositing it would only waste the recipient's quota.
   static Future<void> postMessageOrFallback({
     required String peerOnion,
     required Map<String, dynamic> payload,
@@ -421,6 +433,40 @@ class TransportProvider implements OutboundTransport {
     int socksPort = 9050,
   }) async {
     if (peerOnion.isEmpty) return;
+    try {
+      await _postMessageDirect(
+        peerOnion: peerOnion,
+        payload: payload,
+        timeout: timeout,
+        socksPort: socksPort,
+      );
+      return;
+    } catch (error) {
+      if (!_isTransportFailure(error)) rethrow;
+      if (peerOnion == LocalOnionAddress.value) rethrow;
+      final deposited = await RelayOutboundDelivery.tryDeposit(
+        peerOnion: peerOnion,
+        payload: payload,
+        timeout: timeout,
+      );
+      if (!deposited) rethrow;
+      Logging.debug(
+        'Direct send failed for ${Logging.redactOnion(peerOnion)} → '
+        'deposited at its relay',
+        'TransportProvider',
+      );
+    }
+  }
+
+  static bool _isTransportFailure(Object error) =>
+      error is TimeoutException || TorDelivery.isRetryableError(error);
+
+  static Future<void> _postMessageDirect({
+    required String peerOnion,
+    required Map<String, dynamic> payload,
+    required Duration timeout,
+    required int socksPort,
+  }) async {
     if (isConfigured) {
       final inst = instance;
       if (!inst.isRealtimeConnected(peerOnion)) {

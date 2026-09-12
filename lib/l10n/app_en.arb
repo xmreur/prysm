@@ -815,7 +815,6 @@
   "clearHistory": "Clear history",
   "close": "Close",
   "closeSearch": "Close search",
-  "comingSoonNotWorking": "COMING SOON, NOT WORKING",
   "completed": "Completed",
   "composerRounding": "Composer rounding",
   "confirm": "Confirm",
@@ -963,7 +962,6 @@
   "editName": "Edit Name",
   "emergency": "Emergency",
   "emptyFile": "Empty file",
-  "enableRelayServer": "Enable Relay Server",
   "encryptionPrivacy": "Encryption & Privacy",
   "endToEndEncryption": "• End-to-end encryption",
   "enterAGroupName": "Enter a group name",
@@ -1579,5 +1577,150 @@
   "youWillNeedThisPasswordToRestore": "You will need this password to restore.",
   "openWithSystemApp": "Open with system app",
   "displayNameHintExample": "eg. Alice",
-  "showQrCode": "Show QR Code"
+  "showQrCode": "Show QR Code",
+  "relayAddressCopied": "Relay address copied",
+  "relayAdmission": "New accounts",
+  "relayAdmissionClosed": "Closed",
+  "relayAdmissionInvite": "Invite only",
+  "relayAdmissionOpen": "Open",
+  "relayBadSignature": "This relay's signature does not match its address. Pairing is blocked: do not pair with this relay.",
+  "relayContractLimits": "Your plan on this relay",
+  "relayEnabled": "Use this relay",
+  "relayEnabledSubtitle": "Store incoming messages here while you are offline",
+  "relayErrorAdmissionClosed": "This relay is not accepting new accounts right now.",
+  "relayErrorBadSignature": "The relay rejected our signature. Pair again from scratch.",
+  "relayErrorBadToken": "This setup token is invalid or already used. Ask the relay operator for a new one.",
+  "relayErrorGeneric": "Something went wrong ({code}).",
+  "@relayErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "relayErrorInternal": "The relay hit an internal error. Nothing is lost — it is worth trying again.",
+  "relayErrorMailboxFull": "This contact's box on the relay is full. It accepts new messages once older ones expire or are picked up.",
+  "relayErrorNoRetry": "Retrying will not help.",
+  "relayErrorNotPaired": "Prysm is not paired with a relay. Pair again to continue.",
+  "relayErrorRateLimited": "The relay is busy. Nothing is lost — it is worth trying again.",
+  "relayErrorRetryable": "Worth retrying.",
+  "relayErrorStaleRequest": "Your device clock looks wrong, so the relay refused the request. Check the date and time, then try again.",
+  "relayErrorTenantFull": "Your space on the relay is full. Pick up your messages or wait for older ones to expire.",
+  "relayFetchManifest": "Read relay info",
+  "relayFetching": "Reading relay info…",
+  "relayFingerprint": "Fingerprint",
+  "relayLastPickup": "Last pickup",
+  "relayLastPickupDays": "{n, plural, =1{1 day ago} other{{n} days ago}}",
+  "@relayLastPickupDays": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupDelivered": "{n, plural, =0{no new messages} =1{1 new message} other{{n} new messages}}",
+  "@relayLastPickupDelivered": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupHours": "{n, plural, =1{1 hour ago} other{{n} hours ago}}",
+  "@relayLastPickupHours": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupJustNow": "Just now",
+  "relayLastPickupMinutes": "{n, plural, =1{1 minute ago} other{{n} minutes ago}}",
+  "@relayLastPickupMinutes": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupNever": "Never",
+  "relayLimitsNote": "Two limits in this first version: talking to someone for the very first time still needs you both online at once, and large attachments are never stored on the relay — they wait until you are both online together.",
+  "relayLoadingStatus": "Loading relay status…",
+  "relayMailboxEmpty": "No contact uses this relay yet. Addresses appear here once contacts send to your relay.",
+  "relayMailboxItems": "{n, plural, =0{Empty} =1{1 message} other{{n} messages}}",
+  "@relayMailboxItems": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayMailboxes": "Contacts on this relay",
+  "relayMaxMessageSize": "Max message size",
+  "relayMaxPerContact": "Max messages per contact",
+  "relayMaxStorage": "Max total storage",
+  "relayNextExpiry": "Oldest message expires {date}",
+  "@relayNextExpiry": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "relayNoStoredMessages": "Nothing stored right now",
+  "relayNotPaired": "Not paired",
+  "relayOnionHint": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion",
+  "relayOnionLabel": "Relay address",
+  "relayPair": "Pair with this relay",
+  "relayPairedOk": "Relay paired",
+  "relayPairedWith": "Paired · {onion}",
+  "@relayPairedWith": {
+    "placeholders": {
+      "onion": {
+        "type": "String"
+      }
+    }
+  },
+  "relayPairing": "Pairing…",
+  "relayPickingUp": "Picking up…",
+  "relayPickupNow": "Pick up now",
+  "relayRetention": "Keeps messages",
+  "relayRetentionDays": "{days, plural, =1{1 day} other{{days} days}}",
+  "@relayRetentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "relayRevoke": "Revoke",
+  "relayRevokeBody": "This contact will no longer be able to leave messages on the relay, and the messages already stored there are deleted.",
+  "relayRevokeTitle": "Revoke this address?",
+  "relaySubtitle": "Receive messages while you are offline",
+  "relayTenancy": "Type",
+  "relayTenancyPrivate": "Private",
+  "relayTenancyPublic": "Public",
+  "relayTerms": "Operator terms",
+  "relayTitle": "Relay",
+  "relayTokenHint": "Paste the token from your relay operator",
+  "relayTokenLabel": "Setup token",
+  "relayUnpair": "Unpair relay",
+  "relayUnpairBody": "Every message still stored on the relay is deleted and cannot be recovered. Your chats on this device are not affected.",
+  "relayUnpairConfirm": "Unpair and delete",
+  "relayUnpairTitle": "Unpair this relay?",
+  "relayUnpaired": "Relay unpaired",
+  "relayUsage": "Stored on the relay",
+  "relayUsageSummary": "{items, plural, =0{No messages} =1{1 message} other{{items} messages}} · {size}",
+  "@relayUsageSummary": {
+    "placeholders": {
+      "items": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "relayWhatIsIt": "A Relay holds your incoming messages while you are offline and hands them to you when you come back online.",
+  "relayWhatItSees": "It only sees a per-contact address, the size of each encrypted message and when it arrived. It never sees who sent it, who receives it, the message type, group names or file names."
 }

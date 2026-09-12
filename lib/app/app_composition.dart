@@ -9,6 +9,7 @@ import 'package:prysm/services/file_transfer_handler.dart';
 import 'package:prysm/services/message_search_backfill_service.dart';
 import 'package:prysm/services/peer_identity_resolver.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/relay_service.dart';
 import 'package:prysm/services/sync_coordinator.dart';
 import 'package:prysm/services/wake_hint_service.dart';
 import 'package:prysm/transport/transport_provider.dart';
@@ -87,6 +88,11 @@ class AppComposition {
     required TorManager torManager,
     required bool Function() isTorStopped,
   }) {
+    // The relay needs the identity (to open seals and to sign its requests)
+    // and its stored Contract before the first flush runs, and this is the one
+    // place that holds both the key manager and the sync loop.
+    RelayService.instance.configure(keyManager: keyManager);
+    unawaited(RelayService.instance.load());
     return SyncCoordinator(
       userId: userId,
       keyManager: keyManager,

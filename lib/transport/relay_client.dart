@@ -48,6 +48,10 @@ class RelayClient {
     return RelayManifest.fromJson(json);
   }
 
+  /// One attempt only: the token is single-use, so a retry can consume it on
+  /// the relay and still fail on the way back, leaving the relay with a
+  /// tenant and this client without a Contract. The user retries by tapping
+  /// again, with a token they know the state of.
   Future<RelayContract> pair(
     RelayPairRequest request, {
     Duration timeout = defaultTimeout,
@@ -57,7 +61,7 @@ class RelayClient {
       RelayProtocol.pathPair,
       request.toJson(),
       timeout: timeout,
-      maxAttempts: 2,
+      maxAttempts: 1,
     );
     return RelayContract.fromJson(json);
   }

@@ -129,4 +129,26 @@ void main() {
     expect(json['status'], 'ok');
     expect(relay.requests.single, contains('POST ${RelayProtocol.pathAck}'));
   });
+
+  test('a stalled pair is attempted once, not retried', () async {
+    final relay = await _FakeRelay.start(stallBody: true);
+    addTearDown(relay.close);
+    final client = RelayClient(relayOnion: _relayOnion, socksPort: relay.port);
+
+    await expectLater(
+      client.pair(
+        RelayPairRequest(
+          token: 'single-use-token',
+          ownerIdentityJson: '{}',
+          ownerOnion: _relayOnion,
+          timestamp: 1789200000000,
+          sig: 'sig',
+        ),
+        timeout: const Duration(milliseconds: 400),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    // A second attempt would burn the token the user just typed.
+    expect(relay.requests, hasLength(1));
+  });
 }

@@ -28,6 +28,18 @@ Future<void> main(List<String> args) async {
     stderr.writeln('usage: dart run tool/e2e.dart --token <hex> [--relay url]');
     exit(2);
   }
+  // This driver posts a single-use setup token in cleartext and speaks plain
+  // HTTP (no SOCKS), so the only address it can reach safely is the relay's
+  // own loopback listener. Anything else would hand the token to the network.
+  final relayUri = Uri.tryParse(relay);
+  if (relayUri == null || !_isLoopbackUrl(relayUri)) {
+    stderr.writeln(
+      'refusing --relay "$relay": this tool sends a setup token in cleartext, '
+      'so it only talks to a loopback relay (http://127.0.0.1:<port>). '
+      'Reach a remote relay through an SSH tunnel or torsocks instead.',
+    );
+    exit(2);
+  }
   final ed = Ed25519();
   final sign = await ed.newKeyPair();
   final agree = await X25519().newKeyPair();
@@ -194,6 +206,14 @@ Future<void> main(List<String> args) async {
 
   // ignore: avoid_print
   print('E2E OK');
+}
+
+bool _isLoopbackUrl(Uri uri) {
+  if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+  final host = uri.host;
+  if (host == 'localhost') return true;
+  final address = InternetAddress.tryParse(host);
+  return address != null && address.isLoopback;
 }
 
 List<int> signPubOf(RelayManifest manifest) =>

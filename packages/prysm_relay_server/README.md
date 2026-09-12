@@ -129,7 +129,22 @@ The relay binds loopback; Tor is the only ingress. On the Tor host:
 ```
 HiddenServiceDir /var/lib/tor/prysm-relay/
 HiddenServicePort 80 127.0.0.1:8443
+Log notice file /var/log/tor/prysm-relay.log
 ```
+
+Write that file with a heredoc (`cat > … <<'TORRC'`), never with a `printf`
+chain: a `\n` that does not survive a copy-paste silently joins a directive
+to its value, and Tor then reports something unrelated. Two habits that cost
+a live session each:
+
+- **Validate before starting**: `tor -f <torrc> --verify-config`. A detached
+  start (`tor -f … &`, `docker exec -d …`) swallows the parse error and you
+  are left waiting for a `hostname` file that will never appear.
+- **Keep the log**: without `Log notice file`, a Tor that refuses to publish
+  the service has nowhere to say why. With it, `tail -20` names the cause
+  (permissions on `HiddenServiceDir`, a bad port, a directory Tor cannot own).
+  Tor also refuses a `HiddenServiceDir` that is group- or world-readable, so
+  it must be `0700` and owned by the user Tor runs as.
 
 Hardening for a public relay (see
 `.scratch/relay/issues/13-antiabuso-relay-pubblici.md`): enable Tor's own
@@ -157,7 +172,8 @@ cookie, which v1 key distribution does not provide.
 ```
 prysm_relay init --data-dir /var/lib/prysm-relay --tenancy private --onion <56>.onion
 # -> note fingerprint + setup token
-# torrc as above; wait for the hostname file
+# write the torrc as above, then: tor -f <torrc> --verify-config
+# start Tor and wait for <HiddenServiceDir>/hostname
 prysm_relay serve --config /var/lib/prysm-relay/config.json
 prysm_relay token new --config /var/lib/prysm-relay/config.json --ttl 72
 ```

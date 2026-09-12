@@ -112,8 +112,18 @@ docker run -d --name prysm-lab-relay ubuntu:24.04 sleep infinity
 docker exec prysm-lab-relay apt-get update
 docker exec prysm-lab-relay apt-get install -y --no-install-recommends tor curl python3
 docker exec prysm-lab-relay bash -c "mkdir -p /tmp/relay-hs /tmp/relay-www /tmp/relay-data \
-  && echo 'prysm-relay-probe-ok' > /tmp/relay-www/index.txt \
-  && printf 'SocksPort 127.0.0.1:9050\nDataDirectory /tmp/relay-data\nHiddenServiceDir /tmp/relay-hs\nHiddenServiceVersion 3\nHiddenServicePort 80 127.0.0.1:8080\n' > /etc/tor/torrc-relay"
+  && chmod 700 /tmp/relay-hs \
+  && echo 'prysm-relay-probe-ok' > /tmp/relay-www/index.txt"
+# heredoc, non printf: vedi il trabocchetto sotto
+docker exec -i prysm-lab-relay tee /etc/tor/torrc-relay >/dev/null <<'TORRC'
+SocksPort 127.0.0.1:9050
+DataDirectory /tmp/relay-data
+HiddenServiceDir /tmp/relay-hs
+HiddenServiceVersion 3
+HiddenServicePort 80 127.0.0.1:8080
+Log notice file /tmp/relay-tor.log
+TORRC
+docker exec prysm-lab-relay tor -f /etc/tor/torrc-relay --verify-config
 docker exec -d prysm-lab-relay tor -f /etc/tor/torrc-relay
 docker exec -d prysm-lab-relay python3 -m http.server 8080 --bind 127.0.0.1 --directory /tmp/relay-www
 docker exec prysm-lab-relay cat /tmp/relay-hs/hostname   # l'onion, dopo il bootstrap
@@ -121,7 +131,16 @@ docker exec prysm-lab-relay cat /tmp/relay-hs/hostname   # l'onion, dopo il boot
 TRAPPOLA ownership: tor gira come root ma il pacchetto Debian assegna
 `/var/lib/tor` e `/tmp/relay-hs` a `debian-tor` → `Failed to
 parse/validate config`. Soluzione usata: tutto sotto `/tmp/relay-*`
-posseduto da root (`chown -R root:root`, `DataDirectory /tmp/relay-data`).
+posseduto da root (`chown -R root:root`, `DataDirectory /tmp/relay-data`), e
+`HiddenServiceDir` a `0700`: tor rifiuta una dir leggibile dal gruppo.
+
+TRAPPOLA torrc: scrivilo con un heredoc (`tee … <<'TORRC'`), **mai** con
+`printf 'a\nb\n'`. Un `\n` che non sopravvive al copia-incolla unisce la
+direttiva al valore e tor riporta un errore che parla d'altro. E `tor -f …
+--verify-config` **prima** di avviare: un `docker exec -d` (o un `nohup …&`)
+inghiotte l'errore di parse e resti ad aspettare un `hostname` che non
+arriverà mai. `Log notice file` nel torrc è l'altra metà: senza quel file,
+un tor che non pubblica il servizio non ha dove dirti perché.
 
 Prova del percorso completo — dai container dei client, via il SOCKS del
 Tor DELL'APP (default 9050, `lib/util/tor_service.dart:68,811`):
@@ -153,10 +172,20 @@ docker cp packages/prysm_relay_protocol prysm-lab-relay:/home/ubuntu/relay/packa
 docker cp packages/prysm_relay_server prysm-lab-relay:/home/ubuntu/relay/packages/prysm_relay_server
 docker cp tor_executable/tor prysm-lab-relay:/home/ubuntu/relay/tor
 docker exec prysm-lab-relay bash -lc 'cd ~/relay/packages/prysm_relay_server && dart pub get'
-# torrc: SocksPort 0 / DataDirectory ~/relay/tordata / HiddenServiceDir ~/relay/hs /
-#        HiddenServiceVersion 3 / HiddenServicePort 80 127.0.0.1:8443
-docker exec prysm-lab-relay bash -lc 'nohup ~/relay/tor -f ~/relay/torrc > ~/relay/tor.log 2>&1 &'
-# ~25 s -> cat ~/relay/hs/hostname
+# torrc via heredoc, MAI con printf '...\n...' (un \n che non sopravvive al
+# copia-incolla incolla la direttiva al suo valore e tor si lamenta d'altro):
+docker exec -i prysm-lab-relay tee /home/ubuntu/relay/torrc >/dev/null <<'TORRC'
+SocksPort 0
+DataDirectory /home/ubuntu/relay/tordata
+HiddenServiceDir /home/ubuntu/relay/hs
+HiddenServiceVersion 3
+HiddenServicePort 80 127.0.0.1:8443
+Log notice file /home/ubuntu/relay/tor.log
+TORRC
+# valida PRIMA di avviare: un avvio in background inghiotte l'errore di parse
+docker exec prysm-lab-relay bash -lc '~/relay/tor -f ~/relay/torrc --verify-config'
+docker exec prysm-lab-relay bash -lc 'nohup ~/relay/tor -f ~/relay/torrc > ~/relay/tor.stdout 2>&1 &'
+# ~25 s -> cat ~/relay/hs/hostname; se non arriva: tail -20 ~/relay/tor.log
 docker exec prysm-lab-relay bash -lc 'cd ~/relay/packages/prysm_relay_server && dart run bin/prysm_relay.dart init --data-dir /home/ubuntu/relay/data --tenancy private --port 8443 --onion <onion>'
 # poi `serve` come processo supervisionato dal broker (hub op:"start", name relay-serve)
 ```

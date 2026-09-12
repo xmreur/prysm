@@ -63,6 +63,11 @@ Future<_Harness> _server({
   List<String> allowedOwners = const [],
 }) async {
   final dir = await Directory.systemTemp.createTemp('relay-test-');
+  // One data dir per case, so one removal per case: without this the suite
+  // left a `/tmp/relay-test-*` directory behind for every test it ran.
+  addTearDown(() async {
+    if (dir.existsSync()) await dir.delete(recursive: true);
+  });
   final keys = await RelayKeyPair.generate();
   final box = _Box(DateTime.now().millisecondsSinceEpoch);
   final server = RelayServer(

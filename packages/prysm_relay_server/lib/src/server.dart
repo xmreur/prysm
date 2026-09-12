@@ -232,66 +232,74 @@ class RelayServer {
       );
     }
 
-    // Tokens minted by `token new` while the relay runs land on disk first;
-    // pick them up here so the operator never restarts for a token.
-    await store.reloadTokens();
-    final existing = store.tenants[ownerFpr];
-    if (existing == null) {
-      if (config.admission == RelayAdmission.closed) {
+    // The token read-modify-write is held under the store's cross-process
+    // lock: `token new` in another process must not overwrite the
+    // consumption this pairing records, nor lose its own token to it.
+    final signed = await store.withTokenLock(() async {
+      // Tokens minted by `token new` while the relay runs land on disk first;
+      // pick them up here so the operator never restarts for a token.
+      await store.reloadTokens();
+      final existing = store.tenants[ownerFpr];
+      if (existing == null) {
+        if (config.admission == RelayAdmission.closed) {
+          throw const RelayError(
+            RelayErrorCode.admissionClosed,
+            'this relay is not accepting new contracts',
+          );
+        }
+        if (config.tenancy == RelayTenancy.private &&
+            store.tenants.isNotEmpty) {
+          throw const RelayError(
+            RelayErrorCode.admissionClosed,
+            'this private relay already serves an owner',
+          );
+        }
+      }
+      if (!pairLimiter.allow('pair:$ownerFpr')) {
         throw const RelayError(
-          RelayErrorCode.admissionClosed,
-          'this relay is not accepting new contracts',
+          RelayErrorCode.rateLimited,
+          'too many pair attempts; try again later',
         );
       }
-      if (config.tenancy == RelayTenancy.private && store.tenants.isNotEmpty) {
-        throw const RelayError(
-          RelayErrorCode.admissionClosed,
-          'this private relay already serves an owner',
-        );
+      // Invite relays require a fresh token for a renewal too; closed relays
+      // let an existing owner renew on signature alone.
+      if (config.admission == RelayAdmission.invite) {
+        _consumeToken(req.token, ownerFpr);
       }
-    }
-    if (!pairLimiter.allow('pair:$ownerFpr')) {
-      throw const RelayError(
-        RelayErrorCode.rateLimited,
-        'too many pair attempts; try again later',
-      );
-    }
-    // Invite relays require a fresh token for a renewal too; closed relays let
-    // an existing owner renew on signature alone.
-    if (config.admission == RelayAdmission.invite) {
-      _consumeToken(req.token, ownerFpr);
-    }
 
-    // Re-pairing the same identity is idempotent: same tenant, version + 1.
-    final version = existing == null
-        ? 1
-        : RelayContract.fromJson(
-              Map<String, dynamic>.from(existing.contractJson),
-            ).version +
-            1;
-    // Signed *before* it is stored: a crash between two writes used to leave
-    // `contract.json` without its signature, and a tenant reloaded from that
-    // file hands the owner a contract that can never verify.
-    final contract = _contractFor(
-      version: version,
-      ownerFingerprint: ownerFpr,
-      ownerOnion: req.ownerOnion,
-      requested: req.requested,
-    );
-    final signed = contract.withSignature(await keys.sign(contract.signingBytes()));
-    await store.putTenant(
-      ownerFpr,
-      signed.toJson(),
-      ownerIdentity.signPublic,
-      ownerIdentity.agreePublic,
-    );
-    await store.saveTokens();
-    log.event(
-      existing == null
-          ? 'pair: new tenant ${RelayLog.shortId(ownerFpr, 8)}'
-          : 'pair: renewed tenant ${RelayLog.shortId(ownerFpr, 8)} '
-              'version=$version',
-    );
+      // Re-pairing the same identity is idempotent: same tenant, version + 1.
+      final version = existing == null
+          ? 1
+          : RelayContract.fromJson(
+                Map<String, dynamic>.from(existing.contractJson),
+              ).version +
+              1;
+      // Signed *before* it is stored: a crash between two writes used to
+      // leave `contract.json` without its signature, and a tenant reloaded
+      // from that file hands the owner a contract that can never verify.
+      final contract = _contractFor(
+        version: version,
+        ownerFingerprint: ownerFpr,
+        ownerOnion: req.ownerOnion,
+        requested: req.requested,
+      );
+      final issued =
+          contract.withSignature(await keys.sign(contract.signingBytes()));
+      await store.putTenant(
+        ownerFpr,
+        issued.toJson(),
+        ownerIdentity.signPublic,
+        ownerIdentity.agreePublic,
+      );
+      await store.saveTokens();
+      log.event(
+        existing == null
+            ? 'pair: new tenant ${RelayLog.shortId(ownerFpr, 8)}'
+            : 'pair: renewed tenant ${RelayLog.shortId(ownerFpr, 8)} '
+                'version=$version',
+      );
+      return issued;
+    });
     return _json(200, signed.toJson());
   }
 

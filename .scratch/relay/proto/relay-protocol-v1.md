@@ -266,6 +266,7 @@ standalone binary:
 <dataDir>/
   identity.json                  relay Ed25519 keypair (0600)
   tokens.json                    setup/invite tokens: {token, createdAt, expiresAt, usedBy?}
+  tokens.json.lock               held for every read-modify-write of tokens.json
   index.json                     deposit(hex) -> ownerFingerprint
   tenants/<ownerFingerprint>/
     contract.json
@@ -274,7 +275,11 @@ standalone binary:
       items/<itemId>.json        {itemId, storedAt, expiresAt, size, payload:{…}}
 ```
 
-- All writes are write-to-temp + `rename` (atomic), mirroring the app's own HS-key handling.
+- All writes are write-to-temp + `rename` (atomic), mirroring the app's own HS-key handling. The
+  temp name MUST be unique per writer (`<file>.<pid>.<n>.tmp`): a shared name makes two concurrent
+  writers rename each other's file away.
+- `tokens.json` MUST be read-modify-written under an exclusive `tokens.json.lock`: `token new` runs
+  in a different process from `serve`, and both rewrite the whole file.
 - A sweeper runs every 60 s: deletes expired items, compacts `tokens.json`.
 - `logLevel:"counters"` = never log a deposit address beyond its first 6 hex chars, never log a
   payload, never log an owner onion. `debug` relaxes this and MUST warn at startup.

@@ -83,6 +83,7 @@ Single JSON file (no YAML parser on the server by design):
   identity.json                   relay seeds + public keys + fingerprint (0600)
   config.json                     (written by init; live where you put it)
   tokens.json                     [{token, createdAt, expiresAt, usedBy?}]
+  tokens.json.lock                held while tokens.json is read-modify-written
   index.json                      {depositHex: ownerFingerprint}
   tenants/<ownerFingerprint>/
     contract.json                 signed contract (served verbatim)
@@ -92,8 +93,12 @@ Single JSON file (no YAML parser on the server by design):
       items/<itemId>.json         {itemId, deposit, storedAt, expiresAt, size, payload}
 ```
 
-All writes are write-to-`<file>.tmp` + `rename` (atomic). The deposit index
-lives in memory, is rebuilt from disk at boot, and is persisted on change.
+All writes are write-to-`<file>.<pid>.<n>.tmp` + `rename` (atomic, and the
+temp name is unique so two writers cannot rename each other's file away).
+`tokens.json` is additionally read-modify-written under `tokens.json.lock`,
+because `token new` runs in a second process while `serve` holds the list in
+memory. The deposit index lives in memory, is rebuilt from disk at boot, and
+is persisted on change.
 `delete` removes the address, its items and its index entry, so a deleted
 address answers exactly like a never-existing one (`404 mailbox_unknown`);
 a registered-but-suspended address answers `403 mailbox_disabled`.

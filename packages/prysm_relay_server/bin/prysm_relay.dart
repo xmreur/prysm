@@ -98,9 +98,10 @@ class _InitCommand extends Command<void> {
     File(configPath)
         .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(config.toJson()));
     final store = await RelayStore.open(config.dataDir);
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final token = store.addToken(ttlHours: 168, nowMs: nowMs);
-    await store.saveTokens();
+    final token = await store.mintToken(
+      ttlHours: 168,
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+    );
     // ignore: avoid_print
     print('relay initialised');
     // ignore: avoid_print
@@ -205,11 +206,11 @@ class _TokenNewCommand extends Command<void> {
       throw const FormatException('--ttl must be a positive number of hours');
     }
     final store = await RelayStore.open(config.dataDir);
-    final entry = store.addToken(
+    // Under the store's lock: a relay is usually serving from this same file.
+    final entry = await store.mintToken(
       ttlHours: ttl,
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
-    await store.saveTokens();
     // ignore: avoid_print
     print(entry.token);
   }

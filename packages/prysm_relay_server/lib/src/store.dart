@@ -220,14 +220,49 @@ class RelayStore {
         for (final t in tokens) t.toJson(),
       ]);
 
-  /// Drops used and expired tokens. Returns how many were dropped.
-  Future<int> pruneTokens(int nowMs) async {
-    final before = tokens.length;
-    tokens.removeWhere((t) => t.used || t.expiredAt(nowMs));
-    final dropped = before - tokens.length;
-    if (dropped > 0) await saveTokens();
-    return dropped;
+  /// Serialises a whole read-modify-write of `tokens.json` against the other
+  /// processes that touch it: `token new` runs while `serve` holds the list in
+  /// memory, and both rewrite the file wholesale. Without this, `token new`
+  /// against a running relay can lose the token it just printed (or resurrect
+  /// a consumed one), because each side writes what it believes the file is.
+  ///
+  /// The lock is advisory and per-process (`fcntl`), which is exactly the
+  /// boundary that matters: inside one process the token list is a single
+  /// shared object, so an interleaving of two handlers cannot lose an entry.
+  Future<T> withTokenLock<T>(Future<T> Function() body) async {
+    final lock = await File('$_tokensPath.lock').open(mode: FileMode.write);
+    try {
+      await lock.lock(FileLock.blockingExclusive);
+      return await body();
+    } finally {
+      await lock.close();
+    }
   }
+
+  /// Mints, persists and returns a token, all under [withTokenLock], merging
+  /// whatever another process wrote first.
+  Future<TokenEntry> mintToken({
+    required int ttlHours,
+    required int nowMs,
+  }) =>
+      withTokenLock(() async {
+        await reloadTokens();
+        final entry = addToken(ttlHours: ttlHours, nowMs: nowMs);
+        await saveTokens();
+        return entry;
+      });
+
+  /// Drops used and expired tokens. Returns how many were dropped.
+  Future<int> pruneTokens(int nowMs) => withTokenLock(() async {
+        // Merge first: the sweeper must not rewrite the file from a memory
+        // snapshot that predates a token minted by another process.
+        await reloadTokens();
+        final before = tokens.length;
+        tokens.removeWhere((t) => t.used || t.expiredAt(nowMs));
+        final dropped = before - tokens.length;
+        if (dropped > 0) await saveTokens();
+        return dropped;
+      });
 
   Future<void> _loadTokens() async {
     final file = File(_tokensPath);

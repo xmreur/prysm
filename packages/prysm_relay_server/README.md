@@ -18,6 +18,7 @@ prysm_relay token new --config <path> [--ttl <hours>]   # default 168h
 prysm_relay token list --config <path>
 prysm_relay status --config <path>
 prysm_relay fingerprint --config <path>
+prysm_relay pair-link --config <path> [--ttl <hours>] [--token <hex>] [--no-qr]
 ```
 
 - `init` creates the data dir (mode 0700), the relay identity
@@ -34,6 +35,11 @@ prysm_relay fingerprint --config <path>
   restart. `token list` shows pending tokens.
 - `status` prints an operator summary from disk (tenants, mailboxes, items,
   bytes). `fingerprint` prints the relay fingerprint.
+- `pair-link` prints the one-click pairing block: `onion:`, `fingerprint:`,
+  `token:` (freshly minted unless `--token` reuses a pending one), `link:`,
+  a blank line, then the link as a QR block (unless `--no-qr`). Paste the
+  link or scan the QR from the app: it fills the form and checks the
+  fingerprint in the link itself. A bad `--token` exits 2.
 
 ## Config file
 
@@ -220,6 +226,8 @@ Minimal unit for it:
 [Unit]
 Description=Prysm relay (store-and-forward)
 After=network.target tor.service
+- A pairing link is as secret as the token inside it: single-use, expiring
+  on the relay. Do not log it, screenshot it into shared media, or reuse it.
 
 [Service]
 User=prysm-relay

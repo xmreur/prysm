@@ -434,7 +434,6 @@
   "clearHistory": "Cancella cronologia",
   "close": "Chiudi",
   "closeSearch": "Chiudi ricerca",
-  "comingSoonNotWorking": "PROSSIMAMENTE, NON FUNZIONANTE",
   "completed": "Completato",
   "composerRounding": "Arrotondamento compositore",
   "confirm": "Conferma",
@@ -582,7 +581,6 @@
   "editName": "Moficia Nome",
   "emergency": "Emergenza",
   "emptyFile": "File vuoto",
-  "enableRelayServer": "Abilita server relay",
   "encryptionPrivacy": "Crittografia e privacy",
   "endToEndEncryption": "• Crittografia end-to-end",
   "enterAGroupName": "Inserisci un nome per il gruppo",
@@ -1174,5 +1172,157 @@
   "youWillNeedThisPasswordToRestore": "Ti servirà questa password per il ripristino.",
   "openWithSystemApp": "Apri con app di sistema",
   "displayNameHintExample": "es. Alice",
-  "showQrCode": "Mostra codice QR"
+  "showQrCode": "Mostra codice QR",
+  "relayAddressCopied": "Indirizzo del relay copiato",
+  "relayAdmission": "Nuovi account",
+  "relayAdmissionClosed": "Chiusi",
+  "relayAdmissionInvite": "Solo su invito",
+  "relayAdmissionOpen": "Aperti",
+  "relayBadSignature": "La firma di questo relay non corrisponde al suo indirizzo. L'associazione è bloccata: non associare questo relay.",
+  "relayContractLimits": "Il tuo piano su questo relay",
+  "relayEnabled": "Usa questo relay",
+  "relayEnabledSubtitle": "Conserva qui i messaggi in arrivo quando sei offline",
+  "relayErrorAdmissionClosed": "Questo relay al momento non accetta nuovi account.",
+  "relayErrorBadSignature": "Il relay ha rifiutato la nostra firma. Ripeti l'associazione da capo.",
+  "relayErrorBadToken": "Questo codice non è valido o è già stato usato. Chiedine uno nuovo al gestore del relay.",
+  "relayErrorGeneric": "Qualcosa non ha funzionato ({code}).",
+  "@relayErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "relayErrorInternal": "Il relay ha avuto un problema interno. Niente è andato perso: vale la pena riprovare.",
+  "relayErrorMailboxFull": "La casella di questo contatto sul relay è piena. Accetterà nuovi messaggi quando quelli vecchi scadranno o verranno ritirati.",
+  "relayErrorNoRetry": "Riprovare non servirebbe.",
+  "relayErrorNotPaired": "Prysm non è associato ad alcun relay. Ripeti l'associazione per continuare.",
+  "relayErrorRateLimited": "Il relay è occupato. Niente è andato perso: vale la pena riprovare.",
+  "relayErrorRetryable": "Vale la pena riprovare.",
+  "relayErrorStaleRequest": "L'orologio del dispositivo sembra sbagliato e il relay ha rifiutato la richiesta. Controlla data e ora e riprova.",
+  "relayErrorTenantFull": "Lo spazio sul relay è esaurito. Ritira i messaggi o attendi la scadenza di quelli vecchi.",
+  "relayFetchManifest": "Leggi le informazioni del relay",
+  "relayFetching": "Lettura delle informazioni…",
+  "relayFetchRetrying": "Connessione in corso: il primo contatto con un nuovo relay può richiedere fino a un minuto.",
+  "relayFingerprint": "Impronta",
+  "relayLastPickup": "Ultimo ritiro",
+  "relayLastPickupDays": "{n, plural, =1{1 giorno fa} other{{n} giorni fa}}",
+  "@relayLastPickupDays": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupDelivered": "{n, plural, =0{nessun messaggio nuovo} =1{1 messaggio nuovo} other{{n} messaggi nuovi}}",
+  "@relayLastPickupDelivered": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupHours": "{n, plural, =1{1 ora fa} other{{n} ore fa}}",
+  "@relayLastPickupHours": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupJustNow": "Adesso",
+  "relayLastPickupMinutes": "{n, plural, =1{1 minuto fa} other{{n} minuti fa}}",
+  "@relayLastPickupMinutes": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayLastPickupNever": "Mai",
+  "relayLimitsNote": "Due limiti in questa prima versione: per parlare con una persona per la primissima volta dovete essere online insieme, e gli allegati grandi non passano mai dal relay — aspettano che torniate online insieme.",
+  "relayLinkFingerprintMatch": "L'impronta corrisponde al link di associazione.",
+  "relayLinkFingerprintMismatch": "L'impronta di questo relay non corrisponde al link di associazione. L'associazione è bloccata: non associare questo relay.",
+  "relayLinkInvalid": "Questo non è un link di associazione valido.",
+  "relayLinkPasted": "Link di associazione applicato",
+  "relayLoadingStatus": "Caricamento dello stato…",
+  "relayMailboxEmpty": "Nessun contatto usa ancora questo relay. Gli indirizzi compaiono qui quando i contatti inviano al tuo relay.",
+  "relayMailboxItems": "{n, plural, =0{Vuota} =1{1 messaggio} other{{n} messaggi}}",
+  "@relayMailboxItems": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "relayMailboxes": "Contatti su questo relay",
+  "relayMaxMessageSize": "Dimensione massima dei messaggi",
+  "relayMaxPerContact": "Messaggi massimi per contatto",
+  "relayMaxStorage": "Spazio totale massimo",
+  "relayNextExpiry": "Il messaggio più vecchio scade il {date}",
+  "@relayNextExpiry": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "relayNoStoredMessages": "Nulla in giacenza al momento",
+  "relayNotPaired": "Non associato",
+  "relayOnionHint": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion",
+  "relayOnionLabel": "Indirizzo del relay",
+  "relayPair": "Associa questo relay",
+  "relayPairedOk": "Relay associato",
+  "relayPairedWith": "Associato · {onion}",
+  "@relayPairedWith": {
+    "placeholders": {
+      "onion": {
+        "type": "String"
+      }
+    }
+  },
+  "relayPairing": "Associazione…",
+  "relayPasteLink": "Incolla il link di associazione",
+  "relayPickingUp": "Ritiro…",
+  "relayPickupNow": "Ritira ora",
+  "relayRetention": "Conservazione dei messaggi",
+  "relayRetentionDays": "{days, plural, =1{1 giorno} other{{days} giorni}}",
+  "@relayRetentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "relayRevoke": "Revoca",
+  "relayRevokeBody": "Questo contatto non potrà più lasciare messaggi sul relay e quelli già depositati verranno eliminati.",
+  "relayRevokeTitle": "Revocare questo indirizzo?",
+  "relayScanLink": "Scansiona il QR di associazione",
+  "relaySubtitle": "Ricevi messaggi anche quando sei offline",
+  "relayTenancy": "Tipo",
+  "relayTenancyPrivate": "Privato",
+  "relayTenancyPublic": "Pubblico",
+  "relayTerms": "Condizioni del gestore",
+  "relayTitle": "Relay",
+  "relayTokenHint": "Incolla il codice fornito dal gestore del relay",
+  "relayTokenLabel": "Codice di configurazione",
+  "relayUnpair": "Dissocia il relay",
+  "relayUnpairBody": "Tutti i messaggi ancora depositati sul relay verranno eliminati e non potranno essere recuperati. Le chat su questo dispositivo non cambiano.",
+  "relayUnpairConfirm": "Dissocia ed elimina",
+  "relayUnpairTitle": "Dissociare questo relay?",
+  "relayUnpaired": "Relay dissociato",
+  "relayUsage": "Depositato sul relay",
+  "relayUsageSummary": "{items, plural, =0{Nessun messaggio} =1{1 messaggio} other{{items} messaggi}} · {size}",
+  "@relayUsageSummary": {
+    "placeholders": {
+      "items": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "relayWhatIsIt": "Un Relay custodisce i messaggi in arrivo mentre sei offline e te li consegna quando torni online.",
+  "relayWhatItSees": "Vede che è arrivato un messaggio per il tuo account, a quale indirizzo (uno diverso per ogni contatto), quanto era grande e quando. Non vede mai chi lo ha inviato, il testo, il tipo di messaggio, i nomi dei gruppi o dei file, e non può sapere a quale dei tuoi contatti appartenga un indirizzo."
 }

@@ -5,6 +5,7 @@ import 'package:prysm/transport/transport_provider.dart';
 import 'package:prysm/util/db_helper.dart';
 import 'package:prysm/util/key_manager.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/relay_store.dart';
 import 'package:prysm/util/tor_runtime_gate.dart';
 
 /// A peer identity fetched over Tor, plus the prekey bundle offered
@@ -78,12 +79,17 @@ class PeerIdentityResolver {
     try {
       String? identityJson;
       String? ratchetScheme;
+      String? relayAdvertisement;
       late IdentityPublicKeys identity;
       PrekeyBundle? prekeyBundle;
       try {
         final profileBody = await _fetchProfile(peerId);
         final data = jsonDecode(profileBody) as Map<String, dynamic>;
         ratchetScheme = ratchetSchemeFromProfile(data);
+        // Cached because it is needed exactly when this peer is unreachable;
+        // it stays trustworthy because the peer signs it.
+        final advert = PeerRelayStore.advertisementFromProfile(data);
+        if (advert != null) relayAdvertisement = jsonEncode(advert);
         identityJson = IdentityKeyPair.storedPeerIdentityRaw(
           (data['identityJson'] as String?)?.trim(),
           (data['publicKeyPem'] as String?)?.trim(),
@@ -102,7 +108,11 @@ class PeerIdentityResolver {
         identity = keyManager.importPeerIdentity(identityJson);
         onIdentityResolved?.call(identity);
       }
-      await _persist(identityJson, ratchetScheme: ratchetScheme);
+      await _persist(
+        identityJson,
+        ratchetScheme: ratchetScheme,
+        relayAdvertisement: relayAdvertisement,
+      );
       return ResolvedPeerIdentity(identity, prekeyBundle);
     } catch (e) {
       Logging.error('Failed to fetch peer identity: $e', 'PeerIdentityResolver');
@@ -110,7 +120,11 @@ class PeerIdentityResolver {
     }
   }
 
-  Future<void> _persist(String identityJson, {String? ratchetScheme}) async {
+  Future<void> _persist(
+    String identityJson, {
+    String? ratchetScheme,
+    String? relayAdvertisement,
+  }) async {
     try {
       final existing = await DBHelper.getUserById(peerId);
       await DBHelper.insertOrUpdateUser({
@@ -125,6 +139,10 @@ class PeerIdentityResolver {
         // recorded scheme when this profile advertised none.
         'ratchetScheme': ratchetScheme ?? existing?['ratchetScheme'] as String?,
         'verifiedFingerprint': existing?['verifiedFingerprint'] as String?,
+        // Same INSERT OR REPLACE trap as ratchetScheme: carry the cached
+        // advertisement over when this profile did not carry a fresh one.
+        'relayAdvertisement':
+            relayAdvertisement ?? existing?['relayAdvertisement'] as String?,
       });
     } catch (e) {
       Logging.error('Failed to persist peer public key: $e', 'PeerIdentityResolver');

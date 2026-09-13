@@ -6,6 +6,8 @@ import 'package:prysm/services/group_chat_service.dart';
 import 'package:prysm/services/message_modify_service.dart';
 import 'package:prysm/services/reaction_service.dart';
 import 'package:prysm/services/read_receipt_service.dart';
+import 'package:prysm/services/relay_advertisement_refresher.dart';
+import 'package:prysm/services/relay_service.dart';
 import 'package:prysm/services/disappearing_message_purge_service.dart';
 import 'package:prysm/services/group_service.dart';
 import 'package:prysm/services/scheduled_message_service.dart';
@@ -222,6 +224,10 @@ class SyncCoordinator {
       final groupService = GroupService(userId: userId, keyManager: keyManager);
       var any = false;
 
+      // Pickup first: a message waiting at our relay may be the one the peer
+      // is expecting an answer to, and it costs nothing when unpaired.
+      any = await _pickupFromRelay() || any;
+
       any = await groupService.processPendingControlMessages() || any;
       any = await GroupChatService.processGlobalPending(
             userId: userId,
@@ -294,6 +300,17 @@ class SyncCoordinator {
     _hasPendingBacklog = outbound.isNotEmpty;
   }
 
+  /// Collects anything waiting at our own relay and replays it into the
+  /// inbound pipeline. Returns true when at least one message arrived.
+  Future<bool> _pickupFromRelay() async {
+    try {
+      return await RelayService.instance.pickupNow() > 0;
+    } catch (e) {
+      Logging.error('Relay pickup failed: $e', 'SyncCoordinator');
+      return false;
+    }
+  }
+
   /// Call when Tor transitions to connected — immediate flush.
   Future<bool> onTorReconnected() async {
     // Scheduled sends get their own kick: anything that came due while Tor was
@@ -306,6 +323,13 @@ class SyncCoordinator {
   /// Flush outbound pending queues for one direct peer (wake-hint response).
   Future<bool> flushPendingForPeer(String receiverId) async {
     if (TorRuntimeGate.blocked || isTorStopped() || _flushing) return false;
+
+    // This peer is answering right now, which is the only time its Relay
+    // Advertisement can be learned. Fire-and-forget: delivery must not wait
+    // on it.
+    unawaited(
+      RelayAdvertisementRefresher.refreshIfStale(receiverId, keyManager),
+    );
 
     final hasPending = await PendingMessageDbHelper.hasOutboundDirectPending(
       userId,

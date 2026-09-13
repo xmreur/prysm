@@ -5,6 +5,11 @@ on:
     branches: [main, master]
   pull_request:
 
+# The default token is read-write on a repository that has none of it here:
+# this job only checks out and runs tests.
+permissions:
+  contents: read
+
 # Pinned, not tracked: an unpinned `stable` moved 3.44.9 -> 3.47.0 under an
 # unchanged main and broke it. Matches both Containerfiles. Bump deliberately.
 env:
@@ -28,6 +33,28 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      # Pure-Dart relay packages, resolved and checked BEFORE the root steps:
+      # the root `flutter pub get` resolves prysm_relay_protocol as a path dep
+      # but writes no `.dart_tool` inside either package, and `flutter analyze`
+      # walks their `test/` directories — without their own `dart pub get` it
+      # cannot see `package:test` and fails with hundreds of undefined_function
+      # errors. prysm_relay_server must never become an app dependency: it is a
+      # standalone binary, covered here only by analyze (its tests run in
+      # relay.yml, three times on Linux per the race rule).
+      # `dart` is the one bundled in the Flutter SDK above: no second toolchain.
+      # `--offline` is deliberately absent: CI starts with an empty pub cache.
+      - name: Analyze and test relay protocol
+        working-directory: packages/prysm_relay_protocol
+        run: dart pub get && dart analyze && dart test
+
+      - name: Analyze relay server
+        working-directory: packages/prysm_relay_server
+        run: dart pub get && dart analyze
+
+      - name: Relay server must never be an app dependency
+        run: |
+          ! grep -rq "prysm_relay_server" lib test pubspec.yaml
 
       - name: Analyze
         run: flutter analyze

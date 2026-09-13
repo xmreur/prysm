@@ -680,12 +680,6 @@ abstract class AppLocalizations {
   /// **'Close search'**
   String get closeSearch;
 
-  /// No description provided for @comingSoonNotWorking.
-  ///
-  /// In en, this message translates to:
-  /// **'COMING SOON, NOT WORKING'**
-  String get comingSoonNotWorking;
-
   /// No description provided for @completed.
   ///
   /// In en, this message translates to:
@@ -1567,12 +1561,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Empty file'**
   String get emptyFile;
-
-  /// No description provided for @enableRelayServer.
-  ///
-  /// In en, this message translates to:
-  /// **'Enable Relay Server'**
-  String get enableRelayServer;
 
   /// No description provided for @encryptionPrivacy.
   ///
@@ -5125,6 +5113,480 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show QR Code'**
   String get showQrCode;
+
+  /// No description provided for @relayAddressCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay address copied'**
+  String get relayAddressCopied;
+
+  /// No description provided for @relayAdmission.
+  ///
+  /// In en, this message translates to:
+  /// **'New accounts'**
+  String get relayAdmission;
+
+  /// No description provided for @relayAdmissionClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'Closed'**
+  String get relayAdmissionClosed;
+
+  /// No description provided for @relayAdmissionInvite.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite only'**
+  String get relayAdmissionInvite;
+
+  /// No description provided for @relayAdmissionOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get relayAdmissionOpen;
+
+  /// No description provided for @relayBadSignature.
+  ///
+  /// In en, this message translates to:
+  /// **'This relay\'s signature does not match its address. Pairing is blocked: do not pair with this relay.'**
+  String get relayBadSignature;
+
+  /// No description provided for @relayContractLimits.
+  ///
+  /// In en, this message translates to:
+  /// **'Your plan on this relay'**
+  String get relayContractLimits;
+
+  /// No description provided for @relayEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this relay'**
+  String get relayEnabled;
+
+  /// No description provided for @relayEnabledSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Store incoming messages here while you are offline'**
+  String get relayEnabledSubtitle;
+
+  /// No description provided for @relayErrorAdmissionClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'This relay is not accepting new accounts right now.'**
+  String get relayErrorAdmissionClosed;
+
+  /// No description provided for @relayErrorBadSignature.
+  ///
+  /// In en, this message translates to:
+  /// **'The relay rejected our signature. Pair again from scratch.'**
+  String get relayErrorBadSignature;
+
+  /// No description provided for @relayErrorBadToken.
+  ///
+  /// In en, this message translates to:
+  /// **'This setup token is invalid or already used. Ask the relay operator for a new one.'**
+  String get relayErrorBadToken;
+
+  /// No description provided for @relayErrorGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong ({code}).'**
+  String relayErrorGeneric(String code);
+
+  /// No description provided for @relayErrorInternal.
+  ///
+  /// In en, this message translates to:
+  /// **'The relay hit an internal error. Nothing is lost — it is worth trying again.'**
+  String get relayErrorInternal;
+
+  /// No description provided for @relayErrorMailboxFull.
+  ///
+  /// In en, this message translates to:
+  /// **'This contact\'s box on the relay is full. It accepts new messages once older ones expire or are picked up.'**
+  String get relayErrorMailboxFull;
+
+  /// No description provided for @relayErrorNoRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retrying will not help.'**
+  String get relayErrorNoRetry;
+
+  /// No description provided for @relayErrorNotPaired.
+  ///
+  /// In en, this message translates to:
+  /// **'Prysm is not paired with a relay. Pair again to continue.'**
+  String get relayErrorNotPaired;
+
+  /// No description provided for @relayErrorRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'The relay is busy. Nothing is lost — it is worth trying again.'**
+  String get relayErrorRateLimited;
+
+  /// No description provided for @relayErrorRetryable.
+  ///
+  /// In en, this message translates to:
+  /// **'Worth retrying.'**
+  String get relayErrorRetryable;
+
+  /// No description provided for @relayErrorStaleRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Your device clock looks wrong, so the relay refused the request. Check the date and time, then try again.'**
+  String get relayErrorStaleRequest;
+
+  /// No description provided for @relayErrorTenantFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Your space on the relay is full. Pick up your messages or wait for older ones to expire.'**
+  String get relayErrorTenantFull;
+
+  /// No description provided for @relayFetchManifest.
+  ///
+  /// In en, this message translates to:
+  /// **'Read relay info'**
+  String get relayFetchManifest;
+
+  /// No description provided for @relayFetching.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading relay info…'**
+  String get relayFetching;
+
+  /// No description provided for @relayFetchRetrying.
+  ///
+  /// In en, this message translates to:
+  /// **'Still connecting: the first contact with a new relay can take up to a minute.'**
+  String get relayFetchRetrying;
+
+  /// No description provided for @relayFingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get relayFingerprint;
+
+  /// No description provided for @relayLastPickup.
+  ///
+  /// In en, this message translates to:
+  /// **'Last pickup'**
+  String get relayLastPickup;
+
+  /// No description provided for @relayLastPickupDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, =1{1 day ago} other{{n} days ago}}'**
+  String relayLastPickupDays(int n);
+
+  /// No description provided for @relayLastPickupDelivered.
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, =0{no new messages} =1{1 new message} other{{n} new messages}}'**
+  String relayLastPickupDelivered(int n);
+
+  /// No description provided for @relayLastPickupHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, =1{1 hour ago} other{{n} hours ago}}'**
+  String relayLastPickupHours(int n);
+
+  /// No description provided for @relayLastPickupJustNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Just now'**
+  String get relayLastPickupJustNow;
+
+  /// No description provided for @relayLastPickupMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, =1{1 minute ago} other{{n} minutes ago}}'**
+  String relayLastPickupMinutes(int n);
+
+  /// No description provided for @relayLastPickupNever.
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get relayLastPickupNever;
+
+  /// No description provided for @relayLimitsNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Two limits in this first version: talking to someone for the very first time still needs you both online at once, and large attachments are never stored on the relay — they wait until you are both online together.'**
+  String get relayLimitsNote;
+
+  /// No description provided for @relayLinkFingerprintMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint matches the pairing link.'**
+  String get relayLinkFingerprintMatch;
+
+  /// No description provided for @relayLinkFingerprintMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This relay\'s fingerprint does not match the pairing link. Pairing is blocked: do not pair with this relay.'**
+  String get relayLinkFingerprintMismatch;
+
+  /// No description provided for @relayLinkInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'That is not a valid pairing link.'**
+  String get relayLinkInvalid;
+
+  /// No description provided for @relayLinkPasted.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing link applied'**
+  String get relayLinkPasted;
+
+  /// No description provided for @relayLoadingStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading relay status…'**
+  String get relayLoadingStatus;
+
+  /// No description provided for @relayMailboxEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No contact uses this relay yet. Addresses appear here once contacts send to your relay.'**
+  String get relayMailboxEmpty;
+
+  /// No description provided for @relayMailboxItems.
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, =0{Empty} =1{1 message} other{{n} messages}}'**
+  String relayMailboxItems(int n);
+
+  /// No description provided for @relayMailboxes.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts on this relay'**
+  String get relayMailboxes;
+
+  /// No description provided for @relayMaxMessageSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Max message size'**
+  String get relayMaxMessageSize;
+
+  /// No description provided for @relayMaxPerContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Max messages per contact'**
+  String get relayMaxPerContact;
+
+  /// No description provided for @relayMaxStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Max total storage'**
+  String get relayMaxStorage;
+
+  /// No description provided for @relayNextExpiry.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest message expires {date}'**
+  String relayNextExpiry(String date);
+
+  /// No description provided for @relayNoStoredMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing stored right now'**
+  String get relayNoStoredMessages;
+
+  /// No description provided for @relayNotPaired.
+  ///
+  /// In en, this message translates to:
+  /// **'Not paired'**
+  String get relayNotPaired;
+
+  /// No description provided for @relayOnionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion'**
+  String get relayOnionHint;
+
+  /// No description provided for @relayOnionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay address'**
+  String get relayOnionLabel;
+
+  /// No description provided for @relayPair.
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with this relay'**
+  String get relayPair;
+
+  /// No description provided for @relayPairedOk.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay paired'**
+  String get relayPairedOk;
+
+  /// No description provided for @relayPairedWith.
+  ///
+  /// In en, this message translates to:
+  /// **'Paired · {onion}'**
+  String relayPairedWith(String onion);
+
+  /// No description provided for @relayPairing.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing…'**
+  String get relayPairing;
+
+  /// No description provided for @relayPasteLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste pairing link'**
+  String get relayPasteLink;
+
+  /// No description provided for @relayPickingUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Picking up…'**
+  String get relayPickingUp;
+
+  /// No description provided for @relayPickupNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick up now'**
+  String get relayPickupNow;
+
+  /// No description provided for @relayRetention.
+  ///
+  /// In en, this message translates to:
+  /// **'Keeps messages'**
+  String get relayRetention;
+
+  /// No description provided for @relayRetentionDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =1{1 day} other{{days} days}}'**
+  String relayRetentionDays(int days);
+
+  /// No description provided for @relayRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke'**
+  String get relayRevoke;
+
+  /// No description provided for @relayRevokeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This contact will no longer be able to leave messages on the relay, and the messages already stored there are deleted.'**
+  String get relayRevokeBody;
+
+  /// No description provided for @relayRevokeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke this address?'**
+  String get relayRevokeTitle;
+
+  /// No description provided for @relayScanLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan pairing QR code'**
+  String get relayScanLink;
+
+  /// No description provided for @relaySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Receive messages while you are offline'**
+  String get relaySubtitle;
+
+  /// No description provided for @relayTenancy.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get relayTenancy;
+
+  /// No description provided for @relayTenancyPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Private'**
+  String get relayTenancyPrivate;
+
+  /// No description provided for @relayTenancyPublic.
+  ///
+  /// In en, this message translates to:
+  /// **'Public'**
+  String get relayTenancyPublic;
+
+  /// No description provided for @relayTerms.
+  ///
+  /// In en, this message translates to:
+  /// **'Operator terms'**
+  String get relayTerms;
+
+  /// No description provided for @relayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay'**
+  String get relayTitle;
+
+  /// No description provided for @relayTokenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste the token from your relay operator'**
+  String get relayTokenHint;
+
+  /// No description provided for @relayTokenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup token'**
+  String get relayTokenLabel;
+
+  /// No description provided for @relayUnpair.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpair relay'**
+  String get relayUnpair;
+
+  /// No description provided for @relayUnpairBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every message still stored on the relay is deleted and cannot be recovered. Your chats on this device are not affected.'**
+  String get relayUnpairBody;
+
+  /// No description provided for @relayUnpairConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpair and delete'**
+  String get relayUnpairConfirm;
+
+  /// No description provided for @relayUnpairTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpair this relay?'**
+  String get relayUnpairTitle;
+
+  /// No description provided for @relayUnpaired.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay unpaired'**
+  String get relayUnpaired;
+
+  /// No description provided for @relayUsage.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored on the relay'**
+  String get relayUsage;
+
+  /// No description provided for @relayUsageSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{items, plural, =0{No messages} =1{1 message} other{{items} messages}} · {size}'**
+  String relayUsageSummary(int items, String size);
+
+  /// No description provided for @relayWhatIsIt.
+  ///
+  /// In en, this message translates to:
+  /// **'A Relay holds your incoming messages while you are offline and hands them to you when you come back online.'**
+  String get relayWhatIsIt;
+
+  /// No description provided for @relayWhatItSees.
+  ///
+  /// In en, this message translates to:
+  /// **'It sees that a message arrived for your account, at which per-contact address, how big it was and when. It never sees who sent it, the text, the message type, group names or file names, and it cannot tell which of your contacts an address belongs to.'**
+  String get relayWhatItSees;
 }
 
 class _AppLocalizationsDelegate

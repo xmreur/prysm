@@ -8,6 +8,7 @@ import 'package:prysm/database/database_cipher.dart';
 import 'package:prysm/util/group_pending_invite_store.dart';
 import 'package:prysm/util/group_sender_index_store.dart';
 import 'package:prysm/util/logging.dart';
+import 'package:prysm/util/relay_store.dart';
 import 'package:prysm/util/sqflite_platform.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
@@ -62,7 +63,7 @@ class DBHelper {
     await DatabaseCipher.prepare(path);
     final db = await openDatabase(
       path,
-      version: 18,
+      version: 19,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       // PRAGMA key must be the first statement on the connection.
@@ -88,7 +89,8 @@ class DBHelper {
         publicKeyPem TEXT,
         identityJson TEXT,
         ratchetScheme TEXT,
-        verifiedFingerprint TEXT
+        verifiedFingerprint TEXT,
+        relayAdvertisement TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_users_name ON users(name)');
@@ -103,6 +105,7 @@ class DBHelper {
     await RatchetSessionStore.ensureTable(db);
     await GroupSenderIndexStore.ensureTable(db);
     await GroupPendingInviteStore.ensureTable(db);
+    await RelayMailboxStore.ensureTable(db);
   }
 
   static Future<void> _createGroupTables(Database db) async {
@@ -257,6 +260,21 @@ class DBHelper {
     if (oldVersion < 18) {
       await applyCallLogsGroupIdV18(db);
     }
+    if (oldVersion < 19) {
+      await applyRelayV19(db);
+    }
+  }
+
+  /// v19: the cached per-peer relay Advertisement and the deposit addresses
+  /// this device handed out. Both are relay bookkeeping, not message data:
+  /// dropping them costs one profile fetch, never a message.
+  static Future<void> applyRelayV19(Database db) async {
+    final cols = await db.rawQuery('PRAGMA table_info(users)');
+    final colNames = cols.map((c) => c['name'] as String).toSet();
+    if (cols.isNotEmpty && !colNames.contains('relayAdvertisement')) {
+      await db.execute('ALTER TABLE users ADD COLUMN relayAdvertisement TEXT');
+    }
+    await RelayMailboxStore.ensureTable(db);
   }
 
   /// v17: owner role, per-member mute, invite lock.

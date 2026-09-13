@@ -1,6 +1,38 @@
 # Changelog
 
 ---
+## 0.8.0
+
+### Features
+
+- Optional Relay store-and-forward: a per-contact Mailbox holds `relay-sealed-1` sealed
+  envelopes while the recipient is offline
+- Relay screen in Settings: token Pairing, manifest preview, usage, Mailbox list with
+  revocation, and unpair (English and Italian)
+- Pairing by link or QR code: `prysm_relay pair-link` prints a
+  `prysm-relay://pair?…` link and its QR, and the app pastes, detects or scans it,
+  fills the form, checks the relay fingerprint against the link, and retries once with
+  a longer budget when the first contact with a new onion is slow
+- Automatic Pickup on restart and when Tor returns; deposit only after a retryable Direct
+  Delivery transport failure
+- Local schema migration v18 → v19
+- v1 limits: first contact still needs both peers online once, large attachments stay
+  direct-only, and there are no delivery receipts
+
+### Platform
+
+- Two new pure-Dart packages (`prysm_relay_protocol`, `prysm_relay_server`) with a 7.6 MiB
+  standalone binary
+- Relay packaging: prebuilt multi-arch image (`Dockerfile`, amd64/arm64/armv7) with
+  persistent volumes by default, native `install.sh` + systemd unit for VPS/Raspberry,
+  release workflow (tarballs + checksums + GHCR), low-power Tor profile and hardware sizing
+
+### Fixes
+
+- Relay screen: the first status refresh no longer dies inside `initState`, so the per-contact
+  Mailbox list is populated when the screen opens instead of staying empty
+
+---
 ## 0.7.1
 
 ### Features

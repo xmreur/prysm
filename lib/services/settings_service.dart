@@ -62,10 +62,11 @@ class SettingsService {
   bool get minimizeOnMinimizeButton => _settings.minimizeOnMinimizeButton;
   bool get enableBatterySaving => _settings.enableBatterySaving;
 
-  // Network/Relay
-  bool get enableRelay => _settings.enableRelay;
-  String? get personalRelayAddress => _settings.personalRelayAddress;
-  bool get aggressiveRetry => _settings.aggressiveRetry;
+  // Relay
+  bool get relayEnabled => _settings.relayEnabled;
+  String? get relayContract => _settings.relayContract;
+  String? get relayManifest => _settings.relayManifest;
+  int? get relayLastPickupAt => _settings.relayLastPickupAt;
 
   // Privacy
   int get messageRetentionDays => _settings.messageRetentionDays;
@@ -213,19 +214,29 @@ class SettingsService {
     await save();
   }
 
-  // Network/Relay Settings
-  Future<void> setEnableRelay(bool value) async {
-    _settings = _settings.copyWith(enableRelay: value);
+  // Relay Settings
+  Future<void> setRelayEnabled(bool value) async {
+    _settings = _settings.copyWith(relayEnabled: value);
     await save();
   }
 
-  Future<void> setPersonalRelayAddress(String? value) async {
-    _settings = _settings.copyWith(personalRelayAddress: value);
+  /// Stores the signed Contract verbatim; null clears the pairing.
+  Future<void> setRelayContract(String? value) async {
+    _settings = value == null
+        ? _settings.copyWith(clearRelayContract: true)
+        : _settings.copyWith(relayContract: value);
     await save();
   }
 
-  Future<void> setAggressiveRetry(bool value) async {
-    _settings = _settings.copyWith(aggressiveRetry: value);
+  Future<void> setRelayManifest(String? value) async {
+    _settings = value == null
+        ? _settings.copyWith(clearRelayManifest: true)
+        : _settings.copyWith(relayManifest: value);
+    await save();
+  }
+
+  Future<void> setRelayLastPickupAt(int value) async {
+    _settings = _settings.copyWith(relayLastPickupAt: value);
     await save();
   }
 
@@ -386,9 +397,6 @@ class SettingsService {
     Logging.debug('Notifications: ${_settings.enableNotifications}', 'SettingsService');
     Logging.debug('Online Status: ${_settings.showOnlineStatus}', 'SettingsService');
     Logging.debug('Read Receipts: ${_settings.sendReadReceipts}', 'SettingsService');
-    Logging.debug('Enable Relay: ${_settings.enableRelay}', 'SettingsService');
-    Logging.debug('Relay Address: ${_settings.personalRelayAddress ?? "Not set"}', 'SettingsService');
-    Logging.debug('Aggressive Retry: ${_settings.aggressiveRetry}', 'SettingsService');
     Logging.debug('Message Retention: ${_settings.messageRetentionDays} days', 'SettingsService');
     Logging.debug('Theme Mode: ${_getThemeModeName(_settings.themeMode)}', 'SettingsService');
     Logging.debug('=======================', 'SettingsService');

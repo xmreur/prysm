@@ -336,9 +336,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get closeSearch => 'Close search';
 
   @override
-  String get comingSoonNotWorking => 'COMING SOON, NOT WORKING';
-
-  @override
   String get completed => 'Completed';
 
   @override
@@ -863,9 +860,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get emptyFile => 'Empty file';
-
-  @override
-  String get enableRelayServer => 'Enable Relay Server';
 
   @override
   String get encryptionPrivacy => 'Encryption & Privacy';
@@ -2887,4 +2881,327 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get showQrCode => 'Show QR Code';
+
+  @override
+  String get relayAddressCopied => 'Relay address copied';
+
+  @override
+  String get relayAdmission => 'New accounts';
+
+  @override
+  String get relayAdmissionClosed => 'Closed';
+
+  @override
+  String get relayAdmissionInvite => 'Invite only';
+
+  @override
+  String get relayAdmissionOpen => 'Open';
+
+  @override
+  String get relayBadSignature =>
+      'This relay\'s signature does not match its address. Pairing is blocked: do not pair with this relay.';
+
+  @override
+  String get relayContractLimits => 'Your plan on this relay';
+
+  @override
+  String get relayEnabled => 'Use this relay';
+
+  @override
+  String get relayEnabledSubtitle =>
+      'Store incoming messages here while you are offline';
+
+  @override
+  String get relayErrorAdmissionClosed =>
+      'This relay is not accepting new accounts right now.';
+
+  @override
+  String get relayErrorBadSignature =>
+      'The relay rejected our signature. Pair again from scratch.';
+
+  @override
+  String get relayErrorBadToken =>
+      'This setup token is invalid or already used. Ask the relay operator for a new one.';
+
+  @override
+  String relayErrorGeneric(String code) {
+    return 'Something went wrong ($code).';
+  }
+
+  @override
+  String get relayErrorInternal =>
+      'The relay hit an internal error. Nothing is lost — it is worth trying again.';
+
+  @override
+  String get relayErrorMailboxFull =>
+      'This contact\'s box on the relay is full. It accepts new messages once older ones expire or are picked up.';
+
+  @override
+  String get relayErrorNoRetry => 'Retrying will not help.';
+
+  @override
+  String get relayErrorNotPaired =>
+      'Prysm is not paired with a relay. Pair again to continue.';
+
+  @override
+  String get relayErrorRateLimited =>
+      'The relay is busy. Nothing is lost — it is worth trying again.';
+
+  @override
+  String get relayErrorRetryable => 'Worth retrying.';
+
+  @override
+  String get relayErrorStaleRequest =>
+      'Your device clock looks wrong, so the relay refused the request. Check the date and time, then try again.';
+
+  @override
+  String get relayErrorTenantFull =>
+      'Your space on the relay is full. Pick up your messages or wait for older ones to expire.';
+
+  @override
+  String get relayFetchManifest => 'Read relay info';
+
+  @override
+  String get relayFetching => 'Reading relay info…';
+
+  @override
+  String get relayFetchRetrying =>
+      'Still connecting: the first contact with a new relay can take up to a minute.';
+
+  @override
+  String get relayFingerprint => 'Fingerprint';
+
+  @override
+  String get relayLastPickup => 'Last pickup';
+
+  @override
+  String relayLastPickupDays(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n days ago',
+      one: '1 day ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String relayLastPickupDelivered(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n new messages',
+      one: '1 new message',
+      zero: 'no new messages',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String relayLastPickupHours(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n hours ago',
+      one: '1 hour ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayLastPickupJustNow => 'Just now';
+
+  @override
+  String relayLastPickupMinutes(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n minutes ago',
+      one: '1 minute ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayLastPickupNever => 'Never';
+
+  @override
+  String get relayLimitsNote =>
+      'Two limits in this first version: talking to someone for the very first time still needs you both online at once, and large attachments are never stored on the relay — they wait until you are both online together.';
+
+  @override
+  String get relayLinkFingerprintMatch =>
+      'Fingerprint matches the pairing link.';
+
+  @override
+  String get relayLinkFingerprintMismatch =>
+      'This relay\'s fingerprint does not match the pairing link. Pairing is blocked: do not pair with this relay.';
+
+  @override
+  String get relayLinkInvalid => 'That is not a valid pairing link.';
+
+  @override
+  String get relayLinkPasted => 'Pairing link applied';
+
+  @override
+  String get relayLoadingStatus => 'Loading relay status…';
+
+  @override
+  String get relayMailboxEmpty =>
+      'No contact uses this relay yet. Addresses appear here once contacts send to your relay.';
+
+  @override
+  String relayMailboxItems(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n messages',
+      one: '1 message',
+      zero: 'Empty',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayMailboxes => 'Contacts on this relay';
+
+  @override
+  String get relayMaxMessageSize => 'Max message size';
+
+  @override
+  String get relayMaxPerContact => 'Max messages per contact';
+
+  @override
+  String get relayMaxStorage => 'Max total storage';
+
+  @override
+  String relayNextExpiry(String date) {
+    return 'Oldest message expires $date';
+  }
+
+  @override
+  String get relayNoStoredMessages => 'Nothing stored right now';
+
+  @override
+  String get relayNotPaired => 'Not paired';
+
+  @override
+  String get relayOnionHint =>
+      'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion';
+
+  @override
+  String get relayOnionLabel => 'Relay address';
+
+  @override
+  String get relayPair => 'Pair with this relay';
+
+  @override
+  String get relayPairedOk => 'Relay paired';
+
+  @override
+  String relayPairedWith(String onion) {
+    return 'Paired · $onion';
+  }
+
+  @override
+  String get relayPairing => 'Pairing…';
+
+  @override
+  String get relayPasteLink => 'Paste pairing link';
+
+  @override
+  String get relayPickingUp => 'Picking up…';
+
+  @override
+  String get relayPickupNow => 'Pick up now';
+
+  @override
+  String get relayRetention => 'Keeps messages';
+
+  @override
+  String relayRetentionDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayRevoke => 'Revoke';
+
+  @override
+  String get relayRevokeBody =>
+      'This contact will no longer be able to leave messages on the relay, and the messages already stored there are deleted.';
+
+  @override
+  String get relayRevokeTitle => 'Revoke this address?';
+
+  @override
+  String get relayScanLink => 'Scan pairing QR code';
+
+  @override
+  String get relaySubtitle => 'Receive messages while you are offline';
+
+  @override
+  String get relayTenancy => 'Type';
+
+  @override
+  String get relayTenancyPrivate => 'Private';
+
+  @override
+  String get relayTenancyPublic => 'Public';
+
+  @override
+  String get relayTerms => 'Operator terms';
+
+  @override
+  String get relayTitle => 'Relay';
+
+  @override
+  String get relayTokenHint => 'Paste the token from your relay operator';
+
+  @override
+  String get relayTokenLabel => 'Setup token';
+
+  @override
+  String get relayUnpair => 'Unpair relay';
+
+  @override
+  String get relayUnpairBody =>
+      'Every message still stored on the relay is deleted and cannot be recovered. Your chats on this device are not affected.';
+
+  @override
+  String get relayUnpairConfirm => 'Unpair and delete';
+
+  @override
+  String get relayUnpairTitle => 'Unpair this relay?';
+
+  @override
+  String get relayUnpaired => 'Relay unpaired';
+
+  @override
+  String get relayUsage => 'Stored on the relay';
+
+  @override
+  String relayUsageSummary(int items, String size) {
+    String _temp0 = intl.Intl.pluralLogic(
+      items,
+      locale: localeName,
+      other: '$items messages',
+      one: '1 message',
+      zero: 'No messages',
+    );
+    return '$_temp0 · $size';
+  }
+
+  @override
+  String get relayWhatIsIt =>
+      'A Relay holds your incoming messages while you are offline and hands them to you when you come back online.';
+
+  @override
+  String get relayWhatItSees =>
+      'It sees that a message arrived for your account, at which per-contact address, how big it was and when. It never sees who sent it, the text, the message type, group names or file names, and it cannot tell which of your contacts an address belongs to.';
 }

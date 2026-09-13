@@ -1,0 +1,14 @@
+name: prysm_relay_protocol
+description: Wire types, signing rules and the relay-sealed-1 seal of the Prysm Relay protocol.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  cryptography: ^2.7.0
+  crypto: ^3.0.7
+
+dev_dependencies:
+  test: ^1.29.0

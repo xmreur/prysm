@@ -336,9 +336,6 @@ class AppLocalizationsIt extends AppLocalizations {
   String get closeSearch => 'Chiudi ricerca';
 
   @override
-  String get comingSoonNotWorking => 'PROSSIMAMENTE, NON FUNZIONANTE';
-
-  @override
   String get completed => 'Completato';
 
   @override
@@ -868,9 +865,6 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get emptyFile => 'File vuoto';
-
-  @override
-  String get enableRelayServer => 'Abilita server relay';
 
   @override
   String get encryptionPrivacy => 'Crittografia e privacy';
@@ -2919,4 +2913,328 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get showQrCode => 'Mostra codice QR';
+
+  @override
+  String get relayAddressCopied => 'Indirizzo del relay copiato';
+
+  @override
+  String get relayAdmission => 'Nuovi account';
+
+  @override
+  String get relayAdmissionClosed => 'Chiusi';
+
+  @override
+  String get relayAdmissionInvite => 'Solo su invito';
+
+  @override
+  String get relayAdmissionOpen => 'Aperti';
+
+  @override
+  String get relayBadSignature =>
+      'La firma di questo relay non corrisponde al suo indirizzo. L\'associazione è bloccata: non associare questo relay.';
+
+  @override
+  String get relayContractLimits => 'Il tuo piano su questo relay';
+
+  @override
+  String get relayEnabled => 'Usa questo relay';
+
+  @override
+  String get relayEnabledSubtitle =>
+      'Conserva qui i messaggi in arrivo quando sei offline';
+
+  @override
+  String get relayErrorAdmissionClosed =>
+      'Questo relay al momento non accetta nuovi account.';
+
+  @override
+  String get relayErrorBadSignature =>
+      'Il relay ha rifiutato la nostra firma. Ripeti l\'associazione da capo.';
+
+  @override
+  String get relayErrorBadToken =>
+      'Questo codice non è valido o è già stato usato. Chiedine uno nuovo al gestore del relay.';
+
+  @override
+  String relayErrorGeneric(String code) {
+    return 'Qualcosa non ha funzionato ($code).';
+  }
+
+  @override
+  String get relayErrorInternal =>
+      'Il relay ha avuto un problema interno. Niente è andato perso: vale la pena riprovare.';
+
+  @override
+  String get relayErrorMailboxFull =>
+      'La casella di questo contatto sul relay è piena. Accetterà nuovi messaggi quando quelli vecchi scadranno o verranno ritirati.';
+
+  @override
+  String get relayErrorNoRetry => 'Riprovare non servirebbe.';
+
+  @override
+  String get relayErrorNotPaired =>
+      'Prysm non è associato ad alcun relay. Ripeti l\'associazione per continuare.';
+
+  @override
+  String get relayErrorRateLimited =>
+      'Il relay è occupato. Niente è andato perso: vale la pena riprovare.';
+
+  @override
+  String get relayErrorRetryable => 'Vale la pena riprovare.';
+
+  @override
+  String get relayErrorStaleRequest =>
+      'L\'orologio del dispositivo sembra sbagliato e il relay ha rifiutato la richiesta. Controlla data e ora e riprova.';
+
+  @override
+  String get relayErrorTenantFull =>
+      'Lo spazio sul relay è esaurito. Ritira i messaggi o attendi la scadenza di quelli vecchi.';
+
+  @override
+  String get relayFetchManifest => 'Leggi le informazioni del relay';
+
+  @override
+  String get relayFetching => 'Lettura delle informazioni…';
+
+  @override
+  String get relayFetchRetrying =>
+      'Connessione in corso: il primo contatto con un nuovo relay può richiedere fino a un minuto.';
+
+  @override
+  String get relayFingerprint => 'Impronta';
+
+  @override
+  String get relayLastPickup => 'Ultimo ritiro';
+
+  @override
+  String relayLastPickupDays(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n giorni fa',
+      one: '1 giorno fa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String relayLastPickupDelivered(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n messaggi nuovi',
+      one: '1 messaggio nuovo',
+      zero: 'nessun messaggio nuovo',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String relayLastPickupHours(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n ore fa',
+      one: '1 ora fa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayLastPickupJustNow => 'Adesso';
+
+  @override
+  String relayLastPickupMinutes(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n minuti fa',
+      one: '1 minuto fa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayLastPickupNever => 'Mai';
+
+  @override
+  String get relayLimitsNote =>
+      'Due limiti in questa prima versione: per parlare con una persona per la primissima volta dovete essere online insieme, e gli allegati grandi non passano mai dal relay — aspettano che torniate online insieme.';
+
+  @override
+  String get relayLinkFingerprintMatch =>
+      'L\'impronta corrisponde al link di associazione.';
+
+  @override
+  String get relayLinkFingerprintMismatch =>
+      'L\'impronta di questo relay non corrisponde al link di associazione. L\'associazione è bloccata: non associare questo relay.';
+
+  @override
+  String get relayLinkInvalid => 'Questo non è un link di associazione valido.';
+
+  @override
+  String get relayLinkPasted => 'Link di associazione applicato';
+
+  @override
+  String get relayLoadingStatus => 'Caricamento dello stato…';
+
+  @override
+  String get relayMailboxEmpty =>
+      'Nessun contatto usa ancora questo relay. Gli indirizzi compaiono qui quando i contatti inviano al tuo relay.';
+
+  @override
+  String relayMailboxItems(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n messaggi',
+      one: '1 messaggio',
+      zero: 'Vuota',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayMailboxes => 'Contatti su questo relay';
+
+  @override
+  String get relayMaxMessageSize => 'Dimensione massima dei messaggi';
+
+  @override
+  String get relayMaxPerContact => 'Messaggi massimi per contatto';
+
+  @override
+  String get relayMaxStorage => 'Spazio totale massimo';
+
+  @override
+  String relayNextExpiry(String date) {
+    return 'Il messaggio più vecchio scade il $date';
+  }
+
+  @override
+  String get relayNoStoredMessages => 'Nulla in giacenza al momento';
+
+  @override
+  String get relayNotPaired => 'Non associato';
+
+  @override
+  String get relayOnionHint =>
+      'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion';
+
+  @override
+  String get relayOnionLabel => 'Indirizzo del relay';
+
+  @override
+  String get relayPair => 'Associa questo relay';
+
+  @override
+  String get relayPairedOk => 'Relay associato';
+
+  @override
+  String relayPairedWith(String onion) {
+    return 'Associato · $onion';
+  }
+
+  @override
+  String get relayPairing => 'Associazione…';
+
+  @override
+  String get relayPasteLink => 'Incolla il link di associazione';
+
+  @override
+  String get relayPickingUp => 'Ritiro…';
+
+  @override
+  String get relayPickupNow => 'Ritira ora';
+
+  @override
+  String get relayRetention => 'Conservazione dei messaggi';
+
+  @override
+  String relayRetentionDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days giorni',
+      one: '1 giorno',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relayRevoke => 'Revoca';
+
+  @override
+  String get relayRevokeBody =>
+      'Questo contatto non potrà più lasciare messaggi sul relay e quelli già depositati verranno eliminati.';
+
+  @override
+  String get relayRevokeTitle => 'Revocare questo indirizzo?';
+
+  @override
+  String get relayScanLink => 'Scansiona il QR di associazione';
+
+  @override
+  String get relaySubtitle => 'Ricevi messaggi anche quando sei offline';
+
+  @override
+  String get relayTenancy => 'Tipo';
+
+  @override
+  String get relayTenancyPrivate => 'Privato';
+
+  @override
+  String get relayTenancyPublic => 'Pubblico';
+
+  @override
+  String get relayTerms => 'Condizioni del gestore';
+
+  @override
+  String get relayTitle => 'Relay';
+
+  @override
+  String get relayTokenHint =>
+      'Incolla il codice fornito dal gestore del relay';
+
+  @override
+  String get relayTokenLabel => 'Codice di configurazione';
+
+  @override
+  String get relayUnpair => 'Dissocia il relay';
+
+  @override
+  String get relayUnpairBody =>
+      'Tutti i messaggi ancora depositati sul relay verranno eliminati e non potranno essere recuperati. Le chat su questo dispositivo non cambiano.';
+
+  @override
+  String get relayUnpairConfirm => 'Dissocia ed elimina';
+
+  @override
+  String get relayUnpairTitle => 'Dissociare questo relay?';
+
+  @override
+  String get relayUnpaired => 'Relay dissociato';
+
+  @override
+  String get relayUsage => 'Depositato sul relay';
+
+  @override
+  String relayUsageSummary(int items, String size) {
+    String _temp0 = intl.Intl.pluralLogic(
+      items,
+      locale: localeName,
+      other: '$items messaggi',
+      one: '1 messaggio',
+      zero: 'Nessun messaggio',
+    );
+    return '$_temp0 · $size';
+  }
+
+  @override
+  String get relayWhatIsIt =>
+      'Un Relay custodisce i messaggi in arrivo mentre sei offline e te li consegna quando torni online.';
+
+  @override
+  String get relayWhatItSees =>
+      'Vede che è arrivato un messaggio per il tuo account, a quale indirizzo (uno diverso per ogni contatto), quanto era grande e quando. Non vede mai chi lo ha inviato, il testo, il tipo di messaggio, i nomi dei gruppi o dei file, e non può sapere a quale dei tuoi contatti appartenga un indirizzo.';
 }

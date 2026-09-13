@@ -1,0 +1,66 @@
+name: Relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/prysm_relay_protocol/**'
+      - 'packages/prysm_relay_server/**'
+  pull_request:
+    paths:
+      - 'packages/prysm_relay_protocol/**'
+      - 'packages/prysm_relay_server/**'
+
+# This workflow only checks out and runs tests.
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          # Minimum compatible with `environment.sdk: ^3.9.0` in both relay
+          # pubspecs: always build with the oldest supported SDK.
+          sdk: "3.9"
+
+      - name: Get, analyze and test protocol
+        working-directory: packages/prysm_relay_protocol
+        run: dart pub get && dart analyze && dart test
+
+  server:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          # Same floor as the protocol job above.
+          sdk: "3.9"
+
+      - name: Get and analyze server
+        working-directory: packages/prysm_relay_server
+        run: dart pub get && dart analyze
+
+      # Race rule: timing-sensitive store tests must pass three times in a
+      # row. Linux-only: it is the supported production host, and the extra
+      # runs cost minutes on every other OS for no signal.
+      - name: Test server (3x, Linux)
+        if: runner.os == 'Linux'
+        working-directory: packages/prysm_relay_server
+        run: for i in 1 2 3; do dart test; done
+
+      # macOS/Windows are best-effort native targets (point 9): a red run
+      # here must not block a Linux-correct relay, but stays visible.
+      - name: Test server (best effort)
+        if: runner.os != 'Linux'
+        working-directory: packages/prysm_relay_server
+        continue-on-error: true
+        run: dart test

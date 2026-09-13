@@ -22,7 +22,8 @@ Future<Database> _openDbHelperDb() async {
       publicKeyPem TEXT,
       identityJson TEXT,
       ratchetScheme TEXT,
-      verifiedFingerprint TEXT
+      verifiedFingerprint TEXT,
+      relayAdvertisement TEXT
     )
   ''');
   return db;

@@ -48,6 +48,13 @@ The exchange that establishes a Contract: the user proves their Identity, the Re
 Relay it claims to be, and both sign the result.
 _Avoid_: registration, signup, login, enrollment.
 
+**Pairing link**:
+The single text an operator hands over at provisioning time, also shown as a QR code, bundling a
+Relay's address, its fingerprint and a one-time setup token, so the app fills the pairing form and
+checks the fingerprint by itself. It is not a protocol message, and it adds no trust beyond whoever
+hands it to you.
+_Avoid_: invite link, deep link, pairing code.
+
 **Advertisement**:
 The ordered list of Relays a peer publishes so that senders know where to leave messages when that
 peer is unreachable.

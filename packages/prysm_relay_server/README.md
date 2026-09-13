@@ -1,5 +1,7 @@
 # prysm_relay_server
 
+> Source of truth for the wire is the protocol spec; this page points, it does not repeat.
+
 Standalone store-and-forward Relay for Prysm (`prysm-relay/1`). Holds sealed
 messages for an offline owner under a signed Contract. The normative wire
 spec is `.scratch/relay/proto/relay-protocol-v1.md`; this package implements
@@ -211,23 +213,27 @@ block. See
 - Re-pair on a `closed` relay needs no token: the signature already proves
   ownership, and blocking renewal would strand existing tenants.
 
-## Run it as a service
+## Install natively
 
-Compile once, run the result:
-
-```
-dart compile exe bin/prysm_relay.dart -o /usr/local/bin/prysm-relay
-```
-
-The output is a standalone 7.6 MiB binary: no Dart SDK needed on the host.
-Minimal unit for it:
+The primary way to run a relay on a dedicated host (VPS, Raspberry Pi) is
+the installer attached to every `relay-vX.Y.Z` release:
 
 ```
-[Unit]
-Description=Prysm relay (store-and-forward)
-After=network.target tor.service
-- A pairing link is as secret as the token inside it: single-use, expiring
-  on the relay. Do not log it, screenshot it into shared media, or reuse it.
+curl -fsSLO https://github.com/xmreur/prysm/releases/download/<tag>/install.sh
+sudo sh install.sh <tag>
+```
+
+It picks the binary for this CPU (`uname -m` to x64/arm64/arm; armv6
+refused), verifies its checksum, installs the binary, the Tor hidden
+service (low-power profile, see `Tor runbook`) and the unit below, then
+prints the pairing link plus its QR block: paste the link or scan the QR
+from the app (`Settings` → `Network` → `Relay`), tap "Read relay info", and
+pair once the app confirms the fingerprint. `install.sh --dry-run <tag>`
+prints the plan without touching the system. The app side is documented in
+[`docs/RELAY-USER.md`](../../docs/RELAY-USER.md).
+
+Prefer containers instead? Same relay under Docker: see
+[`tool/CREATE-RELAY.md`](tool/CREATE-RELAY.md).
 
 [Service]
 User=prysm-relay
@@ -263,8 +269,22 @@ matters inside:
 - `tenants/` and `index.json` are recoverable only from backup; `items/` are
   messages not yet picked up, ephemeral by definition (TTL).
 
+## Other operating systems
+
+Linux is the supported platform. Everything else is best effort:
+
+- macOS: Tor from Homebrew, daemon via `tool/prysm-relay.plist` (copy to
+  `~/Library/LaunchAgents/`, `launchctl load`); `restrictPath` works
+  (`chmod` exists).
+- Windows: Tor Expert Bundle, service via `sc create` or NSSM;
+  `restrictPath` is a no-op there — file ACLs are the operator's business.
+- Android/Termux is not supported: a phone relay is down exactly when its
+  owner needs it.
+
 Recipe: stop the service, copy both trees, restore with the permissions
-(`0700` on directories, `0600` on `identity.json`):
+(`0700` on directories, `0600` on `identity.json`). Natively
+`/var/lib/prysm-relay` is the unit's `StateDirectory`; in the container
+setup the same trees live in the `<name>-data` and `<name>-hs` volumes:
 
 ```
 systemctl stop prysm-relay
@@ -328,7 +348,15 @@ Do not strand owners: announce the shutdown first (the app lets them
 unpair), then set `admission: closed` so no new Contract is accepted while
 existing tenants keep working. Wait until the mailboxes drain (`status`
 shows `items=0`), stop the service, and delete both `dataDir` and the Tor
-`HiddenServiceDir`. A client unpair already deletes its tenant, mailboxes
+`HiddenServiceDir`:
+
+```
+systemctl disable --now prysm-relay
+rm -rf /var/lib/prysm-relay /var/lib/tor/prysm-relay
+# or, for the container setup: docker volume rm <name>-data <name>-hs
+```
+
+A client unpair already deletes its tenant, mailboxes
 and items, so drained owners leave nothing behind.
 
 ## Troubleshooting

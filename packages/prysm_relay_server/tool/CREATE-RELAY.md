@@ -87,13 +87,84 @@ change elsewhere — the `Dockerfile`'s base images are now fully qualified,
 see its header comment — plus this section. What the script does need is to
 actually *reach* Podman, and the obvious trick for that does not work.
 
-- **`--persist`** puts the data dir and the hidden-service key in the volumes
-  `<name>-data` and `<name>-hs`, so the **identity, the onion and the tenants
-  all survive** recreating the container. Destroy them explicitly
-  (`docker volume rm …`) when you mean to retire the relay.
-- **`--no-persist`** (default) keeps both inside the container's writable
-  layer: `docker rm` takes the identity *and* the onion with it, which
-  invalidates every Contract already signed against them.
+**Do not use `alias docker=podman`.** An alias is not inherited by a script
+run as a child process, so the script keeps calling the real `docker` binary:
+on a host with both installed you provision on Docker while believing you are
+on Podman. Measured: under the alias, `docker info --format
+'{{.ServerVersion}}'` inside the script's shell answers `29.8.0` (Docker),
+not `6.1.1`. Use a `docker` that resolves through `PATH` instead:
+
+```sh
+mkdir -p ~/.local/bin
+ln -s "$(command -v podman)" ~/.local/bin/docker
+export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc to make it stick
+command -v docker                      # must print the symlink, not /usr/bin/docker
+tool/create_relay.sh -y --name my-relay
+```
+
+From there every command on this page works as written, `docker exec … prysm-relay
+pair-link` and the `Teardown` block included. Two alternatives with their
+limits: `podman-docker`, where the distro ships it, installs the same shim
+system-wide (it conflicts with the `docker` package on Arch); an exported
+shell function — `docker() { podman "$@"; }; export -f docker` — also works,
+because the script's shebang is bash, but it is invisible to any `sh` that is
+not bash.
+
+Reasons an operator may prefer it on a dedicated host: no daemon, and
+rootless containers, so hosting a relay does not require membership of the
+`docker` group (which is root on that machine in practice).
+
+Three differences that matter:
+
+- **Image names must be fully qualified.** Podman refuses a short name it
+  cannot resolve locally (`short-name … did not resolve to an alias`). The
+  default `--image ghcr.io/xmreur/prysm-relay:latest` is qualified and
+  `--build` produces a local tag, so both work; only passing `--image
+  some-name:tag` for an image Podman has never seen fails. Prefix it with its
+  registry, or `localhost/` for a local build.
+- **Restarts.** `--restart unless-stopped` is honoured for crashes with no
+  extra setup, and `podman stop` correctly leaves the relay down. Across a
+  host **reboot** Podman has no daemon to do it, so enable the shipped helper
+  once: `sudo systemctl enable --now podman-restart.service` (it ships
+  disabled). Without it a rebooted host leaves the relay silently down —
+  under Docker the daemon covers this case by itself.
+- **Rootless volumes** live under
+  `~/.local/share/containers/storage/volumes/`, not `/var/lib/docker`: back
+  them up from there (`../README.md`, `Back up and restore`).
+
+Measured side by side, same image and same host:
+
+| | Podman 6.1.1 rootless | Docker 29.8 |
+|---|---|---|
+| `build` (warm cache) | 28 s | ~12 s |
+| `run` → `listening on` | 2.1 s | 5 s |
+| Tor | `Bootstrapped 100%`, onion published, no userns errors | same |
+| `serve` at rest | 9.2–9.3 MB RSS (44 MB container, Tor included) | 9 MB RSS |
+| crash → restart | 2 s, `RestartCount` 1, same onion | same |
+| identity after `rm -f` + recreate | onion and fingerprint unchanged | same |
+| state dirs | `700` in the container, `700 <your user>` on the host | `700` |
+
+The `running Tor as root` warning appears under both: it is root inside the
+container's user namespace, not on the host.
+
+A first-class Podman path — a Quadlet `.container` unit, so the relay is a
+systemd service exactly like the native install, and the reboot caveat above
+disappears — is a possible next step, not something this page offers yet.
+
+## Persistence
+
+Persistence is always on: the container mounts the volumes `<name>-data`
+(`config.json`, `identity.json`, tenants, mailboxes) and `<name>-hs` (the
+hidden-service key), so the **identity, the onion and the tenants all
+survive** recreating the container. Destroy them explicitly
+(`docker volume rm …`) when you mean to retire the relay.
+
+`--ephemeral` runs without named volumes instead: `docker rm` takes the
+identity *and* the onion with it, which invalidates every Contract already
+signed against them — every peer must pair again. (The image still declares
+`VOLUME`s, so Docker creates anonymous ones; drop them with
+`docker rm -v <name>`.) Use it for throwaway tests, never for a relay with
+real peers.
 
 When the onion Tor publishes differs from the one in `config.json` — a
 recreated `-hs` volume, a restored data dir — the entrypoint rewrites the

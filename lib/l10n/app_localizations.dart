@@ -5252,6 +5252,12 @@ abstract class AppLocalizations {
   /// **'Reading relay info…'**
   String get relayFetching;
 
+  /// No description provided for @relayFetchRetrying.
+  ///
+  /// In en, this message translates to:
+  /// **'Still connecting: the first contact with a new relay can take up to a minute.'**
+  String get relayFetchRetrying;
+
   /// No description provided for @relayFingerprint.
   ///
   /// In en, this message translates to:
@@ -5305,6 +5311,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Two limits in this first version: talking to someone for the very first time still needs you both online at once, and large attachments are never stored on the relay — they wait until you are both online together.'**
   String get relayLimitsNote;
+
+  /// No description provided for @relayLinkFingerprintMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint matches the pairing link.'**
+  String get relayLinkFingerprintMatch;
+
+  /// No description provided for @relayLinkFingerprintMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This relay\'s fingerprint does not match the pairing link. Pairing is blocked: do not pair with this relay.'**
+  String get relayLinkFingerprintMismatch;
+
+  /// No description provided for @relayLinkInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'That is not a valid pairing link.'**
+  String get relayLinkInvalid;
+
+  /// No description provided for @relayLinkPasted.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing link applied'**
+  String get relayLinkPasted;
 
   /// No description provided for @relayLoadingStatus.
   ///
@@ -5402,6 +5432,12 @@ abstract class AppLocalizations {
   /// **'Pairing…'**
   String get relayPairing;
 
+  /// No description provided for @relayPasteLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste pairing link'**
+  String get relayPasteLink;
+
   /// No description provided for @relayPickingUp.
   ///
   /// In en, this message translates to:
@@ -5443,6 +5479,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Revoke this address?'**
   String get relayRevokeTitle;
+
+  /// No description provided for @relayScanLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan pairing QR code'**
+  String get relayScanLink;
 
   /// No description provided for @relaySubtitle.
   ///

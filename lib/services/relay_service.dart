@@ -179,12 +179,15 @@ class RelayService {
 
   /// Fetches and self-verifies a relay's manifest so the user can read the
   /// terms before agreeing to them.
-  Future<RelayPairingPreview> fetchManifest(String relayOnion) async {
+  Future<RelayPairingPreview> fetchManifest(
+    String relayOnion, {
+    Duration timeout = RelayClient.defaultTimeout,
+  }) async {
     final onion = relayOnion.trim().toLowerCase();
     if (!RelayFields.isOnion(onion)) {
       throw RelayError.badRequest('not a v3 onion address');
     }
-    final manifest = await _client(onion).manifest();
+    final manifest = await _client(onion).manifest(timeout: timeout);
     final valid = await manifest.verifySelf() && manifest.relayOnion == onion;
     return RelayPairingPreview(
       manifest: manifest,

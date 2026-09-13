@@ -192,8 +192,8 @@ prysm_relay token new --config /var/lib/prysm-relay/config.json --ttl 72
 ```
 
 `tool/create_relay.sh` does all four steps in a container — compile, Tor,
-hidden service, `init`, `serve` — and prints the onion, the fingerprint and
-the setup token pairing needs. See
+hidden service, `init`, `serve` — and prints the pairing link plus its QR
+block. See
 [`tool/CREATE-RELAY.md`](tool/CREATE-RELAY.md).
 
 ## Notes / interpretations

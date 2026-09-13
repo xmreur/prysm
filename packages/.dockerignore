@@ -1,0 +1,8 @@
+# Keep the relay build context to the two Dart packages: the context root is
+# packages/ only because the server depends on its sibling protocol package.
+opus_flutter_windows/
+prysm_linux_audio/
+**/.dart_tool/
+**/build/
+**/test/
+**/.git/

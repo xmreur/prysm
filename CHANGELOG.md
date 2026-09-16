@@ -9,6 +9,10 @@
   envelopes while the recipient is offline
 - Relay screen in Settings: token Pairing, manifest preview, usage, Mailbox list with
   revocation, and unpair (English and Italian)
+- Pairing by link or QR code: `prysm_relay pair-link` prints a
+  `prysm-relay://pair?…` link and its QR, and the app pastes, detects or scans it,
+  fills the form, checks the relay fingerprint against the link, and retries once with
+  a longer budget when the first contact with a new onion is slow
 - Automatic Pickup on restart and when Tor returns; deposit only after a retryable Direct
   Delivery transport failure
 - Local schema migration v18 → v19
@@ -19,6 +23,9 @@
 
 - Two new pure-Dart packages (`prysm_relay_protocol`, `prysm_relay_server`) with a 7.6 MiB
   standalone binary
+- Relay packaging: prebuilt multi-arch image (`Dockerfile`, amd64/arm64/armv7) with
+  persistent volumes by default, native `install.sh` + systemd unit for VPS/Raspberry,
+  release workflow (tarballs + checksums + GHCR), low-power Tor profile and hardware sizing
 
 ### Fixes
 

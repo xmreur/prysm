@@ -1,5 +1,7 @@
 # prysm_relay_server
 
+> Source of truth for the wire is the protocol spec; this page points, it does not repeat.
+
 Standalone store-and-forward Relay for Prysm (`prysm-relay/1`). Holds sealed
 messages for an offline owner under a signed Contract. The normative wire
 spec is `.scratch/relay/proto/relay-protocol-v1.md`; this package implements
@@ -16,6 +18,7 @@ prysm_relay init --data-dir <path> [--tenancy private|public] [--onion <addr>] [
 prysm_relay serve --config <path>
 prysm_relay token new --config <path> [--ttl <hours>]   # default 168h
 prysm_relay token list --config <path>
+prysm_relay pair-link --config <path> [--ttl <hours>] [--token <hex>] [--no-qr]
 prysm_relay status --config <path>
 prysm_relay fingerprint --config <path>
 ```
@@ -32,6 +35,11 @@ prysm_relay fingerprint --config <path>
 - `token new` mints a single-use invite token and prints it (the only output,
   so it composes with scripts); the running relay picks it up without a
   restart. `token list` shows pending tokens.
+- `pair-link` prints the one-click pairing block: `onion:`, `fingerprint:`,
+  `token:` (freshly minted unless `--token` reuses a pending one), `link:`,
+  a blank line, then the link as a QR block (unless `--no-qr`). Paste the
+  link or scan the QR from the app: it fills the form and checks the
+  fingerprint in the link itself. A bad `--token` exits 2.
 - `status` prints an operator summary from disk (tenants, mailboxes, items,
   bytes). `fingerprint` prints the relay fingerprint.
 
@@ -165,6 +173,20 @@ HiddenServiceMaxStreams 128
 HiddenServiceMaxStreamsCloseCircuit 1
 ```
 
+Low-power profile for a Private relay (the installer default): PoW defenses
+stay off — they cost the service CPU and only matter under attack — the
+cheap introduction DoS defense stays on, and streams are capped:
+
+```
+HiddenServiceDir /var/lib/tor/prysm-relay/
+HiddenServicePort 80 127.0.0.1:8443
+HiddenServiceEnableIntroDoSDefense 1
+HiddenServiceMaxStreams 32
+Log notice file /var/log/tor/prysm-relay.log
+```
+
+On single-core hardware also set `NumCPUs 1`.
+
 Application-side abuse controls live in the config: `admission: invite`
 with single-use tokens, per-tenant/per-mailbox quotas, and the fixed-window
 rate limits above. Sanctions in v1 are `429 rate_limited` / `507 *_full`
@@ -186,8 +208,8 @@ prysm_relay token new --config /var/lib/prysm-relay/config.json --ttl 72
 ```
 
 `tool/create_relay.sh` does all four steps in a container — compile, Tor,
-hidden service, `init`, `serve` — and prints the onion, the fingerprint and
-the setup token pairing needs. See
+hidden service, `init`, `serve` — and prints the pairing link plus its QR
+block. See
 [`tool/CREATE-RELAY.md`](tool/CREATE-RELAY.md).
 
 ## Notes / interpretations
@@ -204,43 +226,60 @@ the setup token pairing needs. See
   and `usedBy` is recorded only until the next sweep.
 - Re-pair on a `closed` relay needs no token: the signature already proves
   ownership, and blocking renewal would strand existing tenants.
+- A pairing link is as secret as the token inside it: single-use, expiring
+  on the relay. Do not log it, screenshot it into shared media, or reuse it.
+
+## Install natively
+
+The primary way to run a relay on a dedicated host (VPS, Raspberry Pi) is
+the installer attached to every `relay-vX.Y.Z` release:
+
+```
+curl -fsSLO https://github.com/xmreur/prysm/releases/download/<tag>/install.sh
+sudo sh install.sh <tag>
+```
+
+It picks the binary for this CPU (`uname -m` to x64/arm64/arm; armv6
+refused), verifies its checksum, installs the binary, the Tor hidden
+service (low-power profile, see `Tor runbook`) and the unit below, then
+prints the pairing link plus its QR block: paste the link or scan the QR
+from the app (`Settings` → `Network` → `Relay`), tap "Read relay info", and
+pair once the app confirms the fingerprint. `install.sh --dry-run <tag>`
+prints the plan without touching the system. The app side is documented in
+[`docs/RELAY-USER.md`](../../docs/RELAY-USER.md).
+
+Prefer containers instead? Same relay under Docker: see
+[`tool/CREATE-RELAY.md`](tool/CREATE-RELAY.md).
 
 ## Run it as a service
 
-Compile once, run the result:
-
-```
-dart compile exe bin/prysm_relay.dart -o /usr/local/bin/prysm-relay
-```
-
-The output is a standalone 7.6 MiB binary: no Dart SDK needed on the host.
-Minimal unit for it:
-
-```
-[Unit]
-Description=Prysm relay (store-and-forward)
-After=network.target tor.service
-
-[Service]
-User=prysm-relay
-WorkingDirectory=/var/lib/prysm-relay
-ExecStart=/usr/local/bin/prysm-relay serve --config /var/lib/prysm-relay/config.json
-Restart=on-failure
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/prysm-relay
-
-[Install]
-WantedBy=multi-user.target
-```
+The installer above deploys `tool/prysm-relay.service`; the same file is
+attached to the release for manual installs (copy to
+`/etc/systemd/system/`, `daemon-reload`, `enable --now`). Past the obvious
+`ExecStart` it carries two lines that matter. `StateDirectory=prysm-relay`
+lets systemd create and own `/var/lib/prysm-relay`, so the identity
+survives reboots with the right owner and permissions.
+`Environment=DART_VM_OPTIONS=--old_gen_heap_size=64` caps the Dart old-gen
+heap at 64 MB, so the collector runs instead of growing into a small
+machine's RAM (see `Size the hardware`).
 
 The process only writes inside `dataDir` and only listens on loopback, so
 `ProtectSystem=strict` with a single `ReadWritePaths=<dataDir>` is enough;
 keep the config inside `dataDir`, or add a `ReadOnlyPaths=` line for it.
 `serve` exits on SIGINT/SIGTERM, so `systemctl stop` is clean: it stops the
 sweeper and closes the listener before returning.
+
+## Other operating systems
+
+Linux is the supported platform. Everything else is best effort:
+
+- macOS: Tor from Homebrew, daemon via `tool/prysm-relay.plist` (copy to
+  `~/Library/LaunchAgents/`, `launchctl load`); `restrictPath` works
+  (`chmod` exists).
+- Windows: Tor Expert Bundle, service via `sc create` or NSSM;
+  `restrictPath` is a no-op there — file ACLs are the operator's business.
+- Android/Termux is not supported: a phone relay is down exactly when its
+  owner needs it.
 
 ## Back up and restore
 
@@ -256,7 +295,9 @@ matters inside:
   messages not yet picked up, ephemeral by definition (TTL).
 
 Recipe: stop the service, copy both trees, restore with the permissions
-(`0700` on directories, `0600` on `identity.json`):
+(`0700` on directories, `0600` on `identity.json`). Natively
+`/var/lib/prysm-relay` is the unit's `StateDirectory`; in the container
+setup the same trees live in the `<name>-data` and `<name>-hs` volumes:
 
 ```
 systemctl stop prysm-relay
@@ -284,6 +325,16 @@ Relay (they stay direct), so `maxItemBytes` must not chase file sizes.
   `maxMailboxItems` 256, `maxMailboxes` 256, `maxTenantBytes` 64 MiB) cost
   ~64 MiB per tenant you admit (ten tenants need ~640 MiB); lower
   `maxTenantBytes` first if that exceeds your disk.
+
+## Size the hardware
+
+Minimum: armv7+, arm64 or x86_64 CPU; 256 MB free RAM; class A1 SD card or
+better (SSD/USB for the data dir when you can). A relay at rest measures
+9.9 MB RSS; Tor needs roughly 30-60 MB (still to confirm on a Pi). The
+total fits a Pi Zero 2 W (512 MB) with margin. Memory past that grows about
+100 bytes per registered contact plus pending-item metadata — payloads stay
+on disk and are read only at pickup. Pi Zero W / Pi 1 (armv6) are not
+supported: Dart requires armv7+.
 
 ## Watch it
 
@@ -320,7 +371,15 @@ Do not strand owners: announce the shutdown first (the app lets them
 unpair), then set `admission: closed` so no new Contract is accepted while
 existing tenants keep working. Wait until the mailboxes drain (`status`
 shows `items=0`), stop the service, and delete both `dataDir` and the Tor
-`HiddenServiceDir`. A client unpair already deletes its tenant, mailboxes
+`HiddenServiceDir`:
+
+```
+systemctl disable --now prysm-relay
+rm -rf /var/lib/prysm-relay /var/lib/tor/prysm-relay
+# or, for the container setup: docker volume rm <name>-data <name>-hs
+```
+
+A client unpair already deletes its tenant, mailboxes
 and items, so drained owners leave nothing behind.
 
 ## Troubleshooting

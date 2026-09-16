@@ -2997,6 +2997,10 @@ class AppLocalizationsIt extends AppLocalizations {
   String get relayFetching => 'Lettura delle informazioni…';
 
   @override
+  String get relayFetchRetrying =>
+      'Connessione in corso: il primo contatto con un nuovo relay può richiedere fino a un minuto.';
+
+  @override
   String get relayFingerprint => 'Impronta';
 
   @override
@@ -3056,6 +3060,20 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get relayLimitsNote =>
       'Due limiti in questa prima versione: per parlare con una persona per la primissima volta dovete essere online insieme, e gli allegati grandi non passano mai dal relay — aspettano che torniate online insieme.';
+
+  @override
+  String get relayLinkFingerprintMatch =>
+      'L\'impronta corrisponde al link di associazione.';
+
+  @override
+  String get relayLinkFingerprintMismatch =>
+      'L\'impronta di questo relay non corrisponde al link di associazione. L\'associazione è bloccata: non associare questo relay.';
+
+  @override
+  String get relayLinkInvalid => 'Questo non è un link di associazione valido.';
+
+  @override
+  String get relayLinkPasted => 'Link di associazione applicato';
 
   @override
   String get relayLoadingStatus => 'Caricamento dello stato…';
@@ -3121,6 +3139,9 @@ class AppLocalizationsIt extends AppLocalizations {
   String get relayPairing => 'Associazione…';
 
   @override
+  String get relayPasteLink => 'Incolla il link di associazione';
+
+  @override
   String get relayPickingUp => 'Ritiro…';
 
   @override
@@ -3149,6 +3170,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get relayRevokeTitle => 'Revocare questo indirizzo?';
+
+  @override
+  String get relayScanLink => 'Scansiona il QR di associazione';
 
   @override
   String get relaySubtitle => 'Ricevi messaggi anche quando sei offline';

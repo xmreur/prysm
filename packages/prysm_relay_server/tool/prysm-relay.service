@@ -1,0 +1,20 @@
+[Unit]
+Description=Prysm relay (store-and-forward)
+After=network.target tor.service
+
+[Service]
+User=prysm-relay
+# NB: several flags here must be comma-separated, not space-separated.
+Environment=DART_VM_OPTIONS=--old_gen_heap_size=64
+WorkingDirectory=/var/lib/prysm-relay
+StateDirectory=prysm-relay
+ExecStart=/usr/local/bin/prysm-relay serve --config /var/lib/prysm-relay/config.json
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/prysm-relay
+
+[Install]
+WantedBy=multi-user.target

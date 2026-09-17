@@ -2965,6 +2965,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get relayFetching => 'Reading relay info…';
 
   @override
+  String get relayFetchRetrying =>
+      'Still connecting: the first contact with a new relay can take up to a minute.';
+
+  @override
   String get relayFingerprint => 'Fingerprint';
 
   @override
@@ -3024,6 +3028,20 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get relayLimitsNote =>
       'Two limits in this first version: talking to someone for the very first time still needs you both online at once, and large attachments are never stored on the relay — they wait until you are both online together.';
+
+  @override
+  String get relayLinkFingerprintMatch =>
+      'Fingerprint matches the pairing link.';
+
+  @override
+  String get relayLinkFingerprintMismatch =>
+      'This relay\'s fingerprint does not match the pairing link. Pairing is blocked: do not pair with this relay.';
+
+  @override
+  String get relayLinkInvalid => 'That is not a valid pairing link.';
+
+  @override
+  String get relayLinkPasted => 'Pairing link applied';
 
   @override
   String get relayLoadingStatus => 'Loading relay status…';
@@ -3089,6 +3107,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get relayPairing => 'Pairing…';
 
   @override
+  String get relayPasteLink => 'Paste pairing link';
+
+  @override
   String get relayPickingUp => 'Picking up…';
 
   @override
@@ -3117,6 +3138,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get relayRevokeTitle => 'Revoke this address?';
+
+  @override
+  String get relayScanLink => 'Scan pairing QR code';
 
   @override
   String get relaySubtitle => 'Receive messages while you are offline';

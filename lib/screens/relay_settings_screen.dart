@@ -5,10 +5,13 @@ import 'package:flutter/widgets.dart';
 import 'package:prysm_relay_protocol/prysm_relay_protocol.dart';
 import 'package:prysm/l10n/app_localizations.dart';
 import 'package:prysm/l10n/l10n_extensions.dart';
+import 'package:prysm/screens/widgets/qr_scanner_screen.dart';
 import 'package:prysm/services/relay_service.dart';
 import 'package:prysm/theme/prysm_style_scope.dart';
 import 'package:prysm/theme/prysm_tokens.dart';
+import 'package:prysm/transport/relay_client.dart';
 import 'package:prysm/ui/core/prysm_button.dart';
+import 'package:prysm/ui/core/prysm_app.dart';
 import 'package:prysm/ui/core/prysm_chip.dart';
 import 'package:prysm/ui/core/prysm_dialog.dart';
 import 'package:prysm/ui/core/prysm_icons.dart';
@@ -20,6 +23,8 @@ import 'package:prysm/ui/core/prysm_toast.dart';
 import 'package:prysm/ui/prysm_scaffold.dart';
 import 'package:prysm/ui/prysm_section.dart';
 import 'package:prysm/util/format_file_size.dart';
+import 'package:prysm/util/qr_platform.dart';
+import 'package:prysm/util/tor_delivery.dart';
 
 /// Relay pairing, status and mailbox management.
 ///
@@ -86,12 +91,23 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
 
   RelayPairingPreview? _preview;
   bool _fetching = false;
+  // Second attempt after a cold-start timeout, with a longer budget.
+  bool _retrying = false;
+  // Fingerprint carried by the pairing link, if one was applied. Shown next
+  // to the fetched manifest and blocks pairing on mismatch. A hand edit of
+  // the address field clears it: the expectation came from the link.
+  String? _expectedFingerprint;
+  // True while the form is filled programmatically, so the address
+  // `onChanged` does not mistake it for a hand edit.
+  bool _applyingLink = false;
   bool _pairing = false;
   bool _pickingUp = false;
   bool _loadingStatus = false;
   String? _revokingDeposit;
   String? _errorText;
   Map<String, String> _mailboxLabels = const {};
+
+  static const Duration _fetchRetryTimeout = Duration(seconds: 60);
 
   bool get _live => widget.stateOverride == null;
 
@@ -121,10 +137,18 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
 
   // ==================== service seam ====================
 
-  Future<RelayPairingPreview> _fetchManifest(String relayOnion) {
+  Future<RelayPairingPreview> _fetchManifest(
+    String relayOnion, {
+    Duration? timeout,
+  }) {
     final fn = widget.fetchManifestFn;
+    // The test seam takes the onion only; the timeout only steers the live
+    // service call below.
     if (fn != null) return fn(relayOnion);
-    return RelayService.instance.fetchManifest(relayOnion);
+    return RelayService.instance.fetchManifest(
+      relayOnion,
+      timeout: timeout ?? RelayClient.defaultTimeout,
+    );
   }
 
   Future<void> _pair({required String relayOnion, required String token}) {
@@ -186,10 +210,11 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
     if (onion.isEmpty || _fetching) return;
     setState(() {
       _fetching = true;
+      _retrying = false;
       _errorText = null;
     });
     try {
-      final preview = await _fetchManifest(onion);
+      final preview = await _fetchWithColdStartRetry(onion);
       if (!mounted) return;
       setState(() => _preview = preview);
     } on RelayError catch (e) {
@@ -199,14 +224,126 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
       if (!mounted) return;
       setState(() => _errorText = l10n.relayErrorGeneric('$e'));
     } finally {
-      if (mounted) setState(() => _fetching = false);
+      if (mounted) {
+        setState(() {
+          _fetching = false;
+          _retrying = false;
+        });
+      }
     }
+  }
+
+  /// One automatic second attempt with a 60 s budget when the first fails on
+  /// the transport: the first contact with a fresh relay onion can outlast
+  /// the default 30 s timeout while its descriptor propagates (measured
+  /// 39.8 s), and that must read as progress, not a mute error.
+  Future<RelayPairingPreview> _fetchWithColdStartRetry(String onion) async {
+    try {
+      return await _fetchManifest(onion);
+    } catch (e) {
+      if (!mounted || !_isTransportRetryable(e)) rethrow;
+      setState(() => _retrying = true);
+      return _fetchManifest(onion, timeout: _fetchRetryTimeout);
+    }
+  }
+
+  /// Transport failure, not the relay answering: a [RelayError] is the relay
+  /// talking, and a longer timeout would not change its mind.
+  bool _isTransportRetryable(Object error) {
+    if (error is RelayError) return false;
+    return TorDelivery.isRetryableError(error);
+  }
+
+  /// Fills the form from a parsed pairing link, remembers its fingerprint,
+  /// and starts reading the relay info on its own.
+  void _applyPairingLink(RelayPairingLink link) {
+    _applyingLink = true;
+    try {
+      _onionController.text = link.onion;
+      _tokenController.text = link.token;
+    } finally {
+      _applyingLink = false;
+    }
+    setState(() {
+      _expectedFingerprint = link.fingerprint;
+      _preview = null;
+      _errorText = null;
+    });
+    showPrysmToast(context, context.l10n.relayLinkPasted);
+    unawaited(_onFetchManifest());
+  }
+
+  /// Parses pasted, typed or scanned text as a pairing link. Anything that
+  /// does not parse is a banner, never a trace.
+  void _applyRawPairingLink(String raw) {
+    try {
+      _applyPairingLink(RelayPairingLink.parse(raw));
+    } on RelayError {
+      setState(() => _errorText = context.l10n.relayLinkInvalid);
+    }
+  }
+
+  void _onAddressChanged(String value) {
+    // Programmatic fill from a link, not a hand edit: the fingerprint stays.
+    if (_applyingLink) {
+      setState(() {});
+      return;
+    }
+    if (RelayPairingLink.looksLike(value)) {
+      _applyRawPairingLink(value);
+      return;
+    }
+    // A hand edit invalidates whatever link the expectation came from.
+    if (_expectedFingerprint != null) {
+      setState(() => _expectedFingerprint = null);
+    } else {
+      setState(() {});
+    }
+  }
+
+  Future<void> _onPasteLink() async {
+    final String? text;
+    try {
+      text = (await Clipboard.getData('text/plain'))?.text;
+    } catch (_) {
+      // Clipboard is unavailable (e.g. some desktop setups); the form is
+      // still there to fill by hand, so stay quiet.
+      return;
+    }
+    if (!mounted) return;
+    if (text == null || text.trim().isEmpty) {
+      setState(() => _errorText = context.l10n.relayLinkInvalid);
+      return;
+    }
+    _applyRawPairingLink(text);
+  }
+
+  /// Camera scanning lives behind [QrPlatform.isScanSupported]: on desktop
+  /// the button is not shown at all, and the link is text to paste.
+  Future<void> _onScanLink() async {
+    final scanned = await Navigator.push<String>(
+      context,
+      PrysmPageRoute(page: const QrScannerScreen()),
+    );
+    if (!mounted || scanned == null || scanned.isEmpty) return;
+    _applyRawPairingLink(scanned);
+  }
+
+  /// Null when no link set the expectation: nothing to check against.
+  bool _fingerprintMatches(RelayPairingPreview preview) {
+    final expected = _expectedFingerprint;
+    return expected == null || preview.manifest.relayFingerprint == expected;
   }
 
   Future<void> _onPair() async {
     final l10n = context.l10n;
     final preview = _preview;
-    if (preview == null || !preview.signatureValid || _pairing) return;
+    if (preview == null ||
+        !preview.signatureValid ||
+        !_fingerprintMatches(preview) ||
+        _pairing) {
+      return;
+    }
     setState(() {
       _pairing = true;
       _errorText = null;
@@ -428,7 +565,7 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                     controller: _onionController,
                     labelText: l10n.relayOnionLabel,
                     hintText: l10n.relayOnionHint,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: _onAddressChanged,
                   ),
                   const SizedBox(height: 12),
                   PrysmTextField(
@@ -439,6 +576,22 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   PrysmButton(
+                    key: const ValueKey('relayPasteLinkButton'),
+                    label: l10n.relayPasteLink,
+                    variant: PrysmButtonVariant.secondary,
+                    onPressed: _fetching ? null : _onPasteLink,
+                  ),
+                  if (QrPlatform.isScanSupported) ...[
+                    const SizedBox(height: 12),
+                    PrysmButton(
+                      key: const ValueKey('relayScanLinkButton'),
+                      label: l10n.relayScanLink,
+                      variant: PrysmButtonVariant.secondary,
+                      onPressed: _fetching ? null : _onScanLink,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  PrysmButton(
                     key: const ValueKey('relayFetchButton'),
                     label: _fetching ? l10n.relayFetching : l10n.relayFetchManifest,
                     onPressed: canFetch ? _onFetchManifest : null,
@@ -446,6 +599,14 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                   if (_fetching) ...[
                     const SizedBox(height: 12),
                     const Center(child: PrysmProgressIndicator()),
+                    if (_retrying) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.relayFetchRetrying,
+                        style: style.captionStyle,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -458,6 +619,7 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
             preview: preview,
             pairing: _pairing,
             onPair: _onPair,
+            expectedFingerprint: _expectedFingerprint,
           ),
         ],
       ],
@@ -591,10 +753,15 @@ class _ManifestCard extends StatelessWidget {
   final bool pairing;
   final VoidCallback onPair;
 
+  /// Fingerprint carried by the pairing link, if one was applied. A mismatch
+  /// blocks pairing the same way a bad signature does.
+  final String? expectedFingerprint;
+
   const _ManifestCard({
     required this.preview,
     required this.pairing,
     required this.onPair,
+    this.expectedFingerprint,
   });
 
   @override
@@ -604,12 +771,16 @@ class _ManifestCard extends StatelessWidget {
     final l10n = context.l10n;
     final manifest = preview.manifest;
     final valid = preview.signatureValid;
+    final expected = expectedFingerprint;
+    final fingerprintOk =
+        expected == null || manifest.relayFingerprint == expected;
+    final accepted = valid && fingerprintOk;
     return Container(
       padding: const EdgeInsets.all(PrysmTokens.spacing16),
       decoration: BoxDecoration(
         color: tokens.surface,
         borderRadius: BorderRadius.circular(PrysmTokens.radiusCard),
-        border: valid ? null : Border.all(color: tokens.danger, width: 1.5),
+        border: accepted ? null : Border.all(color: tokens.danger, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -672,11 +843,22 @@ class _ManifestCard extends StatelessWidget {
               style: style.bodyStyle.copyWith(color: tokens.danger),
             ),
           ],
+          if (expected != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              fingerprintOk
+                  ? l10n.relayLinkFingerprintMatch
+                  : l10n.relayLinkFingerprintMismatch,
+              style: style.bodyStyle.copyWith(
+                color: fingerprintOk ? tokens.textPrimary : tokens.danger,
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           PrysmButton(
             key: const ValueKey('relayAcceptButton'),
             label: pairing ? l10n.relayPairing : l10n.relayPair,
-            onPressed: valid && !pairing ? onPair : null,
+            onPressed: accepted && !pairing ? onPair : null,
           ),
         ],
       ),

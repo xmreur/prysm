@@ -118,7 +118,17 @@ alone is a claim, and without the public key neither the manifest nor the
 Contract signature could be verified. `overflow: reject` is the only v1
 policy — a full Mailbox refuses new deposits instead of silently dropping
 the oldest, because losing the newest message is visible to the sender while
-losing the oldest is visible to nobody. Operator-side details (tokens, torrc,
+losing the oldest is visible to nobody.
+
+The operator hands the address, fingerprint and token to the user as a
+single **pairing link**,
+`prysm-relay://pair?onion=<56-char>.onion&fpr=<hex64>&token=<hex64>`
+(also rendered as a QR code). The link is a provisioning artifact, not part
+of the wire: carrying the fingerprint inside it is what makes the check
+automatic — the out-of-band channel is the link itself, so whoever hands it
+to you is whoever vouches for the Relay. Registering the URI scheme with the
+OS (tap-to-open) is not in v1: the link is text to paste, or a QR code to
+scan on Android. Operator-side details (tokens, torrc,
 storage) live only in the
 [server README](../packages/prysm_relay_server/README.md).
 
@@ -166,8 +176,10 @@ always 0) and decoy Pickups are deferred, not forgotten.
 
 - Wire law:
   [.scratch/relay/proto/relay-protocol-v1.md](../.scratch/relay/proto/relay-protocol-v1.md)
-- Decision: [adr/0001-relay-sealed-mailbox.md](adr/0001-relay-sealed-mailbox.md)
 - Crypto + wire types (no Flutter): `packages/prysm_relay_protocol`
+  (including `RelayPairingLink`, the parse/encode helper for pairing links)
+- Pairing-link minting: `prysm_relay pair-link` (prints onion, fingerprint,
+  token, link and QR; provisioning only, not wire traffic)
 - Relay binary + operator guide:
   [packages/prysm_relay_server/README.md](../packages/prysm_relay_server/README.md)
 - App side: `lib/services/relay_service.dart` (the only relay-aware object

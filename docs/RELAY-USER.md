@@ -21,21 +21,45 @@ details cannot go through a Relay yet; see
 
 ## Pair with a Relay
 
+The usual way needs a single thing from your operator: a **pairing link**
+(plain text) or its QR code. The link already carries the Relay's address,
+its fingerprint, and your one-time setup token.
+
 1. Open `Settings`, scroll to the `Network` section, and tap `Relay`
    (`Receive messages while you are offline`). If you never paired, the row
    reads `Not paired`.
-2. Paste the Relay's address into `Relay address`.
-3. Paste the token from your operator into `Setup token`.
-4. Tap `Read relay info` and read what comes back before you accept anything.
-   Check the `Fingerprint` (compare it with what the operator told you through
-   another channel — it is the one value that proves the Relay is the one you
-   meant), the `Private` or `Public` chip beside it, who may join under
-   `New accounts` (`Open`, `Invite only` or `Closed`), the promised limits
-   (`Max message size`, `Keeps messages`, `Max messages per contact`,
-   `Max total storage`), and the operator's `Terms` if there are any.
-5. If everything looks right, tap `Pair with this relay`. If the listing's
-   proof does not check out, the app blocks Pairing and says so: do not pair
-   with that Relay.
+2. Tap `Paste pairing link` and paste the link. The app fills in `Relay
+   address` and `Setup token`, confirms with `Pairing link applied`, and
+   reads the Relay's info on its own. (On Android you can tap `Scan pairing
+   QR code` instead and point the camera at the operator's QR code. Pasting
+   the link straight into `Relay address` works too: the app recognizes it
+   and treats it the same way.)
+3. Read what comes back before you accept anything: the `Private` or
+   `Public` chip beside the fingerprint, who may join under `New accounts`
+   (`Open`, `Invite only` or `Closed`), the promised limits (`Max message
+   size`, `Keeps messages`, `Max messages per contact`,
+   `Max total storage`), and the operator's `Terms` if there are any. You
+   do not need to compare the fingerprint yourself: the app compares it
+   with the one in the link and writes `Fingerprint matches the pairing
+   link.` underneath.
+4. If everything looks right, tap `Pair with this relay`. If the listing's
+   proof does not check out, the app blocks Pairing and says so: do not
+   pair with that Relay.
+
+If the fingerprint in the listing differs from the one in the link, the app
+shows `This relay's fingerprint does not match the pairing link. Pairing is
+blocked: do not pair with this relay.` and disables `Pair with this relay`,
+exactly as for a bad signature. Stop: do not pair, and contact the operator
+through another channel.
+
+Without a link you can still pair by hand: paste the Relay's address into
+`Relay address` and the token into `Setup token`, tap `Read relay info`,
+and compare the `Fingerprint` yourself with what the operator told you
+through another channel — it is the one value that proves the Relay is the
+one you meant — before tapping `Pair with this relay`.
+
+The link contains your setup token: treat it like a one-time password and
+do not forward it to anyone.
 
 After Pairing, three things are true: your Contract with the Relay is stored
 on this device, your Mailbox on the Relay exists, and your contacts learn your
@@ -112,9 +136,10 @@ the sender's local queue, so nothing is lost.
 | `Your device clock looks wrong, so the relay refused the request. Check the date and time, then try again.` | Your clock drifted too far. | Fix the date and time, then retry. |
 | `The relay rejected our signature. Pair again from scratch.` | Your proof of identity was refused. | Pair again from scratch. |
 | `The relay hit an internal error. Nothing is lost — it is worth trying again.` | Something broke on the Relay's side. | Try again; tell the operator if it persists. |
-| `This relay's signature does not match its address. Pairing is blocked: do not pair with this relay.` | The listing may be forged. | Stop. Do not pair; contact the operator through another channel. |
+| `That is not a valid pairing link.` | The pasted or scanned text is not a pairing link. | Paste the full link exactly as the operator gave it to you, without adding or removing anything. |
+| `This relay's fingerprint does not match the pairing link. Pairing is blocked: do not pair with this relay.` | The Relay's listing does not match the link you pasted or scanned. | Stop. Do not pair; contact the operator through another channel. |
 | `Something went wrong ({code}).` plus a connection failure | The Relay is unreachable over Tor. | Check your connection and try again later. |
-| `Loading relay status…` never finishes and ends in an error | Normal on the first try after starting the app: the Tor circuit to the Relay is cold and the first request can take longer than the app waits (measured 40 s against a 30 s budget). | Leave the screen and open it again; the second try is fast. Nothing is wrong with your Relay, and Pickup keeps retrying on its own. |
+| `Loading relay status…` never finishes, then `Still connecting: the first contact with a new relay can take up to a minute.` | Normal on the first try: the Tor circuit to a new Relay is cold and the first request can take longer than the first wait (measured 40 s against a 30 s budget), so the app retries once on its own with a longer budget. | Wait for the second try to finish; it usually succeeds. If it still fails, check your connection and try again later. Nothing is wrong with your Relay, and Pickup keeps retrying on its own. |
 
 ## What your Relay operator can see
 

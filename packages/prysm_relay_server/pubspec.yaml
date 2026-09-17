@@ -16,6 +16,7 @@ dependencies:
   path: ^1.9.0
   prysm_relay_protocol:
     path: ../prysm_relay_protocol
+  qr: ^3.0.2
   shelf: ^1.4.0
   uuid: ^4.5.0
 

@@ -17,6 +17,7 @@ Future<void> main(List<String> args) async {
     ..addCommand(_InitCommand())
     ..addCommand(_ServeCommand())
     ..addCommand(_TokenCommand())
+    ..addCommand(_PairLinkCommand())
     ..addCommand(_StatusCommand())
     ..addCommand(_FingerprintCommand());
   try {
@@ -258,6 +259,77 @@ class _TokenListCommand extends Command<void> {
     if (shown == 0) {
       // ignore: avoid_print
       print('no pending tokens');
+    }
+  }
+}
+
+class _PairLinkCommand extends Command<void> {
+  @override
+  String get name => 'pair-link';
+
+  @override
+  String get description =>
+      'Print the one-click pairing link: onion, fingerprint, token, link, QR.';
+
+  _PairLinkCommand() {
+    argParser
+      ..addOption('config', mandatory: true)
+      ..addOption('ttl', defaultsTo: '168', help: 'Time to live, in hours.')
+      ..addOption('token',
+          help: 'Reuse this pending token instead of minting one '
+              '(must be 64 hex chars; --ttl is ignored).')
+      ..addFlag('no-qr', negatable: false, help: 'Omit the QR block.');
+  }
+
+  @override
+  Future<void> run() async {
+    final r = argResults!;
+    // The token format is checked before any I/O: a malformed value is a
+    // caller error, reported with exit 2.
+    final given = r['token'] as String?;
+    String? token = given;
+    if (given != null) {
+      try {
+        token = RelayFields.fingerprint(given, field: 'token');
+      } on RelayError {
+        stderr.writeln('error: --token must be 64 hex chars');
+        exit(2);
+      }
+    }
+    final config = _ConfigLoader.load(r['config'] as String?);
+    final onion = RelayFields.onion(config.onion);
+    final keys = await RelayKeyPair.load(config.dataDir);
+    if (token == null) {
+      final ttl = int.tryParse(r['ttl'] as String);
+      if (ttl == null || ttl <= 0) {
+        throw const FormatException('--ttl must be a positive number of hours');
+      }
+      final store = await RelayStore.open(config.dataDir);
+      // Under the store's lock, like `token new`: the relay may be serving
+      // from the same file.
+      token = (await store.mintToken(
+        ttlHours: ttl,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      ))
+          .token;
+    }
+    final link = RelayPairingLink(
+      onion: onion,
+      fingerprint: keys.fingerprint,
+      token: token,
+    ).encode();
+    // ignore: avoid_print
+    print('onion: $onion');
+    // ignore: avoid_print
+    print('fingerprint: ${keys.fingerprint}');
+    // ignore: avoid_print
+    print('token: $token');
+    // ignore: avoid_print
+    print('link: $link');
+    if (!(r['no-qr'] as bool)) {
+      // ignore: avoid_print
+      print('');
+      stdout.write(renderQrText(link));
     }
   }
 }

@@ -1,0 +1,10 @@
+# Low-power hidden-service profile for a private Prysm relay: no proof-of-work
+# defenses (they cost CPU to the service itself), cheap intro DoS defense on.
+# For a public relay under attack, see the "public hardening" profile in
+# packages/prysm_relay_server/README.md ("Tor runbook").
+SocksPort 0
+HiddenServiceDir /var/lib/tor/prysm-relay
+HiddenServicePort 80 127.0.0.1:8443
+HiddenServiceEnableIntroDoSDefense 1
+HiddenServiceMaxStreams 32
+Log notice stdout

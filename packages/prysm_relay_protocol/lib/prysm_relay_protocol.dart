@@ -9,6 +9,7 @@ export 'src/errors.dart';
 export 'src/identity.dart';
 export 'src/limits.dart';
 export 'src/messages.dart';
+export 'src/pairing_link.dart';
 export 'src/protocol.dart';
 export 'src/seal.dart';
 export 'src/signing.dart';

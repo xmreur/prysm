@@ -1,0 +1,117 @@
+name: Relay release
+
+on:
+  push:
+    tags:
+      - 'relay-v*'
+  schedule:
+    # Weekly rebuild of :latest only, so the published image tracks Tor DSAs
+    # without cutting a versioned release. Version tags stay immutable.
+    - cron: '0 3 * * 1'
+
+# attest-build-provenance needs id-token + attestations; GHCR push needs
+# packages; the release upload needs contents.
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  binaries:
+    # Versioned binaries exist only for versioned tags, never for the
+    # scheduled :latest rebuild.
+    if: startsWith(github.ref, 'refs/tags/relay-v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64, arm] # arm = armv7 (32-bit Pi); armv6 is unsupported by Dart
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          # Same floor as relay.yml: the oldest SDK the relay pubspecs allow.
+          sdk: "3.9"
+
+      - name: Compile Linux binary
+        working-directory: packages/prysm_relay_server
+        run: |
+          dart pub get
+          dart compile exe bin/prysm_relay.dart \
+            --target-os=linux --target-arch=${{ matrix.arch }} \
+            -o prysm-relay-${{ github.ref_name }}-linux-${{ matrix.arch }}
+          sha256sum prysm-relay-${{ github.ref_name }}-linux-${{ matrix.arch }} > SHA256SUMS-${{ matrix.arch }}
+
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'packages/prysm_relay_server/prysm-relay-*'
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            packages/prysm_relay_server/prysm-relay-*
+            packages/prysm_relay_server/SHA256SUMS-*
+            packages/prysm_relay_server/tool/install.sh
+            packages/prysm_relay_server/tool/prysm-relay.service
+            packages/prysm_relay_server/tool/prysm-relay.plist
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Version tags are immutable by policy: a re-pushed tag must fail
+      # loudly instead of silently moving. Runs AFTER login: on a private
+      # package an anonymous inspect fails with 401, which would read as
+      # "absent" and let the overwrite through. Skipped on the scheduled
+      # rebuild, which only ever touches :latest.
+      - name: Fail if the image tag already exists
+        if: startsWith(github.ref, 'refs/tags/relay-v')
+        run: |
+          if docker manifest inspect ghcr.io/xmreur/prysm-relay:${{ github.ref_name }} > /dev/null 2>&1; then
+            echo "Image tag ${{ github.ref_name }} already exists: relay tags are immutable, cut a new version." >&2
+            exit 1
+          fi
+
+      # Tag releases publish <tag> + latest; the scheduled rebuild publishes
+      # latest only.
+      - name: Resolve image tags
+        id: tags
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            echo "value=ghcr.io/xmreur/prysm-relay:latest" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "value<<EOF"
+              echo "ghcr.io/xmreur/prysm-relay:${{ github.ref_name }}"
+              echo "ghcr.io/xmreur/prysm-relay:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: packages
+          file: packages/prysm_relay_server/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.tags.outputs.value }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
